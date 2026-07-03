@@ -30,6 +30,18 @@ import { normalizeCompanySectorName, type CompanySectorRecord } from '@/lib/comp
 import { normalizeNfseEmissionTypeName, type NfseEmissionTypeRecord } from '@/lib/nfse-emission-types'
 import { normalizeReceiptMethodName, type ReceiptMethodRecord } from '@/lib/receipt-methods'
 import { normalizeRemunerationTypeName, type RemunerationTypeRecord } from '@/lib/remuneration-types'
+import {
+  buildScpAutomationDuplicateCode,
+  getScpAutomationKindLabel,
+  getScpAutomationTable,
+  normalizeScpAutomationCode,
+  normalizeScpAutomationConfig,
+  normalizeScpAutomationText,
+  SCP_AUTOMATION_LIBRARY_ACCESS_RESOURCES,
+  SCP_AUTOMATION_LIBRARY_ROUTE,
+  type ScpAutomationKind,
+  type ScpAutomationRow,
+} from '@/lib/scp-automations'
 import { normalizeSystemTypeName, type SystemTypeRecord } from '@/lib/system-types'
 
 // Inicialização do cliente Supabase Admin para operações privilegiadas
@@ -84,6 +96,26 @@ async function getPartnerFormsColumnSet(): Promise<Set<string> | null> {
     return set
   } catch {
     return null
+  }
+}
+
+function isMissingTableError(error: unknown) {
+  const err = error as { code?: string; message?: string } | null | undefined
+  const message = String(err?.message || '')
+  return err?.code === 'PGRST205' || /Could not find the table/i.test(message) || /does not exist/i.test(message)
+}
+
+async function safeSelect<T>(
+  query: PromiseLike<{ data: T | null; error: { code?: string; message?: string } | null }>,
+  fallback: T,
+): Promise<T> {
+  try {
+    const { data, error } = await query
+    if (error) throw error
+    return (data ?? fallback) as T
+  } catch (error: unknown) {
+    if (isMissingTableError(error)) return fallback
+    throw error
   }
 }
 
@@ -3169,7 +3201,249 @@ export async function saveWhatsappTemplate(templateData: {
 }
 
 // =========================================================================
-// 6. Ações de Automação (Assinafy, Z-API, Resend, Aprovação/Acesso)
+// 6. Biblioteca Global de Automações (Ações e Gatilhos)
+// =========================================================================
+
+async function requireScpAutomationPermission(action: 'can_view' | 'can_include' | 'can_edit' | 'can_delete' | 'can_activate_inactivate' = 'can_view') {
+  await requireAnyPermission(
+    SCP_AUTOMATION_LIBRARY_ACCESS_RESOURCES.map((resource) => ({
+      resource,
+      action,
+    })),
+  )
+}
+
+function getScpAutomationConfigTable(kind: ScpAutomationKind) {
+  return getScpAutomationTable(kind)
+}
+
+function getScpAutomationSingularLabel(kind: ScpAutomationKind) {
+  return kind === 'actions' ? 'ação' : 'gatilho'
+}
+
+function normalizeAutomationRecord(row: Partial<ScpAutomationRow> & Record<string, any>): ScpAutomationRow {
+  return {
+    id: String(row?.id || ''),
+    name: normalizeScpAutomationText(row?.name),
+    code: normalizeScpAutomationCode(row?.code),
+    type: normalizeScpAutomationText(row?.type),
+    description: normalizeScpAutomationText(row?.description) || null,
+    config: normalizeScpAutomationConfig(row?.config),
+    is_active: row?.is_active !== false,
+    deleted_at: row?.deleted_at ?? null,
+    created_at: row?.created_at ?? null,
+    updated_at: row?.updated_at ?? null,
+  }
+}
+
+async function readAutomationRows(kind: ScpAutomationKind) {
+  const table = getScpAutomationConfigTable(kind)
+  return safeSelect(
+    supabaseAdmin
+      .from(table)
+      .select('id, name, code, type, description, config, is_active, deleted_at, created_at, updated_at')
+      .order('is_active', { ascending: false })
+      .order('name', { ascending: true }),
+    [] as ScpAutomationRow[],
+  )
+}
+
+export async function getScpAutomationLibrary() {
+  try {
+    await requireScpAutomationPermission('can_view')
+
+    const [actions, triggers] = await Promise.all([
+      readAutomationRows('actions'),
+      readAutomationRows('triggers'),
+    ])
+
+    return {
+      success: true,
+      actions: actions.map((row) => normalizeAutomationRecord(row)),
+      triggers: triggers.map((row) => normalizeAutomationRecord(row)),
+    }
+  } catch (error: any) {
+    console.error('Erro ao carregar biblioteca de automaÃ§Ãµes:', error)
+    return {
+      success: false,
+      error: error.message,
+      actions: [] as ScpAutomationRow[],
+      triggers: [] as ScpAutomationRow[],
+    }
+  }
+}
+
+export async function getScpAutomationRows(kind: ScpAutomationKind) {
+  try {
+    await requireScpAutomationPermission('can_view')
+
+    const rows = await readAutomationRows(kind)
+    return { success: true, rows: rows.map((row) => normalizeAutomationRecord(row)) }
+  } catch (error: any) {
+    if (isMissingTableError(error)) {
+      return { success: true, rows: [] as ScpAutomationRow[] }
+    }
+    console.error(`Erro ao carregar ${getScpAutomationKindLabel(kind)}:`, error)
+    return { success: false, error: error.message, rows: [] as ScpAutomationRow[] }
+  }
+}
+
+export async function saveScpAutomationRow(
+  kind: ScpAutomationKind,
+  payload: {
+    id?: string
+    name: string
+    code: string
+    type: string
+    description?: string
+    config?: Record<string, any>
+    is_active?: boolean
+  },
+) {
+  try {
+    const isUpdate = !!String(payload.id || '').trim()
+    await requireScpAutomationPermission(isUpdate ? 'can_edit' : 'can_include')
+
+    const table = getScpAutomationConfigTable(kind)
+    const name = normalizeScpAutomationText(payload.name)
+    const code = normalizeScpAutomationCode(payload.code)
+    const type = normalizeScpAutomationText(payload.type)
+    const description = normalizeScpAutomationText(payload.description)
+    const config = normalizeScpAutomationConfig(payload.config)
+
+    if (!name) return { success: false, error: 'Informe o nome.', id: null }
+    if (!code) return { success: false, error: 'Informe o código técnico.', id: null }
+    if (!type) return { success: false, error: 'Informe o tipo.', id: null }
+
+    const row = {
+      name,
+      code,
+      type,
+      description: description || null,
+      config,
+      is_active: payload.is_active !== false,
+      deleted_at: payload.is_active === false ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (isUpdate) {
+      const { error } = await supabaseAdmin
+        .from(table)
+        .update(row)
+        .eq('id', payload.id)
+      if (error) throw error
+
+      revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
+      return { success: true, id: payload.id || null }
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from(table)
+      .insert({
+        ...row,
+        created_at: new Date().toISOString(),
+      })
+      .select('id')
+      .maybeSingle()
+    if (error) throw error
+
+    revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
+    return { success: true, id: data?.id || null }
+  } catch (error: any) {
+    console.error(`Erro ao salvar ${getScpAutomationKindLabel(kind)}:`, error)
+    if (isMissingTableError(error)) {
+      return {
+        success: false,
+        error: `A tabela de ${getScpAutomationKindLabel(kind).toLowerCase()} ainda não existe. Aplique a migration do menu Ações e Gatilhos e recarregue o schema cache da API.`,
+        id: null,
+      }
+    }
+    if (error?.code === '23505') {
+      return {
+        success: false,
+        error: `Já existe uma ${getScpAutomationSingularLabel(kind)} com esse código técnico.`,
+        id: null,
+      }
+    }
+    return { success: false, error: error.message, id: null }
+  }
+}
+
+export async function duplicateScpAutomationRow(kind: ScpAutomationKind, id: string) {
+  try {
+    await requireScpAutomationPermission('can_include')
+
+    const table = getScpAutomationConfigTable(kind)
+    const recordId = String(id || '').trim()
+    if (!recordId) return { success: false, error: 'ID inválido.', id: null }
+
+    const { data: current, error } = await supabaseAdmin
+      .from(table)
+      .select('id, name, code, type, description, config, is_active, deleted_at, created_at, updated_at')
+      .eq('id', recordId)
+      .maybeSingle()
+    if (error) throw error
+    if (!current) return { success: false, error: `${getScpAutomationSingularLabel(kind)} não encontrada.`, id: null }
+
+    const { data: existingCodes, error: codeErr } = await supabaseAdmin
+      .from(table)
+      .select('code')
+    if (codeErr) throw codeErr
+
+    const duplicatedCode = buildScpAutomationDuplicateCode(
+      String(current.code || current.name || kind),
+      (existingCodes || []).map((row: { code?: string | null }) => String(row?.code || '')),
+    )
+
+    const { data: inserted, error: insertErr } = await supabaseAdmin
+      .from(table)
+      .insert({
+        name: `${String(current.name || getScpAutomationKindLabel(kind))} (Cópia)`,
+        code: duplicatedCode,
+        type: String(current.type || ''),
+        description: current.description || null,
+        config: normalizeScpAutomationConfig(current.config),
+        is_active: false,
+        deleted_at: new Date().toISOString(),
+      })
+      .select('id')
+      .maybeSingle()
+    if (insertErr) throw insertErr
+
+    revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
+    return { success: true, id: inserted?.id || null }
+  } catch (error: any) {
+    console.error(`Erro ao duplicar ${getScpAutomationKindLabel(kind)}:`, error)
+    return { success: false, error: error.message, id: null }
+  }
+}
+
+export async function setScpAutomationRowStatus(kind: ScpAutomationKind, id: string, isActive: boolean) {
+  try {
+    await requireScpAutomationPermission('can_activate_inactivate')
+
+    const table = getScpAutomationConfigTable(kind)
+    const { error } = await supabaseAdmin
+      .from(table)
+      .update({
+        is_active: isActive,
+        deleted_at: isActive ? null : new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+
+    if (error) throw error
+
+    revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
+    return { success: true }
+  } catch (error: any) {
+    console.error(`Erro ao alterar status de ${getScpAutomationKindLabel(kind)}:`, error)
+    return { success: false, error: error.message }
+  }
+}
+
+// =========================================================================
+// 7. Ações de Automação (Assinafy, Z-API, Resend, Aprovação/Acesso)
 // =========================================================================
 
 export async function executePartnerAutomation(

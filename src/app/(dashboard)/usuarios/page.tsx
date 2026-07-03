@@ -40,6 +40,7 @@ const SYSTEM_MODULES = [
   { id: 'scp-documentos', name: 'Modelos de Documentos', parentId: 'scp', level: 2 },
   { id: 'scp-emails', name: 'Modelos de E-mails', parentId: 'scp', level: 2 },
   { id: 'scp-whatsapp', name: 'Modelos de WhatsApp', parentId: 'scp', level: 2 },
+  { id: 'scp-acoes-gatilhos', name: 'Ações e Gatilhos', parentId: 'scp', level: 2 },
   { id: 'promotoras', name: 'Promotoras', parentId: 'cat-subsistemas', level: 1 },
   { id: 'agente-corban', name: 'Agente Corban', parentId: 'cat-subsistemas', level: 1 },
   { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },

@@ -153,6 +153,7 @@ export type AgenteCorbanDraft = {
   supervisor_id: string | null
   gerente_id: string | null
   commission_receive_type: string
+  commission_loja_percent: string
   bank_code: string
   bank_name: string
   bank_agency: string
@@ -354,6 +355,20 @@ export function normalizePixType(value: any, personType: AgenteCorbanPersonType)
 
 export function normalizeBankAccountType(value: any): AgenteCorbanBankAccountType {
   return String(value ?? '').trim() === 'Poupança' ? 'Poupança' : 'Corrente'
+}
+
+export function normalizePercentDigits(value: any) {
+  return onlyDigits(String(value ?? '')).slice(0, 4)
+}
+
+export function formatPercentValue(value: any) {
+  const digits = normalizePercentDigits(value)
+  if (!digits) return ''
+
+  const cents = digits.slice(-2).padStart(2, '0')
+  const whole = digits.slice(0, -2) || '0'
+  const formattedWhole = whole.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `${formattedWhole},${cents}%`
 }
 
 export function normalizePhoneValue(value: any) {
@@ -695,6 +710,7 @@ export function createEmptyAgenteCorbanDraft(): AgenteCorbanDraft {
     supervisor_id: null,
     gerente_id: null,
     commission_receive_type: '',
+    commission_loja_percent: '',
     bank_code: '',
     bank_name: '',
     bank_agency: '',
@@ -784,6 +800,7 @@ export function normalizeAgenteCorbanDraftFromRow(raw: Partial<Record<string, an
     supervisor_id: raw?.supervisor_id ?? access.supervisor_id ?? null,
     gerente_id: raw?.gerente_id ?? access.gerente_id ?? null,
     commission_receive_type: pickText(raw?.commission_receive_type ?? bank.commission_receive_type),
+    commission_loja_percent: normalizePercentDigits(raw?.commission_loja_percent ?? access.commission_loja_percent),
     bank_code: pickText(raw?.bank_code ?? bank.bank_code),
     bank_name: pickText(raw?.bank_name ?? bank.bank_name),
     bank_agency: formatBankAgencyWithDigitFromSeq(pickText(raw?.bank_agency ?? bank.bank_agency)),
@@ -851,6 +868,7 @@ export function buildAgentesParceirosPersistenceRow(draft: Partial<AgenteCorbanD
     email_juridico: normalized.email_juridico || null,
     email_proprio_cunho: normalized.email_proprio_cunho || null,
     commission_receive_type: normalized.commission_receive_type || null,
+    commission_loja_percent: normalized.commission_loja_percent || null,
     bank_code: normalized.bank_code || null,
     bank_name: normalized.bank_name || null,
     bank_agency: normalized.bank_agency || null,

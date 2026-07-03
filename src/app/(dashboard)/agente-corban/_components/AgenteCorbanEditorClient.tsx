@@ -28,6 +28,7 @@ import {
   formatBankAccountFromSeq,
   formatBankAgencyWithDigitFromSeq,
   formatBankLabel,
+  formatPercentValue,
   formatCurrencyDisplay,
   formatCpfOrCnpjDisplay,
   formatDateDisplay,
@@ -42,6 +43,7 @@ import {
   maskUuidInput,
   normalizeGenderValue,
   normalizeShortNumberValue,
+  normalizePercentDigits,
   normalizeText,
   onlyDigits,
   parseBankAccountSeq,
@@ -550,7 +552,7 @@ function SocioCard({
             ) : null}
           </div>
           <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>
-            Cada linha preserva seus próprios dados e pode ser marcada como principal.
+            Digite o CPF para buscar os dados, se não carregar preencha manualmente.
           </div>
         </div>
 
@@ -629,7 +631,7 @@ function SocioCard({
       </div>
 
       <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
-        <SectionTitle icon={<Building2 size={18} />} title="Endereço residencial" description="CEP via ViaCEP e os demais campos por linha." />
+        <SectionTitle icon={<Building2 size={18} />} title="Endereço residencial" description="Digite o CEP para buscar os dados e complete o número e complemento." />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
           <div style={{ gridColumn: 'span 3' }}>
@@ -828,6 +830,9 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
   const selectedSuperintendente = commercialEntities.find((entity) => entity.id === draft.superintendente_id) || null
   const selectedSupervisor = commercialEntities.find((entity) => entity.id === draft.supervisor_id) || null
   const selectedGerente = commercialEntities.find((entity) => entity.id === draft.gerente_id) || null
+  const tipoAgenteOptions = catalogOptions('agente-corban-tipos-agente')
+  const selectedTipoAgenteLabel = tipoAgenteOptions.find((option) => option.value === draft.tipo_agente)?.label || ''
+  const showLojaCommissionPercent = normalizeText(selectedTipoAgenteLabel) === 'Loja / Parceiro'
   const resolvedPixType = (() => {
     const current = String(draft.pix_type || '').trim()
     if (current === 'phone' || current === 'email' || current === 'random' || current === 'bank') return current
@@ -1357,7 +1362,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
 
           {activeTab === 'contato' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
-              <SectionTitle icon={<Users size={18} />} title="Contato" description="Telefones e e-mails são normalizados para manter o legado consistente." />
+              <SectionTitle icon={<Users size={18} />} title="Contato" />
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
                 <div style={{ gridColumn: 'span 4' }}>
@@ -1452,7 +1457,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
           {activeTab === 'socios' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
-                <SectionTitle icon={<Users size={18} />} title="Sócios" description="Aba aplicável para pessoa jurídica, com marcação de principal e CEP residencial." />
+                <SectionTitle icon={<Users size={18} />} title="Sócios" description="Aba aplicável para pessoa juridica." />
                 {draft.person_type === 'PJ' ? (
                   <button type="button" className="btn btn-primary" onClick={addSocio}>
                     <Plus size={16} />
@@ -1476,7 +1481,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 ))
               ) : (
                 <div className="card" style={{ padding: '1rem', color: 'var(--brs-gray-500)' }}>
-                  Esta aba é usada apenas para pessoa jurídica. Os dados já preenchidos são preservados se você alternar o tipo depois.
+                  Digite o CPF para buscar os dados, se não carregar preencha manualmente.
                 </div>
               )}
             </div>
@@ -1484,7 +1489,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
 
           {activeTab === 'endereco' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
-              <SectionTitle icon={<Building2 size={18} />} title="Endereço" description="ViaCEP preenche apenas campos vazios por padrão." />
+              <SectionTitle icon={<Building2 size={18} />} title="Endereço" description="Digite o CEP para buscar os dados e complete o número e complemento." />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
                 <div style={{ gridColumn: 'span 2' }}>
                   <CopyableFieldShell label="CEP" copyValue={maskCep(draft.cep || '')} displayValue={maskCep(draft.cep || '')}>
@@ -1562,7 +1567,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
 
           {activeTab === 'acesso' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
-              <SectionTitle icon={<ShieldCheck size={18} />} title="Acesso" description="Catálogos leves alimentam os selects desta aba." />
+              <SectionTitle icon={<ShieldCheck size={18} />} title="Acesso" description="Preencha os campos conforme o preenchimento no sistema ARW e preencha os campos Código ARW e Senha Inicial ARW para constar no e-mail de boas vindas." />
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
                 <div style={{ gridColumn: 'span 4' }}>
@@ -1584,13 +1589,42 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                   />
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
-                  <SelectField
-                    label="Tipo de Agente"
-                    value={draft.tipo_agente || ''}
-                    onChange={(next) => patchDraft({ tipo_agente: next })}
-                    options={catalogOptions('agente-corban-tipos-agente')}
-                    copyValue={catalogOptions('agente-corban-tipos-agente').find((option) => option.value === draft.tipo_agente)?.label || draft.tipo_agente || ''}
-                  />
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: showLojaCommissionPercent
+                        ? 'minmax(0, 1.15fr) minmax(0, 0.95fr)'
+                        : 'minmax(0, 1fr)',
+                      gap: '0.75rem',
+                      alignItems: 'start',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <SelectField
+                        label="Tipo de Agente"
+                        value={draft.tipo_agente || ''}
+                        onChange={(next) => patchDraft({ tipo_agente: next })}
+                        options={tipoAgenteOptions}
+                        copyValue={selectedTipoAgenteLabel || draft.tipo_agente || ''}
+                      />
+                    </div>
+                    {showLojaCommissionPercent ? (
+                      <div style={{ minWidth: 0 }}>
+                        <TextField
+                          label="Percentual de Comissão Loja"
+                          value={formatPercentValue(draft.commission_loja_percent || '')}
+                          onChange={(next) => patchDraft({ commission_loja_percent: normalizePercentDigits(next) })}
+                          copyValue={formatPercentValue(draft.commission_loja_percent || '')}
+                          placeholder="0,00%"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          name="agente-corban-percentual-comissao-loja"
+                          spellCheck={false}
+                          autoCorrect="off"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
                   <SelectField
@@ -1666,7 +1700,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
 
           {activeTab === 'bancarios' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
-              <SectionTitle icon={<Building2 size={18} />} title="Dados Bancários" description="Busca de banco por typeahead, agência/conta com dígito, PIX e parâmetros de recebimento." />
+              <SectionTitle icon={<Building2 size={18} />} title="Dados Bancários" description="Os dados bancários devem ser vinculados ao CNPJ ou CPF do cadastro." />
 
               <div style={{ display: 'grid', gap: '0.85rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
