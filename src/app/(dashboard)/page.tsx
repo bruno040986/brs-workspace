@@ -16,6 +16,7 @@ import {
   type EffectivePermission,
 } from '@/lib/auth/permissions'
 import PraiseBoard from './_components/PraiseBoard'
+import HubBannerCarousel from './_components/HubBannerCarousel'
 import { AgendaComponent } from './theme/AgendaComponent'
 import { ComunicadosBoardWidget } from '@/components/comunicados/ComunicadosBoardWidget'
 
@@ -32,7 +33,6 @@ export default function HubPage() {
 
   const [permissions, setPermissions] = useState<EffectivePermission[]>([])
   const [loadingPerms, setLoadingPerms] = useState(true)
-  const [bannerSrc, setBannerSrc] = useState<string>('/banners/banner-inicial-9mm.png')
 
   const praiseTabParam = searchParams?.get('praiseTab')
   const initialPraiseTab =
@@ -47,9 +47,6 @@ export default function HubPage() {
 
   useEffect(() => {
     // 1. Saudação dinâmica baseada na hora
-    // Evita cache agressivo do browser quando o arquivo é substituído mantendo o mesmo nome.
-    setBannerSrc(`/banners/banner-inicial-9mm.png?v=${Date.now()}`)
-
     const hour = new Date().getHours()
     if (hour >= 5 && hour < 12) {
       setGreeting('Bom dia')
@@ -345,14 +342,7 @@ export default function HubPage() {
             />
           </div>
 
-        <div className="hub-banner" aria-label="Banner principal do Workspace">
-          <img
-            className="hub-banner-img"
-            src={bannerSrc}
-            alt="Banner principal do Workspace"
-            loading="eager"
-          />
-        </div>
+        <HubBannerCarousel />
 
         {/* Widget de Google Agenda */}
         <div className="widget-card">

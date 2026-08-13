@@ -17,6 +17,7 @@ import {
   FileText,
   Globe,
   HandCoins,
+  Images,
   Key,
   LayoutDashboard,
   LayoutGrid,
@@ -139,6 +140,7 @@ export default function Sidebar() {
     if (href === '/rh/parceiros/config/provedores/nbs') return canView('sistema-config-nbs')
     if (href === '/rh/parceiros/config/provedores/tipos-comercial') return canView('sistema-config-comercial-tipos')
     if (href === '/rh/parceiros/config/provedores/setores') return canView('sistema-config-setores')
+    if (href === '/rh/parceiros/config/provedores/banners') return canView('sistema-config-banners')
     if (href === '/rh/parceiros/config/provedores/tipos-emissao-nfse') return canView('sistema-config-nfse-emissao')
     if (href === '/rh/parceiros/config/provedores/formas-recebimento') return canView('sistema-config-formas-recebimento')
     if (href === '/rh/parceiros/config/provedores/tipos-remuneracao') return canView('sistema-config-tipos-remuneracao')
@@ -251,6 +253,7 @@ export default function Sidebar() {
         { label: 'Cadastro da Empresa', href: '/rh/parceiros/config/provedores/empresas', icon: Building2 },
         { label: 'Tipos de Comercial', href: '/rh/parceiros/config/provedores/tipos-comercial', icon: BriefcaseBusiness },
         { label: 'Setores', href: '/rh/parceiros/config/provedores/setores', icon: Building },
+        { label: 'Banners da Home', href: '/rh/parceiros/config/provedores/banners', icon: Images },
         { label: 'Forma de Recebimento', href: '/rh/parceiros/config/provedores/formas-recebimento', icon: HandCoins },
         { label: 'Tipos de Sistemas', href: '/rh/parceiros/config/provedores/tipos-sistemas', icon: Cpu },
         { label: 'Tipos de Remuneração', href: '/rh/parceiros/config/provedores/tipos-remuneracao', icon: HandCoins },

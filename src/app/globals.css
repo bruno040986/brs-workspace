@@ -634,6 +634,45 @@ table.data-table {
   pointer-events: none;
 }
 
+/* Slides do carrossel de banners: empilhados com crossfade */
+.hub-banner-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.hub-banner-slide.active {
+  opacity: 1;
+}
+
+.hub-banner-dots {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  z-index: 2;
+}
+
+.hub-banner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: var(--brs-gray-300);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.hub-banner-dot.active {
+  background: var(--brs-navy);
+  transform: scale(1.2);
+}
+
 @media (max-width: 768px) {
   .hub-banner {
     display: none;
