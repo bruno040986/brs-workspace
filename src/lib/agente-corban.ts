@@ -81,6 +81,9 @@ export type AgenteCorbanSocio = {
   rg_expedition_date: string
   rg_issuer: string
   rg_state: string
+  marital_status: string
+  profession: string
+  company_role: string
   phone: string
   email: string
   residential_cep: string
@@ -101,6 +104,10 @@ export type AgenteCorbanCorbanData = {
   bank: Record<string, any>
   documents: Record<string, any>
   integrations: Record<string, any>
+  /** Testemunha/avalista-devedor solidário (qualificação completa). */
+  witness: Record<string, any>
+  /** Garantia + nota promissória + produção monitorada (aba Garantia). */
+  garantia: Record<string, any>
   [key: string]: any
 }
 
@@ -117,6 +124,10 @@ export type AgenteCorbanDraft = {
   porte_empresa: string
   capital_social: string
   natureza_juridica: string
+  cnae_main_code: string
+  cnae_main_desc: string
+  pais: string
+  has_secondary_socio: boolean
   representante_legal: string
   rg: string
   rg_expedition_date: string
@@ -137,6 +148,7 @@ export type AgenteCorbanDraft = {
   phone_residential: string
   phone_support: string
   email_comissao: string
+  email_financeiro: string
   email_informe: string
   email_formalizacao: string
   email_proposta: string
@@ -174,6 +186,10 @@ export type AgenteCorbanDraft = {
   front_photo_url: string
   internal_photo_url: string
   socios: AgenteCorbanSocio[]
+  /** Testemunha/avalista — seção auto-contida editada como objeto. */
+  witness?: Record<string, any>
+  /** Garantia + NP + produção — seção auto-contida editada como objeto. */
+  garantia?: Record<string, any>
   corban_data: Record<string, any>
   additional_data: Record<string, any>
 }
@@ -426,6 +442,9 @@ export function createEmptySocio(partial?: Partial<AgenteCorbanSocio>): AgenteCo
     rg_expedition_date: formatDateDisplay(partial?.rg_expedition_date),
     rg_issuer: normalizeText(partial?.rg_issuer),
     rg_state: normalizeText(partial?.rg_state).toUpperCase().slice(0, 2),
+    marital_status: normalizeText(partial?.marital_status),
+    profession: normalizeText(partial?.profession),
+    company_role: normalizeText(partial?.company_role),
     phone: normalizePhoneValue(partial?.phone),
     email: normalizeEmailValue(partial?.email),
     residential_cep: normalizeCepValue(partial?.residential_cep),
@@ -490,6 +509,9 @@ function normalizeCorbanSociosFromRow(value: any): AgenteCorbanSocio[] {
         rg_expedition_date: row?.rg_expedition_date,
         rg_issuer: row?.rg_issuer,
         rg_state: row?.rg_state,
+        marital_status: row?.marital_status,
+        profession: row?.profession,
+        company_role: row?.company_role,
         phone: row?.phone,
         email: row?.email,
         residential_cep: row?.residential_cep,
@@ -556,6 +578,10 @@ export function buildAgenteCorbanCorbanData(draft: Partial<AgenteCorbanDraft>, e
     porte_empresa: pickText(draft.porte_empresa, masterSource.porte_empresa),
     capital_social: pickText(draft.capital_social, masterSource.capital_social),
     natureza_juridica: pickText(draft.natureza_juridica, masterSource.natureza_juridica),
+    cnae_main_code: pickText(draft.cnae_main_code, masterSource.cnae_main_code),
+    cnae_main_desc: pickText(draft.cnae_main_desc, masterSource.cnae_main_desc),
+    pais: pickText(draft.pais, masterSource.pais),
+    has_secondary_socio: draft.has_secondary_socio === undefined ? !!masterSource.has_secondary_socio : !!draft.has_secondary_socio,
     representante_legal: pickText(draft.representante_legal, masterSource.representante_legal),
     rg: pickText(draft.rg, masterSource.rg),
     rg_expedition_date: pickDate(draft.rg_expedition_date, masterSource.rg_expedition_date),
@@ -572,6 +598,7 @@ export function buildAgenteCorbanCorbanData(draft: Partial<AgenteCorbanDraft>, e
     phone_residential: normalizePhoneValue(draft.phone_residential ?? contactsSource.phone_residential),
     phone_support: normalizePhoneValue(draft.phone_support ?? contactsSource.phone_support),
     email_comissao: normalizeEmailValue(draft.email_comissao ?? contactsSource.email_comissao),
+    email_financeiro: normalizeEmailValue(draft.email_financeiro ?? contactsSource.email_financeiro),
     email_informe: normalizeEmailValue(draft.email_informe ?? contactsSource.email_informe),
     email_formalizacao: normalizeEmailValue(draft.email_formalizacao ?? contactsSource.email_formalizacao),
     email_proposta: normalizeEmailValue(draft.email_proposta ?? contactsSource.email_proposta),
@@ -649,6 +676,11 @@ export function buildAgenteCorbanCorbanData(draft: Partial<AgenteCorbanDraft>, e
     contract_pdf_url: normalizeUrlValue(draft.contract_pdf_url ?? integrationsSource.contract_pdf_url),
   })
 
+  // Testemunha e Garantia são seções auto-contidas: merge raso do que já existe
+  // com o que o draft trouxer (o editor envia o objeto completo da seção).
+  const witness = { ...(existing.witness || {}), ...((draft.witness as Record<string, any>) || {}) }
+  const garantia = { ...(existing.garantia || {}), ...((draft.garantia as Record<string, any>) || {}) }
+
   return {
     ...existing,
     master,
@@ -659,6 +691,8 @@ export function buildAgenteCorbanCorbanData(draft: Partial<AgenteCorbanDraft>, e
     bank,
     documents,
     integrations,
+    witness,
+    garantia,
   }
 }
 
@@ -674,6 +708,10 @@ export function createEmptyAgenteCorbanDraft(): AgenteCorbanDraft {
     porte_empresa: '',
     capital_social: '',
     natureza_juridica: '',
+    cnae_main_code: '',
+    cnae_main_desc: '',
+    pais: '',
+    has_secondary_socio: false,
     representante_legal: '',
     rg: '',
     rg_expedition_date: '',
@@ -694,6 +732,7 @@ export function createEmptyAgenteCorbanDraft(): AgenteCorbanDraft {
     phone_residential: '',
     phone_support: '',
     email_comissao: '',
+    email_financeiro: '',
     email_informe: '',
     email_formalizacao: '',
     email_proposta: '',
@@ -731,6 +770,8 @@ export function createEmptyAgenteCorbanDraft(): AgenteCorbanDraft {
     front_photo_url: '',
     internal_photo_url: '',
     socios: [createEmptySocio({ is_principal: true })],
+    witness: {},
+    garantia: {},
     corban_data: {},
     additional_data: {},
   }
@@ -745,6 +786,9 @@ export function normalizeAgenteCorbanDraftFromRow(raw: Partial<Record<string, an
   const bank = (corbanData.bank || {}) as Record<string, any>
   const documents = (corbanData.documents || {}) as Record<string, any>
   const integrations = (corbanData.integrations || {}) as Record<string, any>
+  // Prefere a seção em corban_data (linha do banco); cai para o topo (draft do editor).
+  const witness = (corbanData.witness || (raw as any)?.witness || {}) as Record<string, any>
+  const garantia = (corbanData.garantia || (raw as any)?.garantia || {}) as Record<string, any>
   const socios = normalizeCorbanSociosFromRow(corbanData.socios)
 
   const personType = normalizePersonType(raw?.person_type ?? master.person_type)
@@ -753,6 +797,8 @@ export function normalizeAgenteCorbanDraftFromRow(raw: Partial<Record<string, an
 
   const draft: AgenteCorbanDraft = {
     id: raw?.id || undefined,
+    witness,
+    garantia,
     form_id: raw?.form_id ?? master.form_id ?? null,
     status: normalizeStatus(raw?.status ?? master.status),
     person_type: personType,
@@ -764,6 +810,10 @@ export function normalizeAgenteCorbanDraftFromRow(raw: Partial<Record<string, an
     porte_empresa: pickText(raw?.porte_empresa ?? master.porte_empresa),
     capital_social: formatCurrencyDisplay(raw?.capital_social ?? master.capital_social),
     natureza_juridica: pickText(raw?.natureza_juridica ?? master.natureza_juridica),
+    cnae_main_code: pickText(raw?.cnae_main_code ?? master.cnae_main_code),
+    cnae_main_desc: pickText(raw?.cnae_main_desc ?? master.cnae_main_desc),
+    pais: pickText(raw?.pais ?? master.pais),
+    has_secondary_socio: raw?.has_secondary_socio ?? !!master.has_secondary_socio,
     representante_legal: pickText(raw?.representante_legal ?? master.representante_legal),
     rg: pickText(raw?.rg ?? master.rg),
     rg_expedition_date: formatDateDisplay(raw?.rg_expedition_date ?? master.rg_expedition_date),
@@ -784,6 +834,7 @@ export function normalizeAgenteCorbanDraftFromRow(raw: Partial<Record<string, an
     phone_residential: normalizePhoneValue(raw?.phone_residential ?? contacts.phone_residential),
     phone_support: normalizePhoneValue(raw?.phone_support ?? contacts.phone_support),
     email_comissao: normalizeEmailValue(raw?.email_comissao ?? contacts.email_comissao),
+    email_financeiro: normalizeEmailValue(raw?.email_financeiro ?? contacts.email_financeiro),
     email_informe: normalizeEmailValue(raw?.email_informe ?? contacts.email_informe),
     email_formalizacao: normalizeEmailValue(raw?.email_formalizacao ?? contacts.email_formalizacao),
     email_proposta: normalizeEmailValue(raw?.email_proposta ?? contacts.email_proposta),

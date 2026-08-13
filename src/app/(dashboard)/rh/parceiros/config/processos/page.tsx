@@ -12,6 +12,7 @@ import {
   getProcessModels,
   getProcessStages,
   isProcessSlugAvailable,
+  listAssinafyTemplateOptions,
   saveProcessModel,
   validateProcessModel,
 } from '../../actions'
@@ -104,14 +105,14 @@ type Health = {
 
 type ProcessTab = 'formulario' | 'etapas' | 'campos' | 'documentos' | 'emails' | 'whatsapp' | 'regras'
 
+// Abas visíveis = só as que têm efeito real no motor (scp-engine).
+// As abas de E-mails / WhatsApp / Campos do Processo / Regras & SLA configuram
+// recursos que ainda são stubs ou não são consumidos pelo motor; ficam OCULTAS
+// (o JSX delas continua no arquivo, gated por activeTab, para reativar quando o
+// envio real — frente C2b — for implementado).
 const TAB_LABELS: Array<{ id: ProcessTab; label: string }> = [
   { id: 'formulario', label: 'Formulário' },
-  { id: 'etapas', label: 'Etapas (Kanban)' },
-  { id: 'campos', label: 'Campos do Processo' },
-  { id: 'documentos', label: 'Documentos / Assinatura' },
-  { id: 'emails', label: 'E-mails' },
-  { id: 'whatsapp', label: 'WhatsApp' },
-  { id: 'regras', label: 'Regras & SLA' },
+  { id: 'etapas', label: 'Etapas & Ações' },
 ]
 
 const IDENTIFIER_OPTION_MAX_CHARS = 100
@@ -196,13 +197,15 @@ export default function ProcessBuilderPage() {
   const [processes, setProcesses] = useState<ProcessModelRow[]>([])
   const [companies, setCompanies] = useState<CompanyProfileRow[]>([])
   const [contractTemplates, setContractTemplates] = useState<ContractTemplateRow[]>([])
+  const [assinafyTemplates, setAssinafyTemplates] = useState<Array<{ id: string; name: string }>>([])
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplateRow[]>([])
   const [view, setView] = useState<'list' | 'edit'>('list')
 
   const [selected, setSelected] = useState<ProcessModelRow | null>(null)
   const [stages, setStages] = useState<StageRow[]>([])
   const [activeTab, setActiveTab] = useState<ProcessTab>('formulario')
-  const [expandedStageIndex, setExpandedStageIndex] = useState<number | null>(null)
+  // Etapa selecionada no editor-por-etapa (kanban → painel da etapa).
+  const [activeStageKey, setActiveStageKey] = useState<string | null>(null)
 
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle')
   const [health, setHealth] = useState<Health>({ blocking: [], warnings: [] })
@@ -556,101 +559,18 @@ export default function ProcessBuilderPage() {
       }
     })
 
-    const hasAnySla = stageList.some((s) => !!s?.config?.sla_hours || !!s?.config?.sla_days)
-    if (!hasAnySla) warnings.push('Nenhuma etapa com SLA definido.')
-
-    const fields = getConfigArray('process_fields')
-    if (fields.length === 0) warnings.push('Nenhum campo de processo configurado nas etapas.')
-
+    // Documentos: válidos quando têm um template da Assinafy selecionado (o que o
+    // motor realmente usa). Legado: aceita template_name interno se existir.
     const docs = getConfigArray('documents')
     for (const doc of docs) {
-      const template = findContractTemplate(doc)
-      if (!template) {
-        blocking.push(`Documento "${doc?.name || 'sem nome'}" sem modelo selecionado.`)
-        continue
-      }
-      const requiredPlaceholders = (template.placeholders || []).filter((placeholder: any) => !!placeholder?.required)
-      const mapping = doc?.placeholder_mapping && typeof doc.placeholder_mapping === 'object' ? doc.placeholder_mapping : {}
-      for (const placeholder of requiredPlaceholders) {
-        const placeholderId = String(placeholder?.id || '')
-        if (!placeholderId) continue
-        const selectedTag = String(mapping?.[placeholderId] || '')
-        if (!selectedTag) {
-          blocking.push(`Documento "${doc?.name || template.name}" sem vínculo para "${placeholder?.label || placeholderId}".`)
-        }
+      const tpl = String(doc?.assinafy_template_name || doc?.template_name || '').trim()
+      if (!tpl) {
+        blocking.push(`Documento "${doc?.name || 'sem nome'}" sem template da Assinafy selecionado.`)
       }
     }
 
-    const requireSignatureTriggerConfig = (items: any[], kindLabel: string) => {
-      for (const item of items) {
-        if (String(item?.trigger || '') !== SIGNATURE_LINK_TRIGGER) continue
-        if (!String(item?.signature_document_ref || '').trim()) {
-          blocking.push(`${kindLabel} "${item?.name || 'sem nome'}" precisa de documento vinculado para gatilho de link.`)
-        }
-        if (!String(item?.signature_signer_role || '').trim()) {
-          blocking.push(`${kindLabel} "${item?.name || 'sem nome'}" precisa de papel de assinante para gatilho de link.`)
-        }
-      }
-    }
-
-    requireSignatureTriggerConfig(getConfigArray('emails'), 'E-mail')
-    requireSignatureTriggerConfig(getConfigArray('whatsapp'), 'WhatsApp')
-
-    const mailItems = getConfigArray('emails')
-    const emailTagKeys = new Set(processEmailTagOptions.map((opt) => String(opt.key)))
-    for (const mail of mailItems) {
-      const recipientSource = String(mail?.recipient_source || 'tag')
-      const recipientField = String(mail?.recipient_field || '').trim()
-      if (recipientSource === 'tag' && !recipientField) {
-        blocking.push(`E-mail "${mail?.name || 'sem nome'}" possui destinatÃ¡rio por tag sem mapeamento.`)
-      }
-      if (recipientSource === 'tag' && recipientField && !emailTagKeys.has(recipientField)) {
-        blocking.push(`E-mail "${mail?.name || 'sem nome'}" possui destinatário por tag que não é e-mail.`)
-      }
-
-      const periodValue = Number(mail?.resend_period_value || 0)
-      const periodUnit = String(mail?.resend_period_unit || '')
-      const resendTrigger = String(mail?.resend_trigger || '')
-      const repeatCount = Number(mail?.resend_repeat_count || 0)
-      const wantsResend = !!resendTrigger || periodValue > 0 || !!periodUnit || repeatCount > 0
-      if (wantsResend) {
-        if (!(periodValue >= 1 && periodValue <= 60)) blocking.push(`E-mail "${mail?.name || 'sem nome'}" com perÃ­odo de reenvio invÃ¡lido (1 a 60).`)
-        if (!['minutes', 'hours', 'days'].includes(periodUnit)) blocking.push(`E-mail "${mail?.name || 'sem nome'}" com unidade de reenvio invÃ¡lida.`)
-        if (!['signature_not_finished', 'elapsed_time'].includes(resendTrigger)) blocking.push(`E-mail "${mail?.name || 'sem nome'}" com gatilho de reenvio invÃ¡lido.`)
-        if (!(repeatCount >= 1)) blocking.push(`E-mail "${mail?.name || 'sem nome'}" precisa do nÃºmero de repetiÃ§Ãµes do reenvio.`)
-      }
-
-      const copyRecipients = Array.isArray(mail?.copy_recipients) ? mail.copy_recipients : []
-      for (const entry of copyRecipients) {
-        const kind = String(entry?.type || '').trim()
-        const value = String(entry?.value || '').trim()
-        if (!kind || !value) {
-          blocking.push(`E-mail "${mail?.name || 'sem nome'}" possui um e-mail de cÃ³pia invÃ¡lido.`)
-          continue
-        }
-        if (kind === 'tag' && !emailTagKeys.has(value)) {
-          blocking.push(`E-mail "${mail?.name || 'sem nome'}" possui cÃ³pia por tag que nÃ£o Ã© e-mail.`)
-        }
-        if (kind === 'email' && !isValidEmail(value)) {
-          blocking.push(`E-mail "${mail?.name || 'sem nome'}" possui e-mail de cÃ³pia invÃ¡lido: ${value}.`)
-        }
-      }
-
-      const template = findEmailTemplate(mail)
-      if (!template) {
-        blocking.push(`E-mail "${mail?.name || 'sem nome'}" sem modelo de e-mail selecionado.`)
-        continue
-      }
-
-      const tokenMapping = mail?.token_mapping && typeof mail.token_mapping === 'object' ? mail.token_mapping : {}
-      const subjectTokens = extractTokens(template.subject || '')
-      const bodyTokens = extractTokens(template.body || '')
-      const needed = [...new Set([...subjectTokens, ...bodyTokens])].filter((t) => !EMAIL_AUTOFILL_TOKENS.has(t))
-      for (const token of needed) {
-        const mapped = String(tokenMapping?.[token] || '')
-        if (!mapped) blocking.push(`E-mail "${mail?.name || template.name}" sem vÃ­nculo para tag ${token}.`)
-      }
-    }
+    // E-mails/WhatsApp/Campos/Regras estão ocultos (stubs/sem consumo no motor),
+    // então não entram na validação — evita pendências que o usuário não pode resolver.
 
     return { blocking, warnings }
   }
@@ -671,6 +591,14 @@ export default function ProcessBuilderPage() {
     if (eRes.success) setEmailTemplates((eRes.templates || []) as any)
     if (cRes.success) setCompanies(((cRes.companies || []) as any[] as CompanyProfileRow[]).filter((c) => c.is_active !== false))
     setLoading(false)
+
+    // Templates da Assinafy (Opção A) — falha silenciosa se a integração não estiver configurada.
+    try {
+      const aRes = await listAssinafyTemplateOptions()
+      if (aRes.success) setAssinafyTemplates((aRes.options || []) as any)
+    } catch {
+      // integração de assinatura ainda não configurada; segue sem os templates
+    }
   }
 
   useEffect(() => {
@@ -720,7 +648,7 @@ export default function ProcessBuilderPage() {
 
     setSelected(nextSelected)
     setActiveTab('formulario')
-    setExpandedStageIndex(null)
+    setActiveStageKey(null)
     setSlugStatus('idle')
     setMessage(null)
     setView('edit')
@@ -1317,138 +1245,192 @@ export default function ProcessBuilderPage() {
               </div>
             )}
 
-            {activeTab === 'etapas' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {stages.map((stage, idx) => {
-                  const transitions = Array.isArray(stage?.config?.transitions) ? stage.config.transitions.join(', ') : ''
-                  return (
-                    <div key={stage.client_key} className="card" style={{ padding: '0.85rem', border: '1px solid var(--brs-gray-100)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {activeTab === 'etapas' && (() => {
+              const activeStage = stages.find((s) => s.client_key === activeStageKey) || stages[0] || null
+              const activeIdx = activeStage ? stages.findIndex((s) => s.client_key === activeStage.client_key) : -1
+              const docs = activeStage ? getStageItems('documents', activeStage) : []
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Trilho do kanban de etapas (clicável) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', padding: '0.25rem 0' }}>
+                    {stages.map((stage, idx) => (
+                      <div key={stage.client_key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => setActiveStageKey(stage.client_key)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.45rem',
+                            padding: '0.5rem 0.8rem', borderRadius: 10, cursor: 'pointer',
+                            border: `1px solid ${activeStage?.client_key === stage.client_key ? 'var(--brs-navy)' : 'var(--brs-gray-200)'}`,
+                            background: activeStage?.client_key === stage.client_key ? 'var(--brs-primary-50)' : '#fff',
+                            fontWeight: activeStage?.client_key === stage.client_key ? 800 : 600,
+                            color: 'var(--brs-gray-800)',
+                          }}
+                        >
                           <span style={{ width: 10, height: 10, borderRadius: 999, background: stage.color || '#94A3B8' }} />
-                          <input
-                            className="form-control"
-                            value={stage.name}
-                            onChange={(e) => {
-                              const newName = e.target.value
-                              setStages((prev) =>
-                                prev.map((s, i) => {
-                                  if (i !== idx) return s
-                                  return { ...s, name: newName }
-                                })
-                              )
-                              renameStageReferences(stage.client_key, stage.name, newName)
-                            }}
-                            style={{ minWidth: 240 }}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.35rem' }}>
-                          <button type="button" className="btn btn-ghost btn-xs btn-icon" onClick={() => moveStage(idx, 'up')} disabled={idx === 0}>
-                            <ChevronUp size={16} />
+                          {stage.name || `Etapa ${idx + 1}`}
+                          {stage?.config?.is_terminal && (
+                            <span style={{ fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', color: '#065F46', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 4, padding: '0 5px' }}>Fim</span>
+                          )}
+                        </button>
+                        {idx < stages.length - 1 && <span style={{ color: 'var(--brs-gray-300)', fontSize: '1.1rem' }}>→</span>}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={() => {
+                        const key = makeClientKey()
+                        setStages((prev) => [
+                          ...prev,
+                          { client_key: key, name: `Etapa ${prev.length + 1}`, position: prev.length, color: '#64748B', bg: '#F1F5F9', config: { transitions: [] } },
+                        ])
+                        setActiveStageKey(key)
+                      }}
+                    >
+                      <Plus size={16} /> Etapa
+                    </button>
+                  </div>
+
+                  {!activeStage ? (
+                    <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
+                      Nenhuma etapa ainda. Clique em <strong>+ Etapa</strong> para começar a montar o fluxo.
+                    </div>
+                  ) : (
+                    <div className="card" style={{ padding: '1rem', border: '1px solid var(--brs-gray-100)' }}>
+                      {/* Cabeçalho do painel da etapa */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.1rem', flexWrap: 'wrap' }}>
+                        <span style={{ width: 12, height: 12, borderRadius: 999, background: activeStage.color || '#94A3B8' }} />
+                        <input
+                          className="form-control"
+                          value={activeStage.name}
+                          onChange={(e) => {
+                            const newName = e.target.value
+                            setStages((prev) => prev.map((s, i) => (i === activeIdx ? { ...s, name: newName } : s)))
+                            renameStageReferences(activeStage.client_key, activeStage.name, newName)
+                          }}
+                          style={{ maxWidth: 320, fontWeight: 700 }}
+                        />
+                        <input
+                          type="color"
+                          className="form-control"
+                          value={activeStage.color || '#3B82F6'}
+                          onChange={(e) => setStages((prev) => prev.map((s, i) => (i === activeIdx ? { ...s, color: e.target.value } : s)))}
+                          style={{ width: 46, height: 40, padding: '0.2rem' }}
+                          title="Cor da etapa"
+                        />
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.35rem' }}>
+                          <button type="button" className="btn btn-ghost btn-xs btn-icon" title="Mover para a esquerda" onClick={() => moveStage(activeIdx, 'up')} disabled={activeIdx <= 0}>
+                            <ChevronUp size={16} style={{ transform: 'rotate(-90deg)' }} />
                           </button>
-                          <button type="button" className="btn btn-ghost btn-xs btn-icon" onClick={() => moveStage(idx, 'down')} disabled={idx === stages.length - 1}>
-                            <ChevronDown size={16} />
-                          </button>
-                          <button type="button" className="btn btn-outline" onClick={() => setExpandedStageIndex(expandedStageIndex === idx ? null : idx)}>
-                            {expandedStageIndex === idx ? 'Fechar' : 'Configurar'}
+                          <button type="button" className="btn btn-ghost btn-xs btn-icon" title="Mover para a direita" onClick={() => moveStage(activeIdx, 'down')} disabled={activeIdx >= stages.length - 1}>
+                            <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />
                           </button>
                           <button
                             type="button"
                             className="btn btn-outline text-danger"
                             onClick={() => {
-                              removeStageReferences(stage)
-                              setStages((prev) => prev.filter((_, i) => i !== idx).map((s, i) => ({ ...s, position: i })))
+                              if (!confirm(`Excluir a etapa "${activeStage.name}"? As ações dela também serão removidas.`)) return
+                              removeStageReferences(activeStage)
+                              setStages((prev) => prev.filter((_, i) => i !== activeIdx).map((s, i) => ({ ...s, position: i })))
+                              setActiveStageKey(null)
                             }}
                           >
-                            <Trash size={15} />
+                            <Trash size={15} /> Excluir etapa
                           </button>
                         </div>
                       </div>
 
-                      {expandedStageIndex === idx && (
-                        <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.65rem' }}>
-                          <div className="form-grid form-grid-3">
-                            <div className="form-group">
-                              <label className="form-label">Cor</label>
-                              <input
-                                type="color"
-                                className="form-control"
-                                value={stage.color || '#3B82F6'}
-                                onChange={(e) =>
-                                  setStages((prev) => prev.map((s, i) => (i === idx ? { ...s, color: e.target.value } : s)))
-                                }
-                              />
-                            </div>
-                            <div className="form-group">
-                              <label className="form-label">SLA (horas)</label>
-                              <input
-                                type="number"
-                                className="form-control"
-                                value={stage?.config?.sla_hours || ''}
-                                onChange={(e) =>
-                                  setStages((prev) =>
-                                    prev.map((s, i) =>
-                                      i === idx ? { ...s, config: { ...(s.config || {}), sla_hours: Number(e.target.value || 0) || null } } : s
-                                    )
-                                  )
-                                }
-                              />
-                            </div>
-                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', marginTop: '1.8rem' }}>
-                              <input
-                                type="checkbox"
-                                checked={!!stage?.config?.is_terminal}
-                                onChange={(e) =>
-                                  setStages((prev) =>
-                                    prev.map((s, i) => (i === idx ? { ...s, config: { ...(s.config || {}), is_terminal: e.target.checked } } : s))
-                                  )
-                                }
-                              />
-                              Etapa final
-                            </label>
-                          </div>
-
-                          <div className="form-group">
-                            <label className="form-label">Transições (separadas por vírgula)</label>
-                            <input
-                              className="form-control"
-                              value={transitions}
-                              onChange={(e) =>
-                                setStages((prev) =>
-                                  prev.map((s, i) => (i === idx ? { ...s, config: { ...(s.config || {}), transitions: parseCommaList(e.target.value) } } : s))
-                                )
-                              }
-                              placeholder="Aguardando Assinatura, Finalizado"
-                            />
-                          </div>
+                      {/* ① Ao entrar: documentos */}
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--brs-navy)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ background: 'var(--brs-navy)', color: '#fff', width: 20, height: 20, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem' }}>1</span>
+                          Ao ENTRAR nesta etapa, gerar documento(s)
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
+                        {docs.length === 0 && (
+                          <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-400)', marginBottom: '0.5rem' }}>
+                            Nenhum documento nesta etapa. Adicione se ela gera um contrato para assinatura.
+                          </div>
+                        )}
+                        {docs.map((doc: any, index: number) => (
+                          <div key={`${activeStage.client_key}-doc-${index}`} style={{ border: '1px solid var(--brs-gray-100)', borderRadius: 8, padding: '0.65rem', marginBottom: '0.55rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr auto', gap: '0.6rem', alignItems: 'end' }}>
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label" style={{ fontSize: '0.75rem' }}>Nome do documento</label>
+                                <input className="form-control" placeholder="Ex.: Contrato PS PJ" value={doc.name || ''} onChange={(e) => updateStageItem('documents', activeStage, index, { name: e.target.value })} />
+                              </div>
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label" style={{ fontSize: '0.75rem' }}>Template da Assinafy (gera o contrato)</label>
+                                <select
+                                  className="form-control"
+                                  value={doc.assinafy_template_name || ''}
+                                  onChange={(e) => updateStageItem('documents', activeStage, index, { assinafy_template_name: e.target.value, trigger: 'on_enter' })}
+                                >
+                                  <option value="">
+                                    {assinafyTemplates.length ? 'Selecionar template da Assinafy' : 'Nenhum template (configure a Assinafy)'}
+                                  </option>
+                                  {assinafyTemplates.map((t) => (
+                                    <option key={t.id} value={t.name}>{t.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <button type="button" className="btn btn-outline text-danger" style={{ height: 40 }} onClick={() => removeStageItem('documents', activeStage, index)}>
+                                <Trash size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        <button type="button" className="btn btn-outline" onClick={() => addStageItem('documents', activeStage, { name: '', assinafy_template_name: '', trigger: 'on_enter' })}>
+                          <Plus size={16} /> Adicionar documento
+                        </button>
+                      </div>
 
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={() =>
-                    setStages((prev) => [
-                      ...prev,
-                      {
-                        client_key: makeClientKey(),
-                        name: `Etapa ${prev.length + 1}`,
-                        position: prev.length,
-                        color: '#64748B',
-                        bg: '#F1F5F9',
-                        config: { transitions: [] },
-                      },
-                    ])
-                  }
-                >
-                  <Plus size={16} />
-                  Adicionar etapa
-                </button>
-              </div>
-            )}
+                      {/* ② Ao concluir: saída da etapa */}
+                      <div style={{ borderTop: '1px dashed var(--brs-gray-200)', paddingTop: '1rem' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--brs-navy)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ background: 'var(--brs-navy)', color: '#fff', width: 20, height: 20, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem' }}>2</span>
+                          Ao CONCLUIR esta etapa
+                        </div>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', marginBottom: '0.6rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!activeStage?.config?.is_terminal}
+                            onChange={(e) =>
+                              setStages((prev) =>
+                                prev.map((s, i) => (i === activeIdx ? { ...s, config: { ...(s.config || {}), is_terminal: e.target.checked, transitions: e.target.checked ? [] : (s.config?.transitions || []) } } : s))
+                              )
+                            }
+                          />
+                          Esta é a etapa final (encerra o processo)
+                        </label>
+                        {!activeStage?.config?.is_terminal && (
+                          <div className="form-group" style={{ maxWidth: 380, marginBottom: 0 }}>
+                            <label className="form-label">Avançar para →</label>
+                            <select
+                              className="form-control"
+                              value={(Array.isArray(activeStage?.config?.transitions) && activeStage.config.transitions[0]) || ''}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                setStages((prev) =>
+                                  prev.map((s, i) => (i === activeIdx ? { ...s, config: { ...(s.config || {}), transitions: val ? [val] : [] } } : s))
+                                )
+                              }}
+                            >
+                              <option value="">Próxima etapa (na ordem do kanban)</option>
+                              {stages
+                                .filter((s) => s.client_key !== activeStage.client_key)
+                                .map((s) => (
+                                  <option key={s.client_key} value={s.name}>{s.name}</option>
+                                ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {activeTab === 'campos' && (
               <div style={{ display: 'grid', gap: '0.8rem' }}>
@@ -1509,133 +1491,8 @@ export default function ProcessBuilderPage() {
               </div>
             )}
 
-            {activeTab === 'documentos' && (
-              <div style={{ display: 'grid', gap: '0.8rem' }}>
-                {stages.map((stage) => {
-                  const items = getStageItems('documents', stage)
-                  return (
-                    <div key={stage.client_key} className="card" style={{ padding: '0.9rem', border: '1px solid var(--brs-gray-100)' }}>
-                      <div style={{ fontWeight: 800, marginBottom: '0.6rem' }}>{stage.name}</div>
-                      {items.map((doc: any, index: number) => (
-                        <div key={`${stage.client_key}-doc-${index}`} style={{ border: '1px solid var(--brs-gray-100)', borderRadius: 8, padding: '0.65rem', marginBottom: '0.55rem' }}>
-                          <div className="form-grid form-grid-4">
-                            <input className="form-control" placeholder="Nome do documento no processo" value={doc.name || ''} onChange={(e) => updateStageItem('documents', stage, index, { name: e.target.value })} />
-                            <select
-                              className="form-control"
-                              value={doc.template_id || ''}
-                              onChange={(e) => {
-                                const templateId = e.target.value
-                                const template = contractTemplates.find((item) => item.id === templateId)
-                                const existingMapping = doc?.placeholder_mapping && typeof doc.placeholder_mapping === 'object' ? doc.placeholder_mapping : {}
-                                const nextMapping: Record<string, string> = {}
-                                for (const placeholder of template?.placeholders || []) {
-                                  const placeholderId = String(placeholder?.id || '')
-                                  if (!placeholderId) continue
-                                  nextMapping[placeholderId] = String(existingMapping?.[placeholderId] || '')
-                                }
-                                updateStageItem('documents', stage, index, {
-                                  template_id: templateId,
-                                  template_name: template?.name || '',
-                                  placeholder_mapping: nextMapping,
-                                })
-                              }}
-                            >
-                              <option value="">Selecionar modelo de documento</option>
-                              {contractTemplates.map((template) => (
-                                <option key={template.id} value={template.id}>
-                                  {template.name}
-                                </option>
-                              ))}
-                            </select>
-                            <select className="form-control" value={doc.trigger || ''} onChange={(e) => updateStageItem('documents', stage, index, { trigger: e.target.value })}>
-                              <option value="" disabled>Gatilho de acionamento</option>
-                              <option value="on_enter">Gatilho: ao entrar</option>
-                              <option value="on_exit">Gatilho: ao sair</option>
-                              <option value="manual">Gatilho: manual</option>
-                            </select>
-                            <button type="button" className="btn btn-outline text-danger" onClick={() => removeStageItem('documents', stage, index)}>
-                              <Trash size={14} />
-                            </button>
-                          </div>
-                          {(() => {
-                            const selectedTemplate = findContractTemplate(doc)
-                            const placeholders = selectedTemplate?.placeholders || []
-                            const mapping = doc?.placeholder_mapping && typeof doc.placeholder_mapping === 'object' ? doc.placeholder_mapping : {}
-                            return (
-                              <div style={{ marginTop: '0.65rem' }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.45rem', color: 'var(--brs-gray-700)' }}>
-                                  Mapeamento de placeholders do documento
-                                </div>
-                                {!selectedTemplate ? (
-                                  <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
-                                    Selecione um modelo para mapear placeholders.
-                                  </div>
-                                ) : placeholders.length === 0 ? (
-                                  <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
-                                    O modelo selecionado não possui placeholders genéricos.
-                                  </div>
-                                ) : (
-                                  <div style={{ overflowX: 'auto' }}>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                      <thead>
-                                        <tr style={{ textAlign: 'left', background: 'var(--brs-gray-50)' }}>
-                                          <th style={{ padding: '0.45rem' }}>Placeholder genérico (label)</th>
-                                          <th style={{ padding: '0.45rem' }}>Tag vinculada do processo</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {placeholders.map((placeholder: any, placeholderIndex: number) => {
-                                          const placeholderId = String(placeholder?.id || `ph_${placeholderIndex}`)
-                                          return (
-                                            <tr key={`${doc.template_id || doc.template_name || 'doc'}-${placeholderId}`} style={{ borderTop: '1px solid var(--brs-gray-100)' }}>
-                                              <td style={{ padding: '0.45rem' }}>
-                                                <div style={{ fontWeight: 600 }}>{placeholder?.label || placeholderId}</div>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-500)', fontFamily: 'monospace' }}>
-                                                  {placeholder?.token || placeholderId}
-                                                </div>
-                                                {placeholder?.required ? (
-                                                  <div style={{ fontSize: '0.72rem', color: '#B45309' }}>Obrigatório</div>
-                                                ) : null}
-                                              </td>
-                                              <td style={{ padding: '0.45rem' }}>
-                                                <select
-                                                  className="form-control"
-                                                  value={String(mapping?.[placeholderId] || '')}
-                                                  onChange={(e) => {
-                                                    const nextValue = e.target.value
-                                                    const nextMapping = { ...(mapping || {}), [placeholderId]: nextValue }
-                                                    updateStageItem('documents', stage, index, { placeholder_mapping: nextMapping })
-                                                  }}
-                                                >
-                                                  <option value="">Selecionar tag do processo</option>
-                                                  {processTagOptions.map((option) => (
-                                                    <option key={option.key} value={option.key}>
-                                                      {option.display_text}
-                                                    </option>
-                                                  ))}
-                                                </select>
-                                              </td>
-                                            </tr>
-                                          )
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      ))}
-                      <button type="button" className="btn btn-outline" onClick={() => addStageItem('documents', stage, { name: '', template_id: '', template_name: '', trigger: '', placeholder_mapping: {} })}>
-                        <Plus size={16} />
-                        Adicionar documento na etapa
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            {/* A aba "Documentos" foi fundida no editor por etapa (aba Etapas & Ações),
+                onde o documento é configurado dentro da própria etapa (① ao entrar). */}
 
             {activeTab === 'emails' && (
               <div style={{ display: 'grid', gap: '0.8rem' }}>

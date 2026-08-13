@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
+  Ban,
   CheckCircle,
   Copy,
   Edit2,
@@ -11,6 +12,7 @@ import {
   EyeOff,
   Loader2,
   Plus,
+  RotateCcw,
   Save,
   Search,
   Trash2,
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react'
 import {
   deleteCommercialEntity,
+  reactivateCommercialEntity,
   type CommercialCardLinkRow,
   getCommercialCardLinks,
   getCompanyProfiles,
@@ -647,6 +650,7 @@ export default function ComercialConfigPage() {
   const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile')
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all')
+  const [statusFilter, setStatusFilter] = useState<'ativo' | 'inativo' | 'all'>('ativo')
   const [bankSearch, setBankSearch] = useState('')
   const [bankDropdownOpen, setBankDropdownOpen] = useState(false)
   const [companyOptions, setCompanyOptions] = useState<CompanyProfileOption[]>([])
@@ -852,9 +856,10 @@ export default function ComercialConfigPage() {
         String(ent.arw_code || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(ent.commercial_slug || '').toLowerCase().includes(searchQuery.toLowerCase())
       const matchesRole = roleFilter === 'all' || ent.role === roleFilter
-      return matchesSearch && matchesRole && ent.status === 'ativo'
+      const matchesStatus = statusFilter === 'all' || ent.status === statusFilter
+      return matchesSearch && matchesRole && matchesStatus
     })
-  }, [entities, roleFilter, searchQuery])
+  }, [entities, roleFilter, searchQuery, statusFilter])
 
   function openCreate() {
     setEditingEntity(normalizeDraft(null))
@@ -979,6 +984,17 @@ export default function ComercialConfigPage() {
       await loadData()
     } else {
       setMessage({ type: 'error', text: res.error || 'Erro ao inativar.' })
+    }
+  }
+
+  async function handleReactivate(id: string) {
+    if (!confirm('Deseja reativar esta entidade comercial?')) return
+    const res = await reactivateCommercialEntity(id)
+    if (res.success) {
+      setMessage({ type: 'success', text: 'Entidade comercial reativada.' })
+      await loadData()
+    } else {
+      setMessage({ type: 'error', text: res.error || 'Erro ao reativar.' })
     }
   }
 
@@ -1208,6 +1224,11 @@ export default function ComercialConfigPage() {
               <option value="supervisor">Supervisor</option>
               <option value="gerente">Gerente Comercial</option>
             </select>
+            <select className="form-control" style={{ width: '150px' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+              <option value="ativo">Ativos</option>
+              <option value="inativo">Inativos</option>
+              <option value="all">Todos</option>
+            </select>
           </div>
 
           <div className="card">
@@ -1219,19 +1240,20 @@ export default function ComercialConfigPage() {
                     <th>Cargo</th>
                     <th>Subordinação</th>
                     <th>Link Cartão Virtual</th>
+                    <th>Status</th>
                     <th style={{ textAlign: 'right' }}>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '3rem' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
                         <span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} />
                       </td>
                     </tr>
                   ) : filteredEntities.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '3rem' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
                         <div className="empty-state">
                           <Users size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
                           <h3>Nenhuma entidade comercial cadastrada</h3>
@@ -1301,14 +1323,25 @@ export default function ComercialConfigPage() {
                             <span style={{ color: 'var(--brs-gray-300)', fontSize: '0.875rem' }}>-</span>
                           )}
                         </td>
+                        <td>
+                          <span className={`badge ${ent.status === 'ativo' ? 'badge-success' : 'badge-gray'}`}>
+                            {ent.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                          </span>
+                        </td>
                         <td style={{ textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                             <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEdit(ent)}>
                               <Edit2 size={16} />
                             </button>
-                            <button className="btn btn-ghost btn-sm btn-icon text-danger" onClick={() => handleDelete(ent.id)}>
-                              <Trash2 size={16} />
-                            </button>
+                            {ent.status === 'ativo' ? (
+                              <button className="btn btn-ghost btn-sm btn-icon text-danger" title="Inativar entidade comercial" onClick={() => handleDelete(ent.id)}>
+                                <Ban size={16} />
+                              </button>
+                            ) : (
+                              <button className="btn btn-ghost btn-sm btn-icon" title="Reativar entidade comercial" onClick={() => handleReactivate(ent.id)}>
+                                <RotateCcw size={16} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

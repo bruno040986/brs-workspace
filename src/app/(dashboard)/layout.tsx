@@ -40,6 +40,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
     console.error('Erro ao montar o dashboard; usando perfil de fallback.', error)
   }
 
+  // Usuário inativado não navega no sistema, mesmo com sessão ainda válida
+  if (profile.id && profile.active === false) redirect('/login')
+
   return (
     <MessengerDockProvider>
       <div className="app-layout">

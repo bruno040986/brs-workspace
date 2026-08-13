@@ -18,6 +18,7 @@ import {
   Users,
 } from 'lucide-react'
 import CopyableFieldShell from '@/components/forms/CopyableFieldShell'
+import { avaliarGarantia, type ProducaoMes } from '@/lib/agente-corban-garantia'
 import {
   AGENTE_CORBAN_BANK_ACCOUNT_TYPES,
   AGENTE_CORBAN_PERSON_TYPE_LABELS,
@@ -53,6 +54,14 @@ import {
   type AgenteCorbanStatus,
   type BankLookup,
 } from '@/lib/agente-corban'
+import { getFieldByPath } from '@/lib/agente-corban-fields'
+import {
+  getDivergenciasReceita,
+  getFieldProvenance,
+  PROVENANCE_ORIGIN_LABELS,
+  type FieldProvenanceEntry,
+  type FieldProvenanceMap,
+} from '@/lib/agente-corban-provenance'
 
 type CatalogRow = { id: string; name: string; is_active?: boolean }
 
@@ -97,18 +106,22 @@ type TabKey =
   | 'dados-principais'
   | 'contato'
   | 'socios'
+  | 'testemunha'
   | 'endereco'
   | 'acesso'
   | 'bancarios'
+  | 'garantia'
   | 'documentos'
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'dados-principais', label: 'Dados Principais' },
   { key: 'contato', label: 'Contato' },
   { key: 'socios', label: 'Sócios' },
+  { key: 'testemunha', label: 'Testemunha' },
   { key: 'endereco', label: 'Endereço' },
   { key: 'acesso', label: 'Acesso' },
   { key: 'bancarios', label: 'Dados Bancários' },
+  { key: 'garantia', label: 'Garantia' },
   { key: 'documentos', label: 'Documentos' },
 ]
 
@@ -402,6 +415,66 @@ function ReadOnlyField({
   )
 }
 
+function formatDateTimeBr(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return String(iso)
+  return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+/**
+ * Aviso "alterado pelo parceiro" de um campo com proveniência de consulta
+ * externa. Clique abre o detalhe: valor original, qual API e quando.
+ */
+function ProvenanceNotice({ entry }: { entry: FieldProvenanceEntry }) {
+  const [open, setOpen] = useState(false)
+  const fonte = PROVENANCE_ORIGIN_LABELS[entry.origem] || entry.origem
+  return (
+    <div style={{ marginTop: '0.3rem' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title="O parceiro alterou o valor que veio da consulta. Clique para ver o original."
+        style={{
+          border: '1px solid #FDE68A',
+          background: '#FFFBEB',
+          color: '#92400E',
+          borderRadius: 999,
+          padding: '0.1rem 0.55rem',
+          fontSize: '0.7rem',
+          fontWeight: 700,
+          cursor: 'pointer',
+        }}
+      >
+        ⚠ alterado pelo parceiro {open ? '▴' : '▾'}
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: '0.35rem',
+            border: '1px solid #FDE68A',
+            background: '#FFFBEB',
+            borderRadius: 8,
+            padding: '0.5rem 0.7rem',
+            fontSize: '0.78rem',
+            color: '#78350F',
+            lineHeight: 1.6,
+          }}
+        >
+          <div>
+            <strong>Original ({fonte}):</strong> {entry.valor_api || '—'}
+          </div>
+          <div>
+            <strong>Enviado pelo parceiro:</strong> {entry.valor_final || '—'}
+          </div>
+          {entry.consultado_em && <div style={{ color: '#92400E' }}>Consulta em {formatDateTimeBr(entry.consultado_em)}</div>}
+          {entry.alterado_em && <div style={{ color: '#92400E' }}>Alterado em {formatDateTimeBr(entry.alterado_em)}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BankLookupField({
   value,
   onSelect,
@@ -530,6 +603,7 @@ function SocioCard({
   onMakePrincipal,
   onFillCep,
   onFillCpf,
+  prov,
 }: {
   row: AgenteCorbanSocio
   index: number
@@ -538,6 +612,8 @@ function SocioCard({
   onMakePrincipal: () => void
   onFillCep: () => void
   onFillCpf: () => void | Promise<void>
+  /** Aviso de proveniência de um campo deste sócio (ex.: prov('name')). */
+  prov?: (field: string) => React.ReactNode
 }) {
   return (
     <div className="card" style={{ padding: '1rem', border: row.is_principal ? '1px solid rgba(39, 64, 132, 0.25)' : '1px solid var(--brs-gray-100)' }}>
@@ -604,6 +680,7 @@ function SocioCard({
             placeholder="Nome completo do sócio"
             copyValue={row.name || ''}
           />
+          {prov?.('name')}
         </div>
 
         <div style={{ gridColumn: 'span 2' }}>
@@ -614,6 +691,7 @@ function SocioCard({
             options={GENDER_OPTIONS}
             copyValue={row.gender || ''}
           />
+          {prov?.('gender')}
         </div>
 
         <div style={{ gridColumn: 'span 2' }}>
@@ -627,6 +705,28 @@ function SocioCard({
               placeholder="DD/MM/AAAA"
             />
           </CopyableFieldShell>
+          {prov?.('birth_date')}
+        </div>
+      </div>
+
+      <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
+        <SectionTitle icon={<Users size={18} />} title="Contato e qualificação" description="Necessário para a assinatura eletrônica e a qualificação no contrato." />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
+          <div style={{ gridColumn: 'span 4' }}>
+            <TextField label="E-mail" value={row.email || ''} onChange={(next) => onChange({ ...row, email: next })} copyValue={row.email || ''} />
+          </div>
+          <div style={{ gridColumn: 'span 4' }}>
+            <TextField label="WhatsApp" value={maskPhone(row.phone || '')} onChange={(next) => onChange({ ...row, phone: onlyDigits(next) })} copyValue={maskPhone(row.phone || '')} placeholder="(00) 00000-0000" />
+          </div>
+          <div style={{ gridColumn: 'span 4' }}>
+            <TextField label="Estado Civil" value={row.marital_status || ''} onChange={(next) => onChange({ ...row, marital_status: next })} copyValue={row.marital_status || ''} />
+          </div>
+          <div style={{ gridColumn: 'span 6' }}>
+            <TextField label="Profissão" value={row.profession || ''} onChange={(next) => onChange({ ...row, profession: next })} copyValue={row.profession || ''} />
+          </div>
+          <div style={{ gridColumn: 'span 6' }}>
+            <TextField label="Cargo/Função no CNPJ" value={row.company_role || ''} onChange={(next) => onChange({ ...row, company_role: next })} copyValue={row.company_role || ''} placeholder="Sócio-Administrador" />
+          </div>
         </div>
       </div>
 
@@ -878,6 +978,21 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
 
   function patchDraft(patch: Partial<AgenteCorbanDraft>) {
     setDraft((current) => ({ ...current, ...patch }))
+  }
+
+  /** Patch de um campo da seção Testemunha (objeto auto-contido). */
+  function patchWitness(key: string, value: any) {
+    setDraft((current) => ({ ...current, witness: { ...(current.witness || {}), [key]: value } }))
+  }
+
+  /** Patch de um campo escalar da seção Garantia. */
+  function patchGarantia(key: string, value: any) {
+    setDraft((current) => ({ ...current, garantia: { ...(current.garantia || {}), [key]: value } }))
+  }
+
+  /** Atualiza a lista de produção mensal (manual) da seção Garantia. */
+  function setGarantiaProducao(next: Array<{ mes: string; valor: number }>) {
+    setDraft((current) => ({ ...current, garantia: { ...(current.garantia || {}), producao: next } }))
   }
 
   function updateSocio(index: number, next: AgenteCorbanSocio) {
@@ -1134,6 +1249,20 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
   }
 
   const socioRows = draft.socios.length > 0 ? draft.socios : [createEmptySocio({ is_principal: true })]
+
+  // ----- proveniência (portal do parceiro): campos alterados + divergências RFB
+  const provenanceMap = useMemo<FieldProvenanceMap>(() => getFieldProvenance(draft.corban_data), [draft.corban_data])
+  const divergenciasReceita = useMemo(() => getDivergenciasReceita(draft.corban_data), [draft.corban_data])
+  const camposAlterados = useMemo(
+    () => Object.entries(provenanceMap).filter(([, entry]) => entry?.alterado_pelo_parceiro),
+    [provenanceMap],
+  )
+  const prov = (path: string): React.ReactNode => {
+    const entry = provenanceMap[path]
+    return entry?.alterado_pelo_parceiro ? <ProvenanceNotice entry={entry} /> : null
+  }
+  const labelForPath = (path: string): string => getFieldByPath(path)?.label || path
+
   const statusBadgeClass =
     draft.status === 'ativo'
       ? 'badge-success'
@@ -1183,6 +1312,48 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
         >
           {message.type === 'success' ? <CheckCircle size={18} /> : <Search size={18} />}
           <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{message.text}</span>
+        </div>
+      )}
+
+      {(camposAlterados.length > 0 || divergenciasReceita.length > 0) && (
+        <div
+          style={{
+            marginBottom: '1rem',
+            padding: '0.875rem 1rem',
+            borderRadius: 10,
+            border: '1px solid #FDE68A',
+            background: '#FFFBEB',
+            color: '#78350F',
+            fontSize: '0.85rem',
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: camposAlterados.length + divergenciasReceita.length > 0 ? '0.35rem' : 0 }}>
+            ⚠ Conferência do cadastro do portal
+            {camposAlterados.length > 0 && ` — ${camposAlterados.length} campo(s) alterado(s) pelo parceiro sobre os dados das consultas`}
+            {divergenciasReceita.length > 0 && `${camposAlterados.length > 0 ? ' e' : ' —'} ${divergenciasReceita.length} divergência(s) com a Receita Federal`}
+          </div>
+          {camposAlterados.length > 0 && (
+            <div style={{ marginBottom: divergenciasReceita.length > 0 ? '0.35rem' : 0 }}>
+              <strong>Alterados:</strong> {camposAlterados.map(([path]) => labelForPath(path)).join('; ')}. Os avisos ⚠ nas
+              abas mostram o valor original de cada um.
+            </div>
+          )}
+          {divergenciasReceita.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+              {divergenciasReceita.map((divergencia, index) => (
+                <li key={index}>
+                  {divergencia.descricao}
+                  {divergencia.valor_declarado || divergencia.valor_receita ? (
+                    <span style={{ color: '#92400E' }}>
+                      {divergencia.valor_declarado ? ` Declarado: ${divergencia.valor_declarado}.` : ''}
+                      {divergencia.valor_receita ? ` Receita: ${divergencia.valor_receita}.` : ''}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -1261,6 +1432,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     copyValue={draft.name || ''}
                     placeholder={draft.person_type === 'PJ' ? 'Razão social' : 'Nome'}
                   />
+                  {prov('master.name')}
                 </div>
 
                 {draft.person_type === 'PJ' && (
@@ -1272,6 +1444,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                         onChange={(next) => patchDraft({ fantasy_name: next })}
                         copyValue={draft.fantasy_name || ''}
                       />
+                      {prov('master.fantasy_name')}
                     </div>
                     <div style={{ gridColumn: 'span 4' }}>
                       <CopyableFieldShell label="Data de Abertura" copyValue={formatDateDisplay(draft.data_abertura || '')} displayValue={formatDateDisplay(draft.data_abertura || '')}>
@@ -1284,6 +1457,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                           placeholder="DD/MM/AAAA"
                         />
                       </CopyableFieldShell>
+                      {prov('master.data_abertura')}
                     </div>
                     <div style={{ gridColumn: 'span 4' }}>
                       <TextField
@@ -1320,6 +1494,51 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                         copyValue={draft.natureza_juridica || ''}
                       />
                     </div>
+                    <div style={{ gridColumn: 'span 6' }}>
+                      <TextField
+                        label="Representante Legal"
+                        value={draft.representante_legal || ''}
+                        onChange={(next) => patchDraft({ representante_legal: next })}
+                        copyValue={draft.representante_legal || ''}
+                      />
+                    </div>
+                    <div style={{ gridColumn: 'span 3' }}>
+                      <TextField
+                        label="País"
+                        value={draft.pais || ''}
+                        onChange={(next) => patchDraft({ pais: next })}
+                        copyValue={draft.pais || ''}
+                        placeholder="Brasil"
+                      />
+                    </div>
+                    <div style={{ gridColumn: 'span 3' }}>
+                      <TextField
+                        label="Código CNAE Principal"
+                        value={draft.cnae_main_code || ''}
+                        onChange={(next) => patchDraft({ cnae_main_code: next })}
+                        copyValue={draft.cnae_main_code || ''}
+                      />
+                    </div>
+                    <div style={{ gridColumn: 'span 8' }}>
+                      <TextField
+                        label="Atividade Econômica Principal (CNAE)"
+                        value={draft.cnae_main_desc || ''}
+                        onChange={(next) => patchDraft({ cnae_main_desc: next })}
+                        copyValue={draft.cnae_main_desc || ''}
+                      />
+                    </div>
+                    <div style={{ gridColumn: 'span 4', display: 'flex', alignItems: 'center', gap: '0.5rem', paddingTop: '1.5rem' }}>
+                      <input
+                        type="checkbox"
+                        id="has_secondary_socio"
+                        checked={!!draft.has_secondary_socio}
+                        onChange={(e) => patchDraft({ has_secondary_socio: e.target.checked })}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <label htmlFor="has_secondary_socio" style={{ fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none' }}>
+                        Possui segundo sócio? <span style={{ color: 'var(--brs-gray-400)' }}>(se não, cadastre a testemunha)</span>
+                      </label>
+                    </div>
                   </>
                 )}
 
@@ -1354,6 +1573,20 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                         copyValue={draft.gender || ''}
                       />
                     </div>
+                    <div style={{ gridColumn: 'span 3' }}>
+                      <TextField label="RG" value={draft.rg || ''} onChange={(next) => patchDraft({ rg: next })} copyValue={draft.rg || ''} />
+                    </div>
+                    <div style={{ gridColumn: 'span 3' }}>
+                      <TextField label="Órgão Emissor" value={draft.rg_issuer || ''} onChange={(next) => patchDraft({ rg_issuer: next })} copyValue={draft.rg_issuer || ''} placeholder="SSP" />
+                    </div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <SelectField label="UF RG" value={draft.rg_state || ''} onChange={(next) => patchDraft({ rg_state: normalizeText(next).toUpperCase().slice(0, 2) })} options={[{ value: '', label: 'UF' }, ...ufs.map((uf) => ({ value: uf, label: uf }))]} copyValue={draft.rg_state || ''} />
+                    </div>
+                    <div style={{ gridColumn: 'span 4' }}>
+                      <CopyableFieldShell label="Data de Expedição do RG" copyValue={formatDateDisplay(draft.rg_expedition_date || '')} displayValue={formatDateDisplay(draft.rg_expedition_date || '')}>
+                        <input className="form-control" type="text" inputMode="numeric" value={formatDateDisplay(draft.rg_expedition_date || '')} onChange={(e) => patchDraft({ rg_expedition_date: formatDateDisplay(e.target.value) })} placeholder="DD/MM/AAAA" />
+                      </CopyableFieldShell>
+                    </div>
                   </>
                 )}
               </div>
@@ -1386,10 +1619,19 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 <div style={{ gridColumn: 'span 4' }}>
                   <TextField
                     label="E-mail Financeiro"
+                    value={maskEmailInput(draft.email_financeiro || '')}
+                    onChange={(next) => patchDraft({ email_financeiro: maskEmailInput(next) })}
+                    copyValue={maskEmailInput(draft.email_financeiro || '')}
+                    placeholder="financeiro@dominio.com"
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField
+                    label="E-mail de Informes"
                     value={maskEmailInput(draft.email_informe || '')}
                     onChange={(next) => patchDraft({ email_informe: maskEmailInput(next) })}
                     copyValue={maskEmailInput(draft.email_informe || '')}
-                    placeholder="financeiro@dominio.com"
+                    placeholder="informes@dominio.com"
                   />
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
@@ -1450,6 +1692,15 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     </div>
                   </>
                 )}
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Telefone de Suporte" value={maskPhone(draft.phone_support || '')} onChange={(next) => patchDraft({ phone_support: onlyDigits(next) })} copyValue={maskPhone(draft.phone_support || '')} placeholder="(00) 00000-0000" />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="E-mail da Mesa de Liberação" value={maskEmailInput(draft.email_mesa_liberacao || '')} onChange={(next) => patchDraft({ email_mesa_liberacao: maskEmailInput(next) })} copyValue={maskEmailInput(draft.email_mesa_liberacao || '')} placeholder="mesa@dominio.com" />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="E-mail Próprio Cunho" value={maskEmailInput(draft.email_proprio_cunho || '')} onChange={(next) => patchDraft({ email_proprio_cunho: maskEmailInput(next) })} copyValue={maskEmailInput(draft.email_proprio_cunho || '')} placeholder="proprio@dominio.com" />
+                </div>
               </div>
             </div>
           )}
@@ -1477,6 +1728,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     onMakePrincipal={() => makePrincipal(index)}
                     onFillCpf={() => fillSocioByCpf(index)}
                     onFillCep={() => fillSocioCep(index)}
+                    prov={(field) => prov(`socios.${index}.${field}`)}
                   />
                 ))
               ) : (
@@ -1506,6 +1758,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                       </button>
                     </div>
                   </CopyableFieldShell>
+                  {prov('address.cep')}
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
                   <TextField
@@ -1514,6 +1767,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     onChange={(next) => patchDraft({ address_street: next })}
                     copyValue={draft.address_street || ''}
                   />
+                  {prov('address.address_street')}
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                   <TextField
@@ -1524,6 +1778,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     inputMode="numeric"
                     placeholder="00000"
                   />
+                  {prov('address.address_number')}
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
                   <TextField
@@ -1532,6 +1787,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     onChange={(next) => patchDraft({ address_complement: next })}
                     copyValue={draft.address_complement || ''}
                   />
+                  {prov('address.address_complement')}
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
                   <TextField
@@ -1540,6 +1796,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     onChange={(next) => patchDraft({ address_neighborhood: next })}
                     copyValue={draft.address_neighborhood || ''}
                   />
+                  {prov('address.address_neighborhood')}
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
                   <TextField
@@ -1548,6 +1805,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     onChange={(next) => patchDraft({ address_city: next })}
                     copyValue={draft.address_city || ''}
                   />
+                  {prov('address.address_city')}
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                   <SelectField
@@ -1900,6 +2158,151 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
               </div>
             </div>
           )}
+
+          {activeTab === 'testemunha' && (
+            <div style={{ display: 'grid', gap: '1rem' }}>
+              <SectionTitle
+                icon={<Users size={18} />}
+                title="Testemunha / Avalista e Devedor Solidário"
+                description="Qualificação completa: além de testemunha, esta pessoa assina como avalista e devedor solidário do contrato."
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
+                <div style={{ gridColumn: 'span 6' }}>
+                  <TextField label="Nome" value={draft.witness?.name || ''} onChange={(v) => patchWitness('name', v)} copyValue={draft.witness?.name || ''} />
+                  {prov('witness.name')}
+                </div>
+                <div style={{ gridColumn: 'span 3' }}>
+                  <TextField label="CPF" value={maskCpf(draft.witness?.cpf || '')} onChange={(v) => patchWitness('cpf', onlyDigits(v))} copyValue={maskCpf(draft.witness?.cpf || '')} placeholder="000.000.000-00" />
+                </div>
+                <div style={{ gridColumn: 'span 3' }}>
+                  <TextField label="Nacionalidade" value={draft.witness?.nationality || ''} onChange={(v) => patchWitness('nationality', v)} copyValue={draft.witness?.nationality || ''} placeholder="Brasileira" />
+                </div>
+                <div style={{ gridColumn: 'span 3' }}>
+                  <TextField label="RG" value={draft.witness?.rg || ''} onChange={(v) => patchWitness('rg', v)} copyValue={draft.witness?.rg || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 3' }}>
+                  <TextField label="Órgão Emissor" value={draft.witness?.rg_issuer || ''} onChange={(v) => patchWitness('rg_issuer', v)} copyValue={draft.witness?.rg_issuer || ''} placeholder="SSP" />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <SelectField label="UF RG" value={draft.witness?.rg_state || ''} onChange={(v) => patchWitness('rg_state', normalizeText(v).toUpperCase().slice(0, 2))} options={[{ value: '', label: 'UF' }, ...ufs.map((uf) => ({ value: uf, label: uf }))]} copyValue={draft.witness?.rg_state || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Data de Nascimento" value={draft.witness?.birth_date || ''} onChange={(v) => patchWitness('birth_date', v)} copyValue={draft.witness?.birth_date || ''} placeholder="AAAA-MM-DD" />
+                  {prov('witness.birth_date')}
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Estado Civil" value={draft.witness?.marital_status || ''} onChange={(v) => patchWitness('marital_status', v)} copyValue={draft.witness?.marital_status || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Profissão" value={draft.witness?.profession || ''} onChange={(v) => patchWitness('profession', v)} copyValue={draft.witness?.profession || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="E-mail" value={draft.witness?.email || ''} onChange={(v) => patchWitness('email', v)} copyValue={draft.witness?.email || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="WhatsApp" value={maskPhone(draft.witness?.phone || '')} onChange={(v) => patchWitness('phone', onlyDigits(v))} copyValue={maskPhone(draft.witness?.phone || '')} placeholder="(00) 00000-0000" />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <TextField label="CEP" value={maskCep(draft.witness?.cep || '')} onChange={(v) => patchWitness('cep', onlyDigits(v))} copyValue={maskCep(draft.witness?.cep || '')} placeholder="00000-000" />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Logradouro" value={draft.witness?.address_street || ''} onChange={(v) => patchWitness('address_street', v)} copyValue={draft.witness?.address_street || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <TextField label="Número" value={draft.witness?.address_number || ''} onChange={(v) => patchWitness('address_number', v)} copyValue={draft.witness?.address_number || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Complemento" value={draft.witness?.address_complement || ''} onChange={(v) => patchWitness('address_complement', v)} copyValue={draft.witness?.address_complement || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Bairro" value={draft.witness?.address_neighborhood || ''} onChange={(v) => patchWitness('address_neighborhood', v)} copyValue={draft.witness?.address_neighborhood || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 4' }}>
+                  <TextField label="Cidade" value={draft.witness?.address_city || ''} onChange={(v) => patchWitness('address_city', v)} copyValue={draft.witness?.address_city || ''} />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <SelectField label="UF" value={draft.witness?.address_state || ''} onChange={(v) => patchWitness('address_state', normalizeText(v).toUpperCase().slice(0, 2))} options={[{ value: '', label: 'UF' }, ...ufs.map((uf) => ({ value: uf, label: uf }))]} copyValue={draft.witness?.address_state || ''} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'garantia' && (() => {
+            const producao: ProducaoMes[] = Array.isArray(draft.garantia?.producao) ? draft.garantia!.producao : []
+            const valorGarantido = Number(String(draft.garantia?.valor_garantia ?? '').replace(/[^\d.-]/g, '')) || 0
+            const aval = avaliarGarantia(valorGarantido, producao)
+            const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+            const socioPrincipal = draft.socios?.find((s) => s.is_principal) || draft.socios?.[0]
+            return (
+              <div style={{ display: 'grid', gap: '1rem' }}>
+                <SectionTitle
+                  icon={<ShieldCheck size={18} />}
+                  title="Garantia (Nota Promissória)"
+                  description="A garantia cobre o bimestre: a soma de 2 meses de produção deve caber no valor garantido. Faixas dobram: 500k → 1M → 2M → 4M…"
+                />
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
+                  <div style={{ gridColumn: 'span 4' }}>
+                    <TextField
+                      label="Valor Garantido (= valor da NP)"
+                      value={draft.garantia?.valor_garantia || ''}
+                      onChange={(v) => patchGarantia('valor_garantia', onlyDigits(v))}
+                      copyValue={String(draft.garantia?.valor_garantia || '')}
+                      inputMode="numeric"
+                      placeholder="500000"
+                    />
+                  </div>
+                </div>
+
+                {/* Produção mensal (manual — sem API ARW ainda) */}
+                <div className="card" style={{ padding: '1rem', border: '1px solid var(--brs-gray-100)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Produção mensal (últimos meses) — entrada manual</div>
+                    <button type="button" className="btn btn-outline" onClick={() => setGarantiaProducao([...producao, { mes: '', valor: 0 }])}>Adicionar mês</button>
+                  </div>
+                  {producao.length === 0 ? (
+                    <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-500)' }}>Nenhum mês informado. Adicione os últimos 6 meses para o monitoramento.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                      {producao.map((row, index) => (
+                        <div key={index} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <input className="form-control" style={{ maxWidth: 140 }} value={row.mes || ''} placeholder="2026-07" onChange={(e) => setGarantiaProducao(producao.map((r, i) => (i === index ? { ...r, mes: e.target.value } : r)))} />
+                          <input className="form-control" style={{ flex: 1 }} inputMode="numeric" value={row.valor || ''} placeholder="Valor produzido (R$)" onChange={(e) => setGarantiaProducao(producao.map((r, i) => (i === index ? { ...r, valor: Number(onlyDigits(e.target.value)) } : r)))} />
+                          <button type="button" className="btn btn-outline text-danger" onClick={() => setGarantiaProducao(producao.filter((_, i) => i !== index))}>Remover</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Indicador + visões */}
+                <div className="card" style={{ padding: '1rem', border: `1px solid ${aval.precisaRevisar ? '#FECACA' : 'var(--brs-gray-100)'}`, background: aval.precisaRevisar ? '#FEF2F2' : '#fff' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.75rem', fontSize: '0.82rem' }}>
+                    <div><div style={{ color: 'var(--brs-gray-500)' }}>Garantido (faixa atual)</div><div style={{ fontWeight: 800 }}>{brl(aval.valorGarantido)}</div></div>
+                    <div><div style={{ color: 'var(--brs-gray-500)' }}>Bimestre mais recente</div><div style={{ fontWeight: 800 }}>{brl(aval.bimestreRecente)}</div></div>
+                    <div><div style={{ color: 'var(--brs-gray-500)' }}>Média mensal</div><div style={{ fontWeight: 700 }}>{brl(aval.mediaMensal)}</div></div>
+                    <div><div style={{ color: 'var(--brs-gray-500)' }}>Média bimestral</div><div style={{ fontWeight: 700 }}>{brl(aval.mediaBimestral)}</div></div>
+                  </div>
+                  <div style={{ marginTop: '0.75rem', fontWeight: 700, color: aval.precisaRevisar ? '#991B1B' : '#166534' }}>
+                    {aval.precisaRevisar
+                      ? `🚩 Revisar garantia — o bimestre ultrapassou a faixa. Sugerido: ${brl(aval.faixaSugerida)}.`
+                      : '✅ Dentro da garantia — o bimestre cabe na faixa atual.'}
+                  </div>
+                </div>
+
+                {/* Avalistas / devedores solidários (sócio principal + testemunha) */}
+                <div className="card" style={{ padding: '1rem', border: '1px solid var(--brs-gray-100)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.5rem' }}>Avalistas / Devedores Solidários</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-600)' }}>
+                    • {socioPrincipal?.name || '(sócio principal não cadastrado)'} {socioPrincipal?.cpf ? `— ${maskCpf(socioPrincipal.cpf)}` : ''} <span style={{ color: 'var(--brs-gray-400)' }}>(sócio principal)</span>
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-600)' }}>
+                    • {draft.witness?.name || '(testemunha não cadastrada)'} {draft.witness?.cpf ? `— ${maskCpf(draft.witness.cpf)}` : ''} <span style={{ color: 'var(--brs-gray-400)' }}>(testemunha)</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {activeTab === 'documentos' && (
             <div style={{ display: 'grid', gap: '1rem' }}>

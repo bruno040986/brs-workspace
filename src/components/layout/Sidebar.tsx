@@ -30,11 +30,10 @@ import {
   Bus,
   BookOpen,
   Link2,
-  Workflow,
   X,
 } from 'lucide-react'
 import { getMyEffectivePermissions } from '@/lib/auth/actions'
-import { hasAnyPermission, hasPermission, hasScpAutomationLibraryAccess, type EffectivePermission } from '@/lib/auth/permissions'
+import { hasAnyPermission, hasPermission, type EffectivePermission } from '@/lib/auth/permissions'
 
 type NavItem = {
   label: string
@@ -179,7 +178,6 @@ export default function Sidebar() {
       if (item.href === '/rh/parceiros/config/documentos') return canView('scp-documentos')
       if (item.href === '/rh/parceiros/config/emails') return canView('scp-emails')
       if (item.href === '/rh/parceiros/config/whatsapp') return canView('scp-whatsapp')
-      if (item.href === '/rh/parceiros/config/acoes-gatilhos') return hasScpAutomationLibraryAccess(permissions)
 
       if (item.href === '/comunicados') return canView('sistema-comunicados')
 
@@ -416,8 +414,6 @@ export default function Sidebar() {
       { label: 'Modelos de Documentos', href: '/rh/parceiros/config/documentos', icon: FileText },
       { label: 'Modelos de E-mails', href: '/rh/parceiros/config/emails', icon: Mail },
       { label: 'Modelos de WhatsApp', href: '/rh/parceiros/config/whatsapp', icon: MessageSquare },
-      { type: 'section', label: 'Automações' },
-      { label: 'Ações e Gatilhos', href: '/rh/parceiros/config/acoes-gatilhos', icon: Workflow },
       { type: 'section', label: 'Sistema' },
       { label: 'Voltar ao Workspace', href: '/', icon: LayoutDashboard },
     ]

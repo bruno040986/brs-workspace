@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { buildAgenteCorbanLegacyPersistenceRow } from '@/lib/agente-corban'
+import { mapFormAnswersToSystemKeys, routeFormAnswersToCorbanData } from '@/lib/agente-corban-fields'
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 const ALLOWED_UPLOAD_MIME_TYPES: string[] = ['application/pdf', 'image/jpeg', 'image/png']
@@ -205,6 +206,59 @@ function getMimeType(fileName: string): string {
 // 3. Enviar Registro de Parceiro
 // =========================================================================
 
+/**
+ * Traduz as respostas do formulário para os caminhos canônicos de `corban_data`.
+ *
+ * As respostas chegam indexadas pela chave do campo (`field.key`); o vínculo com
+ * a entidade está no `system_key` declarado no schema do formulário. Por isso a
+ * tradução acontece aqui no servidor, que tem acesso ao schema pelo `form_id`.
+ *
+ * Aditivo por design: `additional_data` continua recebendo todas as respostas
+ * cruas, então nenhum dado se perde enquanto a migração para o dicionário acontece.
+ * Se o formulário não for encontrado, devolve `corban_data` intacto em vez de falhar —
+ * um cadastro de parceiro nunca deve ser perdido por causa do roteamento.
+ */
+async function applyCanonicalFieldRouting(
+  formId: string | undefined,
+  answersByFieldKey: Record<string, any> | undefined,
+  baseCorbanData: Record<string, any>,
+): Promise<Record<string, any>> {
+  const answers = answersByFieldKey || {}
+  if (!formId || Object.keys(answers).length === 0) return baseCorbanData
+
+  try {
+    const { data: form, error } = await supabaseAdmin
+      .from('partner_forms')
+      .select('schema')
+      .eq('id', formId)
+      .maybeSingle()
+
+    if (error || !form) {
+      console.warn('Roteamento canônico ignorado: formulário não encontrado.', formId)
+      return baseCorbanData
+    }
+
+    const schema = Array.isArray((form as any).schema) ? (form as any).schema : []
+    const answersBySystemKey = mapFormAnswersToSystemKeys(schema, answers)
+
+    if (Object.keys(answersBySystemKey).length === 0) return baseCorbanData
+
+    const routed = routeFormAnswersToCorbanData(answersBySystemKey, baseCorbanData)
+
+    if (routed.unmappedKeys.length > 0) {
+      console.warn(
+        'system_keys sem correspondência no dicionário canônico:',
+        routed.unmappedKeys.join(', '),
+      )
+    }
+
+    return routed.corbanData
+  } catch (err: any) {
+    console.error('Falha no roteamento canônico de campos:', err?.message)
+    return baseCorbanData
+  }
+}
+
 export async function submitPartnerRegistration(payload: {
   process_slug?: string
   form_id: string
@@ -317,6 +371,12 @@ export async function submitPartnerRegistration(payload: {
       status: 'novo',
     }
 
+    partnerInsert.corban_data = await applyCanonicalFieldRouting(
+      payload.form_id,
+      payload.additional_data,
+      (partnerInsertBase as any).corban_data || {},
+    )
+
     let partner: any = null
 
     const { data: inserted, error: insertErr } = await supabaseAdmin
@@ -399,6 +459,14 @@ export async function submitPartnerRegistration(payload: {
         } catch {
           updateData.corban_data = (partnerInsertBase as any).corban_data || {}
         }
+
+        // Reenvio: as respostas canônicas são aplicadas sobre o corban_data já existente,
+        // preservando o que o backoffice preencheu e o que veio do ARW.
+        updateData.corban_data = await applyCanonicalFieldRouting(
+          payload.form_id,
+          payload.additional_data,
+          updateData.corban_data || {},
+        )
 
         const { data: updated, error: uErr } = await supabaseAdmin
           .from('agentes_parceiros')
@@ -509,6 +577,21 @@ export async function submitPartnerRegistration(payload: {
               payload: snapshotPayload,
             })
           if (snapErr) throw snapErr
+
+          // Motor: entrar na etapa inicial dispara as ações de entrada dela.
+          if (initialStageId) {
+            try {
+              const { enqueueJob, buildDedupeKey } = await import('@/lib/scp-engine')
+              await enqueueJob({
+                kind: 'enter_stage',
+                instanceId: inst.id,
+                dedupeKey: buildDedupeKey('enter', inst.id, initialStageId),
+                payload: { stage_id: initialStageId },
+              })
+            } catch (engineErr: any) {
+              console.warn('Não foi possível enfileirar enter_stage inicial:', engineErr?.message)
+            }
+          }
         }
       }
     }

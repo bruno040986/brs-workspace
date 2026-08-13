@@ -30,18 +30,6 @@ import { normalizeCompanySectorName, type CompanySectorRecord } from '@/lib/comp
 import { normalizeNfseEmissionTypeName, type NfseEmissionTypeRecord } from '@/lib/nfse-emission-types'
 import { normalizeReceiptMethodName, type ReceiptMethodRecord } from '@/lib/receipt-methods'
 import { normalizeRemunerationTypeName, type RemunerationTypeRecord } from '@/lib/remuneration-types'
-import {
-  buildScpAutomationDuplicateCode,
-  getScpAutomationKindLabel,
-  getScpAutomationTable,
-  normalizeScpAutomationCode,
-  normalizeScpAutomationConfig,
-  normalizeScpAutomationText,
-  SCP_AUTOMATION_LIBRARY_ACCESS_RESOURCES,
-  SCP_AUTOMATION_LIBRARY_ROUTE,
-  type ScpAutomationKind,
-  type ScpAutomationRow,
-} from '@/lib/scp-automations'
 import { normalizeSystemTypeName, type SystemTypeRecord } from '@/lib/system-types'
 
 // Inicialização do cliente Supabase Admin para operações privilegiadas
@@ -173,7 +161,7 @@ export async function getProvedoresConfig() {
       }
     }
 
-    let assinafy = { id: '', api_key: '', is_active: false }
+    let assinafy = { id: '', api_key: '', account_id: '', environment: 'production', webhook_secret: '', is_active: false }
     if (canViewAssinatura) {
       try {
         const { data, error } = await supabaseAdmin
@@ -203,7 +191,7 @@ export async function getProvedoresConfig() {
 export async function saveProvedoresConfig(data: {
   resend?: { id?: string; api_key: string; from_email: string; is_active: boolean }
   zapi?: { id?: string; instance_id: string; token: string; client_key?: string; is_active: boolean }
-  assinafy?: { id?: string; api_key: string; is_active: boolean }
+  assinafy?: { id?: string; api_key: string; account_id?: string; environment?: string; webhook_secret?: string; is_active: boolean }
 }) {
   try {
     const requiredConfigPermissions: PermissionRequirement[] = []
@@ -296,29 +284,46 @@ export async function saveProvedoresConfig(data: {
 
     // 3. Salvar Assinafy
     if (data.assinafy) {
+      // environment só aceita 'sandbox' ou 'production' (CHECK no banco).
+      const environment = data.assinafy.environment === 'sandbox' ? 'sandbox' : 'production'
+      const assinafyRow = {
+        api_key: data.assinafy.api_key,
+        account_id: data.assinafy.account_id || '',
+        environment,
+        webhook_secret: data.assinafy.webhook_secret || '',
+        is_active: data.assinafy.is_active,
+      }
       try {
         if (data.assinafy.id) {
           const { error } = await supabaseAdmin
             .from('assinafy_config')
-            .update({
-              api_key: data.assinafy.api_key,
-              is_active: data.assinafy.is_active,
-              updated_at: new Date().toISOString()
-            })
+            .update({ ...assinafyRow, updated_at: new Date().toISOString() })
             .eq('id', data.assinafy.id)
           if (error) throw error
         } else {
           const { error } = await supabaseAdmin
             .from('assinafy_config')
-            .insert({
-              api_key: data.assinafy.api_key,
-              is_active: data.assinafy.is_active
-            })
+            .insert(assinafyRow)
           if (error) throw error
         }
       } catch (err: any) {
         if (err.code === 'PGRST205') {
           console.warn('assinafy_config table not found. Skipped DB save.')
+        } else if (err.code === 'PGRST204' || err.code === '42703') {
+          // Colunas novas (account_id/environment/webhook_secret) ainda não existem
+          // neste banco — cai para o subconjunto legado para não travar o save.
+          console.warn('assinafy_config sem as colunas novas; salvando apenas api_key/is_active.')
+          const legacyRow = { api_key: data.assinafy.api_key, is_active: data.assinafy.is_active }
+          if (data.assinafy.id) {
+            const { error } = await supabaseAdmin
+              .from('assinafy_config')
+              .update({ ...legacyRow, updated_at: new Date().toISOString() })
+              .eq('id', data.assinafy.id)
+            if (error) throw error
+          } else {
+            const { error } = await supabaseAdmin.from('assinafy_config').insert(legacyRow)
+            if (error) throw error
+          }
         } else throw err
       }
     }
@@ -327,6 +332,665 @@ export async function saveProvedoresConfig(data: {
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao salvar provedores:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Testa credenciais da Assinafy contra a API real, sem gravar nada.
+ *
+ * Usado pelo botão "Testar conexão" da tela de config: valida API Key +
+ * Account ID + ambiente antes de salvar, dando feedback imediato de que o
+ * sandbox (ou a produção) está configurado corretamente.
+ */
+export async function testAssinafyConnection(input: {
+  api_key: string
+  account_id: string
+  environment?: string
+}) {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_view')
+
+    const apiKey = String(input.api_key || '').trim()
+    const accountId = String(input.account_id || '').trim()
+    if (!apiKey) return { success: false, error: 'Informe a API Key antes de testar.' }
+    if (!accountId) return { success: false, error: 'Informe o Account ID antes de testar.' }
+
+    const { pingAssinafyCredentials } = await import('@/lib/assinafy')
+    const environment = input.environment === 'sandbox' ? 'sandbox' : 'production'
+    const result = await pingAssinafyCredentials({ apiKey, accountId, environment })
+
+    if (result.ok) {
+      return { success: true, environment }
+    }
+    return { success: false, error: result.error || 'Não foi possível validar as credenciais.' }
+  } catch (error: any) {
+    console.error('Erro ao testar conexão com a Assinafy:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Lista os templates cadastrados na Assinafy, extraindo papéis e campos com
+ * seus IDs reais. É a ponte entre "o contrato na Assinafy" e o dicionário
+ * canônico: os `role_id` e `field_id` daqui são o que a automação vai preencher.
+ *
+ * Devolve também o JSON cru de cada template, para inspecionar a estrutura
+ * exata que a API retorna enquanto mapeamos.
+ */
+export async function inspectAssinafyTemplates() {
+  try {
+    // Usada tanto na config de assinatura quanto no catálogo de Modelos de Documento.
+    await requireAny([
+      { resource: 'sistema-config-assinatura', action: 'can_view' },
+      { resource: 'scp-documentos', action: 'can_view' },
+    ])
+
+    const { AssinafyClient } = await import('@/lib/assinafy')
+    const client = await AssinafyClient.fromActiveConfig()
+    const templates = await client.listTemplates()
+
+    const summary = (Array.isArray(templates) ? templates : []).map((tpl: any) => {
+      const roles = Array.isArray(tpl?.roles)
+        ? tpl.roles.map((r: any) => ({ id: String(r?.id || ''), name: String(r?.name || '') }))
+        : []
+
+      // Campos podem vir achatados em `fields` ou aninhados por página.
+      const rawFields: any[] = Array.isArray(tpl?.fields)
+        ? tpl.fields
+        : Array.isArray(tpl?.pages)
+          ? tpl.pages.flatMap((p: any) => (Array.isArray(p?.fields) ? p.fields : []))
+          : []
+
+      const fields = rawFields.map((f: any) => ({
+        id: String(f?.id || ''),
+        field_id: String(f?.field_id || f?.id || ''),
+        label: String(f?.label || f?.name || ''),
+        type: String(f?.type || f?.field_type || ''),
+        role_id: String(f?.role_id || ''),
+      }))
+
+      return {
+        id: String(tpl?.id || ''),
+        name: String(tpl?.name || ''),
+        roles,
+        fields,
+      }
+    })
+
+    return { success: true, templates: summary, raw: templates }
+  } catch (error: any) {
+    console.error('Erro ao inspecionar templates da Assinafy:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Cria na Assinafy todos os campos do Contrato PS PJ (nomeados e mapeados ao
+ * dicionário canônico), pulando os que já existem. Depois disso, esses campos
+ * aparecem no editor de template para posicionamento, cada um com field_id
+ * próprio. Idempotente: pode rodar quantas vezes quiser.
+ */
+export async function syncAssinafyContractFields() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+
+    const { AssinafyClient, CONTRATO_PS_PJ_FIELD_MAP } = await import('@/lib/assinafy')
+    const client = await AssinafyClient.fromActiveConfig()
+
+    const existing = await client.listFields()
+    const existingByName = new Map(
+      existing.map((f: any) => [String(f?.name || '').trim().toLowerCase(), f]),
+    )
+
+    const results: Array<{ name: string; canonicalKey: string; field_id: string; created: boolean }> = []
+
+    for (const mapping of CONTRATO_PS_PJ_FIELD_MAP) {
+      const nameKey = mapping.assinafyName.trim().toLowerCase()
+      const found = existingByName.get(nameKey)
+      if (found) {
+        results.push({
+          name: mapping.assinafyName,
+          canonicalKey: mapping.canonicalKey,
+          field_id: String(found?.id || ''),
+          created: false,
+        })
+        continue
+      }
+      const field = await client.createField({ name: mapping.assinafyName, type: 'text' })
+      results.push({
+        name: mapping.assinafyName,
+        canonicalKey: mapping.canonicalKey,
+        field_id: String((field as any)?.id || ''),
+        created: true,
+      })
+    }
+
+    const createdCount = results.filter((r) => r.created).length
+    return { success: true, results, createdCount, skippedCount: results.length - createdCount }
+  } catch (error: any) {
+    console.error('Erro ao sincronizar campos do contrato na Assinafy:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// =========================================================================
+// Motor de execução (frente C) — ações de teste/inspeção
+// =========================================================================
+
+/**
+ * Dispara manualmente as ações de entrada da etapa ATUAL de uma instância
+ * (a "válvula" do operador). Decisão de design: mover card não dispara; este
+ * botão dispara com intenção explícita. Enfileira enter_stage para a etapa
+ * corrente — idempotente pela dedupe_key.
+ */
+export async function triggerStageActions(instanceId: string) {
+  try {
+    await requirePermission('scp-crm', 'can_edit')
+    if (!instanceId) return { success: false, error: 'Instância inválida.' }
+
+    const { data: instance, error } = await supabaseAdmin
+      .from('process_instances')
+      .select('id, current_stage_id, status')
+      .eq('id', instanceId)
+      .maybeSingle()
+    if (error) throw error
+    if (!instance) return { success: false, error: 'Instância não encontrada.' }
+    if (!instance.current_stage_id) return { success: false, error: 'Instância sem etapa atual.' }
+
+    const { enqueueJob, buildDedupeKey } = await import('@/lib/scp-engine')
+    const res = await enqueueJob({
+      kind: 'enter_stage',
+      instanceId: String(instance.id),
+      // timestamp na dedupe permite re-disparar manualmente (nova intenção do operador).
+      dedupeKey: buildDedupeKey('enter', instance.id, instance.current_stage_id, 'manual', new Date().toISOString()),
+      payload: { stage_id: instance.current_stage_id, source: 'operator' },
+    })
+    return { success: true, ...res }
+  } catch (error: any) {
+    console.error('Erro ao disparar ações da etapa:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Enfileira um job de teste (log_event) para exercitar o loop do motor. */
+export async function enqueueEngineTestJob() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+    const { enqueueJob, buildDedupeKey } = await import('@/lib/scp-engine')
+    const stamp = new Date().toISOString()
+    const res = await enqueueJob({
+      kind: 'log_event',
+      dedupeKey: buildDedupeKey('test', stamp),
+      payload: { event_type: 'engine_test', data: { at: stamp } },
+    })
+    return { success: true, ...res }
+  } catch (error: any) {
+    console.error('Erro ao enfileirar job de teste:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Roda o motor uma vez (drena a fila). Em produção quem faz isso é o cron. */
+export async function runEngineOnce() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+    const { runDueJobs } = await import('@/lib/scp-engine')
+    const result = await runDueJobs('manual', 20)
+    return { success: true, ...result }
+  } catch (error: any) {
+    console.error('Erro ao rodar o motor:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Lista os jobs recentes da fila do motor. */
+export async function listEngineJobs() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_view')
+    const { listRecentJobs } = await import('@/lib/scp-engine')
+    const jobs = await listRecentJobs(30)
+    return { success: true, jobs }
+  } catch (error: any) {
+    console.error('Erro ao listar jobs:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Reconciliação por polling: consulta o status atual de cada documento pendente
+ * na Assinafy e atualiza o registro. É a rede de segurança para quando o webhook
+ * falha (a entrega da Assinafy é frágil: 2 tentativas + circuit breaker).
+ */
+export async function reconcileAssinafyDocuments() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+
+    const { AssinafyClient, listPendingAssinafyDocuments, updateAssinafyDocumentStatus } =
+      await import('@/lib/assinafy')
+    const { enqueueJob, buildDedupeKey } = await import('@/lib/scp-engine')
+
+    const pending = await listPendingAssinafyDocuments()
+    if (pending.length === 0) return { success: true, checked: 0, updated: 0, results: [] }
+
+    const client = await AssinafyClient.fromActiveConfig()
+    let updated = 0
+    const results: Array<{ documentId: string; from: string; to: string; changed: boolean }> = []
+
+    for (const record of pending) {
+      const documentId = String(record.document_id)
+      try {
+        const doc = await client.getDocument(documentId)
+        const newStatus = String((doc as any)?.status || '')
+        const changed = !!newStatus && newStatus !== String(record.status || '')
+        if (changed) {
+          await updateAssinafyDocumentStatus(documentId, newStatus, 'reconcile')
+          updated += 1
+
+          // Assinatura concluída → o motor avança a etapa da instância vinculada.
+          if (newStatus === 'certificated' && record.process_instance_id) {
+            await enqueueJob({
+              kind: 'advance_stage',
+              instanceId: String(record.process_instance_id),
+              dedupeKey: buildDedupeKey('advance', record.process_instance_id, 'doc', documentId),
+              payload: { reason: 'signature_certificated', document_id: documentId },
+            })
+          }
+        }
+        results.push({ documentId, from: String(record.status || ''), to: newStatus, changed })
+      } catch (err: any) {
+        results.push({ documentId, from: String(record.status || ''), to: `erro: ${err.message}`, changed: false })
+      }
+    }
+
+    return { success: true, checked: pending.length, updated, results }
+  } catch (error: any) {
+    console.error('Erro na reconciliação de documentos:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Registra/atualiza a inscrição de webhook na Assinafy, apontando para o nosso
+ * endpoint público com o segredo. Requer NEXT_PUBLIC_APP_URL configurado e um
+ * webhook_secret salvo (para validar a origem).
+ */
+export async function registerAssinafyWebhook() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+
+    const { AssinafyClient, SCP_WEBHOOK_EVENTS, getAssinafyConfig } = await import('@/lib/assinafy')
+    const config = await getAssinafyConfig()
+    if (!config) return { success: false, error: 'Assinafy não configurada.' }
+
+    const appUrl = String(process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/+$/, '')
+    if (!appUrl || appUrl.includes('localhost')) {
+      return {
+        success: false,
+        error:
+          'NEXT_PUBLIC_APP_URL precisa ser uma URL pública (a Assinafy não alcança localhost). Configure o domínio de produção/preview.',
+      }
+    }
+
+    const secret = String(config.webhookSecret || '').trim()
+    const url = secret
+      ? `${appUrl}/api/assinafy/webhook?secret=${encodeURIComponent(secret)}`
+      : `${appUrl}/api/assinafy/webhook`
+
+    const client = AssinafyClient.fromConfig(config)
+    await client.upsertWebhookSubscription({
+      events: SCP_WEBHOOK_EVENTS,
+      is_active: true,
+      url,
+      email: 'bruno.rodrigues@brspromotora.com.br',
+    })
+
+    return { success: true, url, events: SCP_WEBHOOK_EVENTS, hasSecret: !!secret }
+  } catch (error: any) {
+    console.error('Erro ao registrar webhook da Assinafy:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Lista os templates da Assinafy como opções (id + nome) para o construtor. */
+export async function listAssinafyTemplateOptions() {
+  try {
+    await requireServerPermission('scp-processos', 'can_view')
+    const { AssinafyClient } = await import('@/lib/assinafy')
+    const client = await AssinafyClient.fromActiveConfig()
+    const templates = await client.listTemplates()
+    const options = (Array.isArray(templates) ? templates : []).map((t: any) => ({
+      id: String(t?.id || ''),
+      name: String(t?.name || ''),
+    }))
+    return { success: true, options }
+  } catch (error: any) {
+    console.error('Erro ao listar templates da Assinafy:', error)
+    return { success: false, error: error.message, options: [] }
+  }
+}
+
+/** Lista os documentos recentes gerados na Assinafy (com status). */
+export async function listAssinafyDocuments() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_view')
+    const { listRecentAssinafyDocuments } = await import('@/lib/assinafy')
+    const documents = await listRecentAssinafyDocuments(30)
+    return { success: true, documents }
+  } catch (error: any) {
+    console.error('Erro ao listar documentos da Assinafy:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Lista agentes/parceiros para escolher na geração de contrato de teste.
+ */
+export async function listAgentesForContract() {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_view')
+    const { data, error } = await supabaseAdmin
+      .from('agentes_parceiros')
+      .select('id, name, cpf_cnpj, corban_data, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(50)
+    if (error) throw error
+    const agentes = (data || []).map((a: any) => ({
+      id: String(a.id),
+      name: String(a.name || a?.corban_data?.master?.name || 'Sem nome'),
+      cpf_cnpj: String(a.cpf_cnpj || a?.corban_data?.master?.cpf_cnpj || ''),
+    }))
+    return { success: true, agentes }
+  } catch (error: any) {
+    console.error('Erro ao listar agentes:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Gera um contrato REAL a partir do corban_data de um parceiro: preenche o
+ * template com os dados da entidade e cria o pedido de assinatura, retornando
+ * os links por parte. Os convites vão para o e-mail de teste informado (sandbox).
+ *
+ * É o fechamento da frente A: entidade real → contrato preenchido.
+ */
+export async function generatePartnerContract(input: {
+  partnerId: string
+  templateName?: string
+  testEmail: string
+}) {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+
+    const testEmail = String(input.testEmail || '').trim()
+    if (!testEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
+      return { success: false, error: 'Informe um e-mail de teste válido.' }
+    }
+    if (!input.partnerId) return { success: false, error: 'Selecione um parceiro.' }
+
+    // 1. Carregar o parceiro e normalizar o corban_data
+    const { data: partner, error: pErr } = await supabaseAdmin
+      .from('agentes_parceiros')
+      .select('*')
+      .eq('id', input.partnerId)
+      .maybeSingle()
+    if (pErr) throw pErr
+    if (!partner) return { success: false, error: 'Parceiro não encontrado.' }
+
+    const { normalizeAgenteCorbanDraftFromRow } = await import('@/lib/agente-corban')
+    const corbanData = normalizeAgenteCorbanDraftFromRow(partner as any).corban_data || {}
+
+    const { AssinafyClient, buildContractEditorFields, recordAssinafyDocument, getAssinafyConfig } =
+      await import('@/lib/assinafy')
+    const client = await AssinafyClient.fromActiveConfig()
+
+    // 2. Localizar o template
+    const templates = await client.listTemplates()
+    const wanted = String(input.templateName || '').trim().toLowerCase()
+    const template =
+      (wanted ? templates.find((t: any) => String(t?.name || '').toLowerCase().includes(wanted)) : null) ||
+      templates[templates.length - 1]
+    if (!template) return { success: false, error: 'Nenhum template encontrado na conta.' }
+
+    // 3. editor_fields a partir do corban_data REAL
+    const rawFields: any[] = Array.isArray((template as any).fields)
+      ? (template as any).fields
+      : Array.isArray((template as any).pages)
+        ? (template as any).pages.flatMap((p: any) => (Array.isArray(p?.fields) ? p.fields : []))
+        : []
+    const { editorFields, filled, missing, unmapped } = buildContractEditorFields(corbanData, rawFields)
+
+    // 4. Signatários (para o teste, todos no e-mail informado com aliases; find-or-create)
+    const allRoles: any[] = Array.isArray((template as any).roles) ? (template as any).roles : []
+    const signingRoles = allRoles.filter(
+      (r: any) => !/preparador|editor|template/i.test(String(r?.name || '')),
+    )
+    if (signingRoles.length === 0) return { success: false, error: 'Template sem papéis de assinatura.' }
+
+    const [emailLocal, emailDomain] = testEmail.split('@')
+    const signers: Array<{ role_id: string; id: string; verification_method: 'Email'; notification_methods: ['Email']; step: number }> = []
+    for (let i = 0; i < signingRoles.length; i++) {
+      const role = signingRoles[i]
+      const email = i === 0 ? testEmail : `${emailLocal}+t${i + 1}@${emailDomain}`
+      const signer = await client.findOrCreateSigner({
+        full_name: `Teste — ${String(role?.name || 'Signatário').slice(0, 40)}`,
+        email,
+      })
+      signers.push({
+        role_id: String(role.id),
+        id: String((signer as any)?.id || ''),
+        verification_method: 'Email',
+        notification_methods: ['Email'],
+        step: 1,
+      })
+    }
+
+    // 5. Gerar o documento preenchido
+    const partnerName = String((partner as any).name || corbanData?.master?.name || 'Parceiro')
+    const doc = await client.createDocumentFromTemplate(String((template as any).id), {
+      signers,
+      editor_fields: editorFields,
+      name: `Contrato — ${partnerName}`,
+    })
+
+    const documentId = String((doc as any)?.id || '')
+    const signingUrls = (doc as any)?.assignment?.signing_urls || []
+
+    // 6. Persistir o documento para o webhook/reconciliação acompanharem o status
+    const cfg = await getAssinafyConfig()
+    await recordAssinafyDocument({
+      documentId,
+      partnerId: input.partnerId,
+      templateId: String((template as any).id || ''),
+      templateName: String((template as any).name || ''),
+      environment: cfg?.environment,
+      status: String((doc as any)?.status || ''),
+      signers,
+      signingUrls,
+    })
+
+    return {
+      success: true,
+      partnerName,
+      templateName: String((template as any).name || ''),
+      documentId,
+      status: String((doc as any)?.status || ''),
+      signingUrls,
+      filled,
+      missing,
+      unmapped,
+    }
+  } catch (error: any) {
+    console.error('Erro ao gerar contrato do parceiro:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Smoke test do fluxo A: gera um documento a partir de um template da Assinafy,
+ * preenchido com dados de exemplo e com o pedido de assinatura criado, retornando
+ * os links de assinatura por parte.
+ *
+ * Auto-descobre papéis e campos do template; mapeia os campos pelo nome usando
+ * CONTRATO_PS_PJ_FIELD_MAP; cria um signatário por papel (todos no e-mail de teste
+ * informado). É um teste em SANDBOX — não dispara nada real.
+ */
+export async function smokeTestAssinafyContract(input: { templateName?: string; testEmail: string }) {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+
+    const testEmail = String(input.testEmail || '').trim()
+    if (!testEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
+      return { success: false, error: 'Informe um e-mail de teste válido.' }
+    }
+
+    const { AssinafyClient, canonicalKeyForAssinafyField } = await import('@/lib/assinafy')
+    const client = await AssinafyClient.fromActiveConfig()
+
+    // 1. Localizar o template
+    const templates = await client.listTemplates()
+    const wanted = String(input.templateName || '').trim().toLowerCase()
+    const template =
+      (wanted ? templates.find((t: any) => String(t?.name || '').toLowerCase().includes(wanted)) : null) ||
+      templates[templates.length - 1]
+    if (!template) return { success: false, error: 'Nenhum template encontrado na conta.' }
+
+    // 2. Papéis que assinam (exclui o "Preparador do documento" / editor)
+    const allRoles: any[] = Array.isArray((template as any).roles) ? (template as any).roles : []
+    const signingRoles = allRoles.filter(
+      (r: any) => !/preparador|editor|template/i.test(String(r?.name || '')),
+    )
+    if (signingRoles.length === 0) return { success: false, error: 'Template sem papéis de assinatura.' }
+
+    // 3. Campos do template → editor_fields (valores de exemplo), deduplicados por field_id
+    const rawFields: any[] = Array.isArray((template as any).fields)
+      ? (template as any).fields
+      : Array.isArray((template as any).pages)
+        ? (template as any).pages.flatMap((p: any) => (Array.isArray(p?.fields) ? p.fields : []))
+        : []
+
+    const SAMPLE: Record<string, string> = {
+      name: 'ACME Correspondente LTDA',
+      cpf_cnpj: '12.345.678/0001-90',
+      address_street: 'Rua das Flores',
+      address_number: '100',
+      address_complement: 'Sala 2',
+      address_neighborhood: 'Centro',
+      address_city: 'Goiânia',
+      address_state: 'GO',
+      cep: '74000-000',
+      partner_1_name: 'João da Silva',
+      partner_1_email: testEmail,
+      partner_1_cpf: '111.222.333-44',
+      partner_1_marital_status: 'Casado',
+      partner_1_profession: 'Empresário',
+      partner_1_company_role: 'Sócio-Administrador',
+      arw_code: 'GO0001',
+      payment_period: 'Semanal',
+    }
+
+    // A Assinafy exige valor para TODOS os campos do editor. Preenchemos os
+    // mapeados com dados de exemplo e os não-mapeados com um chute pelo nome/tipo.
+    const guessValue = (name: string, type: string): string => {
+      const n = String(name || '').toLowerCase()
+      const t = String(type || '').toLowerCase()
+      if (t === 'cpf' || /\bcpf\b/.test(n)) return '111.222.333-44'
+      if (t === 'cnpj' || /cnpj/.test(n)) return '12.345.678/0001-90'
+      if (t === 'cep' || /cep/.test(n)) return '74000-000'
+      if (t === 'email' || /mail/.test(n)) return testEmail
+      if (t === 'date' || /data/.test(n)) return '2026-07-26'
+      if (t === 'number' || /n[uú]mero/.test(n)) return '100'
+      if (/raz[aã]o|nome da empresa/.test(n)) return 'ACME Correspondente LTDA'
+      if (/nome/.test(n)) return 'João da Silva'
+      return 'TESTE'
+    }
+
+    const seen = new Set<string>()
+    const editorFields: Array<{ field_id: string; value: string }> = []
+    const mapped: Array<{ name: string; canonicalKey: string; value: string }> = []
+    const unmapped: string[] = []
+
+    for (const f of rawFields) {
+      const fieldName = String(f?.label || f?.name || '')
+      const fieldId = String(f?.field_id || f?.id || '')
+      if (!fieldId || seen.has(fieldId)) continue
+      seen.add(fieldId)
+
+      const key = canonicalKeyForAssinafyField(fieldName)
+      if (key) {
+        const value = SAMPLE[key] || guessValue(fieldName, String(f?.type || ''))
+        editorFields.push({ field_id: fieldId, value })
+        mapped.push({ name: fieldName, canonicalKey: key, value })
+      } else {
+        const value = guessValue(fieldName, String(f?.type || ''))
+        editorFields.push({ field_id: fieldId, value })
+        if (fieldName) unmapped.push(fieldName)
+      }
+    }
+
+    // 4. Um signatário por papel. E-mail é único na Assinafy, então usamos aliases
+    //    distintos (o primeiro papel fica com o e-mail real; os demais com +tN).
+    //    find-or-create evita o erro "signatário já existe" ao re-rodar.
+    const [emailLocal, emailDomain] = testEmail.split('@')
+    const signers: Array<{ role_id: string; id: string; verification_method: 'Email'; notification_methods: ['Email']; step: number }> = []
+    for (let i = 0; i < signingRoles.length; i++) {
+      const role = signingRoles[i]
+      const email = i === 0 ? testEmail : `${emailLocal}+t${i + 1}@${emailDomain}`
+      const signer = await client.findOrCreateSigner({
+        full_name: `Teste — ${String(role?.name || 'Signatário').slice(0, 40)}`,
+        email,
+      })
+      signers.push({
+        role_id: String(role.id),
+        id: String((signer as any)?.id || ''),
+        verification_method: 'Email',
+        notification_methods: ['Email'],
+        step: 1,
+      })
+    }
+
+    // 5. Gerar o documento a partir do template (preenchido + pedido de assinatura)
+    const doc = await client.createDocumentFromTemplate(String((template as any).id), {
+      signers,
+      editor_fields: editorFields,
+      name: `Smoke test — ${String((template as any).name || 'Contrato')}`,
+    })
+
+    const signingUrls = (doc as any)?.assignment?.signing_urls || []
+
+    return {
+      success: true,
+      templateName: String((template as any).name || ''),
+      templateId: String((template as any).id || ''),
+      documentId: String((doc as any)?.id || ''),
+      status: String((doc as any)?.status || ''),
+      signingUrls,
+      mapped,
+      unmapped,
+      signerCount: signers.length,
+    }
+  } catch (error: any) {
+    console.error('Erro no smoke test da Assinafy:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Cria um campo customizado nomeado na Assinafy (experimento para validar que
+ * campos criados via API aparecem no editor de template, com field_id distinto).
+ */
+export async function createAssinafyTestField(name: string, type: string = 'text') {
+  try {
+    await requireServerPermission('sistema-config-assinatura', 'can_edit')
+    const fieldName = String(name || '').trim()
+    if (!fieldName) return { success: false, error: 'Informe o nome do campo.' }
+
+    const { AssinafyClient } = await import('@/lib/assinafy')
+    const client = await AssinafyClient.fromActiveConfig()
+    const field = await client.createField({ name: fieldName, type })
+    return { success: true, field }
+  } catch (error: any) {
+    console.error('Erro ao criar campo de teste na Assinafy:', error)
     return { success: false, error: error.message }
   }
 }
@@ -700,6 +1364,25 @@ export async function deleteCommercialEntity(id: string) {
   }
 }
 
+export async function reactivateCommercialEntity(id: string) {
+  try {
+    await requirePermission('comercial-agentes', 'can_activate_inactivate')
+
+    const { error } = await supabaseAdmin
+      .from('commercial_entities')
+      .update({ status: 'ativo', updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    if (error) throw error
+
+    revalidatePath('/rh/parceiros/config/comercial')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao reativar entidade comercial:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 // =========================================================================
 // 3. Construtor de Formulários (Schema Builder)
 // =========================================================================
@@ -1013,7 +1696,6 @@ export async function saveContractTemplate(templateData: {
       if (error) throw error
     }
 
-    revalidatePath('/rh/parceiros/config/templates')
     revalidatePath('/rh/parceiros/config/documentos')
     return { success: true }
   } catch (error: any) {
@@ -1624,10 +2306,10 @@ export async function saveNbs(payload: NbsRecord) {
     const description = normalizeNbsDescription(payload.description)
 
     if (code.length !== 9) {
-      return { success: false, error: 'O cÃ³digo do NBS deve conter 9 dÃ­gitos.' }
+      return { success: false, error: 'O código do NBS deve conter 9 dígitos.' }
     }
     if (!description) {
-      return { success: false, error: 'A descriÃ§Ã£o do NBS Ã© obrigatÃ³ria.' }
+      return { success: false, error: 'A descrição do NBS é obrigatória.' }
     }
 
     const row = {
@@ -2802,12 +3484,7 @@ export async function validateProcessModel(id: string) {
       if (template?.name) emailByName.set(String(template.name).toLowerCase(), template)
     }
 
-    const hasSignatureAction =
-      docs.some((d: any) => d?.enabled !== false) ||
-      stageList.some((s: any) => {
-        const actions = Array.isArray(s?.config?.actions) ? s.config.actions : []
-        return actions.some((a: any) => String(a?.type || '').toLowerCase() === 'signature')
-      })
+    const hasSignatureAction = docs.some((d: any) => d?.enabled !== false)
 
     const checkTemplates = (items: any[], kind: string) => {
       for (const item of items) {
@@ -2893,26 +3570,15 @@ export async function validateProcessModel(id: string) {
     }
 
     for (const doc of docs) {
-      const template =
+      // O construtor agora seleciona o template da Assinafy (o que o motor usa para
+      // gerar o contrato). Legado: aceita o template_name interno se existir.
+      const assinafyTpl = String(doc?.assinafy_template_name || '').trim()
+      const legacyTpl =
         templateById.get(String(doc?.template_id || '')) ||
         templateByName.get(String(doc?.template_name || '').toLowerCase())
 
-      if (!template) {
-        blocking.push(`Documento "${doc?.name || 'sem nome'}" sem modelo válido selecionado.`)
-        continue
-      }
-
-      const requiredPlaceholders = (Array.isArray(template?.placeholders) ? template.placeholders : [])
-        .filter((p: any) => !!p?.required)
-
-      const mapping = doc?.placeholder_mapping && typeof doc.placeholder_mapping === 'object' ? doc.placeholder_mapping : {}
-      for (const placeholder of requiredPlaceholders) {
-        const placeholderId = String(placeholder?.id || '')
-        if (!placeholderId) continue
-        const mapped = String(mapping?.[placeholderId] || '')
-        if (!mapped) {
-          blocking.push(`Documento "${doc?.name || 'sem nome'}" sem vínculo para placeholder obrigatório "${placeholder?.label || placeholderId}".`)
-        }
+      if (!assinafyTpl && !legacyTpl) {
+        blocking.push(`Documento "${doc?.name || 'sem nome'}" sem template da Assinafy selecionado.`)
       }
     }
 
@@ -3101,7 +3767,7 @@ export async function saveEmailTemplate(templateData: {
     await requirePermission('scp-emails', templateData.id ? 'can_edit' : 'can_include')
 
     const normalizedName = String(templateData.name || '').trim()
-    if (!normalizedName) return { success: false, error: 'Nome do modelo Ã© obrigatÃ³rio.' }
+    if (!normalizedName) return { success: false, error: 'Nome do modelo é obrigatório.' }
 
     let checkQuery = supabaseAdmin
       .from('email_templates')
@@ -3114,7 +3780,7 @@ export async function saveEmailTemplate(templateData: {
     const { data: existing, error: checkErr } = await checkQuery.maybeSingle()
     if (checkErr) throw checkErr
     if (existing?.id) {
-      return { success: false, error: 'JÃ¡ existe um modelo de e-mail com esse nome.' }
+      return { success: false, error: 'Já existe um modelo de e-mail com esse nome.' }
     }
 
     if (templateData.id) {
@@ -3138,7 +3804,6 @@ export async function saveEmailTemplate(templateData: {
       if (error) throw error
     }
 
-    revalidatePath('/rh/parceiros/config/templates')
     revalidatePath('/rh/parceiros/config/emails')
     return { success: true }
   } catch (error: any) {
@@ -3200,244 +3865,72 @@ export async function saveWhatsappTemplate(templateData: {
   }
 }
 
-// =========================================================================
-// 6. Biblioteca Global de Automações (Ações e Gatilhos)
-// =========================================================================
-
-async function requireScpAutomationPermission(action: 'can_view' | 'can_include' | 'can_edit' | 'can_delete' | 'can_activate_inactivate' = 'can_view') {
-  await requireAnyPermission(
-    SCP_AUTOMATION_LIBRARY_ACCESS_RESOURCES.map((resource) => ({
-      resource,
-      action,
-    })),
-  )
+/** Erro amigável quando a coluna is_active ainda não existe (migration pendente). */
+function isActiveColumnMissing(error: any): boolean {
+  const msg = String(error?.message || '').toLowerCase()
+  return msg.includes('is_active') && (msg.includes('column') || msg.includes('could not find'))
 }
 
-function getScpAutomationConfigTable(kind: ScpAutomationKind) {
-  return getScpAutomationTable(kind)
-}
-
-function getScpAutomationSingularLabel(kind: ScpAutomationKind) {
-  return kind === 'actions' ? 'ação' : 'gatilho'
-}
-
-function normalizeAutomationRecord(row: Partial<ScpAutomationRow> & Record<string, any>): ScpAutomationRow {
-  return {
-    id: String(row?.id || ''),
-    name: normalizeScpAutomationText(row?.name),
-    code: normalizeScpAutomationCode(row?.code),
-    type: normalizeScpAutomationText(row?.type),
-    description: normalizeScpAutomationText(row?.description) || null,
-    config: normalizeScpAutomationConfig(row?.config),
-    is_active: row?.is_active !== false,
-    deleted_at: row?.deleted_at ?? null,
-    created_at: row?.created_at ?? null,
-    updated_at: row?.updated_at ?? null,
-  }
-}
-
-async function readAutomationRows(kind: ScpAutomationKind) {
-  const table = getScpAutomationConfigTable(kind)
-  return safeSelect(
-    supabaseAdmin
-      .from(table)
-      .select('id, name, code, type, description, config, is_active, deleted_at, created_at, updated_at')
-      .order('is_active', { ascending: false })
-      .order('name', { ascending: true }),
-    [] as ScpAutomationRow[],
-  )
-}
-
-export async function getScpAutomationLibrary() {
+export async function toggleEmailTemplateActive(id: string, isActive: boolean) {
   try {
-    await requireScpAutomationPermission('can_view')
-
-    const [actions, triggers] = await Promise.all([
-      readAutomationRows('actions'),
-      readAutomationRows('triggers'),
-    ])
-
-    return {
-      success: true,
-      actions: actions.map((row) => normalizeAutomationRecord(row)),
-      triggers: triggers.map((row) => normalizeAutomationRecord(row)),
-    }
-  } catch (error: any) {
-    console.error('Erro ao carregar biblioteca de automaÃ§Ãµes:', error)
-    return {
-      success: false,
-      error: error.message,
-      actions: [] as ScpAutomationRow[],
-      triggers: [] as ScpAutomationRow[],
-    }
-  }
-}
-
-export async function getScpAutomationRows(kind: ScpAutomationKind) {
-  try {
-    await requireScpAutomationPermission('can_view')
-
-    const rows = await readAutomationRows(kind)
-    return { success: true, rows: rows.map((row) => normalizeAutomationRecord(row)) }
-  } catch (error: any) {
-    if (isMissingTableError(error)) {
-      return { success: true, rows: [] as ScpAutomationRow[] }
-    }
-    console.error(`Erro ao carregar ${getScpAutomationKindLabel(kind)}:`, error)
-    return { success: false, error: error.message, rows: [] as ScpAutomationRow[] }
-  }
-}
-
-export async function saveScpAutomationRow(
-  kind: ScpAutomationKind,
-  payload: {
-    id?: string
-    name: string
-    code: string
-    type: string
-    description?: string
-    config?: Record<string, any>
-    is_active?: boolean
-  },
-) {
-  try {
-    const isUpdate = !!String(payload.id || '').trim()
-    await requireScpAutomationPermission(isUpdate ? 'can_edit' : 'can_include')
-
-    const table = getScpAutomationConfigTable(kind)
-    const name = normalizeScpAutomationText(payload.name)
-    const code = normalizeScpAutomationCode(payload.code)
-    const type = normalizeScpAutomationText(payload.type)
-    const description = normalizeScpAutomationText(payload.description)
-    const config = normalizeScpAutomationConfig(payload.config)
-
-    if (!name) return { success: false, error: 'Informe o nome.', id: null }
-    if (!code) return { success: false, error: 'Informe o código técnico.', id: null }
-    if (!type) return { success: false, error: 'Informe o tipo.', id: null }
-
-    const row = {
-      name,
-      code,
-      type,
-      description: description || null,
-      config,
-      is_active: payload.is_active !== false,
-      deleted_at: payload.is_active === false ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    }
-
-    if (isUpdate) {
-      const { error } = await supabaseAdmin
-        .from(table)
-        .update(row)
-        .eq('id', payload.id)
-      if (error) throw error
-
-      revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
-      return { success: true, id: payload.id || null }
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from(table)
-      .insert({
-        ...row,
-        created_at: new Date().toISOString(),
-      })
-      .select('id')
-      .maybeSingle()
-    if (error) throw error
-
-    revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
-    return { success: true, id: data?.id || null }
-  } catch (error: any) {
-    console.error(`Erro ao salvar ${getScpAutomationKindLabel(kind)}:`, error)
-    if (isMissingTableError(error)) {
-      return {
-        success: false,
-        error: `A tabela de ${getScpAutomationKindLabel(kind).toLowerCase()} ainda não existe. Aplique a migration do menu Ações e Gatilhos e recarregue o schema cache da API.`,
-        id: null,
-      }
-    }
-    if (error?.code === '23505') {
-      return {
-        success: false,
-        error: `Já existe uma ${getScpAutomationSingularLabel(kind)} com esse código técnico.`,
-        id: null,
-      }
-    }
-    return { success: false, error: error.message, id: null }
-  }
-}
-
-export async function duplicateScpAutomationRow(kind: ScpAutomationKind, id: string) {
-  try {
-    await requireScpAutomationPermission('can_include')
-
-    const table = getScpAutomationConfigTable(kind)
-    const recordId = String(id || '').trim()
-    if (!recordId) return { success: false, error: 'ID inválido.', id: null }
-
-    const { data: current, error } = await supabaseAdmin
-      .from(table)
-      .select('id, name, code, type, description, config, is_active, deleted_at, created_at, updated_at')
-      .eq('id', recordId)
-      .maybeSingle()
-    if (error) throw error
-    if (!current) return { success: false, error: `${getScpAutomationSingularLabel(kind)} não encontrada.`, id: null }
-
-    const { data: existingCodes, error: codeErr } = await supabaseAdmin
-      .from(table)
-      .select('code')
-    if (codeErr) throw codeErr
-
-    const duplicatedCode = buildScpAutomationDuplicateCode(
-      String(current.code || current.name || kind),
-      (existingCodes || []).map((row: { code?: string | null }) => String(row?.code || '')),
-    )
-
-    const { data: inserted, error: insertErr } = await supabaseAdmin
-      .from(table)
-      .insert({
-        name: `${String(current.name || getScpAutomationKindLabel(kind))} (Cópia)`,
-        code: duplicatedCode,
-        type: String(current.type || ''),
-        description: current.description || null,
-        config: normalizeScpAutomationConfig(current.config),
-        is_active: false,
-        deleted_at: new Date().toISOString(),
-      })
-      .select('id')
-      .maybeSingle()
-    if (insertErr) throw insertErr
-
-    revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
-    return { success: true, id: inserted?.id || null }
-  } catch (error: any) {
-    console.error(`Erro ao duplicar ${getScpAutomationKindLabel(kind)}:`, error)
-    return { success: false, error: error.message, id: null }
-  }
-}
-
-export async function setScpAutomationRowStatus(kind: ScpAutomationKind, id: string, isActive: boolean) {
-  try {
-    await requireScpAutomationPermission('can_activate_inactivate')
-
-    const table = getScpAutomationConfigTable(kind)
+    await requirePermission('scp-emails', 'can_edit')
     const { error } = await supabaseAdmin
-      .from(table)
-      .update({
-        is_active: isActive,
-        deleted_at: isActive ? null : new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .from('email_templates')
+      .update({ is_active: isActive })
       .eq('id', id)
-
     if (error) throw error
-
-    revalidatePath(SCP_AUTOMATION_LIBRARY_ROUTE)
+    revalidatePath('/rh/parceiros/config/emails')
     return { success: true }
   } catch (error: any) {
-    console.error(`Erro ao alterar status de ${getScpAutomationKindLabel(kind)}:`, error)
+    console.error('Erro ao alternar status do template de e-mail:', error)
+    if (isActiveColumnMissing(error)) {
+      return { success: false, error: "Aplique a migration 'is_active' (20260727010000) e recarregue o schema cache da API." }
+    }
+    return { success: false, error: error.message }
+  }
+}
+
+export async function deleteEmailTemplate(id: string) {
+  try {
+    await requirePermission('scp-emails', 'can_delete')
+    const { error } = await supabaseAdmin.from('email_templates').delete().eq('id', id)
+    if (error) throw error
+    revalidatePath('/rh/parceiros/config/emails')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao excluir template de e-mail:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function toggleWhatsappTemplateActive(id: string, isActive: boolean) {
+  try {
+    await requirePermission('scp-whatsapp', 'can_edit')
+    const { error } = await supabaseAdmin
+      .from('whatsapp_templates')
+      .update({ is_active: isActive })
+      .eq('id', id)
+    if (error) throw error
+    revalidatePath('/rh/parceiros/config/whatsapp')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao alternar status do template de WhatsApp:', error)
+    if (isActiveColumnMissing(error)) {
+      return { success: false, error: "Aplique a migration 'is_active' (20260727010000) e recarregue o schema cache da API." }
+    }
+    return { success: false, error: error.message }
+  }
+}
+
+export async function deleteWhatsappTemplate(id: string) {
+  try {
+    await requirePermission('scp-whatsapp', 'can_delete')
+    const { error } = await supabaseAdmin.from('whatsapp_templates').delete().eq('id', id)
+    if (error) throw error
+    revalidatePath('/rh/parceiros/config/whatsapp')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao excluir template de WhatsApp:', error)
     return { success: false, error: error.message }
   }
 }

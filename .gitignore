@@ -1,4 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+.# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
 /node_modules
@@ -42,3 +42,9 @@ next-env.d.ts
 
 # supabase
 /supabase/.temp/
+
+# ferramentas locais (estado de sessão / bancos locais)
+/.claude-flow/
+/.swarm/
+ruvector.db
+.claude/settings.local.json

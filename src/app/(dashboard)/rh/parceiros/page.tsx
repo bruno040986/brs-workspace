@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   getProcessCRMData,
   getProcessInstanceDetail,
+  triggerStageActions,
   updateProcessInstance,
 } from './actions'
 import {
@@ -201,6 +202,17 @@ export default function ParceirosCRMPage() {
     }
   }
 
+  async function handleRunStage(instanceId: string) {
+    if (!confirm('Executar as ações da etapa atual (gerar contrato / disparos)? Esta ação é intencional e pode enviar documentos para assinatura.')) return
+    setMessage(null)
+    const res = await triggerStageActions(instanceId)
+    if (res.success) {
+      setMessage({ type: 'success', text: 'Ações da etapa enfileiradas. O motor vai processá-las.' })
+    } else {
+      setMessage({ type: 'error', text: res.error || 'Erro ao executar ações da etapa.' })
+    }
+  }
+
   async function openDetail(instanceId: string) {
     setDetailOpen(true)
     setDetailLoading(true)
@@ -327,6 +339,7 @@ export default function ParceirosCRMPage() {
                             <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{subtitle}</div>
                           </div>
                           <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            <button type="button" className="btn btn-ghost btn-xs" title="Executar ações desta etapa" onClick={() => handleRunStage(inst.id)}>Executar etapa</button>
                             <button type="button" className="btn btn-ghost btn-xs" onClick={() => openDetail(inst.id)}>Detalhes</button>
                             <button type="button" className="btn btn-ghost btn-xs btn-icon" title="Arquivar" onClick={() => handleArchive(inst.id)}>
                               <Archive size={16} />
@@ -370,6 +383,7 @@ export default function ParceirosCRMPage() {
                     <td style={{ padding: '0.75rem 0.5rem', color: 'var(--brs-gray-600)' }}>{inst.status}</td>
                     <td style={{ padding: '0.75rem 0.5rem' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <button type="button" className="btn btn-outline" onClick={() => handleRunStage(inst.id)}>Executar etapa</button>
                         <button type="button" className="btn btn-outline" onClick={() => openDetail(inst.id)}>Detalhes</button>
                         <button type="button" className="btn btn-outline" onClick={() => handleArchive(inst.id)}>Arquivar</button>
                       </div>

@@ -32,16 +32,6 @@ export type RouteAccessDecision =
 const view = (resource: string): PermissionRequirement => ({ resource, action: 'can_view' })
 const include = (resource: string): PermissionRequirement => ({ resource, action: 'can_include' })
 
-const scpAutomationLibraryResources = [
-  'scp-acoes-gatilhos',
-  'scp-processos',
-  'scp-construtor',
-  'scp-documentos',
-  'scp-emails',
-  'scp-whatsapp',
-  'scp-crm',
-]
-
 export const providerBriefPermissionByApi: Record<string, string> = {
   google: 'sistema-config-google',
   quarkrh: 'sistema-config-quarkrh',
@@ -74,22 +64,12 @@ export const systemConfigNavEntries = [
   { resource: 'sistema-config-contaazul', href: '/rh/parceiros/config/provedores/breve?api=ContaAzul' },
   { resource: 'sistema-config-arw', href: '/rh/parceiros/config/provedores/breve?api=ARW' },
   { resource: 'sistema-config-crm', href: '/rh/parceiros/config/provedores/breve?api=CRM' },
-  { resource: 'scp-acoes-gatilhos', href: '/rh/parceiros/config/acoes-gatilhos' },
 ] as const
 
 export const systemConfigRouteOptions: PermissionRequirement[] = [
   ...systemConfigNavEntries.map(({ resource }) => view(resource)),
 ]
 
-export function hasScpAutomationLibraryAccess(
-  permissions: readonly EffectivePermission[],
-  action: PermissionAction = 'can_view',
-) {
-  return hasAnyPermission(
-    permissions,
-    scpAutomationLibraryResources.map((resource) => ({ resource, action })),
-  )
-}
 
 const any = (requirements: PermissionRequirement[]): RouteAccessRule => ({
   mode: 'any',
@@ -129,9 +109,6 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/rh/parceiros/config/provedores/regimes-tributarios': any(systemConfigRouteOptions),
   '/rh/parceiros/config/provedores/recalculo-tributario': any(systemConfigRouteOptions),
   '/rh/parceiros/config/provedores/instituicoes-financeiras': any([view('sistema-config-instituicoes')]),
-  '/rh/parceiros/config/acoes-gatilhos': any(
-    scpAutomationLibraryResources.map((resource) => view(resource)),
-  ),
   '/instituicoes-financeiras': any([view('sistema-config-instituicoes')]),
   '/rh/parceiros/config/provedores/tipos-comercial': any([view('sistema-config-comercial-tipos')]),
   '/rh/parceiros/config/provedores/setores': any([view('sistema-config-setores')]),
@@ -180,7 +157,6 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/rh/parceiros/config/processos', any([view('scp-processos')])],
   ['/rh/parceiros/config/formularios', any([view('scp-construtor')])],
   ['/rh/parceiros/config/documentos', any([view('scp-documentos')])],
-  ['/rh/parceiros/config/acoes-gatilhos', any(scpAutomationLibraryResources.map((resource) => view(resource)))],
   ['/rh/parceiros/config/templates', any([view('scp-documentos'), view('scp-emails')])],
   ['/rh/parceiros/config/emails', any([view('scp-emails')])],
   ['/rh/parceiros/config/whatsapp', any([view('scp-whatsapp')])],

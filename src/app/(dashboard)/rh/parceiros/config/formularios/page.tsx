@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { getPartnerForms, savePartnerForm, deletePartnerForm } from '../../actions'
 import { Plus, Trash, Save, Loader2, X, ChevronUp, ChevronDown, Eye, CheckCircle, AlertCircle, Phone, Monitor, Copy, Pencil, Files } from 'lucide-react'
+import { getSystemKeyOptionGroups, SYSTEM_KEY_NONE } from '@/lib/agente-corban-fields'
 
 interface FormField {
   key: string
@@ -10,7 +11,7 @@ interface FormField {
   description?: string
   type: 'text' | 'select' | 'checkbox' | 'file'
   hidden?: boolean
-  mask?: 'none' | 'cpf' | 'cnpj' | 'cep' | 'email' | 'phone_landline' | 'phone_mobile' | 'date' | 'pix_uuid' | 'bank_account' | 'bank_agency_with_digit' | 'bank_agency_without_digit' | 'bank_agency_digit' | 'banks_list' | 'ufs_list'
+  mask?: 'none' | 'cpf' | 'cnpj' | 'cep' | 'email' | 'phone_landline' | 'phone_mobile' | 'date' | 'pix_uuid' | 'bank_account' | 'bank_agency_with_digit' | 'bank_agency_without_digit' | 'bank_agency_digit'
   system_key?: string
   required: boolean
   options?: string[] // Para campos de seleção (manual)
@@ -52,72 +53,18 @@ type BlockId =
   | 'assinatura_pf'
   | 'bancario_pf'
 
-const SYSTEM_KEYS = [
-  { value: 'none', label: 'Nenhum (Campo customizado)' },
-  { value: 'person_type', label: 'Tipo de Pessoa (PF/PJ) *Gatilho*' },
-  { value: 'cpf_cnpj', label: 'CPF ou CNPJ *Gatilho API*' },
-  { value: 'name', label: 'Nome / Razão Social' },
-  { value: 'fantasy_name', label: 'Nome Fantasia' },
-  { value: 'company_opening_date', label: 'Data de Abertura (Empresa)' },
-  { value: 'company_registration_status', label: 'Situação Cadastral (Empresa)' },
-  { value: 'company_size', label: 'Porte da Empresa' },
-  { value: 'company_capital_social', label: 'Capital Social' },
-  { value: 'company_legal_nature', label: 'Natureza Jurídica' },
-  { value: 'company_country', label: 'País (Empresa)' },
-  { value: 'cnae_main_desc', label: 'Atividade Econômica Principal' },
-  { value: 'cnae_main_code', label: 'Código CNAE Principal' },
-  { value: 'representante_legal', label: 'Representante Legal' },
-  { value: 'rg', label: 'RG' },
-  { value: 'rg_expedition_date', label: 'Data de Emissão RG' },
-  { value: 'rg_issuer', label: 'Órgão Emissor RG' },
-  { value: 'rg_state', label: 'Estado Emissão RG' },
-  { value: 'birth_date', label: 'Data de Nascimento' },
-  { value: 'phone_whatsapp', label: 'WhatsApp Celular' },
-  { value: 'phone_whatsapp_financeiro', label: 'WhatsApp Financeiro' },
-  { value: 'phone_commercial', label: 'Telefone Comercial' },
-  { value: 'phone_support', label: 'Telefone de Suporte' },
-  { value: 'email_comissao', label: 'E-mail de Comissão (Principal)' },
-  { value: 'email_formalizacao', label: 'E-mail de Formalização' },
-  { value: 'email_financeiro', label: 'E-mail Financeiro' },
-  { value: 'email_juridico', label: 'E-mail Jurídico' },
-  { value: 'cep', label: 'CEP *Gatilho API*' },
-  { value: 'address_street', label: 'Rua' },
-  { value: 'address_number', label: 'Número' },
-  { value: 'address_complement', label: 'Complemento' },
-  { value: 'address_neighborhood', label: 'Bairro' },
-  { value: 'address_city', label: 'Cidade' },
-  { value: 'address_state', label: 'Estado (UF)' },
-  { value: 'commission_receive_type', label: 'Tipo de Recebimento Comissão' },
-  { value: 'bank_name', label: 'Nome do Banco' },
-  { value: 'bank_agency', label: 'Agência Bancária' },
-  { value: 'bank_account', label: 'Conta Bancária' },
-  { value: 'bank_account_type', label: 'Tipo de Conta' },
-  { value: 'pix_type', label: 'Tipo de Chave PIX' },
-  { value: 'pix_key', label: 'Chave PIX' },
-  { value: 'payment_period', label: 'Período de Pagamento' },
+/**
+ * As opções de vínculo vêm do dicionário canônico do Agente Corban — escolher um
+ * campo aqui é escolher um campo da entidade, não uma etiqueta solta. Adicionar
+ * um campo novo ao dicionário o faz aparecer neste seletor automaticamente.
+ */
+const SYSTEM_KEY_GROUPS = getSystemKeyOptionGroups()
 
-  { value: 'partner_1_cpf', label: 'CPF Sócio Principal' },
-  { value: 'partner_1_name', label: 'Nome Sócio Principal' },
-  { value: 'partner_1_birth_date', label: 'Data Nascimento Sócio Principal' },
-  { value: 'partner_1_email', label: 'E-mail Sócio Principal' },
-  { value: 'partner_1_whatsapp', label: 'WhatsApp Sócio Principal' },
-  { value: 'partner_1_cep', label: 'CEP Sócio Principal' },
-  { value: 'partner_1_address_street', label: 'Endereço Sócio Principal' },
-  { value: 'partner_1_address_number', label: 'Número Sócio Principal' },
-  { value: 'partner_1_address_complement', label: 'Complemento Sócio Principal' },
-  { value: 'partner_1_address_neighborhood', label: 'Bairro Sócio Principal' },
-  { value: 'partner_1_address_city', label: 'Cidade Sócio Principal' },
-  { value: 'partner_1_address_state', label: 'UF Sócio Principal' },
-
-  { value: 'partner_2_cpf', label: 'CPF Sócio Secundário' },
-  { value: 'partner_2_name', label: 'Nome Sócio Secundário' },
-  { value: 'partner_2_birth_date', label: 'Data Nascimento Sócio Secundário' },
-  { value: 'partner_2_email', label: 'E-mail Sócio Secundário' },
-  { value: 'partner_2_whatsapp', label: 'WhatsApp Sócio Secundário' },
-
-  { value: 'signature_email', label: 'E-mail (Assinatura PF)' },
-  { value: 'signature_whatsapp', label: 'WhatsApp (Assinatura PF)' },
-]
+/** Todas as opções em lista plana, para validação e busca reversa. */
+const SYSTEM_KEY_VALUES = new Set<string>([
+  SYSTEM_KEY_NONE.value,
+  ...SYSTEM_KEY_GROUPS.flatMap((group) => group.options.map((option) => option.value)),
+])
 
 export default function SchemaBuilderPage() {
   const [forms, setForms] = useState<PartnerForm[]>([])
@@ -141,6 +88,8 @@ export default function SchemaBuilderPage() {
   const previewScrollLockRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
   const [blockToAdd, setBlockToAdd] = useState<BlockId | ''>('')
+  const [showFieldPalette, setShowFieldPalette] = useState(false)
+  const [paletteQuery, setPaletteQuery] = useState('')
 
   function activatePreviewForField(key: string) {
     setActivePreviewFieldKey(key)
@@ -406,6 +355,17 @@ export default function SchemaBuilderPage() {
       .filter(Boolean)
   }
 
+  /** Normaliza o slug do link público: minúsculas, sem acento, hífens. */
+  function normalizeSlug(raw: string): string {
+    return String(raw || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  }
+
   useEffect(() => {
     // Listas prontas (sem cadastro manual)
     async function loadLookups() {
@@ -545,6 +505,22 @@ export default function SchemaBuilderPage() {
     })
   }
 
+  /** Cria uma pergunta já vinculada a um campo do dicionário canônico. */
+  function addFieldFromSystemKey(systemKey: string, rawLabel: string) {
+    if (!selectedForm) return
+    // Remove os hints do label do dicionário: "(consulta automática)", "(só PF)"…
+    const cleanLabel = rawLabel.replace(/\s*\([^)]*\)\s*$/, '').trim() || rawLabel
+    const newField: FormField = {
+      key: createField(systemKey),
+      label: cleanLabel,
+      type: 'text',
+      mask: 'none',
+      system_key: systemKey,
+      required: false,
+    }
+    setSelectedForm({ ...selectedForm, schema: [...selectedForm.schema, newField] })
+  }
+
   function removeField(key: string) {
     if (!selectedForm) return
     setSelectedForm({
@@ -585,7 +561,22 @@ export default function SchemaBuilderPage() {
     setSaving(true)
     setMessage(null)
 
-    const res = await savePartnerForm(selectedForm as any)
+    // Flush de rascunhos de opções manuais que só seriam commitados no blur —
+    // garante que nada se perde ao salvar com o cursor ainda no campo.
+    const flushedSchema = selectedForm.schema.map((f) => {
+      if (f.type === 'select' && !f.options_source && optionsDraft[f.key] !== undefined) {
+        return { ...f, options: parseOptionsInput(optionsDraft[f.key]) }
+      }
+      return f
+    })
+    const formToSave: PartnerForm = {
+      ...selectedForm,
+      slug: selectedForm.slug ? normalizeSlug(selectedForm.slug) : '',
+      schema: flushedSchema,
+    }
+    if (flushedSchema !== selectedForm.schema) setSelectedForm(formToSave)
+
+    const res = await savePartnerForm(formToSave as any)
     if (res.success) {
       setMessage({ type: 'success', text: 'Estrutura do formulário salva com sucesso!' })
       await reloadFormsAndSyncSelected((res as any).id || selectedForm.id)
@@ -641,40 +632,10 @@ export default function SchemaBuilderPage() {
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           {view === 'edit' && (
-            <>
-              <button className="btn btn-outline" type="button" onClick={() => setView('list')}>
-                Voltar para Lista
-              </button>
-              <select
-                className="form-control"
-                value={selectedForm?.id || ''}
-                onChange={e => {
-                  const f = forms.find(item => item.id === e.target.value)
-                  if (f) {
-                    setSelectedForm(f)
-                    setBuilderTab('flow')
-                    setView('edit')
-                  }
-                }}
-                style={{ width: '280px' }}
-              >
-                {forms.map(f => (
-                  <option key={f.id} value={f.id}>{f.title}</option>
-                ))}
-              </select>
-              {selectedForm && (
-                <>
-                  <button className="btn btn-outline" type="button" disabled={saving} onClick={() => handleDuplicate(selectedForm)}>
-                    <Files size={16} />
-                    Duplicar
-                  </button>
-                  <button className="btn btn-outline text-danger" type="button" disabled={!selectedForm.id || deletingId === selectedForm.id} onClick={() => handleDelete(selectedForm)}>
-                    {deletingId === selectedForm.id ? <Loader2 size={16} className="spinner" /> : <Trash size={16} />}
-                    Excluir
-                  </button>
-                </>
-              )}
-            </>
+            <button className="btn btn-outline" type="button" onClick={() => setView('list')}>
+              <ChevronUp size={16} style={{ transform: 'rotate(-90deg)' }} />
+              Voltar para Lista
+            </button>
           )}
 
           {view === 'list' && (
@@ -834,7 +795,7 @@ export default function SchemaBuilderPage() {
                     fontWeight: builderTab === 'flow' ? 700 : 600,
                   }}
                 >
-                  Telas do Fluxo (Abertura & Encerramento)
+                  Telas & Aparência
                 </button>
                 <button
                   type="button"
@@ -855,154 +816,174 @@ export default function SchemaBuilderPage() {
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {builderTab === 'flow' ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: '0.25rem' }}>
+                  {/* 1) Abertura */}
                   <div className="card" style={{ flexShrink: 0, padding: '1rem', background: '#fff', border: '1px solid var(--brs-gray-100)' }}>
                     <div className="section-divider" style={{ marginBottom: '1rem' }}>Tela de Abertura</div>
-
                     <div className="form-grid form-grid-2">
                       <div className="form-group">
                         <label className="form-label">Título Inicial</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={selectedForm.config?.intro?.title || ''}
-                        onChange={e => updateFormConfig({ intro: { ...(selectedForm.config?.intro || {}), title: e.target.value } })}
-                      />
-                    </div>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={selectedForm.config?.intro?.title || ''}
+                          onChange={e => updateFormConfig({ intro: { ...(selectedForm.config?.intro || {}), title: e.target.value } })}
+                        />
+                      </div>
                       <div className="form-group">
                         <label className="form-label">Label Botão Iniciar</label>
-                      <input
-                        type="text"
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={selectedForm.config?.intro?.start_label || ''}
+                          onChange={e => updateFormConfig({ intro: { ...(selectedForm.config?.intro || {}), start_label: e.target.value } })}
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Texto Inicial</label>
+                      <textarea
                         className="form-control"
-                        value={selectedForm.config?.intro?.start_label || ''}
-                        onChange={e => updateFormConfig({ intro: { ...(selectedForm.config?.intro || {}), start_label: e.target.value } })}
+                        rows={3}
+                        value={selectedForm.config?.intro?.text || ''}
+                        onChange={e => updateFormConfig({ intro: { ...(selectedForm.config?.intro || {}), text: e.target.value } })}
                       />
                     </div>
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Texto Inicial</label>
-                    <textarea
-                      className="form-control"
-                      rows={3}
-                      value={selectedForm.config?.intro?.text || ''}
-                      onChange={e => updateFormConfig({ intro: { ...(selectedForm.config?.intro || {}), text: e.target.value } })}
-                    />
-                  </div>
-
-                    <div className="form-grid form-grid-3">
-                      <div className="form-group">
-                        <label className="form-label">Label Botão Finalizar</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={selectedForm.config?.submit?.finish_label || ''}
-                        onChange={e => updateFormConfig({ submit: { ...(selectedForm.config?.submit || {}), finish_label: e.target.value } })}
-                      />
-                    </div>
+                  {/* 2) Marca (Branding) */}
+                  <div className="card" style={{ flexShrink: 0, padding: '1rem', background: '#fff', border: '1px solid var(--brs-gray-100)' }}>
+                    <div className="section-divider" style={{ marginBottom: '1rem' }}>Marca (Branding)</div>
+                    <div className="form-grid form-grid-2">
                       <div className="form-group">
                         <label className="form-label">Cor Primária</label>
-                      <input
-                        type="color"
-                        className="form-control"
-                        value={selectedForm.config?.branding?.primary_color || '#8A2BE2'}
-                        onChange={e => updateBranding({ primary_color: e.target.value })}
-                        style={{ height: 40, padding: '0.25rem' }}
-                      />
+                        <input
+                          type="color"
+                          className="form-control"
+                          value={selectedForm.config?.branding?.primary_color || '#8A2BE2'}
+                          onChange={e => updateBranding({ primary_color: e.target.value })}
+                          style={{ height: 40, padding: '0.25rem' }}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Cor Destaque</label>
+                        <input
+                          type="color"
+                          className="form-control"
+                          value={selectedForm.config?.branding?.accent_color || '#FF2D6D'}
+                          onChange={e => updateBranding({ accent_color: e.target.value })}
+                          style={{ height: 40, padding: '0.25rem' }}
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Cor Destaque</label>
-                      <input
-                        type="color"
-                        className="form-control"
-                        value={selectedForm.config?.branding?.accent_color || '#FF2D6D'}
-                        onChange={e => updateBranding({ accent_color: e.target.value })}
-                        style={{ height: 40, padding: '0.25rem' }}
-                      />
+                    <div className="form-grid form-grid-2">
+                      <div className="form-group">
+                        <label className="form-label">Logo URL (opcional)</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="https://..."
+                          value={selectedForm.config?.branding?.logo_url || ''}
+                          onChange={e => updateBranding({ logo_url: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Favicon URL (opcional)</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="https://..."
+                          value={selectedForm.config?.branding?.favicon_url || ''}
+                          onChange={e => updateBranding({ favicon_url: e.target.value })}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="form-grid form-grid-2">
+                  {/* 3) Link público (slug) */}
+                  <div className="card" style={{ flexShrink: 0, padding: '1rem', background: '#fff', border: '1px solid var(--brs-gray-100)' }}>
+                    <div className="section-divider" style={{ marginBottom: '1rem' }}>Link Público</div>
                     <div className="form-group">
-                      <label className="form-label">Logo URL (opcional)</label>
+                      <label className="form-label">Endereço (slug)</label>
                       <input
                         type="text"
                         className="form-control"
-                        placeholder="https://..."
-                        value={selectedForm.config?.branding?.logo_url || ''}
-                        onChange={e => updateBranding({ logo_url: e.target.value })}
+                        placeholder="cadastro-parceiro-brs"
+                        value={selectedForm.slug || ''}
+                        onChange={e => setSelectedForm({ ...selectedForm, slug: e.target.value })}
+                        onBlur={e => setSelectedForm({ ...selectedForm, slug: normalizeSlug(e.target.value) })}
                       />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Favicon URL (opcional)</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="https://..."
-                        value={selectedForm.config?.branding?.favicon_url || ''}
-                        onChange={e => updateBranding({ favicon_url: e.target.value })}
-                      />
+                      <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
+                        O formulário fica acessível em <code>/cadastro-parceiro/{selectedForm.slug ? normalizeSlug(selectedForm.slug) : 'seu-slug'}</code>. Deixe em branco se o acesso for pelo link do Processo.
+                      </div>
                     </div>
                   </div>
-                </div>
 
+                  {/* 4) Encerramento */}
                   <div className="card" style={{ flexShrink: 0, padding: '1rem', background: '#fff', border: '1px solid var(--brs-gray-100)' }}>
                     <div className="section-divider" style={{ marginBottom: '1rem' }}>Tela de Encerramento</div>
-
                     <div className="form-grid form-grid-2">
                       <div className="form-group">
                         <label className="form-label">Título</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={selectedForm.config?.closing?.title || ''}
-                        onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), title: e.target.value } })}
-                      />
-                    </div>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={selectedForm.config?.closing?.title || ''}
+                          onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), title: e.target.value } })}
+                        />
+                      </div>
                       <div className="form-group">
                         <label className="form-label">Subtítulo / Linha Verde</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={selectedForm.config?.closing?.lead || ''}
-                        onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), lead: e.target.value } })}
-                      />
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={selectedForm.config?.closing?.lead || ''}
+                          onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), lead: e.target.value } })}
+                        />
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Texto</label>
-                    <textarea
-                      className="form-control"
-                      rows={4}
-                      value={selectedForm.config?.closing?.text || ''}
-                      onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), text: e.target.value } })}
-                    />
+                    <div className="form-group">
+                      <label className="form-label">Texto</label>
+                      <textarea
+                        className="form-control"
+                        rows={4}
+                        value={selectedForm.config?.closing?.text || ''}
+                        onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), text: e.target.value } })}
+                      />
                       <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
                         Dica: use quebras de linha para separar parágrafos.
                       </div>
-                  </div>
-
-                    <div className="form-grid form-grid-2">
-                      <div className="form-group">
-                        <label className="form-label">Label do Botão</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={selectedForm.config?.closing?.button_label || ''}
-                        onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), button_label: e.target.value } })}
-                      />
                     </div>
+                    <div className="form-grid form-grid-3">
+                      <div className="form-group">
+                        <label className="form-label">Label do Botão Finalizar</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Finalizar e Enviar"
+                          value={selectedForm.config?.submit?.finish_label || ''}
+                          onChange={e => updateFormConfig({ submit: { ...(selectedForm.config?.submit || {}), finish_label: e.target.value } })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Label do Botão (encerramento)</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={selectedForm.config?.closing?.button_label || ''}
+                          onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), button_label: e.target.value } })}
+                        />
+                      </div>
                       <div className="form-group">
                         <label className="form-label">Link do Botão (URL)</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="https://..."
-                        value={selectedForm.config?.closing?.button_url || ''}
-                        onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), button_url: e.target.value } })}
-                      />
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="https://..."
+                          value={selectedForm.config?.closing?.button_url || ''}
+                          onChange={e => updateFormConfig({ closing: { ...(selectedForm.config?.closing || {}), button_url: e.target.value } })}
+                        />
                       </div>
-                  </div>
+                    </div>
                   </div>
                   </div>
                 ) : (
@@ -1016,39 +997,42 @@ export default function SchemaBuilderPage() {
 
 
                 {selectedForm.schema.map((field, idx) => (
-                  <div 
+                  <div
                     key={field.key}
                     id={`builder_field_${field.key}`}
-                    style={{ 
+                    style={{
                       flexShrink: 0,
-                      padding: '1rem', 
-                      borderRadius: '8px', 
+                      padding: '1rem',
+                      borderRadius: '8px',
                       background: field.hidden ? '#F3F4F6' : '#F9FAFB',
                       border: '1px solid var(--brs-gray-200)',
-                      position: 'relative',
-                      opacity: field.hidden ? 0.75 : 1
+                      opacity: field.hidden ? 0.85 : 1
                     }}
                   >
-                    {/* Botoes de Controle rápidos */}
-                    <div style={{ position: 'absolute', right: '0.75rem', top: '0.75rem', display: 'flex', gap: '0.25rem' }}>
-                      <button type="button" className="btn btn-ghost btn-xs btn-icon" onClick={() => moveField(idx, 'up')} disabled={idx === 0}>
-                        <ChevronUp size={14} />
-                      </button>
-                      <button type="button" className="btn btn-ghost btn-xs btn-icon" onClick={() => moveField(idx, 'down')} disabled={idx === selectedForm.schema.length - 1}>
-                        <ChevronDown size={14} />
-                      </button>
-                      <button type="button" className="btn btn-ghost btn-xs btn-icon text-danger" onClick={() => removeField(field.key)}>
-                        <Trash size={14} />
-                      </button>
+                    {/* Cabeçalho do card: nº da pergunta + badges + controles */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--brs-gray-400)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Pergunta {idx + 1}
+                      </span>
+                      {field.hidden && (
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--brs-gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', background: 'var(--brs-gray-200)', padding: '1px 6px', borderRadius: 4 }}>
+                          Oculto
+                        </span>
+                      )}
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
+                        <button type="button" className="btn btn-ghost btn-xs btn-icon" onClick={() => moveField(idx, 'up')} disabled={idx === 0}>
+                          <ChevronUp size={14} />
+                        </button>
+                        <button type="button" className="btn btn-ghost btn-xs btn-icon" onClick={() => moveField(idx, 'down')} disabled={idx === selectedForm.schema.length - 1}>
+                          <ChevronDown size={14} />
+                        </button>
+                        <button type="button" className="btn btn-ghost btn-xs btn-icon text-danger" onClick={() => removeField(field.key)}>
+                          <Trash size={14} />
+                        </button>
+                      </div>
                     </div>
 
-                    {field.hidden && (
-                      <div style={{ position: 'absolute', left: '0.75rem', top: '0.75rem', fontSize: '0.65rem', fontWeight: 700, color: 'var(--brs-gray-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        Oculto
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1rem', paddingRight: '5rem', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1rem', marginBottom: '0.75rem' }}>
                       {/* Label da pergunta */}
                       <div className="form-group">
                         <label className="form-label" style={{ fontSize: '0.75rem' }}>Título da Pergunta / Label</label>
@@ -1131,16 +1115,27 @@ export default function SchemaBuilderPage() {
 
                       {/* Mapeamento de Campo do Sistema */}
                       <div className="form-group">
-                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Chave do Sistema (system_key)</label>
-                        <select 
+                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Campo do Agente Corban</label>
+                        <select
                           className="form-control"
                           value={field.system_key || 'none'}
                           onFocus={() => activatePreviewForField(field.key)}
                           onChange={e => updateField(field.key, { system_key: e.target.value })}
                         >
-                          {SYSTEM_KEYS.map(k => (
-                            <option key={k.value} value={k.value}>{k.label}</option>
+                          <option value={SYSTEM_KEY_NONE.value}>{SYSTEM_KEY_NONE.label}</option>
+                          {SYSTEM_KEY_GROUPS.map(group => (
+                            <optgroup key={group.group} label={group.label}>
+                              {group.options.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </optgroup>
                           ))}
+                          {/* Vínculo salvo que saiu do dicionário: mantém visível em vez de sumir calado. */}
+                          {field.system_key && !SYSTEM_KEY_VALUES.has(field.system_key) && (
+                            <optgroup label="Vínculo desconhecido">
+                              <option value={field.system_key}>{field.system_key}</option>
+                            </optgroup>
+                          )}
                         </select>
                       </div>
 
@@ -1269,24 +1264,45 @@ export default function SchemaBuilderPage() {
                               whiteSpace: 'nowrap',
                             }}
                             value={field.conditional.field_id}
-                            onChange={e => updateField(field.key, { conditional: { ...field.conditional!, field_id: e.target.value } })}
+                            onChange={e => updateField(field.key, { conditional: { ...field.conditional!, field_id: e.target.value, value: '' } })}
                           >
                             <option value="">Escolher pergunta...</option>
                             {selectedForm.schema
-                              .filter(f => f.key !== field.key && f.type === 'select')
+                              .filter(f => f.key !== field.key)
                               .map(f => (
-                                <option key={f.key} value={f.key}>{truncateLabel(f.label, 100)}</option>
+                                <option key={f.key} value={f.key}>{truncateLabel(f.label || f.key, 100)}</option>
                               ))}
                           </select>
                           <span style={{ fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>for igual a</span>
-                          <input 
-                            type="text" 
-                            className="form-control"
-                            placeholder="Valor exato"
-                            style={{ padding: '2px 8px', fontSize: '0.75rem', height: '28px', width: '120px' }}
-                            value={field.conditional.value}
-                            onChange={e => updateField(field.key, { conditional: { ...field.conditional!, value: e.target.value } })}
-                          />
+                          {(() => {
+                            const refField = selectedForm.schema.find(f => f.key === field.conditional!.field_id)
+                            // Se o campo referenciado é um select com opções manuais, oferece um dropdown do valor.
+                            if (refField?.type === 'select' && !refField.options_source && (refField.options?.length || 0) > 0) {
+                              return (
+                                <select
+                                  className="form-control"
+                                  style={{ padding: '2px 8px', fontSize: '0.75rem', height: '28px', minWidth: '120px' }}
+                                  value={field.conditional!.value}
+                                  onChange={e => updateField(field.key, { conditional: { ...field.conditional!, value: e.target.value } })}
+                                >
+                                  <option value="">Escolher valor...</option>
+                                  {(refField.options || []).map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              )
+                            }
+                            return (
+                              <input
+                                type="text"
+                                className="form-control"
+                                placeholder="Valor exato"
+                                style={{ padding: '2px 8px', fontSize: '0.75rem', height: '28px', width: '120px' }}
+                                value={field.conditional!.value}
+                                onChange={e => updateField(field.key, { conditional: { ...field.conditional!, value: e.target.value } })}
+                              />
+                            )
+                          })()}
                         </div>
                       )}
                     </div>
@@ -1303,13 +1319,25 @@ export default function SchemaBuilderPage() {
                     Adicionar Pergunta
                   </button>
 
+                  <button type="button" className="btn btn-outline" onClick={() => { setPaletteQuery(''); setShowFieldPalette(true) }}>
+                    <Plus size={16} />
+                    Adicionar do dicionário
+                  </button>
+
+                  {/* Adicionar Bloco em 1 passo: insere ao escolher */}
                   <select
                     className="form-control"
                     value={blockToAdd}
-                    onChange={(e) => setBlockToAdd(e.target.value as any)}
-                    style={{ minWidth: 260 }}
+                    onChange={(e) => {
+                      const val = e.target.value as BlockId | ''
+                      if (val) {
+                        addBlock(val as BlockId)
+                        setBlockToAdd('')
+                      }
+                    }}
+                    style={{ minWidth: 240 }}
                   >
-                    <option value="">Adicionar Bloco…</option>
+                    <option value="">Adicionar Bloco pronto…</option>
                     <option value="empresa">Bloco Empresa (CNPJ.WS + Contato PJ + Sócio)</option>
                     <option value="contato_pj">Bloco Contato PJ</option>
                     <option value="bancario_pj">Bloco Bancário PJ</option>
@@ -1321,19 +1349,6 @@ export default function SchemaBuilderPage() {
                     <option value="assinatura_pf">Bloco Assinatura PF</option>
                     <option value="bancario_pf">Bloco Bancário PF</option>
                   </select>
-
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    disabled={!blockToAdd}
-                    onClick={() => {
-                      if (!blockToAdd) return
-                      addBlock(blockToAdd as BlockId)
-                      setBlockToAdd('')
-                    }}
-                  >
-                    Inserir Bloco
-                  </button>
                 </div>
 
                 <button type="submit" className="btn btn-primary" disabled={saving}>
@@ -1596,6 +1611,75 @@ export default function SchemaBuilderPage() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* Paleta: adicionar pergunta a partir do dicionário canônico */}
+      {showFieldPalette && selectedForm && (
+        <div
+          onClick={() => setShowFieldPalette(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, width: 'min(560px, 96vw)', maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.25)', overflow: 'hidden' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--brs-gray-100)' }}>
+              <Plus size={18} style={{ color: 'var(--brs-navy)' }} />
+              <strong style={{ flex: 1, color: 'var(--brs-gray-800)' }}>Adicionar campo do dicionário</strong>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowFieldPalette(false)} style={{ padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '0.75rem 1rem 0' }}>
+              <input
+                type="text"
+                className="form-control"
+                autoFocus
+                placeholder="Buscar campo… (ex.: CNPJ, banco, e-mail)"
+                value={paletteQuery}
+                onChange={e => setPaletteQuery(e.target.value)}
+              />
+              <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-400)', margin: '0.5rem 0' }}>
+                Cria uma pergunta já vinculada ao campo do Agente Corban. Você ajusta tipo/máscara depois.
+              </div>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '0 1rem 1rem', flex: 1, minHeight: 0 }}>
+              {(() => {
+                const q = paletteQuery.trim().toLowerCase()
+                const groups = SYSTEM_KEY_GROUPS
+                  .map(group => ({
+                    ...group,
+                    options: group.options.filter(o => !q || o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q)),
+                  }))
+                  .filter(group => group.options.length > 0)
+                if (groups.length === 0) {
+                  return <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-400)', padding: '1rem 0', textAlign: 'center' }}>Nenhum campo encontrado para “{paletteQuery}”.</div>
+                }
+                return groups.map(group => (
+                  <div key={group.group} style={{ marginBottom: '0.85rem' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--brs-gray-500)', margin: '0.35rem 0' }}>
+                      {group.label}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                      {group.options.map(option => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className="btn btn-outline"
+                          title={`${option.label} — ${option.value}`}
+                          onClick={() => { addFieldFromSystemKey(option.value, option.label); setShowFieldPalette(false); setBuilderTab('fields') }}
+                          style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              })()}
+            </div>
+          </div>
         </div>
       )}
     </div>

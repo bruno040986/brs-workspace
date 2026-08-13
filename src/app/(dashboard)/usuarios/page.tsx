@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { 
-  Plus, Mail, X, Save, Loader2, Edit2, AlertCircle, 
-  User, Shield, Clock, ShieldCheck, UserPlus, Key, Trash2, AlertTriangle 
+import {
+  Plus, Mail, X, Save, Loader2, Edit2, AlertCircle,
+  User, Shield, Clock, ShieldCheck, UserPlus, Key, Trash2, AlertTriangle,
+  UserX, UserCheck
 } from 'lucide-react'
 import type { UserProfile } from '@/types'
-import { saveUserDirectly, saveProfile, getAccessData, getProfilePermissions, getUserPermissions } from './actions'
+import { saveUserDirectly, saveProfile, getAccessData, getProfilePermissions, getUserPermissions, setUserActive } from './actions'
 
 // Definição de horários padrão
 const DEFAULT_SCHEDULES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'].map((day, idx) => ({
@@ -40,7 +41,6 @@ const SYSTEM_MODULES = [
   { id: 'scp-documentos', name: 'Modelos de Documentos', parentId: 'scp', level: 2 },
   { id: 'scp-emails', name: 'Modelos de E-mails', parentId: 'scp', level: 2 },
   { id: 'scp-whatsapp', name: 'Modelos de WhatsApp', parentId: 'scp', level: 2 },
-  { id: 'scp-acoes-gatilhos', name: 'Ações e Gatilhos', parentId: 'scp', level: 2 },
   { id: 'promotoras', name: 'Promotoras', parentId: 'cat-subsistemas', level: 1 },
   { id: 'agente-corban', name: 'Agente Corban', parentId: 'cat-subsistemas', level: 1 },
   { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },
@@ -151,6 +151,24 @@ export default function UsuariosPage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // --- LÓGICA DE USUÁRIOS ---
+  async function handleToggleUserActive(user: any) {
+    const confirmText = user.active
+      ? `Inativar o usuário "${user.name}"?\n\nEle perderá o acesso ao sistema e as entidades comerciais vinculadas a ele também serão inativadas.`
+      : `Reativar o usuário "${user.name}"?\n\nEle voltará a ter acesso ao sistema. Entidades comerciais inativadas precisam ser reativadas manualmente em Cadastros Comerciais.`
+    if (!confirm(confirmText)) return
+
+    const result = await setUserActive(user.id, !user.active)
+    if (result.success) {
+      if (user.active && (result.inactivatedEntities || 0) > 0) {
+        alert(`Usuário inativado. ${result.inactivatedEntities} entidade(s) comercial(is) vinculada(s) também foi(ram) inativada(s).`)
+      }
+      fetchData()
+    } else {
+      alert(result.error || 'Erro ao alterar o status do usuário.')
+    }
+  }
 
   // --- LÓGICA DE PERFIS ---
   async function handleSaveProfile(e: React.FormEvent) {
@@ -485,6 +503,13 @@ export default function UsuariosPage() {
                           setIsModalOpen(true);
                         }}>
                           <Edit2 size={16} />
+                        </button>
+                        <button
+                          className={`btn btn-ghost btn-sm btn-icon ${user.active ? 'text-danger' : ''}`}
+                          title={user.active ? 'Inativar usuário' : 'Reativar usuário'}
+                          onClick={() => handleToggleUserActive(user)}
+                        >
+                          {user.active ? <UserX size={16} /> : <UserCheck size={16} />}
                         </button>
                       </td>
                     </tr>

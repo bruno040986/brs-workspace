@@ -183,6 +183,51 @@ export async function deleteUser(userId: string) {
   }
 }
 
+export async function setUserActive(userId: string, active: boolean) {
+  try {
+    await requireAnyPermission([
+      { resource: 'sistema-usuarios-cadastro', action: 'can_activate_inactivate' },
+      { resource: 'sistema-usuarios-cadastro', action: 'can_delete' },
+    ])
+
+    const { error } = await supabaseAdmin
+      .from('users')
+      .update({ active })
+      .eq('id', userId)
+
+    if (error) throw error
+
+    // Bloqueia/libera o login no Auth sem apagar a conta (ban reversível, senha preservada)
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        ban_duration: active ? 'none' : '876000h',
+      } as any)
+    } catch (authError) {
+      console.warn('Não foi possível atualizar o bloqueio no Auth:', authError)
+    }
+
+    // Cascata: inativar o usuário também inativa as entidades comerciais vinculadas a ele
+    let inactivatedEntities = 0
+    if (!active) {
+      const { data: affected, error: entError } = await supabaseAdmin
+        .from('commercial_entities')
+        .update({ status: 'inativo', updated_at: new Date().toISOString() })
+        .eq('user_id', userId)
+        .eq('status', 'ativo')
+        .select('id')
+
+      if (entError && entError.code !== 'PGRST205') throw entError
+      inactivatedEntities = affected?.length || 0
+    }
+
+    revalidatePath('/usuarios')
+    revalidatePath('/rh/parceiros/config/comercial')
+    return { success: true, inactivatedEntities }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
 export async function saveUserDirectly(userData: {
   id?: string
   name: string
