@@ -143,9 +143,23 @@ export type InstituicaoSacOuvidoria = {
   ouvidoria: InstituicaoSacChannel
 }
 
+export type InstituicaoMarketingLink = {
+  id: string
+  descricao: string
+  url: string
+}
+
+export type InstituicaoTarifaArquivo = {
+  id: string
+  descricao: string
+  file_name: string
+  file_data_url: string
+}
+
 export type InstituicaoLinksData = {
-  marketing_url: string
+  marketing_links: InstituicaoMarketingLink[]
   tabela_tarifas_url: string
+  tabela_tarifas_arquivos: InstituicaoTarifaArquivo[]
 }
 
 export type InstituicaoFinancialConfiguration = {
@@ -307,8 +321,52 @@ export function createEmptyInstituicaoFinanceira(): InstituicaoFinanceiraRecord 
     fiscal_data: { configurations: [] },
     financial_data: { empresa_contratada_id: '', configurations: [] },
     systems: [],
-    links_data: { marketing_url: '', tabela_tarifas_url: '' },
+    links_data: { marketing_links: [], tabela_tarifas_url: '', tabela_tarifas_arquivos: [] },
     is_active: true,
+  }
+}
+
+export function createEmptyMarketingLink(): InstituicaoMarketingLink {
+  return { id: createId('fi-mkt'), descricao: '', url: '' }
+}
+
+export function createEmptyTarifaArquivo(): InstituicaoTarifaArquivo {
+  return { id: createId('fi-tarifa'), descricao: '', file_name: '', file_data_url: '' }
+}
+
+export function normalizeLinksData(raw: any): InstituicaoLinksData {
+  const value = raw && typeof raw === 'object' ? raw : {}
+  const marketingLinks: InstituicaoMarketingLink[] = Array.isArray(value.marketing_links)
+    ? value.marketing_links
+        .map((item: any) => ({
+          id: String(item?.id || '').trim() || createId('fi-mkt'),
+          descricao: String(item?.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+          url: String(item?.url || '').trim().slice(0, 500),
+        }))
+        .filter((item: InstituicaoMarketingLink) => item.descricao || item.url)
+    : []
+
+  // Migração do formato antigo (campo único marketing_url)
+  const legacyMarketingUrl = String(value.marketing_url || '').trim()
+  if (legacyMarketingUrl && !marketingLinks.some((item) => item.url === legacyMarketingUrl)) {
+    marketingLinks.unshift({ id: createId('fi-mkt'), descricao: 'Marketing', url: legacyMarketingUrl.slice(0, 500) })
+  }
+
+  const arquivos: InstituicaoTarifaArquivo[] = Array.isArray(value.tabela_tarifas_arquivos)
+    ? value.tabela_tarifas_arquivos
+        .map((item: any) => ({
+          id: String(item?.id || '').trim() || createId('fi-tarifa'),
+          descricao: String(item?.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+          file_name: String(item?.file_name || '').trim().slice(0, 200),
+          file_data_url: String(item?.file_data_url || '').trim(),
+        }))
+        .filter((item: InstituicaoTarifaArquivo) => item.descricao || item.file_data_url)
+    : []
+
+  return {
+    marketing_links: marketingLinks,
+    tabela_tarifas_url: String(value.tabela_tarifas_url || '').trim().slice(0, 500),
+    tabela_tarifas_arquivos: arquivos,
   }
 }
 
@@ -481,10 +539,7 @@ export function normalizeInstituicaoFinanceiraRecord(
       configurations: normalizeFinancialConfigurations(financial),
     },
     systems: normalizeSystems(input.systems),
-    links_data: {
-      marketing_url: text(links.marketing_url, 500),
-      tabela_tarifas_url: text(links.tabela_tarifas_url, 500),
-    },
+    links_data: normalizeLinksData(links),
     is_active: input.is_active !== false,
     deleted_at: input.deleted_at ?? null,
     created_at: input.created_at,

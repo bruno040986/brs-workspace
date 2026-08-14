@@ -13,6 +13,7 @@ import {
   Edit2,
   FileText,
   Globe,
+  Handshake,
   Headset,
   Link2,
   Loader2,
@@ -39,6 +40,9 @@ import { formatCapitalSocialBr, normalizeCnpjWsCompleto } from '@/lib/cnpj-consu
 import {
   INSTITUICAO_TIPOS,
   createEmptyInstituicaoFinanceira,
+  createEmptyMarketingLink,
+  createEmptyTarifaArquivo,
+  normalizeLinksData,
   type InstituicaoAtendimentoLine,
   type InstituicaoFinanceiraRecord,
   type InstituicaoSacChannel,
@@ -67,7 +71,7 @@ import {
   setInstituicaoFinanceiraStatus,
 } from '../actions'
 
-type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas' | 'sac' | 'links' | 'produtos'
+type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas' | 'sac' | 'links' | 'negociacoes' | 'produtos'
 type ContactTab = 'comercial' | 'operacional' | 'redes'
 
 const UFS = [
@@ -258,7 +262,7 @@ function SacChannelCard({
             checked={channel.card_enabled}
             onChange={(e) => onChange({ ...channel, card_enabled: e.target.checked })}
           />
-          Exibir card no site
+          Exibir no card do site
         </label>
       </div>
 
@@ -447,7 +451,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
             contacts_commercial: Array.isArray(raw.contacts_commercial) ? raw.contacts_commercial : [],
             contacts_operational: Array.isArray(raw.contacts_operational) ? raw.contacts_operational : [],
             systems: Array.isArray(raw.systems) ? raw.systems : [],
-            links_data: { ...empty.links_data, ...(raw.links_data || {}) },
+            links_data: normalizeLinksData(raw.links_data),
           })
         }
       } else {
@@ -565,6 +569,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
                 bairro: rica.bairro || prev.general_data.bairro,
                 cidade: rica.cidade || prev.general_data.cidade,
                 uf: rica.uf || prev.general_data.uf,
+                email_principal: prev.general_data.email_principal || rica.email_rfb,
               },
             }
           : prev,
@@ -772,6 +777,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
           { key: 'sistemas', label: 'Sistemas', icon: Globe },
           { key: 'sac', label: 'Sac & Ouvidoria', icon: Headset },
           { key: 'links', label: 'Links', icon: Link2 },
+          { key: 'negociacoes', label: 'Negociações', icon: Handshake },
           { key: 'produtos', label: 'Produtos e Convênios', icon: Package },
         ].map((tab) => {
           const Icon = tab.icon
@@ -1285,25 +1291,88 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
       )}
 
       {activeTab === 'links' && (
-        <div className="card" style={{ padding: '1rem' }}>
-          <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', marginBottom: '1rem' }}>Links da Instituição</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Marketing (URL)</label>
-              {isReadOnly ? (
-                <ReadOnlyField label="" value={item.links_data.marketing_url || ''} kind="url" />
-              ) : (
-                <input
-                  className="form-control"
-                  type="url"
-                  value={item.links_data.marketing_url || ''}
-                  onChange={(e) => updateItem(item ? { ...item, links_data: { ...item.links_data, marketing_url: normalizeUrlValue(e.target.value) } } : item)}
-                  placeholder="https://drive.google.com/..."
-                />
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <div className="card" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              <div>
+                <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>Marketing</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>Links de materiais de marketing da instituição (drives, portais, campanhas).</div>
+              </div>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => updateItem(item ? { ...item, links_data: { ...item.links_data, marketing_links: [...item.links_data.marketing_links, createEmptyMarketingLink()] } } : item)}
+                >
+                  <CirclePlus size={16} />
+                  Novo Link
+                </button>
               )}
             </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Tabela de Tarifas (URL)</label>
+            {item.links_data.marketing_links.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--brs-gray-500)' }}>Nenhum link cadastrado.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                {item.links_data.marketing_links.map((link, index) => (
+                  <div key={link.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr) auto', gap: '0.5rem', alignItems: 'center' }}>
+                    <input
+                      className="form-control"
+                      disabled={isReadOnly}
+                      value={link.descricao}
+                      placeholder="Descrição (ex.: Kit de banners)"
+                      onChange={(e) => updateItem(item ? { ...item, links_data: { ...item.links_data, marketing_links: item.links_data.marketing_links.map((row, i) => (i === index ? { ...row, descricao: e.target.value } : row)) } } : item)}
+                    />
+                    {isReadOnly ? (
+                      <ReadOnlyField label="" value={link.url} kind="url" />
+                    ) : (
+                      <input
+                        className="form-control"
+                        type="url"
+                        value={link.url}
+                        placeholder="https://..."
+                        onChange={(e) => updateItem(item ? { ...item, links_data: { ...item.links_data, marketing_links: item.links_data.marketing_links.map((row, i) => (i === index ? { ...row, url: normalizeUrlValue(e.target.value) } : row)) } } : item)}
+                      />
+                    )}
+                    <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
+                      <button type="button" className="btn btn-outline btn-sm" disabled={!link.url} onClick={() => copyText(link.url)} title="Copiar URL">
+                        <Copy size={14} />
+                      </button>
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => updateItem(item ? { ...item, links_data: { ...item.links_data, marketing_links: item.links_data.marketing_links.filter((_, i) => i !== index) } } : item)}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              <div>
+                <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>Tabela de Tarifas</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>Link direto da instituição (quando existir) e/ou arquivos enviados, identificados pela descrição.</div>
+              </div>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => updateItem(item ? { ...item, links_data: { ...item.links_data, tabela_tarifas_arquivos: [...item.links_data.tabela_tarifas_arquivos, createEmptyTarifaArquivo()] } } : item)}
+                >
+                  <CirclePlus size={16} />
+                  Novo Arquivo
+                </button>
+              )}
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '1rem', maxWidth: 640 }}>
+              <label className="form-label">Link Direto (URL)</label>
               {isReadOnly ? (
                 <ReadOnlyField label="" value={item.links_data.tabela_tarifas_url || ''} kind="url" />
               ) : (
@@ -1312,11 +1381,88 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
                   type="url"
                   value={item.links_data.tabela_tarifas_url || ''}
                   onChange={(e) => updateItem(item ? { ...item, links_data: { ...item.links_data, tabela_tarifas_url: normalizeUrlValue(e.target.value) } } : item)}
-                  placeholder="https://..."
+                  placeholder="https://www.instituicao.com.br/tarifas"
                 />
               )}
             </div>
+
+            {item.links_data.tabela_tarifas_arquivos.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '1.25rem', color: 'var(--brs-gray-500)', border: '1px dashed var(--brs-gray-300)', borderRadius: 12 }}>
+                Nenhum arquivo de tabela de tarifas enviado.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                {item.links_data.tabela_tarifas_arquivos.map((arquivo, index) => (
+                  <div key={arquivo.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr) auto', gap: '0.5rem', alignItems: 'center' }}>
+                    <input
+                      className="form-control"
+                      disabled={isReadOnly}
+                      value={arquivo.descricao}
+                      placeholder="Descrição (ex.: Tarifas Consignado INSS 2026)"
+                      onChange={(e) => updateItem(item ? { ...item, links_data: { ...item.links_data, tabela_tarifas_arquivos: item.links_data.tabela_tarifas_arquivos.map((row, i) => (i === index ? { ...row, descricao: e.target.value } : row)) } } : item)}
+                    />
+                    {arquivo.file_data_url ? (
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', minWidth: 0 }}>
+                        <a
+                          href={arquivo.file_data_url}
+                          download={arquivo.file_name || 'tabela-de-tarifas'}
+                          className="btn btn-outline btn-sm"
+                          style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}
+                          title={`Baixar ${arquivo.file_name || 'arquivo'}`}
+                        >
+                          {arquivo.file_name || 'arquivo enviado'}
+                        </a>
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            title="Substituir arquivo"
+                            onClick={() => updateItem(item ? { ...item, links_data: { ...item.links_data, tabela_tarifas_arquivos: item.links_data.tabela_tarifas_arquivos.map((row, i) => (i === index ? { ...row, file_name: '', file_data_url: '' } : row)) } } : item)}
+                          >
+                            <Upload size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        className="form-control"
+                        type="file"
+                        disabled={isReadOnly}
+                        accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null
+                          if (!file) return
+                          const reader = new FileReader()
+                          reader.onload = () => {
+                            const dataUrl = String(reader.result || '')
+                            updateItem(item ? { ...item, links_data: { ...item.links_data, tabela_tarifas_arquivos: item.links_data.tabela_tarifas_arquivos.map((row, i) => (i === index ? { ...row, file_name: file.name, file_data_url: dataUrl } : row)) } } : item)
+                          }
+                          reader.readAsDataURL(file)
+                        }}
+                      />
+                    )}
+                    {!isReadOnly && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => updateItem(item ? { ...item, links_data: { ...item.links_data, tabela_tarifas_arquivos: item.links_data.tabela_tarifas_arquivos.filter((_, i) => i !== index) } } : item)}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'negociacoes' && (
+        <div className="card" style={{ padding: '2.5rem', border: '1px dashed var(--brs-gray-300)', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
+          <Handshake size={40} style={{ marginBottom: '0.75rem', color: 'var(--brs-gray-300)' }} />
+          <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)', fontSize: '1.05rem' }}>Negociações</div>
+          <div style={{ marginTop: '0.4rem' }}>Em breve — aqui você vai registrar os acordos e as negociações firmadas com esta instituição.</div>
         </div>
       )}
 
