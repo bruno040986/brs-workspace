@@ -12,6 +12,7 @@ type Props = { slug?: string }
 
 export default function PartnerOnboarding({ slug }: Props) {
   const [step, setStep] = useState<'lgpd' | 'form' | 'success'>('lgpd')
+  const [onboardingToken, setOnboardingToken] = useState('')
   const [formSchema, setFormSchema] = useState<any[]>([])
   const [formId, setFormId] = useState<string>('')
   const [formConfig, setFormConfig] = useState<any>({})
@@ -117,7 +118,7 @@ export default function PartnerOnboarding({ slug }: Props) {
       if (slug) {
         const procRes = await getPublicProcessBySlug(slug)
         if (procRes.success && procRes.process && procRes.form) {
-          res = { success: true, form: procRes.form }
+          res = { success: true, form: procRes.form, onboardingToken: (procRes as any).onboardingToken }
         } else {
           res = await getFormBySlug(slug)
         }
@@ -128,6 +129,7 @@ export default function PartnerOnboarding({ slug }: Props) {
         setFormSchema(res.form.schema || [])
         setFormId(res.form.id)
         setFormConfig(res.form.config || {})
+        if ((res as any).onboardingToken) setOnboardingToken((res as any).onboardingToken)
       }
       setLoadingSchema(false)
     }
@@ -790,7 +792,10 @@ export default function PartnerOnboarding({ slug }: Props) {
 
     setSearchingCPF(true)
     try {
-      const res = await fetch(`/api/cpfhub/cpf/${cleanCPF}`, { cache: 'no-store' })
+      const res = await fetch(`/api/cpfhub/cpf/${cleanCPF}`, {
+        cache: 'no-store',
+        headers: onboardingToken ? { 'x-onboarding-token': onboardingToken } : {},
+      })
       if (!res.ok) return
       const data = await res.json()
 

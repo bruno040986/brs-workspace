@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { buildAgenteCorbanLegacyPersistenceRow } from '@/lib/agente-corban'
 import { mapFormAnswersToSystemKeys, routeFormAnswersToCorbanData } from '@/lib/agente-corban-fields'
+import { issueOnboardingToken } from '@/lib/onboarding-token'
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 const ALLOWED_UPLOAD_MIME_TYPES: string[] = ['application/pdf', 'image/jpeg', 'image/png']
@@ -33,7 +34,7 @@ export async function getActiveForm() {
       .maybeSingle()
 
     if (error) throw error
-    return { success: true, form: data }
+    return { success: true, form: data, onboardingToken: issueOnboardingToken() }
   } catch (error: any) {
     console.error('Erro ao buscar formulário ativo:', error)
     return { success: false, error: error.message }
@@ -62,7 +63,7 @@ export async function getFormBySlug(slug: string) {
       .maybeSingle()
 
     if (error) throw error
-    return { success: true, form: data }
+    return { success: true, form: data, onboardingToken: issueOnboardingToken() }
   } catch (error: any) {
     console.error('Erro ao buscar formulário por slug:', error)
     return { success: false, error: error.message }
@@ -108,7 +109,7 @@ export async function getPublicProcessBySlug(slug: string) {
       form = f
     }
 
-    return { success: true, process, form }
+    return { success: true, process, form, onboardingToken: issueOnboardingToken() }
   } catch (error: any) {
     console.error('Erro ao buscar processo público por slug:', error)
     return { success: false, error: error.message, process: null, form: null }

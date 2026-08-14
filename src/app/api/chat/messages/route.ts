@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL, chatAttachmentPath, type ChatAttachment } from '@/lib/chat/attachments'
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +42,22 @@ export async function GET(request: NextRequest) {
     const { data: users } = await admin.from('users').select('id, name, email').in('id', senderIds)
     const userMap = new Map((users || []).map((u) => [u.id, u]))
 
-    const normalized = (messages || []).map((m) => {
+    // Bucket privado: gera URL assinada de curta duração para cada anexo.
+    async function signAttachments(raw: unknown): Promise<ChatAttachment[]> {
+      const list = Array.isArray(raw) ? (raw as ChatAttachment[]) : []
+      return Promise.all(
+        list.map(async (att) => {
+          const path = chatAttachmentPath(att)
+          if (!path) return att
+          const { data: signed } = await admin.storage
+            .from(CHAT_ATTACHMENT_BUCKET)
+            .createSignedUrl(path, CHAT_SIGNED_URL_TTL)
+          return { ...att, url: signed?.signedUrl || att.url }
+        }),
+      )
+    }
+
+    const normalized = await Promise.all((messages || []).map(async (m) => {
       const sender = userMap.get(m.sender_id)
       const sentByMe = m.sender_id === user.id
       const isReadByOther =
@@ -59,10 +75,10 @@ export async function GET(request: NextRequest) {
           full_name: sender?.name || undefined,
         },
         text_style: m.text_style || null,
-        attachments: Array.isArray(m.attachments) ? m.attachments : [],
+        attachments: await signAttachments(m.attachments),
         delivery_status: sentByMe ? (isReadByOther ? 'read' : 'sent') : null,
       }
-    })
+    }))
 
     await admin
       .from('workspace_chat_participants')

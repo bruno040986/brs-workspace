@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { getCpfHubApiKey } from '@/lib/cpfhub-config'
+import { verifyOnboardingToken } from '@/lib/onboarding-token'
 
 export const runtime = 'nodejs'
 
@@ -61,23 +62,29 @@ export async function GET(request: Request, ctx: { params: Promise<{ cpf: string
     return NextResponse.json({ error: 'CPF inválido' }, { status: 400 })
   }
 
-  // Rate limit: autenticado tem teto maior; anônimo é limitado por IP.
+  // Autenticado tem teto maior. Anônimo (fluxo público de onboarding) precisa de um
+  // token de sessão de formulário válido — impede o uso do endpoint como scraper.
   const now = Date.now()
   let rateKey = ''
   let rateLimit = RATE_LIMIT_ANON
+  let authenticated = false
   try {
     const supabase = await createClient()
     const {
       data: { user },
     } = await supabase.auth.getUser()
     if (user) {
+      authenticated = true
       rateKey = `u:${user.id}`
       rateLimit = RATE_LIMIT_AUTH
     }
   } catch {
     // segue como anônimo
   }
-  if (!rateKey) {
+  if (!authenticated) {
+    if (!verifyOnboardingToken(request.headers.get('x-onboarding-token'))) {
+      return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
+    }
     const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown'
     rateKey = `ip:${ip}`
   }

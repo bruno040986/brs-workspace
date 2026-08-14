@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL } from '@/lib/chat/attachments'
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024
 
@@ -58,18 +59,23 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
 
     const { error: uploadError } = await admin.storage
-      .from('workspace-chat')
+      .from(CHAT_ATTACHMENT_BUCKET)
       .upload(path, bytes, { contentType: mime, upsert: false })
 
     if (uploadError) throw uploadError
 
-    const { data: publicData } = admin.storage.from('workspace-chat').getPublicUrl(path)
+    // Bucket privado: devolve o path (persistido na mensagem) + uma URL assinada
+    // de curta duração para exibição imediata. Na releitura, o GET reassina.
+    const { data: signed } = await admin.storage
+      .from(CHAT_ATTACHMENT_BUCKET)
+      .createSignedUrl(path, CHAT_SIGNED_URL_TTL)
 
     return NextResponse.json({
       name: file.name,
       size: file.size,
       type: file.type,
-      url: publicData.publicUrl,
+      path,
+      url: signed?.signedUrl || '',
     })
   } catch (error) {
     console.error('Error uploading file:', error)
