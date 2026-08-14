@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { getVisibleEffectivePermissions, requireAnyPermission } from '@/lib/auth/server'
+import { hasPermission } from '@/lib/auth/permissions'
 
 // Criamos um cliente com a Service Role para operações administrativas
 const supabaseAdmin = createClient(
@@ -248,12 +249,24 @@ export async function saveUserDirectly(userData: {
   employee_id?: string | null
 }) {
   try {
-    await requireAnyPermission([
+    const { permissions: myPermissions } = await requireAnyPermission([
       {
         resource: 'sistema-usuarios-cadastro',
         action: userData.id ? 'can_edit' : 'can_include',
       },
     ])
+
+    // Segurança (A-1): gravar permissões individuais é uma operação privilegiada
+    // (permitia a um usuário com "cadastro" conceder root a si mesmo). Exige perfil
+    // de administrador de perfis ou root.
+    if (Array.isArray(userData.permissions) && userData.permissions.length > 0) {
+      const canManagePrivileges =
+        hasPermission(myPermissions, 'sistema-usuarios-perfis', 'can_edit') ||
+        hasPermission(myPermissions, 'sistema-usuarios-root', 'can_edit')
+      if (!canManagePrivileges) {
+        throw new Error('Sem permissão para definir permissões individuais de usuário.')
+      }
+    }
 
     const now = new Date().toISOString()
     let userId = userData.id

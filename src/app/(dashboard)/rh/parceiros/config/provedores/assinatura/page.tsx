@@ -284,14 +284,14 @@ export default function AssinaturaConfigPage() {
               <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--brs-gray-400)' }}>
                 <Key size={16} />
               </span>
-              <input 
-                type="password" 
-                className="form-control" 
+              <input
+                type="password"
+                className="form-control"
                 style={{ paddingLeft: '2.25rem' }}
-                placeholder="Token de acesso da API do Assinafy"
+                placeholder="Deixe em branco para manter a chave atual"
                 value={assinafyApiKey}
                 onChange={e => setAssinafyApiKey(e.target.value)}
-                required
+                autoComplete="off"
               />
             </div>
           </div>

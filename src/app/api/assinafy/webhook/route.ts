@@ -20,11 +20,14 @@ export async function POST(req: NextRequest) {
     const config = await getAssinafyConfig()
     const expectedSecret = String(config?.webhookSecret || '')
 
-    if (expectedSecret) {
-      const provided = req.nextUrl.searchParams.get('secret') || ''
-      if (provided !== expectedSecret) {
-        return Response.json({ ok: false, error: 'invalid secret' }, { status: 401 })
-      }
+    // Segurança (M-2): fail-closed. Sem webhook_secret configurado, rejeitamos —
+    // evita que qualquer um forje eventos e faça o motor avançar etapas.
+    if (!expectedSecret) {
+      return Response.json({ ok: false, error: 'webhook secret not configured' }, { status: 503 })
+    }
+    const provided = req.nextUrl.searchParams.get('secret') || ''
+    if (provided !== expectedSecret) {
+      return Response.json({ ok: false, error: 'invalid secret' }, { status: 401 })
     }
 
     let envelope: any = null

@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { getPlainTextLength } from '@/lib/comunicados'
 import { loadComunicadosCatalog } from '@/lib/comunicados-service'
 import { requirePermission } from '@/lib/auth/server'
+import { sanitizeRichHtml } from '@/lib/sanitize-html'
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
@@ -25,7 +26,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const body = await request.json()
 
     const titulo = body.titulo !== undefined ? String(body.titulo || '').trim().slice(0, 60) : undefined
-    const textoHtml = body.texto_html !== undefined || body.textoHtml !== undefined ? String(body.texto_html || body.textoHtml || '').trim() : undefined
+    const textoHtml = body.texto_html !== undefined || body.textoHtml !== undefined ? sanitizeRichHtml(String(body.texto_html || body.textoHtml || '').trim()) : undefined
     const targetProfileIds = body.target_profile_ids !== undefined || body.targetProfileIds !== undefined
       ? parseTargetIds(body.target_profile_ids || body.targetProfileIds)
       : undefined

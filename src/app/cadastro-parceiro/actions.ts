@@ -51,10 +51,13 @@ export async function getFormBySlug(slug: string) {
 
     if (!normalized) return { success: true, form: null }
 
+    // Segurança (B-3): só formulários ativos são servidos no fluxo público
+    // (evita enumeração/uso de rascunhos e formulários desativados).
     const { data, error } = await supabaseAdmin
       .from('partner_forms')
       .select('*')
       .eq('slug', normalized)
+      .eq('is_active', true)
       .limit(1)
       .maybeSingle()
 
@@ -149,7 +152,7 @@ async function ensureBucketExists(bucketName: string) {
 }
 
 export async function uploadPartnerFile(
-  cpfCnpj: string,
+  _cpfCnpj: string,
   fileName: string,
   base64Data: string
 ) {
@@ -168,14 +171,19 @@ export async function uploadPartnerFile(
       return { success: false, error: 'Arquivo excede o tamanho máximo de 5MB.' }
     }
 
-    const cleanedCpfCnpj = cpfCnpj.replace(/\D/g, '')
-    const filePath = `${cleanedCpfCnpj}/${Date.now()}_${fileName}`
+    // Segurança (C-4): caminho imprevisível e SEM o CPF/CNPJ (que vazava na URL pública).
+    // Nome do arquivo sanitizado; sem upsert para não sobrescrever documentos de terceiros.
+    const safeName = String(fileName || 'arquivo')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(-80)
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+    const filePath = `uploads/${uniqueId}_${safeName}`
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(bucketName)
       .upload(filePath, buffer, {
         contentType: mimeType,
-        upsert: true
+        upsert: false
       })
 
     if (uploadError) throw uploadError
@@ -468,14 +476,11 @@ export async function submitPartnerRegistration(payload: {
           updateData.corban_data || {},
         )
 
-        const { data: updated, error: uErr } = await supabaseAdmin
-          .from('agentes_parceiros')
-          .update(updateData)
-          .eq('id', (existing as any).id)
-          .select()
-          .maybeSingle()
-        if (uErr) throw uErr
-        partner = updated || existing
+        // Segurança (C-2): o formulário PÚBLICO não sobrescreve um parceiro já existente
+        // — isso permitia desvio de dados bancários/PIX por quem conhecesse o CPF/CNPJ.
+        // Os dados reenviados permanecem no snapshot do processo (abaixo) para revisão do backoffice.
+        void updateData
+        partner = existing
       } else {
         throw insertErr
       }
@@ -596,7 +601,9 @@ export async function submitPartnerRegistration(payload: {
       }
     }
 
-    return { success: true, partner }
+    // Segurança (C-2): nunca ecoar o registro do parceiro ao chamador público
+    // (evita oráculo de enumeração por CPF/CNPJ). Retorna apenas o resultado.
+    return { success: true }
   } catch (error: any) {
     console.error('Erro ao salvar cadastro do parceiro:', error)
     return { success: false, error: error.message }

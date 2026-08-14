@@ -176,16 +176,33 @@ export async function getProvedoresConfig() {
       }
     }
 
+    // Segurança (A-2): nunca devolver os segredos ao cliente. Enviamos apenas
+    // flags "has_*" indicando se já existe chave configurada. Ao salvar, um campo
+    // em branco preserva o segredo atual (ver saveProvedoresConfig).
     return {
       success: true,
-      resend,
-      zapi,
-      assinafy
+      resend: { ...resend, api_key: '', has_api_key: !!resend.api_key },
+      zapi: { ...zapi, token: '', client_key: '', has_token: !!zapi.token, has_client_key: !!zapi.client_key },
+      assinafy: {
+        ...assinafy,
+        api_key: '',
+        webhook_secret: '',
+        has_api_key: !!assinafy.api_key,
+        has_webhook_secret: !!assinafy.webhook_secret,
+      },
     }
   } catch (error: any) {
     console.error('Erro ao obter provedores:', error)
     return { success: false, error: error.message }
   }
+}
+
+// Preserva o segredo atual quando o formulário envia o campo em branco (mascarado).
+async function keepExistingSecret(table: string, id: string | undefined, column: string, incoming: string | undefined): Promise<string> {
+  const value = String(incoming || '')
+  if (value || !id) return value
+  const { data } = await supabaseAdmin.from(table).select(column).eq('id', id).maybeSingle()
+  return String((data as Record<string, unknown> | null)?.[column] || '')
 }
 
 export async function saveProvedoresConfig(data: {
@@ -220,12 +237,13 @@ export async function saveProvedoresConfig(data: {
 
     // 1. Salvar Resend
     if (data.resend) {
+      const resendApiKey = await keepExistingSecret('resend_config', data.resend.id, 'api_key', data.resend.api_key)
       try {
         if (data.resend.id) {
           const { error } = await supabaseAdmin
             .from('resend_config')
             .update({
-              api_key: data.resend.api_key,
+              api_key: resendApiKey,
               from_email: data.resend.from_email,
               is_active: data.resend.is_active,
               updated_at: new Date().toISOString()
@@ -236,7 +254,7 @@ export async function saveProvedoresConfig(data: {
           const { error } = await supabaseAdmin
             .from('resend_config')
             .insert({
-              api_key: data.resend.api_key,
+              api_key: resendApiKey,
               from_email: data.resend.from_email,
               is_active: data.resend.is_active
             })
@@ -251,14 +269,16 @@ export async function saveProvedoresConfig(data: {
 
     // 2. Salvar Z-API
     if (data.zapi) {
+      const zapiToken = await keepExistingSecret('zapi_config', data.zapi.id, 'token', data.zapi.token)
+      const zapiClientKey = await keepExistingSecret('zapi_config', data.zapi.id, 'client_key', data.zapi.client_key)
       try {
         if (data.zapi.id) {
           const { error } = await supabaseAdmin
             .from('zapi_config')
             .update({
               instance_id: data.zapi.instance_id,
-              token: data.zapi.token,
-              client_key: data.zapi.client_key || '',
+              token: zapiToken,
+              client_key: zapiClientKey,
               is_active: data.zapi.is_active,
               updated_at: new Date().toISOString()
             })
@@ -269,8 +289,8 @@ export async function saveProvedoresConfig(data: {
             .from('zapi_config')
             .insert({
               instance_id: data.zapi.instance_id,
-              token: data.zapi.token,
-              client_key: data.zapi.client_key || '',
+              token: zapiToken,
+              client_key: zapiClientKey,
               is_active: data.zapi.is_active
             })
           if (error) throw error
@@ -286,11 +306,13 @@ export async function saveProvedoresConfig(data: {
     if (data.assinafy) {
       // environment só aceita 'sandbox' ou 'production' (CHECK no banco).
       const environment = data.assinafy.environment === 'sandbox' ? 'sandbox' : 'production'
+      const assinafyApiKey = await keepExistingSecret('assinafy_config', data.assinafy.id, 'api_key', data.assinafy.api_key)
+      const assinafyWebhookSecret = await keepExistingSecret('assinafy_config', data.assinafy.id, 'webhook_secret', data.assinafy.webhook_secret)
       const assinafyRow = {
-        api_key: data.assinafy.api_key,
+        api_key: assinafyApiKey,
         account_id: data.assinafy.account_id || '',
         environment,
-        webhook_secret: data.assinafy.webhook_secret || '',
+        webhook_secret: assinafyWebhookSecret,
         is_active: data.assinafy.is_active,
       }
       try {
@@ -313,7 +335,7 @@ export async function saveProvedoresConfig(data: {
           // Colunas novas (account_id/environment/webhook_secret) ainda não existem
           // neste banco — cai para o subconjunto legado para não travar o save.
           console.warn('assinafy_config sem as colunas novas; salvando apenas api_key/is_active.')
-          const legacyRow = { api_key: data.assinafy.api_key, is_active: data.assinafy.is_active }
+          const legacyRow = { api_key: assinafyApiKey, is_active: data.assinafy.is_active }
           if (data.assinafy.id) {
             const { error } = await supabaseAdmin
               .from('assinafy_config')

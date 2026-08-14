@@ -134,14 +134,14 @@ export default function WhatsappConfigPage() {
               <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--brs-gray-400)' }}>
                 <Key size={16} />
               </span>
-              <input 
-                type="password" 
-                className="form-control" 
+              <input
+                type="password"
+                className="form-control"
                 style={{ paddingLeft: '2.25rem' }}
-                placeholder="Token de segurança Z-API"
+                placeholder="Deixe em branco para manter o token atual"
                 value={zapiToken}
                 onChange={e => setZapiToken(e.target.value)}
-                required
+                autoComplete="off"
               />
             </div>
           </div>

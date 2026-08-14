@@ -67,6 +67,22 @@ function isActiveStatus(status: string | null | undefined) {
   return normalized === 'ativo' || normalized === 'active'
 }
 
+// Segurança (C-3): o cartão é PÚBLICO. Só estes campos de cadastral_data podem
+// cruzar a fronteira server→client; o restante (CPF, banco, PIX, endereço, lat/long,
+// cpfhub_payload/cnpjws_payload) nunca é serializado para o visitante anônimo.
+const PUBLIC_CADASTRAL_FIELDS = ['commercial_name', 'full_name', 'sex', 'phone_whatsapp', 'email_professional'] as const
+function pickPublicCadastral(cd: Record<string, any> | null | undefined): Record<string, any> {
+  if (!cd) return {}
+  const out: Record<string, any> = {}
+  for (const field of PUBLIC_CADASTRAL_FIELDS) {
+    if (cd[field] !== undefined && cd[field] !== null) out[field] = cd[field]
+  }
+  return out
+}
+function sanitizeEntityForPublic(entity: PublicCommercialEntityRow): PublicCommercialEntityRow {
+  return { ...entity, cadastral_data: pickPublicCadastral(entity.cadastral_data), arw_data: null }
+}
+
 function normalizeCompanyProfile(company: { nickname?: string | null; company_data?: CommercialCompanyLinksProfile['company_data'] | null }) {
   return {
     nickname: String(company.nickname || '').trim(),
@@ -89,7 +105,7 @@ function normalizeRelation(entity: {
     name: entity.name,
     role: entity.role,
     commercial_slug: entity.commercial_slug,
-    cadastral_data: entity.cadastral_data || {},
+    cadastral_data: pickPublicCadastral(entity.cadastral_data),
     user_id: entity.user_id,
     avatar_url: entity.avatar_url,
   }
@@ -216,7 +232,7 @@ async function buildPublicCardData(
   const { parent, superior } = await buildCommercialEntityRelations(entities, entity, users)
 
   return {
-    entity,
+    entity: sanitizeEntityForPublic(entity),
     companyProfile,
     linkedUser: entity.user_id ? activeUsersMap.get(entity.user_id) || null : null,
     cardLinks,

@@ -48,3 +48,6 @@ next-env.d.ts
 /.swarm/
 ruvector.db
 .claude/settings.local.json
+
+# scripts locais de manutenção (podem conter credenciais em process.env)
+/scratch/

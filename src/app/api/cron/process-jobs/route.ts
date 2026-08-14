@@ -14,11 +14,10 @@ export const maxDuration = 60
 
 function isAuthorized(req: NextRequest): boolean {
   const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return true // sem segredo configurado, permite (ex.: dev)
+  // Segurança (M-1): fail-closed. Sem CRON_SECRET configurado, ninguém dispara o motor.
+  if (!secret) return false
   const auth = req.headers.get('authorization') || ''
-  if (auth === `Bearer ${secret}`) return true
-  if (req.nextUrl.searchParams.get('secret') === secret) return true
-  return false
+  return auth === `Bearer ${secret}`
 }
 
 async function handle(req: NextRequest) {

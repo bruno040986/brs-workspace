@@ -34,10 +34,17 @@ export async function getMyHubContext() {
 
     if (birthdaysError) throw birthdaysError
 
+    // Segurança (B-1): o mural de aniversários só precisa de dia/mês. Mascaramos o
+    // ano para não expor a idade/ano de nascimento de toda a base a qualquer usuário.
+    const safeBirthdays = (birthdays || []).map((b: { name?: string | null; birth_date?: string | null; avatar_url?: string | null }) => ({
+      ...b,
+      birth_date: b.birth_date ? `0000-${String(b.birth_date).slice(5)}` : b.birth_date,
+    }))
+
     return {
       success: true,
       userName: profile?.name ? String(profile.name).split(' ')[0] : user.email?.split('@')[0] || '',
-      birthdays: birthdays || [],
+      birthdays: safeBirthdays,
     }
   } catch (error: unknown) {
     return {

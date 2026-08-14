@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
@@ -7,6 +8,12 @@ function cleanCnpj(value: string): string {
 }
 
 export async function GET(_: Request, ctx: { params: Promise<{ cnpj: string }> | { cnpj: string } }) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
+
   const params = await ctx.params
   const cnpj = cleanCnpj(params?.cnpj || '')
 

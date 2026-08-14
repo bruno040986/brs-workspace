@@ -24,7 +24,9 @@ function isPublicAssetRequest(pathname: string) {
 }
 
 function isAuthenticatedOpenApi(pathname: string) {
-  return pathname.startsWith('/api/comunicados')
+  // Rotas de API liberadas a qualquer usuário autenticado (sem permissão específica).
+  // A validação real da sessão é feita no handler via getUser().
+  return pathname.startsWith('/api/comunicados') || pathname.startsWith('/api/cnpjws')
 }
 
 function forbiddenResponse(request: NextRequest) {
@@ -85,31 +87,13 @@ async function getUserWithTimeout(
 
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
-  const hostHeader = request.headers.get('host')
-  const forwardedHost = request.headers.get('x-forwarded-host')
-  const hostname = getRequestHost(request)
   const publicCardSlug = getPublicCardSlugFromHost(request)
-
-  console.log('[middleware] host debug', {
-    hostHeader,
-    forwardedHost,
-    hostname,
-    pathname,
-    publicCardSlug,
-  })
 
   if (publicCardSlug && (pathname === '/' || pathname === '')) {
     const url = request.nextUrl.clone()
     url.pathname = '/cartao'
     url.search = ''
     url.searchParams.set('slug', publicCardSlug)
-    console.log('[middleware] rewrite card root', {
-      hostHeader,
-      forwardedHost,
-      hostname,
-      pathname,
-      target: `${url.pathname}${url.search}`,
-    })
     return NextResponse.rewrite(url)
   }
 
@@ -119,13 +103,6 @@ export async function updateSession(request: NextRequest) {
     url.search = ''
     url.searchParams.set('slug', publicCardSlug)
     url.searchParams.set('view', 'links')
-    console.log('[middleware] rewrite card links', {
-      hostHeader,
-      forwardedHost,
-      hostname,
-      pathname,
-      target: `${url.pathname}${url.search}`,
-    })
     return NextResponse.rewrite(url)
   }
 
@@ -144,10 +121,12 @@ export async function updateSession(request: NextRequest) {
     '/cadastro-parceiro',
     '/cartao',
     '/api/lookups',
-    '/api/cnpjws',
     '/api/cpfhub',
+    // Autenticam por segredo no próprio handler (Vercel Cron / webhook Assinafy).
+    '/api/cron',
+    '/api/assinafy/webhook',
   ]
-  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
+  const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {
     return NextResponse.next({ request })
   }
@@ -208,6 +187,17 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
     }
 
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // Cookie de sessão presente mas inválido: getUser() devolve user=null sem lançar.
+  // Sem este tratamento, a requisição atravessaria o proxy sem sessão e sem checagem de rota.
+  if (!user && !isPublicRoute) {
+    if (isApiRequest(pathname)) {
+      return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

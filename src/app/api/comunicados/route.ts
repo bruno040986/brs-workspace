@@ -3,6 +3,7 @@ import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { getPlainTextLength } from '@/lib/comunicados'
 import { loadComunicadosCatalog } from '@/lib/comunicados-service'
 import { requirePermission } from '@/lib/auth/server'
+import { sanitizeRichHtml } from '@/lib/sanitize-html'
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     const titulo = String(body.titulo || '').trim().slice(0, 60)
-    const textoHtml = String(body.texto_html || body.textoHtml || '').trim()
+    const textoHtml = sanitizeRichHtml(String(body.texto_html || body.textoHtml || '').trim())
     const targetProfileIds = parseTargetIds(body.target_profile_ids || body.targetProfileIds)
     const fixoTopo = Boolean(body.fixo_topo ?? body.fixoTopo)
     const dataInicio = String(body.data_inicio_veiculacao || body.dataInicioVeiculacao || '')
