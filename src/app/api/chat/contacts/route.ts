@@ -24,7 +24,7 @@ export async function GET() {
     const userIds = (data || []).map((u) => u.id)
     const { data: profiles } = await admin
       .from('workspace_chat_user_profiles')
-      .select('user_id, nickname, status, mood, mood_date, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
+      .select('user_id, nickname, status, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
       .in('user_id', userIds)
 
     const profileMap = new Map((profiles || []).map((p) => [p.user_id, p]))
@@ -43,12 +43,6 @@ export async function GET() {
         avatar_url: u.avatar_url || null,
         nickname: profileMap.get(u.id)?.nickname || null,
         status: deriveChatStatus(profileMap.get(u.id), now),
-        mood: (() => {
-          const p = profileMap.get(u.id)
-          if (!p?.mood || !p?.mood_date) return null
-          const today = new Date().toISOString().slice(0, 10)
-          return p.mood_date === today ? p.mood : null
-        })(),
         status_message: profileMap.get(u.id)?.status_message || null,
       })),
     )

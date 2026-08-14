@@ -5,7 +5,6 @@ import { EllipsisVertical, MessageSquareText, MessagesSquare, Paperclip, Search,
 import { useMessengerDock } from '@/components/layout/MessengerDockContext'
 import { deriveChatStatus, normalizeManualStatus, type ChatStatus } from '@/lib/chat/presence'
 
-type MoodKey = 'very_happy' | 'well' | 'thinking' | 'tired' | 'irritated' | 'down'
 type PresenceMode = 'online' | 'busy'
 
 type Contact = {
@@ -16,7 +15,6 @@ type Contact = {
   avatar_url?: string | null
   nickname?: string | null
   status?: ChatStatus
-  mood?: MoodKey | null
   status_message?: string | null
 }
 
@@ -51,8 +49,6 @@ type MyProfile = {
     nickname?: string | null
     status?: ChatStatus
     manual_status?: PresenceMode
-    mood?: MoodKey | null
-    mood_date?: string | null
     status_message?: string | null
     last_seen_at?: string | null
     last_interaction_at?: string | null
@@ -68,24 +64,6 @@ type MessengerToast = {
 
 type GoogleChatComponentProps = {
   variant?: 'widget' | 'dock'
-}
-
-const moods: Array<{ key: MoodKey; label: string }> = [
-  { key: 'very_happy', label: 'Muito Feliz' },
-  { key: 'well', label: 'Bem' },
-  { key: 'thinking', label: 'Pensativo' },
-  { key: 'tired', label: 'Cansado' },
-  { key: 'irritated', label: 'Irritado' },
-  { key: 'down', label: 'Desanimado' },
-]
-
-const moodEmoji: Record<MoodKey, string> = {
-  very_happy: '🌟',
-  well: '🙂',
-  thinking: '😐',
-  tired: '🥱',
-  irritated: '😒',
-  down: '😢',
 }
 
 const statusIcon: Record<ChatStatus, string> = {
@@ -136,9 +114,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   const [nickname, setNickname] = useState('')
   const [status, setStatus] = useState<PresenceMode>('online')
   const [effectiveStatus, setEffectiveStatus] = useState<ChatStatus>('offline')
-  const [mood, setMood] = useState<MoodKey | ''>('')
   const [statusMessage, setStatusMessage] = useState('')
-  const [isDarkTheme, setIsDarkTheme] = useState(false)
   const [style, setStyle] = useState<{ bold: boolean; italic: boolean; underline: boolean }>({
     bold: false,
     italic: false,
@@ -187,19 +163,6 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       if (messagesPollRef.current) window.clearInterval(messagesPollRef.current)
       if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
     }
-  }, [])
-
-  useEffect(() => {
-    const updateTheme = () => {
-      const current = document.documentElement.getAttribute('data-theme')
-      setIsDarkTheme(current === 'dark')
-    }
-
-    updateTheme()
-    const observer = new MutationObserver(updateTheme)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-
-    return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
@@ -313,9 +276,6 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     setStatus(normalizeManualStatus(data.profile?.manual_status || data.profile?.status))
     setEffectiveStatus((data.profile?.status || 'offline') as ChatStatus)
     presenceStateRef.current = data.profile
-    const today = new Date().toISOString().slice(0, 10)
-    const currentMood = data.profile?.mood && data.profile?.mood_date === today ? data.profile.mood : ''
-    setMood(currentMood || '')
     setStatusMessage(data.profile?.status_message || '')
   }
 
@@ -439,7 +399,6 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       body: JSON.stringify({
         nickname: nickname || null,
         status,
-        mood: mood || null,
         status_message: statusMessage || null,
       }),
     })
@@ -623,8 +582,6 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   const unreadTotal = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
   const myNameDefault = formatName(myProfile.user?.name || myProfile.user?.email || '')
   const myNameDisplay = nickname || myNameDefault
-  const today = new Date().toISOString().slice(0, 10)
-  const hasMoodToday = Boolean(myProfile.profile?.mood && myProfile.profile?.mood_date === today)
 
   if (isLoading) return <div className="text-sm text-gray-500 py-4">Carregando BRS Messenger...</div>
 
@@ -632,9 +589,6 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     <div
       className={`brs-messenger rounded-[2px] overflow-hidden ${isDockVariant ? 'brs-messenger-dock-widget' : ''}`}
       style={{
-        border: '1px solid #A0C8E8',
-        boxShadow: 'inset 0 0 0 1px #FFFFFF',
-        background: '#EAF4FB',
         fontFamily: 'Tahoma, Geneva, sans-serif',
         height: isDockVariant ? '100%' : 460,
         minHeight: isDockVariant ? 0 : undefined,
@@ -701,18 +655,10 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="mt-2">
                 <select value={status} onChange={(e) => setStatus(e.target.value as PresenceMode)} className="brs-messenger-select">
                   <option value="online">Automático</option>
                   <option value="busy">Ocupado</option>
-                </select>
-                <select value={mood} onChange={(e) => setMood(e.target.value as MoodKey | '')} className="brs-messenger-select">
-                  <option value="">{hasMoodToday ? 'Humor de hoje' : 'Humor do Dia'}</option>
-                  {moods.map((m) => (
-                    <option key={m.key} value={m.key}>
-                      {moodEmoji[m.key]} {m.label}
-                    </option>
-                  ))}
                 </select>
               </div>
               <input
@@ -843,10 +789,17 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
               <>
                 <div className="brs-messenger-chat-head text-sm font-semibold flex items-center gap-2">
                   <MessageSquareText size={14} />
-                  {displayName(
-                    selectedConversation.participant.full_name || selectedConversation.participant.email,
-                    selectedConversation.participant.nickname,
-                  ) || selectedConversation.participant.email}
+                  <span className="brs-messenger-chat-head-name">
+                    {displayName(
+                      selectedConversation.participant.full_name || selectedConversation.participant.email,
+                      selectedConversation.participant.nickname,
+                    ) || selectedConversation.participant.email}
+                  </span>
+                  {selectedConversation.participant.status_message ? (
+                    <span className="brs-messenger-chat-head-status-message">
+                      — {selectedConversation.participant.status_message}
+                    </span>
+                  ) : null}
                 </div>
                 <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-3 brs-messenger-chat-scroll">
                   {loadingMessages ? (
@@ -855,14 +808,9 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                     <div className="space-y-2">
                       {messages.map((m) => {
                         const mine = m.sender.id === myProfile.user?.id
-                        const bgColor = mine ? '#dcf0fb' : '#f0f0f0'
-                        const textColor = '#0f172a'
                         return (
-                          <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                            <div
-                              className={`brs-messenger-message-bubble ${mine ? 'is-mine' : 'is-theirs'}`}
-                              style={{ background: bgColor, color: textColor }}
-                            >
+                          <div key={m.id} className={`flex min-w-0 ${mine ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`brs-messenger-message-bubble ${mine ? 'is-mine' : 'is-theirs'}`}>
                               <div
                                 style={{
                                   fontWeight: m.text_style?.bold ? 700 : 400,
@@ -876,7 +824,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                               {Array.isArray(m.attachments) && m.attachments.length > 0 && (
                                 <div className="mt-1 space-y-1">
                                   {m.attachments.map((a, idx) => (
-                                    <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] text-blue-700 underline">
+                                    <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] brs-messenger-attachment-link underline">
                                       📎 {a.name || 'anexo'}
                                     </a>
                                   ))}

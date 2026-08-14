@@ -14,7 +14,7 @@ export async function GET() {
     const { data: me } = await admin.from('users').select('id, name, email, avatar_url').eq('id', user.id).single()
     const { data: profile } = await admin
       .from('workspace_chat_user_profiles')
-      .select('nickname, status, mood, mood_date, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
+      .select('nickname, status, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
       .eq('user_id', user.id)
       .maybeSingle()
 
@@ -46,17 +46,13 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const nickname = body.nickname ? String(body.nickname).slice(0, 40) : null
     const status = String(body.status) === 'busy' ? 'busy' : 'online'
-    const mood = body.mood ? String(body.mood).slice(0, 20) : null
     const statusMessage = body.status_message ? String(body.status_message).slice(0, 50) : null
-    const today = new Date().toISOString().slice(0, 10)
 
     const { error } = await admin.from('workspace_chat_user_profiles').upsert(
       {
         user_id: user.id,
         nickname,
         status,
-        mood,
-        mood_date: mood ? today : null,
         status_message: statusMessage,
         last_seen_at: new Date().toISOString(),
         last_interaction_at: new Date().toISOString(),

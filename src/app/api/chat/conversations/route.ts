@@ -40,7 +40,7 @@ export async function GET() {
 
     const { data: profiles } = await admin
       .from('workspace_chat_user_profiles')
-      .select('user_id, nickname, status, mood, mood_date, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
+      .select('user_id, nickname, status, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
       .in('user_id', otherUserIds)
 
     const { data: messages, error: msgErr } = await admin
@@ -88,6 +88,7 @@ export async function GET() {
             avatar_url: participant.avatar_url || null,
             nickname: profileMap.get(participant.id)?.nickname || null,
             status: deriveChatStatus(profileMap.get(participant.id), now),
+            status_message: profileMap.get(participant.id)?.status_message || null,
           },
           lastMessage: lastMessage
             ? {
