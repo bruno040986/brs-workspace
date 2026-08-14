@@ -493,10 +493,19 @@ export async function getAccessData() {
       .order('name')
     if (empErr) throw empErr
 
-    return { 
-      success: true, 
-      profiles: profiles || [], 
-      users: users || [],
+    // Segurança (C-5): nunca devolver a senha provisória em texto puro na listagem.
+    // Isso vazava as credenciais de todos os usuários para qualquer perfil com "ver
+    // usuários". Quando for necessário definir uma nova senha, a tela gera uma na hora.
+    const safeUsers = ((users || []) as any[]).map((u) => {
+      const { temp_password, ...rest } = u
+      void temp_password
+      return rest
+    })
+
+    return {
+      success: true,
+      profiles: profiles || [],
+      users: safeUsers,
       commercialEntities: entities,
       employees: employees || []
     }
