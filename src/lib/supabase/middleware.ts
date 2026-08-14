@@ -203,6 +203,30 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Troca de senha obrigatória no primeiro acesso (flag no app_metadata).
+  const mustChangePassword = Boolean(
+    (user as { app_metadata?: { temp_password_reset_required?: boolean } } | null)
+      ?.app_metadata?.temp_password_reset_required,
+  )
+  const isChangePasswordRoute = pathname === '/trocar-senha' || pathname.startsWith('/trocar-senha/')
+
+  // A própria tela de troca fica sempre acessível ao usuário logado.
+  if (user && isChangePasswordRoute) {
+    return supabaseResponse
+  }
+
+  // Enquanto a flag estiver ligada, bloqueia o resto do app. Server actions passam
+  // (a action que limpa a flag precisa rodar); rotas de auth também.
+  if (user && mustChangePassword && !isServerActionRequest(request) && !pathname.startsWith('/api/auth')) {
+    if (isApiRequest(pathname)) {
+      return NextResponse.json({ error: 'Troca de senha obrigatória.' }, { status: 403 })
+    }
+    const url = request.nextUrl.clone()
+    url.pathname = '/trocar-senha'
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
+
   if (user && pathname === '/login') {
     const url = request.nextUrl.clone()
     url.pathname = '/'

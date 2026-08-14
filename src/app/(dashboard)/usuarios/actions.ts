@@ -304,25 +304,14 @@ export async function saveUserDirectly(userData: {
     }
 
     if (userId) {
-      // 1.1 Atualizar senha no Auth apenas quando a senha provisoria for alterada.
-      // Isso evita invalidar a sessao atual ao editar o proprio usuario sem trocar senha.
-      let shouldRotatePassword = false
+      // 1.1 Rotaciona a senha no Auth só quando o admin informa uma nova senha provisória
+      // (o form só a envia ao gerar uma nova). Editar o próprio usuário sem trocar senha
+      // não invalida a sessão. Segurança: a senha NÃO é mais gravada em claro na tabela;
+      // marcamos no app_metadata que o usuário deve trocá-la no primeiro acesso.
       if (userData.temp_password) {
-        const { data: existingUser, error: existingUserErr } = await supabaseAdmin
-          .from('users')
-          .select('temp_password')
-          .eq('id', userId)
-          .single()
-
-        if (existingUserErr) throw existingUserErr
-
-        const currentTempPassword = (existingUser as { temp_password?: string | null } | null)?.temp_password || null
-        shouldRotatePassword = currentTempPassword !== userData.temp_password
-      }
-
-      if (shouldRotatePassword) {
         await supabaseAdmin.auth.admin.updateUserById(userId, {
-          password: userData.temp_password
+          password: userData.temp_password,
+          app_metadata: { temp_password_reset_required: true },
         })
       }
 
@@ -359,7 +348,6 @@ export async function saveUserDirectly(userData: {
           profile_id: userData.profile_id || null,
           session_timeout: userData.session_timeout,
           avatar_url: finalAvatarUrl,
-          temp_password: userData.temp_password,
           commercial_role: userData.commercial_role || null,
           superintendente_id: userData.superintendente_id || null,
           supervisor_id: userData.supervisor_id || null,
@@ -371,11 +359,13 @@ export async function saveUserDirectly(userData: {
     } else {
       await cleanupAuthUsersByEmail(userData.email)
 
-      // 1.2 Criar usuário no Auth primeiro
+      // 1.2 Criar usuário no Auth primeiro. Segurança: usuário novo sempre precisa
+      // trocar a senha provisória no primeiro acesso (flag no app_metadata).
       const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
         email: userData.email,
         password: userData.temp_password || 'brs123456',
-        email_confirm: true
+        email_confirm: true,
+        app_metadata: { temp_password_reset_required: true }
       })
 
       if (authErr) throw authErr
@@ -394,7 +384,6 @@ export async function saveUserDirectly(userData: {
           profile_id: userData.profile_id || null,
           session_timeout: userData.session_timeout,
           avatar_url: finalAvatarUrl,
-          temp_password: userData.temp_password,
           active: true,
           commercial_role: userData.commercial_role || null,
           superintendente_id: userData.superintendente_id || null,
