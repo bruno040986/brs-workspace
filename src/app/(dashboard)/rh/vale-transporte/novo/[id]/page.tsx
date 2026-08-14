@@ -37,7 +37,9 @@ export default function VTUnifiedPage() {
     { type: 'volta', line: '', value: 0 }
   ])
   const [workingDays, setWorkingDays] = useState(22)
-  
+  // Controla se o desconto de 6% sobre o salario e aplicado. Ligado por padrao.
+  const [applyDiscount, setApplyDiscount] = useState(true)
+
   // Form State (Refusal)
   const [refusalReason, setRefusalReason] = useState('')
   
@@ -69,16 +71,17 @@ export default function VTUnifiedPage() {
     const daily = routes.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0)
     const monthly = daily * workingDays
     const salary = employee?.gross_salary || 0
-    const discount = salary * 0.06
-    
-    // Comparativo baseado em 22 dias (base de cálculo do desconto)
+    const discount = applyDiscount ? salary * 0.06 : 0
+
+    // Comparativo baseado em 22 dias (base de cálculo do desconto).
+    // Com o desconto desligado nao ha trava por valor baixo.
     const monthlyBase = daily * 22
-    const isValidOption = monthlyBase > discount
-    
+    const isValidOption = !applyDiscount || monthlyBase > discount
+
     const companyCost = Math.max(0, monthly - discount)
-    
+
     return { daily, monthly, monthlyBase, discount, companyCost, isValidOption }
-  }, [routes, workingDays, employee])
+  }, [routes, workingDays, employee, applyDiscount])
 
   function addRoute() {
     setRoutes([...routes, { type: 'ida', line: '', value: 0 }])
@@ -336,13 +339,45 @@ export default function VTUnifiedPage() {
                     </div>
                   </div>
                   
+                  {/* Toggle: aplicar ou nao o desconto de 6% */}
+                  <label
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: '0.75rem', padding: '0.75rem', marginTop: '0.25rem',
+                      background: 'var(--brs-gray-50)', border: '1px solid var(--brs-gray-200)',
+                      borderRadius: 8, cursor: 'pointer',
+                    }}
+                  >
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--brs-gray-800)' }}>
+                        Aplicar desconto de 6%
+                      </span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)' }}>
+                        {applyDiscount
+                          ? 'Descontado do salário (padrão CLT).'
+                          : 'Desligado — sem desconto e sem trava por valor baixo.'}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={applyDiscount}
+                      onChange={e => setApplyDiscount(e.target.checked)}
+                      style={{ width: 18, height: 18, cursor: 'pointer', flexShrink: 0 }}
+                    />
+                  </label>
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1.25rem' }}>
                     <SummaryRow label="Total Diário" value={totals.daily} />
                     <SummaryRow label="Total Mensal (Info)" value={totals.monthly} />
                     <div style={{ height: '1px', background: 'var(--brs-gray-200)', margin: '0.25rem 0' }} />
-                    <SummaryRow label="Desconto 6% (Máximo)" value={totals.discount} color="var(--brs-danger)" />
-                    
-                    {!totals.isValidOption && (
+                    <SummaryRow
+                      label={applyDiscount ? 'Desconto 6% (Máximo)' : 'Desconto (Desativado)'}
+                      value={totals.discount}
+                      color={applyDiscount ? 'var(--brs-danger)' : 'var(--brs-gray-400)'}
+                    />
+
+                    {applyDiscount && !totals.isValidOption && (
                       <div style={{ padding: '0.75rem', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, marginTop: '0.5rem', color: '#991B1B', fontSize: '0.8rem' }}>
                         <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>Opção Inviável</div>
                         O custo do transporte (R$ {totals.monthlyBase.toFixed(2)}) é inferior ao desconto de 6%. Pela política da empresa, emita a **Recusa do VT**.
@@ -393,4 +428,3 @@ function SummaryRow({ label, value, color }: { label: string, value: number, col
     </div>
   )
 }
-
