@@ -4129,7 +4129,9 @@ export async function executePartnerAutomation(
         const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
           email: partner.email_comissao,
           password: tempPass,
-          email_confirm: true
+          email_confirm: true,
+          // Segurança: parceiro deve trocar a senha provisória no primeiro acesso.
+          app_metadata: { temp_password_reset_required: true }
         })
 
         if (authErr) {
@@ -4166,7 +4168,6 @@ export async function executePartnerAutomation(
             superintendente_id: partner.superintendente_id,
             supervisor_id: partner.supervisor_id,
             gerente_id: partner.gerente_id,
-            temp_password: tempPass,
             active: true
           })
         if (userErr) throw userErr
@@ -4178,7 +4179,8 @@ export async function executePartnerAutomation(
         .update({
           status: 'finalizado',
           arw_code: arwCode,
-          temporary_password: tempPass,
+          // Segurança: não persistir a senha provisória em claro. Ela é entregue
+          // ao parceiro no WhatsApp de boas-vindas (abaixo) e trocada no 1º acesso.
           google_drive_url: driveUrl,
           updated_at: new Date().toISOString()
         })
