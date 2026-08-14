@@ -147,7 +147,7 @@ function createEmptyWeeklyRow(): PromotoraFinancialWeeklyRow {
   }
 }
 
-function createEmptyDirectData(): PromotoraFinancialDirectData {
+export function createEmptyDirectData(): PromotoraFinancialDirectData {
   return {
     frequencia: 'diario',
     prazo_pagamento: '',
@@ -170,7 +170,7 @@ function createEmptyDirectData(): PromotoraFinancialDirectData {
   }
 }
 
-function createEmptyIndirectData(): PromotoraFinancialIndirectData {
+export function createEmptyIndirectData(): PromotoraFinancialIndirectData {
   return {
     dias_horarios_solicitacao_saque: Array.from({ length: 6 }, () => ({
       enabled: false,
@@ -225,7 +225,7 @@ function copyToClipboard(value: string) {
   return true
 }
 
-function SummaryBadge({ children }: { children: string }) {
+export function SummaryBadge({ children }: { children: string }) {
   return (
     <span
       style={{
@@ -454,10 +454,12 @@ function InstitutionAutocomplete({
   )
 }
 
-function InstitutionLogo({
+export function InstitutionLogo({
   institution,
+  placeholderLabel = 'LOGOTIPO DA INSTITUIÇÃO FINANCEIRA',
 }: {
   institution: { name: string; logo_url: string } | null
+  placeholderLabel?: string
 }) {
   return (
     <div
@@ -480,7 +482,7 @@ function InstitutionLogo({
       ) : (
         <div style={{ textAlign: 'center', color: 'var(--brs-gray-400)', display: 'grid', placeItems: 'center', gap: '0.45rem', maxWidth: '10rem' }}>
           <Building2 size={28} />
-          <div style={{ fontWeight: 800, lineHeight: 1.2, fontSize: '0.78rem' }}>LOGOTIPO DA INSTITUIÇÃO FINANCEIRA</div>
+          <div style={{ fontWeight: 800, lineHeight: 1.2, fontSize: '0.78rem' }}>{placeholderLabel}</div>
         </div>
       )}
     </div>
@@ -561,14 +563,14 @@ function TariffFields({
   )
 }
 
-function DirectFrequencyCard({
+export function DirectFrequencyCard<T extends { direct: PromotoraFinancialDirectData }>({
   config,
   disabled,
   onChange,
 }: {
-  config: PromotoraFinancialConfiguration
+  config: T
   disabled: boolean
-  onChange: (next: PromotoraFinancialConfiguration) => void
+  onChange: (next: T) => void
 }) {
   const direct = config.direct
 
@@ -876,7 +878,7 @@ function DirectFrequencyCard({
   )
 }
 
-function IndirectRequestLines({
+export function IndirectRequestLines({
   rows,
   disabled,
   onChange,
@@ -932,14 +934,14 @@ function IndirectRequestLines({
   )
 }
 
-function IndirectConfigurationCard({
+export function IndirectConfigurationCard<T extends { indirect: PromotoraFinancialIndirectData }>({
   config,
   disabled,
   onChange,
 }: {
-  config: PromotoraFinancialConfiguration
+  config: T
   disabled: boolean
-  onChange: (next: PromotoraFinancialConfiguration) => void
+  onChange: (next: T) => void
 }) {
   function updateIndirect(mutator: (draft: PromotoraFinancialIndirectData) => void) {
     const next = cloneValue(config)

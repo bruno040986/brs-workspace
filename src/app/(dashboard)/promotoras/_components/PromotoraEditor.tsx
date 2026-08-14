@@ -133,13 +133,13 @@ function getSafeHref(value: string, kind: 'url' | 'email' | 'phone') {
   return raw.startsWith('/') ? raw : ''
 }
 
-type CommercialTypeLookup = {
+export type CommercialTypeLookup = {
   id: string
   name: string
   is_active: boolean
 }
 
-function UfFlagsSelector({
+export function UfFlagsSelector({
   value,
   disabled,
   onChange,
@@ -211,7 +211,7 @@ function UfFlagsSelector({
   )
 }
 
-function CommercialContactCard({
+export function CommercialContactCard({
   row,
   index,
   disabled,
@@ -362,7 +362,7 @@ function CommercialContactCard({
   )
 }
 
-function ReadOnlyField({
+export function ReadOnlyField({
   label,
   value,
   kind = 'text',
@@ -523,7 +523,7 @@ function ReadOnlyField({
   )
 }
 
-function EditableFilePreview({
+export function EditableFilePreview({
   label,
   value,
   onChange,
@@ -587,7 +587,7 @@ function EditableFilePreview({
   )
 }
 
-function emptyCommercialContact(): PromotoraCommercialContact {
+export function emptyCommercialContact(): PromotoraCommercialContact {
   return {
     id: globalThis.crypto?.randomUUID?.() || `commercial-${Date.now()}`,
     commercial_type_id: '',
@@ -603,7 +603,7 @@ function emptyCommercialContact(): PromotoraCommercialContact {
   }
 }
 
-function emptyOperationalContact(): PromotoraOperationalContact {
+export function emptyOperationalContact(): PromotoraOperationalContact {
   return {
     id: globalThis.crypto?.randomUUID?.() || `operational-${Date.now()}`,
     sector_id: '',
@@ -617,7 +617,7 @@ function emptyOperationalContact(): PromotoraOperationalContact {
   }
 }
 
-function emptySystemEntry(): PromotoraSystemEntry {
+export function emptySystemEntry(): PromotoraSystemEntry {
   return {
     id: globalThis.crypto?.randomUUID?.() || `system-${Date.now()}`,
     system_type_id: '',

@@ -423,6 +423,57 @@ function normalizeFinancialInstitutionSnapshot(raw: any): PromotoraFinancialInst
   }
 }
 
+export function normalizeFinancialDirectData(direct: any): PromotoraFinancialDirectData {
+  return {
+    ...createEmptyFinancialDirectData(),
+    ...(direct && typeof direct === 'object' ? {
+      frequencia: ['diario', 'semanal', 'quinzenal', 'mensal'].includes(String((direct as any).frequencia || '').toLowerCase())
+        ? (String((direct as any).frequencia).toLowerCase() as PromotoraFinancialDirectFrequency)
+        : 'diario',
+      prazo_pagamento: normalizeFinancialDigits((direct as any).prazo_pagamento ?? '', 3),
+      data_referencia_prazo_pagto: normalizeFinancialReferencePoint((direct as any).data_referencia_prazo_pagto ?? ''),
+      frequencia_semanal: ['1', '2', '3', '4'].includes(String((direct as any).frequencia_semanal ?? '1')) ? String((direct as any).frequencia_semanal) as any : '1',
+      tabela_semanal: Array.isArray((direct as any).tabela_semanal) && (direct as any).tabela_semanal.length > 0
+        ? (direct as any).tabela_semanal.map((row: any) => normalizeFinancialWeeklyRow(row)).slice(0, 4)
+        : [createEmptyFinancialWeeklyRow()],
+      dia_pagamento_1_quinzena: normalizeFinancialPaymentRange((direct as any).dia_pagamento_1_quinzena ?? {}),
+      periodo_fechamento_1_quinzena: normalizeFinancialPaymentRange((direct as any).periodo_fechamento_1_quinzena ?? {}),
+      dia_pagamento_2_quinzena: normalizeFinancialPaymentRange((direct as any).dia_pagamento_2_quinzena ?? {}),
+      periodo_fechamento_2_quinzena: normalizeFinancialPaymentRange((direct as any).periodo_fechamento_2_quinzena ?? {}),
+      dia_pagamento_mensal: normalizeFinancialPaymentRange((direct as any).dia_pagamento_mensal ?? {}),
+      periodo_fechamento_mensal: normalizeFinancialPaymentRange((direct as any).periodo_fechamento_mensal ?? {}),
+      data_referencia_periodo_fechamento: normalizeFinancialReferencePoint((direct as any).data_referencia_periodo_fechamento ?? ''),
+      valor_minimo_enabled: !!(direct as any).valor_minimo_enabled,
+      valor_minimo_pagto: normalizeFinancialCurrency((direct as any).valor_minimo_pagto ?? ''),
+      tarifa_enabled: !!(direct as any).tarifa_enabled,
+      tarifa_tipo: normalizeFinancialTariffMode((direct as any).tarifa_tipo ?? 'R$'),
+      tarifa_valor_real: normalizeFinancialCurrency((direct as any).tarifa_valor_real ?? ''),
+      tarifa_valor_percentual: normalizeFinancialPercent((direct as any).tarifa_valor_percentual ?? ''),
+    } : {}),
+  }
+}
+
+export function normalizeFinancialIndirectData(indirect: any): PromotoraFinancialIndirectData {
+  return {
+    ...createEmptyFinancialIndirectData(),
+    ...(indirect && typeof indirect === 'object' ? {
+      dias_horarios_solicitacao_saque: Array.isArray((indirect as any).dias_horarios_solicitacao_saque) && (indirect as any).dias_horarios_solicitacao_saque.length > 0
+        ? (indirect as any).dias_horarios_solicitacao_saque.map((row: any) => normalizeFinancialIndirectLine(row)).slice(0, 6)
+        : createEmptyFinancialIndirectData().dias_horarios_solicitacao_saque,
+      prazo_pagamento_conta_corrente: normalizeFinancialDigits((indirect as any).prazo_pagamento_conta_corrente ?? '', 3),
+      data_ref_prazo_pagto: normalizeFinancialReferencePoint((indirect as any).data_ref_prazo_pagto ?? ''),
+      saques_gratuitos_no_mes: normalizeFinancialDigits((indirect as any).saques_gratuitos_no_mes ?? '', 2),
+      tarifa_tipo: normalizeFinancialTariffMode((indirect as any).tarifa_tipo ?? 'R$'),
+      tarifa_valor_real: normalizeFinancialCurrency((indirect as any).tarifa_valor_real ?? ''),
+      tarifa_valor_percentual: normalizeFinancialPercent((indirect as any).tarifa_valor_percentual ?? ''),
+      valor_minimo_saque: normalizeFinancialCurrency((indirect as any).valor_minimo_saque ?? ''),
+      prazo_credito_saque: normalizeFinancialDigits((indirect as any).prazo_credito_saque ?? '', 3),
+      url_sistema_saque: normalizeText((indirect as any).url_sistema_saque ?? '', 500),
+      observacoes_importantes: normalizeText((indirect as any).observacoes_importantes ?? '', 500),
+    } : {}),
+  }
+}
+
 function normalizeFinancialConfigurations(raw: any): PromotoraFinancialConfiguration[] {
   const configsRaw = Array.isArray(raw?.configurations)
     ? raw.configurations
@@ -449,51 +500,8 @@ function normalizeFinancialConfigurations(raw: any): PromotoraFinancialConfigura
       conta_bancaria_index: normalizeText(value.conta_bancaria_index ?? '', 80),
       forma_recebimento_id: normalizeText(value.forma_recebimento_id ?? '', 80),
       payment_mode: value.payment_mode === 'indireto' ? 'indireto' : 'direto',
-      direct: {
-        ...createEmptyFinancialDirectData(),
-        ...(direct && typeof direct === 'object' ? {
-          frequencia: ['diario', 'semanal', 'quinzenal', 'mensal'].includes(String((direct as any).frequencia || '').toLowerCase())
-            ? (String((direct as any).frequencia).toLowerCase() as PromotoraFinancialDirectFrequency)
-            : 'diario',
-          prazo_pagamento: normalizeFinancialDigits((direct as any).prazo_pagamento ?? '', 3),
-          data_referencia_prazo_pagto: normalizeFinancialReferencePoint((direct as any).data_referencia_prazo_pagto ?? ''),
-          frequencia_semanal: ['1', '2', '3', '4'].includes(String((direct as any).frequencia_semanal ?? '1')) ? String((direct as any).frequencia_semanal) as any : '1',
-          tabela_semanal: Array.isArray((direct as any).tabela_semanal) && (direct as any).tabela_semanal.length > 0
-            ? (direct as any).tabela_semanal.map((row: any) => normalizeFinancialWeeklyRow(row)).slice(0, 4)
-            : [createEmptyFinancialWeeklyRow()],
-          dia_pagamento_1_quinzena: normalizeFinancialPaymentRange((direct as any).dia_pagamento_1_quinzena ?? {}),
-          periodo_fechamento_1_quinzena: normalizeFinancialPaymentRange((direct as any).periodo_fechamento_1_quinzena ?? {}),
-          dia_pagamento_2_quinzena: normalizeFinancialPaymentRange((direct as any).dia_pagamento_2_quinzena ?? {}),
-          periodo_fechamento_2_quinzena: normalizeFinancialPaymentRange((direct as any).periodo_fechamento_2_quinzena ?? {}),
-          dia_pagamento_mensal: normalizeFinancialPaymentRange((direct as any).dia_pagamento_mensal ?? {}),
-          periodo_fechamento_mensal: normalizeFinancialPaymentRange((direct as any).periodo_fechamento_mensal ?? {}),
-          data_referencia_periodo_fechamento: normalizeFinancialReferencePoint((direct as any).data_referencia_periodo_fechamento ?? ''),
-          valor_minimo_enabled: !!(direct as any).valor_minimo_enabled,
-          valor_minimo_pagto: normalizeFinancialCurrency((direct as any).valor_minimo_pagto ?? ''),
-          tarifa_enabled: !!(direct as any).tarifa_enabled,
-          tarifa_tipo: normalizeFinancialTariffMode((direct as any).tarifa_tipo ?? 'R$'),
-          tarifa_valor_real: normalizeFinancialCurrency((direct as any).tarifa_valor_real ?? ''),
-          tarifa_valor_percentual: normalizeFinancialPercent((direct as any).tarifa_valor_percentual ?? ''),
-        } : {}),
-      },
-      indirect: {
-        ...createEmptyFinancialIndirectData(),
-        ...(indirect && typeof indirect === 'object' ? {
-          dias_horarios_solicitacao_saque: Array.isArray((indirect as any).dias_horarios_solicitacao_saque) && (indirect as any).dias_horarios_solicitacao_saque.length > 0
-            ? (indirect as any).dias_horarios_solicitacao_saque.map((row: any) => normalizeFinancialIndirectLine(row)).slice(0, 6)
-            : createEmptyFinancialIndirectData().dias_horarios_solicitacao_saque,
-          prazo_pagamento_conta_corrente: normalizeFinancialDigits((indirect as any).prazo_pagamento_conta_corrente ?? '', 3),
-          data_ref_prazo_pagto: normalizeFinancialReferencePoint((indirect as any).data_ref_prazo_pagto ?? ''),
-          saques_gratuitos_no_mes: normalizeFinancialDigits((indirect as any).saques_gratuitos_no_mes ?? '', 2),
-          tarifa_tipo: normalizeFinancialTariffMode((indirect as any).tarifa_tipo ?? 'R$'),
-          tarifa_valor_real: normalizeFinancialCurrency((indirect as any).tarifa_valor_real ?? ''),
-          tarifa_valor_percentual: normalizeFinancialPercent((indirect as any).tarifa_valor_percentual ?? ''),
-          valor_minimo_saque: normalizeFinancialCurrency((indirect as any).valor_minimo_saque ?? ''),
-          prazo_credito_saque: normalizeFinancialDigits((indirect as any).prazo_credito_saque ?? '', 3),
-          url_sistema_saque: normalizeText((indirect as any).url_sistema_saque ?? '', 500),
-          observacoes_importantes: normalizeText((indirect as any).observacoes_importantes ?? '', 500),
-        } : {}),
-      },
+      direct: normalizeFinancialDirectData(direct),
+      indirect: normalizeFinancialIndirectData(indirect),
     }
   })
 }
@@ -671,7 +679,7 @@ function normalizeLegacyFiscalConfiguration(raw: RawRecord): PromotoraFiscalConf
   }
 }
 
-function normalizePromotoraFiscalData(raw: any): PromotoraFiscalData {
+export function normalizePromotoraFiscalData(raw: any): PromotoraFiscalData {
   const record = raw && typeof raw === 'object' ? (raw as RawRecord) : {}
   const configsRaw = Array.isArray(record.configurations)
     ? record.configurations
@@ -731,7 +739,7 @@ function normalizeStringArray(value: any) {
   return [...new Set(list.map((item) => normalizeText(item)).filter(Boolean))]
 }
 
-function normalizeCommercialContacts(rows: any): PromotoraCommercialContact[] {
+export function normalizeCommercialContacts(rows: any): PromotoraCommercialContact[] {
   return (Array.isArray(rows) ? rows : []).map((row) => ({
     id: normalizeText(row?.id) || createId(),
     commercial_type_id: normalizeText(row?.commercial_type_id),
@@ -759,7 +767,7 @@ function normalizeCommercialContacts(rows: any): PromotoraCommercialContact[] {
   )
 }
 
-function normalizeOperationalContacts(rows: any): PromotoraOperationalContact[] {
+export function normalizeOperationalContacts(rows: any): PromotoraOperationalContact[] {
   return (Array.isArray(rows) ? rows : []).map((row) => ({
     id: normalizeText(row?.id) || createId(),
     sector_id: normalizeText(row?.sector_id),
@@ -783,7 +791,7 @@ function normalizeOperationalContacts(rows: any): PromotoraOperationalContact[] 
   )
 }
 
-function normalizeSystems(rows: any): PromotoraSystemEntry[] {
+export function normalizeSystems(rows: any): PromotoraSystemEntry[] {
   return (Array.isArray(rows) ? rows : []).map((row) => ({
     id: normalizeText(row?.id) || createId(),
     system_type_id: normalizeText(row?.system_type_id) || normalizeStringArray(row?.system_type_ids)[0] || '',
