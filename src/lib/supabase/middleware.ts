@@ -125,6 +125,7 @@ export async function updateSession(request: NextRequest) {
     // Autenticam por segredo no próprio handler (Vercel Cron / webhook Assinafy).
     '/api/cron',
     '/api/assinafy/webhook',
+    '/api/zapi/webhook',
   ]
   const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {

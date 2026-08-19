@@ -146,20 +146,7 @@ export async function getProvedoresConfig() {
       }
     }
 
-    let zapi = { id: '', instance_id: '', token: '', client_key: '', is_active: false }
-    if (canViewWhatsapp) {
-      try {
-        const { data, error } = await supabaseAdmin
-          .from('zapi_config')
-          .select('*')
-          .limit(1)
-          .maybeSingle()
-        if (error && error.code !== 'PGRST205') throw error
-        if (data) zapi = data
-      } catch (err) {
-        console.warn('zapi_config table not found, using fallback')
-      }
-    }
+    // Z-API: agora multi-instância em zapi_instances (ver provedores/whatsapp/actions.ts).
 
     let assinafy = { id: '', api_key: '', account_id: '', environment: 'production', webhook_secret: '', is_active: false }
     if (canViewAssinatura) {
@@ -182,7 +169,7 @@ export async function getProvedoresConfig() {
     return {
       success: true,
       resend: { ...resend, api_key: '', has_api_key: !!resend.api_key },
-      zapi: { ...zapi, token: '', client_key: '', has_token: !!zapi.token, has_client_key: !!zapi.client_key },
+      zapi: null,
       assinafy: {
         ...assinafy,
         api_key: '',
@@ -207,13 +194,11 @@ async function keepExistingSecret(table: string, id: string | undefined, column:
 
 export async function saveProvedoresConfig(data: {
   resend?: { id?: string; api_key: string; from_email: string; is_active: boolean }
-  zapi?: { id?: string; instance_id: string; token: string; client_key?: string; is_active: boolean }
   assinafy?: { id?: string; api_key: string; account_id?: string; environment?: string; webhook_secret?: string; is_active: boolean }
 }) {
   try {
     const requiredConfigPermissions: PermissionRequirement[] = []
     if (data.resend) requiredConfigPermissions.push({ resource: 'sistema-config-email', action: 'can_edit' })
-    if (data.zapi) requiredConfigPermissions.push({ resource: 'sistema-config-whatsapp', action: 'can_edit' })
     if (data.assinafy) requiredConfigPermissions.push({ resource: 'sistema-config-assinatura', action: 'can_edit' })
     if (requiredConfigPermissions.length === 0) {
       throw new Error('Nenhuma configuracao informada para salvar.')
@@ -228,11 +213,9 @@ export async function saveProvedoresConfig(data: {
 
     // Parent config permission is not a wildcard; each provider validates its own child permission.
     const canEditEmail = perms.some((p) => p?.resource_name === 'sistema-config-email' && !!p?.can_edit)
-    const canEditWhatsapp = perms.some((p) => p?.resource_name === 'sistema-config-whatsapp' && !!p?.can_edit)
     const canEditAssinatura = perms.some((p) => p?.resource_name === 'sistema-config-assinatura' && !!p?.can_edit)
 
     if (data.resend && !canEditEmail) throw new Error('Sem permissão para salvar configurações de e-mail.')
-    if (data.zapi && !canEditWhatsapp) throw new Error('Sem permissão para salvar configurações de WhatsApp.')
     if (data.assinafy && !canEditAssinatura) throw new Error('Sem permissão para salvar configurações de assinatura.')
 
     // 1. Salvar Resend
@@ -267,40 +250,7 @@ export async function saveProvedoresConfig(data: {
       }
     }
 
-    // 2. Salvar Z-API
-    if (data.zapi) {
-      const zapiToken = await keepExistingSecret('zapi_config', data.zapi.id, 'token', data.zapi.token)
-      const zapiClientKey = await keepExistingSecret('zapi_config', data.zapi.id, 'client_key', data.zapi.client_key)
-      try {
-        if (data.zapi.id) {
-          const { error } = await supabaseAdmin
-            .from('zapi_config')
-            .update({
-              instance_id: data.zapi.instance_id,
-              token: zapiToken,
-              client_key: zapiClientKey,
-              is_active: data.zapi.is_active,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', data.zapi.id)
-          if (error) throw error
-        } else {
-          const { error } = await supabaseAdmin
-            .from('zapi_config')
-            .insert({
-              instance_id: data.zapi.instance_id,
-              token: zapiToken,
-              client_key: zapiClientKey,
-              is_active: data.zapi.is_active
-            })
-          if (error) throw error
-        }
-      } catch (err: any) {
-        if (err.code === 'PGRST205') {
-          console.warn('zapi_config table not found. Skipped DB save.')
-        } else throw err
-      }
-    }
+    // 2. Z-API: salva-se em zapi_instances (provedores/whatsapp/actions.ts).
 
     // 3. Salvar Assinafy
     if (data.assinafy) {
@@ -4025,39 +3975,29 @@ export async function executePartnerAutomation(
     }
 
     if (actionType === 'whatsapp') {
-      const { data: zapi } = await supabaseAdmin
-        .from('zapi_config')
-        .select('*')
-        .limit(1)
-        .maybeSingle()
-
-      let sent = false
-      let details = 'Z-API inativa ou sem credenciais.'
-
-      // Exemplo de corpo da mensagem
+      // Envio real via Z-API (src/lib/zapi): instância padrão ativa, log em
+      // wa_outbound_messages, telefone normalizado com DDI.
       const messageText = replaceTags(
         params?.message || `Olá {{name}}, seu contrato está disponível para assinatura eletrônica: {{assinafy_signature_url}}`
       )
+      const { resolveInstanceForSend, sendAndLog } = await import('@/lib/zapi')
+      const instance = await resolveInstanceForSend(params?.instance_id || null)
 
-      if (zapi && zapi.is_active && zapi.instance_id && zapi.token) {
-        // Disparo real via Z-API se configurado
-        try {
-          const res = await fetch(`https://api.z-api.io/instances/${zapi.instance_id}/token/${zapi.token}/send-text`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              phone: partner.phone_whatsapp,
-              message: messageText
-            })
-          })
-          if (res.ok) {
-            sent = true;
-            details = 'Mensagem enviada com sucesso!'
-          } else {
-            details = `Falha no envio da Z-API. Status: ${res.status}`
-          }
-        } catch (err: any) {
-          details = `Erro de conexão Z-API: ${err.message}`
+      let sent = false
+      let details = 'Nenhuma instância Z-API ativa configurada (Configurações → API WhatsApp).'
+      if (instance) {
+        const res = await sendAndLog({
+          instance,
+          phone: partner.phone_whatsapp,
+          source: 'welcome',
+          block: { type: 'text', body: messageText },
+          refs: { partnerId: partner.id },
+        })
+        if (res.ok) {
+          sent = true
+          details = 'Mensagem enviada com sucesso!'
+        } else {
+          details = res.error
         }
       }
 

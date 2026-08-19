@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import TemplateTokenPanel, { type GlobalTag } from '../_components/TemplateTokenPanel'
 import EmojiPicker from '../_components/EmojiPicker'
+import { renderWhatsappHtml } from '@/components/whatsapp/whatsapp-format'
 
 interface TemplateItem {
   id: string
@@ -26,23 +27,8 @@ const GLOBAL_TAGS: GlobalTag[] = [
   { tag: '{{processo.id}}', label: 'ID do processo (instância)' },
 ]
 
-/**
- * Renderiza a formatação do WhatsApp para HTML seguro (escapa antes, depois
- * aplica os marcadores que o app aceita): *negrito*, _itálico_, ~tachado~,
- * ```monoespaçado```.
- */
-function renderWhatsapp(text: string): string {
-  const escaped = String(text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  return escaped
-    .replace(/```([^`]+)```/g, '<code style="background:rgba(0,0,0,0.06);padding:0 3px;border-radius:3px">$1</code>')
-    .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
-    .replace(/_([^_\n]+)_/g, '<i>$1</i>')
-    .replace(/~([^~\n]+)~/g, '<s>$1</s>')
-    .replace(/\n/g, '<br/>')
-}
+// Formatação do WhatsApp → HTML seguro: compartilhada com o Disparo de WhatsApp.
+const renderWhatsapp = renderWhatsappHtml
 
 export default function WhatsappTemplatesPage() {
   const [items, setItems] = useState<TemplateItem[]>([])

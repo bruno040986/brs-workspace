@@ -255,6 +255,7 @@ export default function HubPage() {
       color: 'com',
       links: [
         { label: 'Cadastros Comerciais', href: '/rh/parceiros/config/comercial' },
+        { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp' },
         { label: 'Visão do Gerente', href: '#', disabled: true },
         { label: 'Visão do Supervisor', href: '#', disabled: true },
         { label: 'Visão do Superintendente', href: '#', disabled: true },
@@ -291,6 +292,9 @@ export default function HubPage() {
         }
         if (link.href === '/agente-corban') {
           return canView('agente-corban')
+        }
+        if (link.href === '/disparo-whatsapp') {
+          return canView('comercial-disparo-whatsapp')
         }
         if (link.href === '/rh/parceiros/config/comercial') {
           return hasAnyPermission(permissions, [

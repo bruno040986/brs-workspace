@@ -180,6 +180,7 @@ export default function Sidebar() {
       if (item.href === '/rh/parceiros/config/documentos') return canView('scp-documentos')
       if (item.href === '/rh/parceiros/config/emails') return canView('scp-emails')
       if (item.href === '/rh/parceiros/config/whatsapp') return canView('scp-whatsapp')
+      if (item.href === '/disparo-whatsapp') return canView('comercial-disparo-whatsapp')
 
       if (item.href === '/comunicados') return canView('sistema-comunicados')
 
@@ -387,6 +388,7 @@ export default function Sidebar() {
       { label: 'Preview Real', href: '/rh/parceiros/config/comercial/seletor', icon: Eye },
       { label: 'Links do Cartão Digital', href: '/rh/parceiros/config/comercial/links-cartao-digital', icon: Link2 },
       { label: 'Tabela de Locacao de Veiculo', href: '/rh/parceiros/config/comercial/tabela-locacao-veiculo', icon: Building2 },
+      { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp', icon: MessageSquare },
       { type: 'section', label: 'Sistema' },
       { label: 'Voltar ao Workspace', href: '/', icon: LayoutDashboard },
     ]

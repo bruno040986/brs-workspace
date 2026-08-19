@@ -59,6 +59,7 @@ const SYSTEM_MODULES = [
 
   { id: 'comercial-estrutura', name: 'Estrutura Comercial', parentId: 'cat-subsistemas', level: 1 },
   { id: 'comercial-agentes', name: 'Agentes Comerciais', parentId: 'comercial-estrutura', level: 2 },
+  { id: 'comercial-disparo-whatsapp', name: 'Disparo de WhatsApp', parentId: 'cat-subsistemas', level: 1 },
 
   // Sistema Category
   { id: 'cat-sistema', name: 'Sistema', isHeader: true, level: 0 },

@@ -168,9 +168,9 @@ async function handleGenerateDocument(job: EngineJob): Promise<void> {
 }
 
 /**
- * send_email / send_whatsapp — STUBS (C2a): registram a intenção na timeline
- * para o fluxo ser observável de ponta a ponta. O envio real (Resend/Z-API com
- * resolução de template + token_mapping + destinatário) é o C2b.
+ * send_email — STUB (C2a): registra a intenção na timeline para o fluxo ser
+ * observável de ponta a ponta. O envio real (Resend com resolução de template
+ * + token_mapping + destinatário) é o C2b.
  */
 async function handleSendEmail(job: EngineJob): Promise<void> {
   const item = job.payload?.item || {}
@@ -181,12 +181,84 @@ async function handleSendEmail(job: EngineJob): Promise<void> {
   })
 }
 
+/**
+ * send_whatsapp — envio REAL via Z-API (src/lib/zapi).
+ *
+ * Resolve o modelo em `whatsapp_templates` (por template_id, senão por nome),
+ * substitui as tags do parceiro e envia para o phone_whatsapp do parceiro da
+ * instância. Registra `whatsapp_sent` (ou `whatsapp_failed`) na timeline. Se
+ * o item trouxer `instance_id`, usa aquela instância Z-API; senão a padrão.
+ * Lança em falha para a fila fazer backoff/retentativa.
+ */
 async function handleSendWhatsapp(job: EngineJob): Promise<void> {
+  const instanceId = job.instance_id
+  if (!instanceId) throw new Error('send_whatsapp sem instance_id')
   const item = job.payload?.item || {}
-  await logInstanceEvent(job.instance_id, 'whatsapp_pending', {
+
+  const supabase = await admin()
+  const { data: instance, error: iErr } = await supabase
+    .from('process_instances')
+    .select('id, partner_id')
+    .eq('id', instanceId)
+    .maybeSingle()
+  if (iErr) throw iErr
+  if (!instance?.partner_id) throw new Error('Instância sem parceiro vinculado')
+
+  const { data: partner, error: pErr } = await supabase
+    .from('agentes_parceiros')
+    .select('*')
+    .eq('id', instance.partner_id)
+    .maybeSingle()
+  if (pErr) throw pErr
+  if (!partner) throw new Error('Parceiro da instância não encontrado')
+
+  // Modelo de mensagem
+  let template: { id: string; name: string; body: string; is_active?: boolean } | null = null
+  if (item.template_id) {
+    const { data } = await supabase.from('whatsapp_templates').select('id, name, body, is_active').eq('id', item.template_id).maybeSingle()
+    template = data as any
+  }
+  if (!template && item.template_name) {
+    const { data } = await supabase.from('whatsapp_templates').select('id, name, body, is_active').eq('name', item.template_name).maybeSingle()
+    template = data as any
+  }
+  const body = String(template?.body || item.body || item.message || '').trim()
+  if (!body) throw new Error(`Modelo de WhatsApp não encontrado (${item.template_name || item.template_id || 'sem referência'})`)
+  if (template && template.is_active === false) throw new Error(`Modelo de WhatsApp "${template.name}" está inativo`)
+
+  const { renderPartnerTags, renderTemplate, resolveInstanceForSend, sendAndLog } = await import('@/lib/zapi')
+  const zapiInstance = await resolveInstanceForSend(item.instance_id || null)
+  if (!zapiInstance) throw new Error('Nenhuma instância Z-API ativa configurada')
+
+  // Tags do parceiro + tags globais do SCP ({{processo.id}}, {{assinatura.link}}).
+  const rendered = renderTemplate(renderPartnerTags(body, partner), {
+    'processo.id': instanceId,
+    'assinatura.link': partner.assinafy_signature_url || '',
+  })
+
+  const phone = String(item.phone || partner.phone_whatsapp || '')
+  const res = await sendAndLog({
+    instance: zapiInstance,
+    phone,
+    source: 'scp',
+    block: { type: 'text', body: rendered },
+    refs: { processInstanceId: instanceId, partnerId: partner.id },
+  })
+
+  if (!res.ok) {
+    await logInstanceEvent(instanceId, 'whatsapp_failed', {
+      name: item?.name || null,
+      template: template?.name || item?.template_name || null,
+      error: res.error,
+    })
+    throw new Error(res.error)
+  }
+
+  await logInstanceEvent(instanceId, 'whatsapp_sent', {
     name: item?.name || null,
-    template: item?.template_name || null,
-    note: 'stub C2a — envio real no C2b',
+    template: template?.name || item?.template_name || null,
+    message_id: res.result.messageId,
+    phone: res.phone,
   })
 }
 

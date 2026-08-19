@@ -127,6 +127,8 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/rh/parceiros/config/comercial/seletor': any([view('comercial-agentes'), view('comercial-estrutura')]),
   '/rh/parceiros/config/comercial/preview-real': any([view('comercial-agentes'), view('comercial-estrutura')]),
   '/seletor': any([view('comercial-agentes'), view('comercial-estrutura')]),
+  '/disparo-whatsapp': any([view('comercial-disparo-whatsapp')]),
+  '/api/disparo-whatsapp/upload': any([include('comercial-disparo-whatsapp')]),
 }
 
 const authenticatedOpenRoutes = new Set([
@@ -176,6 +178,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/rh/relatorios', any([view('rh-relatorios')])],
   ['/rh/auditoria', any([view('rh-auditoria')])],
   ['/rh/parceiros', any([view('scp-crm')])],
+  ['/disparo-whatsapp', any([view('comercial-disparo-whatsapp')])],
 ]
 
 function normalizePath(pathname: string) {
