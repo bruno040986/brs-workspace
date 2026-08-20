@@ -260,6 +260,7 @@ function sanitizeAntiban(input: AntibanConfig | null | undefined): AntibanConfig
     message: String(input.message || '').trim().slice(0, 1000),
     positive_label: String(input.positive_label || 'Sim').trim().slice(0, 40) || 'Sim',
     negative_label: String(input.negative_label || 'Não').trim().slice(0, 40) || 'Não',
+    send_as: input.send_as === 'buttons' ? 'buttons' : 'text',
   }
 }
 

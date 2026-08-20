@@ -73,6 +73,9 @@ export type AntibanConfig = {
   message: string
   positive_label: string
   negative_label: string
+  /** buttons = send-button-list (depende da conta suportar); text = mensagem
+   *  de texto com instrução de resposta (sempre entrega). */
+  send_as?: 'buttons' | 'text'
 }
 
 export const DEFAULT_ANTIBAN: AntibanConfig = {
@@ -81,6 +84,7 @@ export const DEFAULT_ANTIBAN: AntibanConfig = {
   message: 'Deseja continuar recebendo nossas mensagens?',
   positive_label: 'Sim, quero receber',
   negative_label: 'Não, obrigado',
+  send_as: 'text',
 }
 
 /** IDs fixos dos botões (usados no webhook para detectar opt-out). */

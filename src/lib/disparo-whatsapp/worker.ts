@@ -16,7 +16,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { ZapiClient, isZapiOnline, sendAndLog, type ZapiInstanceRow } from '@/lib/zapi'
-import { composeButtonMessage, renderTemplate } from '@/lib/zapi/format'
+import { composeAntibanText, composeButtonMessage, renderTemplate } from '@/lib/zapi/format'
 import { evaluateGate, pickTemplateIndex, randomBetween } from './schedule'
 import {
   ANTIBAN_BUTTON_NO_ID,
@@ -130,8 +130,9 @@ async function tryLockInstance(supabase: SupabaseClient, instanceId: string, wor
   return (data as ZapiInstanceRow) || null
 }
 
-async function heartbeat(supabase: SupabaseClient, instanceId: string, workerId: string, nextSendAtIso: string | null) {
-  await supabase
+/** Renova o lock e confirma que ainda somos o dono. */
+async function heartbeat(supabase: SupabaseClient, instanceId: string, workerId: string, nextSendAtIso: string | null): Promise<boolean> {
+  const { data } = await supabase
     .from('zapi_instances')
     .update({
       worker_lock_until: new Date(Date.now() + LOCK_SECONDS * 1000).toISOString(),
@@ -140,6 +141,25 @@ async function heartbeat(supabase: SupabaseClient, instanceId: string, workerId:
     })
     .eq('id', instanceId)
     .eq('worker_lock_by', workerId)
+    .select('id')
+  return (data?.length || 0) > 0
+}
+
+/**
+ * Dorme `ms` segurando o lock: renova a cada ≤25s (o lock dura 90s — sem isso,
+ * um delay de 3–5min deixava o lock expirar e o cron seguinte entrava JUNTO,
+ * causando mensagens no mesmo segundo e contadores de lote corrompidos).
+ * Retorna false se estourou o budget ou perdemos o lock.
+ */
+async function sleepHoldingLock(supabase: SupabaseClient, instanceId: string, workerId: string, ms: number, deadline: number): Promise<'ok' | 'budget' | 'lock_lost'> {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (Date.now() >= deadline - 5000) return 'budget'
+    await sleep(Math.min(25_000, end - Date.now(), Math.max(0, deadline - 5000 - Date.now())))
+    const owned = await heartbeat(supabase, instanceId, workerId, null)
+    if (!owned) return 'lock_lost'
+  }
+  return 'ok'
 }
 
 async function unlockInstance(supabase: SupabaseClient, instanceId: string, workerId: string) {
@@ -272,7 +292,23 @@ async function runInstanceLoop(
 
       const { c, r } = picked
 
-      // 3. Re-checa controle (pausou/cancelou durante o sleep?)
+      // 3a. Lote do próprio destinatário: garante a cota mesmo que o contador
+      // do lote esteja errado — se o horário do lote dele ainda não chegou,
+      // devolve pra fila e agenda a campanha pro horário do lote.
+      if (r.slot_id) {
+        const { data: slot } = await supabase.from('wa_campaign_slots').select('run_at').eq('id', r.slot_id).maybeSingle()
+        const runAt = slot?.run_at ? new Date(slot.run_at) : null
+        if (runAt && runAt.getTime() > Date.now()) {
+          await supabase
+            .from('wa_campaign_recipients')
+            .update({ status: 'pending', claimed_at: null, attempts: Math.max(0, (r.attempts || 1) - 1) })
+            .eq('id', r.id)
+          await supabase.from('wa_campaigns').update({ next_run_at: runAt.toISOString() }).eq('id', c.id).eq('status', 'running')
+          continue
+        }
+      }
+
+      // 3b. Re-checa controle (pausou/cancelou durante o sleep?)
       const { data: fresh } = await supabase.from('wa_campaigns').select('status').eq('id', c.id).maybeSingle()
       if (!fresh || fresh.status !== 'running') {
         await supabase
@@ -365,8 +401,12 @@ async function loadSlots(supabase: SupabaseClient, campaignId: string, cache: Ma
 
 async function bumpSlot(supabase: SupabaseClient, slotId: string | null) {
   if (!slotId) return
-  const { data } = await supabase.from('wa_campaign_slots').select('sent_count').eq('id', slotId).maybeSingle()
-  await supabase.from('wa_campaign_slots').update({ sent_count: (data?.sent_count || 0) + 1 }).eq('id', slotId)
+  const { error } = await supabase.rpc('wa_bump_slot', { p_slot_id: slotId })
+  if (error) {
+    // Migration 20260820090000 ainda não aplicada: fallback não-atômico.
+    const { data } = await supabase.from('wa_campaign_slots').select('sent_count').eq('id', slotId).maybeSingle()
+    await supabase.from('wa_campaign_slots').update({ sent_count: (data?.sent_count || 0) + 1 }).eq('id', slotId)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -460,20 +500,33 @@ export async function sendRecipient(
     })
   }
 
-  // Botão anti-ban (opcional)
+  // Anti-ban (opcional). Modo texto (padrão) sempre entrega; modo botões
+  // depende da conta — se a Z-API recusar, cai automaticamente pro texto.
   if (c.antiban && c.antiban.message) {
-    await sendAndLog({
-      instance: inst, client, phone: r.phone, source: 'campaign_button', refs,
-      block: {
-        type: 'button_list',
-        message: composeButtonMessage({ title: c.antiban.title, message: c.antiban.message, footer: c.antiban.footer }),
-        buttons: [
-          { id: ANTIBAN_BUTTON_YES_ID, label: c.antiban.positive_label || 'Sim' },
-          { id: ANTIBAN_BUTTON_NO_ID, label: c.antiban.negative_label || 'Não' },
-        ],
-        delayMessage: 2,
-      },
-    })
+    const textBlock = {
+      type: 'text' as const,
+      body: composeAntibanText({ title: c.antiban.title, message: c.antiban.message, footer: c.antiban.footer }),
+      delayMessage: 2,
+    }
+    if (c.antiban.send_as === 'buttons') {
+      const btnRes = await sendAndLog({
+        instance: inst, client, phone: r.phone, source: 'campaign_button', refs,
+        block: {
+          type: 'button_list',
+          message: composeButtonMessage({ title: c.antiban.title, message: c.antiban.message, footer: c.antiban.footer }),
+          buttons: [
+            { id: ANTIBAN_BUTTON_YES_ID, label: c.antiban.positive_label || 'Sim' },
+            { id: ANTIBAN_BUTTON_NO_ID, label: c.antiban.negative_label || 'Não' },
+          ],
+          delayMessage: 2,
+        },
+      })
+      if (!btnRes.ok) {
+        await sendAndLog({ instance: inst, client, phone: r.phone, source: 'campaign_button', refs, block: textBlock })
+      }
+    } else {
+      await sendAndLog({ instance: inst, client, phone: r.phone, source: 'campaign_button', refs, block: textBlock })
+    }
   }
 
   return outcome

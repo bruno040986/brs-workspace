@@ -128,11 +128,28 @@ export default function StepSettings({ state, patch, recipientCount }: { state: 
                 <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">Opção 1 (positiva)</label><input className="form-control" value={s.antiban.positive_label} onChange={(e) => setS({ antiban: { ...s.antiban, positive_label: e.target.value } })} /></div>
                 <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">Opção 2 (negativa → opt-out)</label><input className="form-control" value={s.antiban.negative_label} onChange={(e) => setS({ antiban: { ...s.antiban, negative_label: e.target.value } })} /></div>
               </div>
-              <div className="form-hint" style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'flex-start' }}><Info size={12} style={{ marginTop: 2 }} /> Botões dependem do suporte da Z-API/WhatsApp para a conta; se não renderizarem, a mensagem chega como texto e o opt-out por resposta escrita continua funcionando.</div>
+              <div className="form-group" style={{ marginTop: 10, marginBottom: 0 }}>
+                <label className="form-label">Formato de envio</label>
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input type="radio" name="antiban-format" checked={(s.antiban.send_as || 'text') === 'text'} onChange={() => setS({ antiban: { ...s.antiban, send_as: 'text' } })} />
+                    Texto com instrução de resposta (recomendado — sempre entrega)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input type="radio" name="antiban-format" checked={s.antiban.send_as === 'buttons'} onChange={() => setS({ antiban: { ...s.antiban, send_as: 'buttons' } })} />
+                    Botões de resposta (depende da conta; se falhar, cai no texto)
+                  </label>
+                </div>
+              </div>
+              <div className="form-hint" style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'flex-start' }}><Info size={12} style={{ marginTop: 2 }} /> Nos testes, botões foram aceitos pela Z-API mas o WhatsApp pode não exibi-los em contas comuns. No modo texto, quem responder "SAIR" (ou o rótulo negativo) entra em opt-out automaticamente.</div>
             </div>
             <div>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', marginBottom: 6 }}>Preview da mensagem</div>
-              <WhatsappPreview body="" compact buttonMessage={{ title: s.antiban.title, message: s.antiban.message, footer: s.antiban.footer }} buttons={[s.antiban.positive_label, s.antiban.negative_label]} />
+              {s.antiban.send_as === 'buttons' ? (
+                <WhatsappPreview body="" compact buttonMessage={{ title: s.antiban.title, message: s.antiban.message, footer: s.antiban.footer }} buttons={[s.antiban.positive_label, s.antiban.negative_label]} />
+              ) : (
+                <WhatsappPreview compact body={`*${s.antiban.title}*\n\n${s.antiban.message}\n\n_${s.antiban.footer}_\n\nResponda *SIM* para continuar recebendo ou *SAIR* para não receber mais.`} />
+              )}
             </div>
           </div>
         )}

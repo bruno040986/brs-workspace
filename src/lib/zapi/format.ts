@@ -86,3 +86,12 @@ export function composeButtonMessage(input: { title?: string; message: string; f
   if (footer) parts.push(`_${footer}_`)
   return parts.join('\n\n')
 }
+
+/**
+ * Versão TEXTO do anti-ban: mesma mensagem, com instrução de resposta.
+ * "SAIR" já é reconhecido pelo webhook como pedido de opt-out.
+ */
+export function composeAntibanText(input: { title?: string; message: string; footer?: string }): string {
+  const base = composeButtonMessage(input)
+  return `${base}\n\nResponda *SIM* para continuar recebendo ou *SAIR* para não receber mais.`
+}
