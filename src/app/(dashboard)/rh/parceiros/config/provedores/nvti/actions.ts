@@ -95,6 +95,18 @@ export async function updateNvtiConfig(formData: FormData) {
   }
 }
 
+export async function getNvtiUsageAccess(): Promise<{ canSeeConsumo: boolean; canEditLimites: boolean }> {
+  const { permissions } = await requirePermission('sistema-config-nvti', 'can_view')
+  return {
+    canSeeConsumo: permissions.some(
+      (permission) => permission.resource_name === 'operacional-nvti-consumo' && Boolean(permission.can_view),
+    ),
+    canEditLimites: permissions.some(
+      (permission) => permission.resource_name === 'operacional-nvti-limites' && Boolean(permission.can_edit),
+    ),
+  }
+}
+
 export async function testarConexaoNvti(): Promise<{ ok: boolean; message: string }> {
   await requirePermission('sistema-config-nvti', 'can_view')
   const config = await getNvtiConfig()

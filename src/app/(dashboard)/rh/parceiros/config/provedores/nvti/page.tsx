@@ -1,10 +1,11 @@
 import { NvtiConfigForm } from './NvtiConfigForm'
-import { getNvtiConfigView } from './actions'
+import { NvtiUsageCard } from './NvtiUsageCard'
+import { getNvtiConfigView, getNvtiUsageAccess } from './actions'
 
 export const dynamic = 'force-dynamic'
 
 export default async function NvtiConfigPage() {
-  const config = await getNvtiConfigView()
+  const [config, usageAccess] = await Promise.all([getNvtiConfigView(), getNvtiUsageAccess()])
 
   return (
     <div className="page-content">
@@ -19,6 +20,12 @@ export default async function NvtiConfigPage() {
       </div>
 
       <NvtiConfigForm config={config} />
+
+      {usageAccess.canSeeConsumo ? (
+        <div className="max-w-2xl">
+          <NvtiUsageCard canEditLimites={usageAccess.canEditLimites} />
+        </div>
+      ) : null}
     </div>
   )
 }

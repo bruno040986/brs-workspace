@@ -4,27 +4,24 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
 import { getNvtiConfig } from '@/lib/nvti/config'
-import { getSpendSnapshot, getUserCap, higienizarCpf } from '@/lib/nvti/service'
+import { getUserCap, higienizarCpf } from '@/lib/nvti/service'
 import { costForCount } from '@/lib/nvti/pricing'
 import type { HigienizacaoOutcome, NvtiBatchRow } from '@/lib/nvti/types'
 
+// Números globais (gasto da empresa, teto, estimativa de fatura) são gestão e
+// NÃO saem daqui — ficam no card de consumo dentro de Configurações. A tela de
+// operação recebe apenas o gasto/teto do próprio usuário.
 export type NvtiPanorama = {
   configured: boolean
   active: boolean
-  metodo: string
-  cacheDays: number
-  global: { spend: number; cap: number; billedCount: number; nextUnit: number }
   user: { spend: number; cap: number }
   canImport: boolean
-  canSeeConsumo: boolean
-  canEditLimites: boolean
 }
 
 export async function getNvtiPanorama(): Promise<NvtiPanorama> {
   const { user, permissions } = await requirePermission('operacional-nvti', 'can_view')
   const admin = await createAdminClient()
   const config = await getNvtiConfig()
-  const snapshot = await getSpendSnapshot(admin, config)
 
   const { data: userSpendData } = await admin.rpc('nvti_user_spend', {
     p_user: user.id,
@@ -37,18 +34,8 @@ export async function getNvtiPanorama(): Promise<NvtiPanorama> {
   return {
     configured: config.has_credentials,
     active: config.is_active,
-    metodo: config.metodo,
-    cacheDays: config.cache_days,
-    global: {
-      spend: snapshot.globalSpend,
-      cap: snapshot.monthlyCap,
-      billedCount: snapshot.billedCount,
-      nextUnit: snapshot.nextUnitCost,
-    },
     user: { spend: userSpend, cap: userCap },
     canImport: hasPermission(permissions, 'operacional-nvti', 'can_include'),
-    canSeeConsumo: hasPermission(permissions, 'operacional-nvti-consumo', 'can_view'),
-    canEditLimites: hasPermission(permissions, 'operacional-nvti-limites', 'can_edit'),
   }
 }
 

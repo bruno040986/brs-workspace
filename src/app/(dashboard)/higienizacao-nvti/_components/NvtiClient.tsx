@@ -3,13 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, AlertTriangle, Ban, CheckCircle, Download, FileUp, Loader2, MessageCircle,
-  Phone, RefreshCw, Search, ShieldCheck, Wallet, XCircle,
+  Phone, RefreshCw, Search, ShieldCheck, Wallet,
 } from 'lucide-react'
 import type { HigienizacaoOutcome, NvtiResultado } from '@/lib/nvti/types'
 import {
-  cancelNvtiBatch, consultarCpfNvti, getNvtiConsumo, getNvtiLimites, getNvtiPanorama,
-  listNvtiBatches, setNvtiDefaultUserCap, setNvtiGlobalCap, setNvtiUserCap,
-  type NvtiBatchListItem, type NvtiConsumo, type NvtiLimitesState, type NvtiPanorama,
+  cancelNvtiBatch, consultarCpfNvti, getNvtiPanorama, listNvtiBatches,
+  type NvtiBatchListItem, type NvtiPanorama,
 } from '../actions'
 
 function brl(value: number): string {
@@ -55,26 +54,6 @@ function FeedbackBox({ feedback }: { feedback: Feedback | null }) {
     <div style={{ padding: '0.875rem 1rem', borderRadius: 10, display: 'flex', alignItems: 'center', gap: '0.6rem', background: palette.bg, color: palette.color, border: `1px solid ${palette.border}`, marginBottom: '1rem' }}>
       <Icon size={18} />
       <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{feedback.text}</span>
-    </div>
-  )
-}
-
-function SpendMeter({ title, spend, cap, hint }: { title: string; spend: number; cap: number; hint?: string }) {
-  const ratio = cap > 0 ? Math.min(1, spend / cap) : 0
-  const color = ratio >= 1 ? '#b91c1c' : ratio >= 0.8 ? '#b45309' : 'var(--brs-navy)'
-  return (
-    <div className="card" style={{ padding: '1rem 1.25rem', flex: 1, minWidth: 220 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--brs-gray-500)', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-        <Wallet size={15} />
-        {title}
-      </div>
-      <div style={{ marginTop: '0.4rem', fontSize: '1.35rem', fontWeight: 800, color }}>
-        {brl(spend)} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brs-gray-400)' }}>/ {brl(cap)}</span>
-      </div>
-      <div style={{ marginTop: '0.5rem', height: 7, borderRadius: 999, background: 'var(--brs-gray-100)', overflow: 'hidden' }}>
-        <div style={{ width: `${ratio * 100}%`, height: '100%', borderRadius: 999, background: color, transition: 'width 0.4s ease' }} />
-      </div>
-      {hint ? <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>{hint}</div> : null}
     </div>
   )
 }
@@ -191,7 +170,7 @@ export default function NvtiClient({
 }) {
   const [panorama, setPanorama] = useState(initialPanorama)
   const [batches, setBatches] = useState(initialBatches)
-  const [tab, setTab] = useState<'consulta' | 'lotes' | 'consumo'>('consulta')
+  const [tab, setTab] = useState<'consulta' | 'lotes'>('consulta')
 
   // --- Consulta unitária ---
   const [cpfInput, setCpfInput] = useState('')
@@ -203,19 +182,6 @@ export default function NvtiClient({
   const [uploading, setUploading] = useState(false)
   const [loteFeedback, setLoteFeedback] = useState<Feedback | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-
-  // --- Consumo / Limites ---
-  const [consumo, setConsumo] = useState<NvtiConsumo | null>(null)
-  const [consumoLoading, setConsumoLoading] = useState(false)
-  const [consumoMonth, setConsumoMonth] = useState<{ year: number; month: number }>(() => {
-    const now = new Date()
-    return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 }
-  })
-  const [limites, setLimites] = useState<NvtiLimitesState | null>(null)
-  const [limitesFeedback, setLimitesFeedback] = useState<Feedback | null>(null)
-  const [globalCapInput, setGlobalCapInput] = useState('')
-  const [defaultCapInput, setDefaultCapInput] = useState('')
-  const [savingCaps, setSavingCaps] = useState(false)
 
   const hasActiveBatch = useMemo(
     () => batches.some((batch) => ['pending', 'processing'].includes(batch.status)),
@@ -294,72 +260,9 @@ export default function NvtiClient({
     }
   }
 
-  const loadConsumo = useCallback(async (year: number, month: number) => {
-    setConsumoLoading(true)
-    try {
-      const data = await getNvtiConsumo(year, month)
-      setConsumo(data)
-      if (panorama.canEditLimites) {
-        const limitesData = await getNvtiLimites()
-        setLimites(limitesData)
-        setGlobalCapInput(String(limitesData.globalCap))
-        setDefaultCapInput(String(limitesData.defaultUserCap))
-      }
-    } catch (error) {
-      setLimitesFeedback({ type: 'error', text: error instanceof Error ? error.message : 'Erro ao carregar consumo.' })
-    } finally {
-      setConsumoLoading(false)
-    }
-  }, [panorama.canEditLimites])
-
-  useEffect(() => {
-    if (tab === 'consumo' && panorama.canSeeConsumo && !consumo) {
-      void loadConsumo(consumoMonth.year, consumoMonth.month)
-    }
-  }, [tab, panorama.canSeeConsumo, consumo, consumoMonth, loadConsumo])
-
-  function shiftMonth(delta: number) {
-    const next = new Date(Date.UTC(consumoMonth.year, consumoMonth.month - 1 + delta, 1))
-    const nextValue = { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 }
-    setConsumoMonth(nextValue)
-    void loadConsumo(nextValue.year, nextValue.month)
-  }
-
-  async function handleSaveCaps() {
-    setSavingCaps(true)
-    setLimitesFeedback(null)
-    try {
-      const globalCap = Number(globalCapInput.replace(',', '.'))
-      const defaultCap = Number(defaultCapInput.replace(',', '.'))
-      if (limites && globalCap !== limites.globalCap) await setNvtiGlobalCap(globalCap)
-      if (limites && defaultCap !== limites.defaultUserCap) await setNvtiDefaultUserCap(defaultCap)
-      setLimitesFeedback({ type: 'success', text: 'Limites atualizados. Lotes pausados por limite retomam sozinhos em até 2 minutos.' })
-      await loadConsumo(consumoMonth.year, consumoMonth.month)
-      void refreshPanoramaAndBatches()
-    } catch (error) {
-      setLimitesFeedback({ type: 'error', text: error instanceof Error ? error.message : 'Erro ao salvar limites.' })
-    } finally {
-      setSavingCaps(false)
-    }
-  }
-
-  async function handleUserCap(userId: string, current: number | null) {
-    const raw = window.prompt(
-      'Teto mensal (R$) para este usuário. Deixe vazio para voltar ao padrão.',
-      current !== null ? String(current) : '',
-    )
-    if (raw === null) return
-    try {
-      const trimmed = raw.trim().replace(',', '.')
-      await setNvtiUserCap(userId, trimmed === '' ? null : Number(trimmed))
-      setLimitesFeedback({ type: 'success', text: 'Teto do usuário atualizado.' })
-      await loadConsumo(consumoMonth.year, consumoMonth.month)
-    } catch (error) {
-      setLimitesFeedback({ type: 'error', text: error instanceof Error ? error.message : 'Erro ao salvar teto do usuário.' })
-    }
-  }
-
   const notConfigured = !panorama.configured || !panorama.active
+  const userRatio = panorama.user.cap > 0 ? Math.min(1, panorama.user.spend / panorama.user.cap) : 0
+  const userColor = userRatio >= 1 ? '#b91c1c' : userRatio >= 0.8 ? '#b45309' : 'var(--brs-navy)'
 
   return (
     <div>
@@ -367,19 +270,22 @@ export default function NvtiClient({
         <FeedbackBox feedback={{
           type: 'warning',
           text: panorama.configured
-            ? 'A integração com a Nova Vida TI está inativa. Ative em Configurações > API Nova Vida TI.'
-            : 'A API Nova Vida TI ainda não foi configurada. Cadastre as credenciais em Configurações > API Nova Vida TI.',
+            ? 'A integração com a Nova Vida TI está inativa no momento. Procure o administrador do sistema.'
+            : 'A integração com a Nova Vida TI ainda não foi configurada. Procure o administrador do sistema.',
         }} />
       ) : null}
 
-      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-        <SpendMeter
-          title="Gasto do mês (global)"
-          spend={panorama.global.spend}
-          cap={panorama.global.cap}
-          hint={`${panorama.global.billedCount.toLocaleString('pt-BR')} consultas cobradas · próxima a ${brl(panorama.global.nextUnit)} · cache de ${panorama.cacheDays} dias`}
-        />
-        <SpendMeter title="Meu gasto no mês" spend={panorama.user.spend} cap={panorama.user.cap} />
+      <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem', maxWidth: 380 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--brs-gray-500)', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+          <Wallet size={15} />
+          Meu gasto no mês
+        </div>
+        <div style={{ marginTop: '0.4rem', fontSize: '1.35rem', fontWeight: 800, color: userColor }}>
+          {brl(panorama.user.spend)} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brs-gray-400)' }}>/ {brl(panorama.user.cap)}</span>
+        </div>
+        <div style={{ marginTop: '0.5rem', height: 7, borderRadius: 999, background: 'var(--brs-gray-100)', overflow: 'hidden' }}>
+          <div style={{ width: `${userRatio * 100}%`, height: '100%', borderRadius: 999, background: userColor, transition: 'width 0.4s ease' }} />
+        </div>
       </div>
 
       <div className="tabs-list" style={{ marginBottom: '1.25rem' }}>
@@ -389,11 +295,6 @@ export default function NvtiClient({
         <button type="button" className={`tab-btn ${tab === 'lotes' ? 'active' : ''}`} onClick={() => setTab('lotes')}>
           Lotes (CSV/XLSX)
         </button>
-        {panorama.canSeeConsumo ? (
-          <button type="button" className={`tab-btn ${tab === 'consumo' ? 'active' : ''}`} onClick={() => setTab('consumo')}>
-            Consumo{panorama.canEditLimites ? ' e limites' : ''}
-          </button>
-        ) : null}
       </div>
 
       {tab === 'consulta' ? (
@@ -470,7 +371,6 @@ export default function NvtiClient({
                     <th>Arquivo</th>
                     <th>Status</th>
                     <th>Progresso</th>
-                    <th>Reaproveitadas</th>
                     <th>Erros</th>
                     <th>Criado por</th>
                     <th>Criado em</th>
@@ -486,14 +386,15 @@ export default function NvtiClient({
                         <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={batch.file_name}>{batch.file_name}</td>
                         <td>
                           <span className={`badge ${statusInfo.badge}`}>{statusInfo.label}</span>
-                          {batch.status === 'paused_limit' && batch.last_error ? (
-                            <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 3, maxWidth: 220 }}>{batch.last_error}</div>
+                          {batch.status === 'paused_limit' ? (
+                            <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 3, maxWidth: 220 }}>
+                              Aguardando liberação de limite pelo administrador.
+                            </div>
                           ) : null}
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
                           {batch.processed.toLocaleString('pt-BR')}/{batch.total.toLocaleString('pt-BR')} ({progress}%)
                         </td>
-                        <td>{batch.cached.toLocaleString('pt-BR')}</td>
                         <td>{batch.errors ? <span className="badge badge-danger">{batch.errors.toLocaleString('pt-BR')}</span> : '0'}</td>
                         <td>{batch.created_by_name}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(batch.created_at)}</td>
@@ -513,7 +414,7 @@ export default function NvtiClient({
                     )
                   }) : (
                     <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', color: 'var(--brs-gray-400)', padding: '1.5rem' }}>
+                      <td colSpan={7} style={{ textAlign: 'center', color: 'var(--brs-gray-400)', padding: '1.5rem' }}>
                         Nenhum lote importado ainda.
                       </td>
                     </tr>
@@ -522,133 +423,6 @@ export default function NvtiClient({
               </table>
             </div>
           </div>
-        </div>
-      ) : null}
-
-      {tab === 'consumo' && panorama.canSeeConsumo ? (
-        <div>
-          <FeedbackBox feedback={limitesFeedback} />
-
-          <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-outline btn-sm" onClick={() => shiftMonth(-1)}>← Mês anterior</button>
-            <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)', minWidth: 130, textAlign: 'center' }}>
-              {String(consumoMonth.month).padStart(2, '0')}/{consumoMonth.year}
-            </div>
-            <button type="button" className="btn btn-outline btn-sm" onClick={() => shiftMonth(1)}>Mês seguinte →</button>
-            {consumoLoading ? <Loader2 size={16} className="spinner" style={{ color: 'var(--brs-gray-400)' }} /> : null}
-          </div>
-
-          {consumo ? (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem', marginTop: '1rem' }}>
-                {[
-                  { label: 'Consultas no mês', value: consumo.totalQueries.toLocaleString('pt-BR') },
-                  { label: 'Cobradas (NVTI)', value: consumo.billedCount.toLocaleString('pt-BR') },
-                  { label: 'Reaproveitadas (grátis)', value: consumo.cachedCount.toLocaleString('pt-BR') },
-                  { label: 'Erros', value: consumo.errorCount.toLocaleString('pt-BR') },
-                  { label: 'Estimativa da fatura', value: brl(consumo.spendEstimate) },
-                ].map((item) => (
-                  <div key={item.label} className="card" style={{ padding: '0.9rem 1rem' }}>
-                    <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--brs-gray-400)' }}>{item.label}</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--brs-gray-900)', marginTop: 2 }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="card" style={{ padding: 0, marginTop: '1rem' }}>
-                <div style={{ padding: '0.9rem 1.25rem', borderBottom: '1px solid var(--brs-gray-100)', fontWeight: 700, color: 'var(--brs-gray-800)' }}>
-                  Consumo por usuário
-                </div>
-                <div className="table-wrapper">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Usuário</th>
-                        <th>Consultas</th>
-                        <th>Cobradas</th>
-                        <th>Reaproveitadas</th>
-                        <th>Erros</th>
-                        <th>Gasto</th>
-                        <th>Teto</th>
-                        {panorama.canEditLimites ? <th style={{ textAlign: 'right' }}>Ações</th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {consumo.byUser.length ? consumo.byUser.map((row) => (
-                        <tr key={row.userId}>
-                          <td>{row.name}</td>
-                          <td>{row.total.toLocaleString('pt-BR')}</td>
-                          <td>{row.billed.toLocaleString('pt-BR')}</td>
-                          <td>{row.cached.toLocaleString('pt-BR')}</td>
-                          <td>{row.errors ? <span className="badge badge-danger">{row.errors}</span> : '0'}</td>
-                          <td>{brl(row.spend)}</td>
-                          <td>{row.cap === null ? '—' : brl(row.cap)}</td>
-                          {panorama.canEditLimites ? (
-                            <td style={{ textAlign: 'right' }}>
-                              {row.userId !== 'service' ? (
-                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleUserCap(row.userId, row.cap)}>
-                                  Ajustar teto
-                                </button>
-                              ) : null}
-                            </td>
-                          ) : null}
-                        </tr>
-                      )) : (
-                        <tr>
-                          <td colSpan={panorama.canEditLimites ? 8 : 7} style={{ textAlign: 'center', color: 'var(--brs-gray-400)', padding: '1.5rem' }}>
-                            Sem consultas neste mês.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {consumo.byOrigin.length ? (
-                <div style={{ marginTop: '0.75rem', color: 'var(--brs-gray-500)', fontSize: '0.82rem' }}>
-                  Por origem: {consumo.byOrigin.map((item) => {
-                    const label = item.origin === 'manual' ? 'Consulta manual' : item.origin === 'batch' ? 'Lotes' : 'Orquestradores'
-                    return `${label} ${item.total.toLocaleString('pt-BR')} (${brl(item.spend)})`
-                  }).join(' · ')}
-                </div>
-              ) : null}
-
-              {panorama.canEditLimites && limites ? (
-                <div className="card" style={{ padding: '1.25rem', marginTop: '1rem' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--brs-gray-800)', marginBottom: '0.75rem' }}>Limites de gasto</div>
-                  <div className="form-grid form-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Teto mensal global (R$)</label>
-                      <input type="text" className="form-control" value={globalCapInput} onChange={(e) => setGlobalCapInput(e.target.value)} inputMode="decimal" />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Teto mensal padrão por usuário (R$)</label>
-                      <input type="text" className="form-control" value={defaultCapInput} onChange={(e) => setDefaultCapInput(e.target.value)} inputMode="decimal" />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button type="button" className="btn btn-primary" disabled={savingCaps} onClick={() => void handleSaveCaps()} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      {savingCaps ? <Loader2 size={16} className="spinner" /> : <CheckCircle size={16} />}
-                      Salvar limites
-                    </button>
-                  </div>
-                  <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', marginTop: '0.5rem' }}>
-                    Toda alteração de limite fica registrada em auditoria. O teto individual pode ser ajustado por
-                    usuário na tabela acima.
-                  </div>
-                </div>
-              ) : null}
-            </>
-          ) : consumoLoading ? (
-            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--brs-gray-400)' }}>
-              <Loader2 size={22} className="spinner" />
-            </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--brs-gray-400)', display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center' }}>
-              <XCircle size={16} /> Não foi possível carregar o consumo.
-            </div>
-          )}
         </div>
       ) : null}
     </div>

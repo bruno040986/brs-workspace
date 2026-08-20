@@ -208,8 +208,8 @@ export function NvtiConfigForm({ config }: { config: NvtiConfigView }) {
               ))}
             </div>
             <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', marginTop: '0.35rem' }}>
-              Os tetos de gasto (global e por usuário) são ajustados na tela de Higienização de CPF NVTI, aba
-              Consumo e limites.
+              Os tetos de gasto (global e por usuário) são ajustados no card &quot;Consumo e limites de gasto&quot;,
+              logo abaixo.
             </div>
           </div>
 

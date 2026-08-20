@@ -162,9 +162,10 @@ export async function higienizarCpf(input: HigienizacaoInput): Promise<Higieniza
   const snapshot = await getSpendSnapshot(admin, config)
   const unit = snapshot.nextUnitCost
   if (snapshot.globalSpend + unit > snapshot.monthlyCap + 1e-9) {
+    // Não expõe o valor do teto da empresa — é informação de gestão.
     return {
       status: 'blocked_global',
-      error: `Limite mensal global atingido (teto de R$ ${snapshot.monthlyCap.toFixed(2)}). Solicite aumento a quem tem permissão de limites.`,
+      error: 'Limite mensal de consultas da empresa atingido. Solicite liberação ao administrador.',
     }
   }
   if (input.userId) {
