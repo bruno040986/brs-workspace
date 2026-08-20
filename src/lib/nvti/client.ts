@@ -17,6 +17,24 @@ import type { NvtiMetodo, NvtiResultado } from './types'
 const BASE_URL = 'https://wsnv.novavidati.com.br/WSLocalizador.asmx'
 const REQUEST_TIMEOUT_MS = 30_000
 
+/**
+ * A NVTI libera acesso por whitelist de IP e a Vercel não tem IP fixo de
+ * saída. Se NVTI_PROXY_URL estiver definida (http(s)://user:pass@host:porta),
+ * as chamadas saem por esse proxy de IP fixo; sem a env, conexão direta.
+ */
+type FetchWithDispatcher = RequestInit & { dispatcher?: unknown }
+
+async function getProxyDispatcher(): Promise<unknown | undefined> {
+  const proxyUrl = String(process.env.NVTI_PROXY_URL || '').trim()
+  if (!proxyUrl) return undefined
+  const g = globalThis as typeof globalThis & { __nvtiProxyAgent?: { url: string; agent: unknown } }
+  if (g.__nvtiProxyAgent?.url === proxyUrl) return g.__nvtiProxyAgent.agent
+  const { ProxyAgent } = await import('undici')
+  const agent = new ProxyAgent(proxyUrl)
+  g.__nvtiProxyAgent = { url: proxyUrl, agent }
+  return agent
+}
+
 export class NvtiApiError extends Error {
   readonly kind: 'auth' | 'token' | 'remote' | 'parse'
   constructor(kind: 'auth' | 'token' | 'remote' | 'parse', message: string) {
@@ -29,13 +47,16 @@ async function postForm(method: string, fields: Record<string, string>): Promise
   const body = new URLSearchParams(fields)
   let res: Response
   try {
-    res = await fetch(`${BASE_URL}/${method}`, {
+    const dispatcher = await getProxyDispatcher()
+    const init: FetchWithDispatcher = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
       cache: 'no-store',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
+    }
+    if (dispatcher) init.dispatcher = dispatcher
+    res = await fetch(`${BASE_URL}/${method}`, init)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'falha de rede'
     throw new NvtiApiError('remote', `Falha ao chamar a NVTI (${method}): ${message}`)
@@ -55,6 +76,12 @@ function unwrapAsmxString(xml: string): string {
   if (typeof value === 'number') return String(value)
   // Sem o wrapper <string>: pode ser o payload direto ou uma página de erro.
   return xml.trim()
+}
+
+/** Extrai a mensagem de <ERROS><ERRO>…</ERRO></ERROS> quando a NVTI recusa a chamada. */
+function extractErro(payload: string): string | null {
+  const match = payload.match(/<ERRO>\s*([^<]+?)\s*<\/ERRO>/i)
+  return match ? match[1].trim() : null
 }
 
 function looksLikeToken(value: string): boolean {
@@ -91,6 +118,13 @@ export async function gerarToken(credentials: NvtiCredentials): Promise<string> 
     if (looksLikeToken(value)) return value
     lastResult = value
   }
+  const erro = extractErro(lastResult)
+  if (erro) {
+    const hint = /IP/i.test(erro)
+      ? ' O acesso da NVTI é liberado por IP fixo — o IP de saída desta chamada não está na whitelist deles.'
+      : ''
+    throw new NvtiApiError('auth', `NVTI recusou a autenticação: ${erro}.${hint}`)
+  }
   throw new NvtiApiError('auth', `GerarToken não retornou um token válido. Retorno: "${lastResult.slice(0, 200)}"`)
 }
 
@@ -113,6 +147,10 @@ export async function consultarCpfRemoto(
   if (!payload.includes('<CONSULTA')) {
     if (isTokenProblem(payload)) {
       throw new NvtiApiError('token', `Token recusado pela NVTI: "${payload.slice(0, 200)}"`)
+    }
+    const erro = extractErro(payload)
+    if (erro) {
+      throw new NvtiApiError('remote', `NVTI recusou a consulta: ${erro}`)
     }
     throw new NvtiApiError('remote', `NVTI não retornou CONSULTA para o CPF: "${payload.slice(0, 300)}"`)
   }
