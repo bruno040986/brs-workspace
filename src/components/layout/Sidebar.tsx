@@ -25,6 +25,7 @@ import {
   Menu,
   MessageSquare,
   Scale,
+  Search,
   Upload,
   UserCog,
   Users,
@@ -135,6 +136,7 @@ export default function Sidebar() {
     if (href === '/rh/parceiros/config/provedores/assinatura') return canView('sistema-config-assinatura')
     if (href === '/rh/parceiros/config/provedores/empresas') return canView('sistema-config-empresa')
     if (href === '/rh/parceiros/config/provedores/cpf') return canView('sistema-config-cpf')
+    if (href === '/rh/parceiros/config/provedores/nvti') return canView('sistema-config-nvti')
     if (href === '/rh/parceiros/config/provedores/cnae') return canView('sistema-config-cnae')
     if (href === '/rh/parceiros/config/provedores/ctn') return canView('sistema-config-ctn')
     if (href === '/rh/parceiros/config/provedores/nbs') return canView('sistema-config-nbs')
@@ -181,6 +183,7 @@ export default function Sidebar() {
       if (item.href === '/rh/parceiros/config/emails') return canView('scp-emails')
       if (item.href === '/rh/parceiros/config/whatsapp') return canView('scp-whatsapp')
       if (item.href === '/disparo-whatsapp') return canView('comercial-disparo-whatsapp')
+      if (item.href === '/higienizacao-nvti') return canView('operacional-nvti')
 
       if (item.href === '/comunicados') return canView('sistema-comunicados')
 
@@ -270,6 +273,7 @@ export default function Sidebar() {
         { label: 'API Assinatura Eletrônica', href: '/rh/parceiros/config/provedores/assinatura', icon: FileText },
         { label: 'Google', href: '/rh/parceiros/config/provedores/google', icon: Globe },
         { label: 'API CPF', href: '/rh/parceiros/config/provedores/cpf', icon: Key },
+        { label: 'API Nova Vida TI', href: '/rh/parceiros/config/provedores/nvti', icon: Key },
       ]),
     },
     {
@@ -389,6 +393,7 @@ export default function Sidebar() {
       { label: 'Links do Cartão Digital', href: '/rh/parceiros/config/comercial/links-cartao-digital', icon: Link2 },
       { label: 'Tabela de Locacao de Veiculo', href: '/rh/parceiros/config/comercial/tabela-locacao-veiculo', icon: Building2 },
       { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp', icon: MessageSquare },
+      { label: 'Higienização de CPF NVTI', href: '/higienizacao-nvti', icon: Search },
       { type: 'section', label: 'Sistema' },
       { label: 'Voltar ao Workspace', href: '/', icon: LayoutDashboard },
     ]

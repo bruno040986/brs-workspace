@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/wa-campaigns",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/nvti-batches",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

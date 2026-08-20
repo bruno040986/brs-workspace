@@ -60,6 +60,9 @@ const SYSTEM_MODULES = [
   { id: 'comercial-estrutura', name: 'Estrutura Comercial', parentId: 'cat-subsistemas', level: 1 },
   { id: 'comercial-agentes', name: 'Agentes Comerciais', parentId: 'comercial-estrutura', level: 2 },
   { id: 'comercial-disparo-whatsapp', name: 'Disparo de WhatsApp', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'operacional-nvti', name: 'Higienização de CPF (NVTI)', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
+  { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
 
   // Sistema Category
   { id: 'cat-sistema', name: 'Sistema', isHeader: true, level: 0 },
@@ -72,6 +75,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-assinatura', name: 'API Assinatura Eletrônica', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-google', name: 'Google', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-cpf', name: 'API CPF', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-nvti', name: 'API Nova Vida TI', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-nbs', name: 'NBS', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-quarkrh', name: 'API QuarkRH', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-contaazul', name: 'API Conta Azul', parentId: 'sistema-config-root', level: 2 },

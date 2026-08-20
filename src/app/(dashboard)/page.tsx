@@ -222,6 +222,7 @@ export default function HubPage() {
         { label: 'Link de Averbadores', href: '#', disabled: true },
         { label: 'Agente Corban', href: '/agente-corban' },
         { label: 'Promotoras', href: '/promotoras' },
+        { label: 'Higienização de CPF NVTI', href: '/higienizacao-nvti' },
         { label: 'Manual de Rotinas Operacionais', href: '#', disabled: true },
         { label: 'Propostas Digitadas Internamente', href: '#', disabled: true },
         { label: 'Logins e Acessos Criados', href: '#', disabled: true },
@@ -256,6 +257,7 @@ export default function HubPage() {
       links: [
         { label: 'Cadastros Comerciais', href: '/rh/parceiros/config/comercial' },
         { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp' },
+        { label: 'Higienização de CPF NVTI', href: '/higienizacao-nvti' },
         { label: 'Visão do Gerente', href: '#', disabled: true },
         { label: 'Visão do Supervisor', href: '#', disabled: true },
         { label: 'Visão do Superintendente', href: '#', disabled: true },
@@ -295,6 +297,9 @@ export default function HubPage() {
         }
         if (link.href === '/disparo-whatsapp') {
           return canView('comercial-disparo-whatsapp')
+        }
+        if (link.href === '/higienizacao-nvti') {
+          return canView('operacional-nvti')
         }
         if (link.href === '/rh/parceiros/config/comercial') {
           return hasAnyPermission(permissions, [

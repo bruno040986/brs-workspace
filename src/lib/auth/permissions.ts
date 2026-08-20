@@ -48,6 +48,7 @@ export const systemConfigNavEntries = [
   { resource: 'sistema-config-empresa', href: '/rh/parceiros/config/provedores/empresas' },
   { resource: 'sistema-config-google', href: '/rh/parceiros/config/provedores/google' },
   { resource: 'sistema-config-cpf', href: '/rh/parceiros/config/provedores/cpf' },
+  { resource: 'sistema-config-nvti', href: '/rh/parceiros/config/provedores/nvti' },
   { resource: 'sistema-config-cnae', href: '/rh/parceiros/config/provedores/cnae' },
   { resource: 'sistema-config-ctn', href: '/rh/parceiros/config/provedores/ctn' },
   { resource: 'sistema-config-nbs', href: '/rh/parceiros/config/provedores/nbs' },
@@ -129,6 +130,9 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/seletor': any([view('comercial-agentes'), view('comercial-estrutura')]),
   '/disparo-whatsapp': any([view('comercial-disparo-whatsapp')]),
   '/api/disparo-whatsapp/upload': any([include('comercial-disparo-whatsapp')]),
+  '/higienizacao-nvti': any([view('operacional-nvti')]),
+  '/api/nvti/upload': any([include('operacional-nvti')]),
+  '/rh/parceiros/config/provedores/nvti': any([view('sistema-config-nvti')]),
 }
 
 const authenticatedOpenRoutes = new Set([
@@ -179,6 +183,9 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/rh/auditoria', any([view('rh-auditoria')])],
   ['/rh/parceiros', any([view('scp-crm')])],
   ['/disparo-whatsapp', any([view('comercial-disparo-whatsapp')])],
+  ['/higienizacao-nvti', any([view('operacional-nvti')])],
+  ['/api/nvti/lotes', any([view('operacional-nvti')])],
+  ['/rh/parceiros/config/provedores/nvti', any([view('sistema-config-nvti')])],
 ]
 
 function normalizePath(pathname: string) {

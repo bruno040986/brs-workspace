@@ -126,6 +126,8 @@ export async function updateSession(request: NextRequest) {
     '/api/cron',
     '/api/assinafy/webhook',
     '/api/zapi/webhook',
+    // Autentica por NVTI_SERVICE_TOKEN no handler (rota de serviço dos orquestradores).
+    '/api/nvti/interno',
   ]
   const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {
