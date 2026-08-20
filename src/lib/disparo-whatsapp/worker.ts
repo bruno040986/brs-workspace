@@ -74,19 +74,18 @@ export async function runWaWorker(options: { budgetMs?: number; workerId?: strin
 
   const instances = await Promise.all(instanceIds.map((id) => runInstanceLoop(supabase, id, workerId, deadline)))
 
-  // Ainda há trabalho elegível? (para o "kick" em cadeia)
-  const { count } = await supabase
-    .from('wa_campaigns')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'running')
-    .or(`next_run_at.is.null,next_run_at.lte.${new Date(Date.now() + 60_000).toISOString()}`)
+  // Kick em cadeia SÓ quando este worker era o dono do lock e saiu por budget
+  // com trabalho pendente. Se o lock está com outro worker ('locked'), quem
+  // deve continuar é ele — re-kickar aqui criava uma rajada de invocações
+  // inúteis a cada minuto. O cron de 1 min segue como rede de segurança.
+  const workRemains = instances.some((i) => i.stoppedReason === 'budget')
 
   return {
     workerId,
     promoted,
     recovered,
     instances,
-    workRemains: (count || 0) > 0,
+    workRemains,
     elapsedMs: Date.now() - startedAt,
   }
 }
@@ -232,14 +231,25 @@ async function runInstanceLoop(
     }
 
     while (Date.now() < deadline - 5000) {
-      // 1. Pacing por instância
+      // 1. Pacing por instância — dorme SEM soltar o lock (renova a cada ≤25s).
       const wait = nextSendAt - Date.now()
       if (wait > 0) {
         if (Date.now() + wait > deadline - 5000) {
           summary.stoppedReason = 'budget'
           return summary
         }
-        await sleep(wait)
+        const slept = await sleepHoldingLock(supabase, instanceId, workerId, wait, deadline)
+        if (slept !== 'ok') {
+          summary.stoppedReason = slept
+          return summary
+        }
+      }
+
+      // 1b. Cinto e suspensório: confirma a posse do lock antes de reivindicar
+      // um destinatário (se outro worker assumiu, saímos sem enviar).
+      if (!(await heartbeat(supabase, instanceId, workerId, null))) {
+        summary.stoppedReason = 'lock_lost'
+        return summary
       }
 
       // 2. Campanhas elegíveis nesta instância (round-robin pela última enviada)
