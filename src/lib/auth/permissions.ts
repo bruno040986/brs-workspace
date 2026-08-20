@@ -133,6 +133,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/higienizacao-nvti': any([view('operacional-nvti')]),
   '/api/nvti/upload': any([include('operacional-nvti')]),
   '/rh/parceiros/config/provedores/nvti': any([view('sistema-config-nvti')]),
+  '/agenda': any([view('workspace-agenda')]),
 }
 
 const authenticatedOpenRoutes = new Set([
@@ -186,6 +187,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/higienizacao-nvti', any([view('operacional-nvti')])],
   ['/api/nvti/lotes', any([view('operacional-nvti')])],
   ['/rh/parceiros/config/provedores/nvti', any([view('sistema-config-nvti')])],
+  ['/agenda', any([view('workspace-agenda')])],
 ]
 
 function normalizePath(pathname: string) {

@@ -31,6 +31,7 @@ const SYSTEM_MODULES = [
   { id: 'workspace-mkt', name: 'Marketing', parentId: 'cat-workspace', level: 1 },
   { id: 'workspace-com', name: 'Comercial', parentId: 'cat-workspace', level: 1 },
   { id: 'workspace-acc', name: 'Acessos', parentId: 'cat-workspace', level: 1 },
+  { id: 'workspace-agenda', name: 'Agenda & Tarefas', parentId: 'cat-workspace', level: 1 },
 
   // Subsistemas Category
   { id: 'cat-subsistemas', name: 'Subsistemas', isHeader: true, level: 0 },

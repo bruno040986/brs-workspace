@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import type { CalendarEvent } from '@/lib/google/calendar'
 import { CreateEventModal } from './CreateEventModal'
+import { listAgendaItems } from '@/app/(dashboard)/agenda/actions'
+import { AGENDA_PRIORITIES, priorityOrder, type AgendaItem } from '@/lib/agenda/types'
 
 type ConnectionState = {
   connected: boolean
@@ -10,7 +12,9 @@ type ConnectionState = {
 }
 
 export function AgendaComponent() {
-  const [activeTab, setActiveTab] = useState<'minha' | 'empresa'>('minha')
+  const [activeTab, setActiveTab] = useState<'minha' | 'empresa' | 'tarefas'>('minha')
+  const [myTasks, setMyTasks] = useState<AgendaItem[]>([])
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [connection, setConnection] = useState<ConnectionState>({ connected: false })
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingEvents, setIsLoadingEvents] = useState(false)
@@ -116,6 +120,24 @@ export function AgendaComponent() {
     if (activeTab === 'empresa' && selectedUser) fetchUserEvents(selectedUser)
   }, [selectedUser, activeTab])
 
+  useEffect(() => {
+    if (activeTab !== 'tarefas') return
+    setIsLoadingTasks(true)
+    listAgendaItems({ kind: 'tarefas', scope: 'minhas' })
+      .then((items) => {
+        const pending = items
+          .filter((item) => item.status !== 'feito')
+          .sort((a, b) => {
+            const byPriority = priorityOrder(a.priority) - priorityOrder(b.priority)
+            if (byPriority !== 0) return byPriority
+            return (a.due_date || '9999').localeCompare(b.due_date || '9999')
+          })
+        setMyTasks(pending.slice(0, 6))
+      })
+      .catch(() => setMyTasks([]))
+      .finally(() => setIsLoadingTasks(false))
+  }, [activeTab])
+
   const connectionHint =
     connection.reason === 'token_invalid'
       ? 'Conexao expirada. Reconecte sua conta Google.'
@@ -123,7 +145,7 @@ export function AgendaComponent() {
 
   return (
     <div className="w-full space-y-4">
-      <div className="flex border-b">
+      <div className="flex border-b items-center">
         <button
           onClick={() => setActiveTab('minha')}
           className={`px-4 py-2 font-medium ${
@@ -148,6 +170,29 @@ export function AgendaComponent() {
         >
           Agenda da Empresa
         </button>
+        <button
+          onClick={() => setActiveTab('tarefas')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'tarefas'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : isDarkTheme
+                ? 'text-slate-300 hover:text-white'
+                : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Minhas Tarefas
+        </button>
+        <a
+          href="/agenda"
+          className="ml-auto px-3 py-1 rounded-lg text-sm font-semibold"
+          style={{
+            background: isDarkTheme ? '#14233b' : '#eff6ff',
+            color: isDarkTheme ? '#93c5fd' : '#1d4ed8',
+            border: `1px solid ${isDarkTheme ? '#31507c' : '#bfdbfe'}`,
+          }}
+        >
+          Tarefas da equipe →
+        </a>
       </div>
 
       <div
@@ -210,6 +255,48 @@ export function AgendaComponent() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'tarefas' && (
+          <div className="space-y-2">
+            {isLoadingTasks ? (
+              <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Carregando tarefas…</p>
+            ) : myTasks.length === 0 ? (
+              <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>
+                Nenhuma tarefa pendente. 🎉
+              </p>
+            ) : (
+              myTasks.map((task) => {
+                const priority = AGENDA_PRIORITIES.find((p) => p.value === task.priority) || AGENDA_PRIORITIES[1]
+                return (
+                  <a
+                    key={task.id}
+                    href={`/agenda?item=${task.id}`}
+                    className="border rounded-lg p-3 flex items-center justify-between gap-3"
+                    style={{
+                      borderColor: isDarkTheme ? '#334155' : '#e5e7eb',
+                      background: isDarkTheme ? '#0b1220' : '#ffffff',
+                      borderLeft: `3px solid ${priority.color}`,
+                    }}
+                  >
+                    <span className="font-medium truncate">{task.title}</span>
+                    <span className="text-xs whitespace-nowrap" style={{ color: isDarkTheme ? '#94a3b8' : '#6b7280' }}>
+                      {task.due_date
+                        ? new Date(`${task.due_date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                        : priority.label}
+                    </span>
+                  </a>
+                )
+              })
+            )}
+            <a
+              href="/agenda"
+              className="block text-center text-sm font-semibold pt-2"
+              style={{ color: isDarkTheme ? '#93c5fd' : '#1d4ed8' }}
+            >
+              Abrir painel completo →
+            </a>
           </div>
         )}
 

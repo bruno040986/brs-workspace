@@ -19,6 +19,12 @@ import {
   type EffectivePermission,
 } from '@/lib/auth/permissions'
 import { getPraiseNotifications, getPraiseUnreadCount, markPraiseNotificationsRead } from '@/app/(dashboard)/praises/actions'
+import {
+  getWorkspaceNotifications,
+  getWorkspaceUnreadCount,
+  markWorkspaceNotificationsRead,
+  type WorkspaceNotificationRow,
+} from '@/app/(dashboard)/notificacoes/actions'
 import { setMyThemePreference } from '@/app/(dashboard)/theme/actions'
 import { applyResolvedTheme, readStoredThemePreference, resolveTheme, storeThemePreference } from '@/components/theme/theme'
 
@@ -44,7 +50,9 @@ type ComunicadoNotification = {
   created_at: string
 }
 
-type HeaderNotification = PraiseNotification | ComunicadoNotification
+type WorkspaceHeaderNotification = WorkspaceNotificationRow & { kind: 'workspace' }
+
+type HeaderNotification = PraiseNotification | ComunicadoNotification | WorkspaceHeaderNotification
 
 export default function HubHeader({ user }: HubHeaderProps) {
   const router = useRouter()
@@ -56,6 +64,7 @@ export default function HubHeader({ user }: HubHeaderProps) {
 
   const [praiseUnread, setPraiseUnread] = useState<number>(0)
   const [comunicadoUnread, setComunicadoUnread] = useState<number>(0)
+  const [workspaceUnread, setWorkspaceUnread] = useState<number>(0)
   const [loadingNotifs, setLoadingNotifs] = useState(false)
   const [notifItems, setNotifItems] = useState<HeaderNotification[]>([])
   const [toast, setToast] = useState<{ id: string; text: string } | null>(null)
@@ -137,14 +146,21 @@ export default function HubHeader({ user }: HubHeaderProps) {
     if (res.success) setPraiseUnread(res.count || 0)
   }
 
+  async function refreshWorkspaceBadge() {
+    if (!user?.id) return
+    const res = await getWorkspaceUnreadCount()
+    if (res.success) setWorkspaceUnread(res.count || 0)
+  }
+
   async function loadNotifications() {
     setLoadingNotifs(true)
     try {
-      const [praiseRes, comunicadoRes] = await Promise.all([
+      const [praiseRes, comunicadoRes, workspaceRes] = await Promise.all([
         getPraiseNotifications({ limit: 10 }),
         fetch('/api/comunicados/notifications')
           .then(async (response) => response.json())
           .catch(() => null),
+        getWorkspaceNotifications({ limit: 10 }),
       ])
 
       const praiseItems = praiseRes.success
@@ -155,8 +171,12 @@ export default function HubHeader({ user }: HubHeaderProps) {
         ? ((comunicadoRes.items || []) as ComunicadoNotification[]).map((item) => ({ ...item, kind: 'comunicado' as const }))
         : []
 
+      const workspaceItems = workspaceRes.success
+        ? (workspaceRes.notifications || []).map((item) => ({ ...item, kind: 'workspace' as const }))
+        : []
+
       setNotifItems(
-        [...comunicadoItems, ...praiseItems].sort((a, b) => {
+        [...comunicadoItems, ...praiseItems, ...workspaceItems].sort((a, b) => {
           const left = new Date(String((b as any).created_at || '')).getTime()
           const right = new Date(String((a as any).created_at || '')).getTime()
           return left - right
@@ -185,17 +205,21 @@ export default function HubHeader({ user }: HubHeaderProps) {
   useEffect(() => {
     refreshPraiseBadge()
     refreshComunicadoBadge()
+    refreshWorkspaceBadge()
     const handler = () => {
       refreshPraiseBadge()
       refreshComunicadoBadge()
+      refreshWorkspaceBadge()
     }
     window.addEventListener('praise:refresh', handler)
     window.addEventListener('comunicados:refresh', handler)
     const interval = window.setInterval(() => refreshPraiseBadge(), 30000)
     const intervalComunicados = window.setInterval(() => refreshComunicadoBadge(), 30000)
+    const intervalWorkspace = window.setInterval(() => refreshWorkspaceBadge(), 30000)
     const onFocus = () => {
       refreshPraiseBadge()
       refreshComunicadoBadge()
+      refreshWorkspaceBadge()
     }
     window.addEventListener('focus', onFocus)
     return () => {
@@ -204,7 +228,32 @@ export default function HubHeader({ user }: HubHeaderProps) {
       window.removeEventListener('focus', onFocus)
       window.clearInterval(interval)
       window.clearInterval(intervalComunicados)
+      window.clearInterval(intervalWorkspace)
     }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`workspace-notifs-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'workspace_notifications', filter: `user_id=eq.${user.id}` },
+        async (payload) => {
+          const newId = String((payload as any)?.new?.id || '')
+          const title = String((payload as any)?.new?.title || 'Você tem uma nova notificação.')
+          await refreshWorkspaceBadge()
+          setToast({ id: newId || `w_${Date.now()}`, text: title })
+          window.setTimeout(() => setToast((prev) => (prev?.id === (newId || prev?.id || '') ? null : prev)), 4500)
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
   useEffect(() => {
@@ -373,12 +422,14 @@ export default function HubHeader({ user }: HubHeaderProps) {
             const next = !showNotifications
             setShowNotifications(next)
             if (next) {
-              await Promise.all([refreshPraiseBadge(), refreshComunicadoBadge(), loadNotifications()])
+              await Promise.all([refreshPraiseBadge(), refreshComunicadoBadge(), refreshWorkspaceBadge(), loadNotifications()])
             }
           }}
         >
           <Bell size={20} />
-          {(praiseUnread + comunicadoUnread) > 0 && <span className="notification-badge">{Math.min(99, praiseUnread + comunicadoUnread)}</span>}
+          {(praiseUnread + comunicadoUnread + workspaceUnread) > 0 && (
+            <span className="notification-badge">{Math.min(99, praiseUnread + comunicadoUnread + workspaceUnread)}</span>
+          )}
         </button>
 
           {showNotifications && (
@@ -416,7 +467,11 @@ export default function HubHeader({ user }: HubHeaderProps) {
                     type="button"
                     onClick={async () => {
                       setShowNotifications(false)
-                      if (n.kind === 'comunicado') {
+                      if (n.kind === 'workspace') {
+                        await markWorkspaceNotificationsRead({ id: n.id })
+                        await refreshWorkspaceBadge()
+                        if (n.href) router.push(n.href)
+                      } else if (n.kind === 'comunicado') {
                         window.dispatchEvent(
                           new CustomEvent('comunicados:open', {
                             detail: {
@@ -448,7 +503,11 @@ export default function HubHeader({ user }: HubHeaderProps) {
                       gap: '0.25rem',
                     }}
                   >
-                    {n.kind === 'comunicado' ? (
+                    {n.kind === 'workspace' ? (
+                      <div style={{ fontSize: '0.85rem', fontWeight: n.read_at ? 500 : 800, color: 'var(--brs-gray-800)' }}>
+                        {n.title}
+                      </div>
+                    ) : n.kind === 'comunicado' ? (
                       <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--brs-gray-800)' }}>
                         Há um novo comunicado para ser lido!
                       </div>

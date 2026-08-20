@@ -1,0 +1,491 @@
+'use server'
+
+import { createAdminClient } from '@/lib/supabase/server'
+import { requirePermission } from '@/lib/auth/server'
+import { hasPermission } from '@/lib/auth/permissions'
+import { createWorkspaceNotifications } from '@/lib/notifications'
+import { mirrorAgendaItemToGoogle, removeAgendaItemFromGoogle } from '@/lib/agenda/googleMirror'
+import { getValidGoogleTokenAdmin, queryFreeBusy, type BusyBlock } from '@/lib/google/calendarApi'
+import {
+  AGENDA_LINK_ENTITY_TYPES,
+  type AgendaItem,
+  type AgendaItemPayload,
+  type AgendaParticipant,
+  type AgendaTaskStatus,
+} from '@/lib/agenda/types'
+
+const PERMISSION_RESOURCE = 'workspace-agenda'
+
+type AdminClient = Awaited<ReturnType<typeof createAdminClient>>
+
+export type AgendaBootstrap = {
+  currentUserId: string
+  currentUserName: string
+  canInclude: boolean
+  users: Array<{ id: string; name: string; avatar_url: string | null }>
+}
+
+export async function getAgendaBootstrap(): Promise<AgendaBootstrap> {
+  const { user, permissions } = await requirePermission(PERMISSION_RESOURCE, 'can_view')
+  const admin = await createAdminClient()
+
+  const { data: users } = await admin
+    .from('users')
+    .select('id, name, avatar_url')
+    .eq('active', true)
+    .order('name')
+
+  const me = (users || []).find((u: any) => String(u.id) === user.id)
+
+  return {
+    currentUserId: user.id,
+    currentUserName: String(me?.name || user.email || ''),
+    canInclude: hasPermission(permissions, PERMISSION_RESOURCE, 'can_include'),
+    users: (users || []).map((u: any) => ({
+      id: String(u.id),
+      name: String(u.name || ''),
+      avatar_url: u.avatar_url ? String(u.avatar_url) : null,
+    })),
+  }
+}
+
+export type AgendaListParams = {
+  kind: 'tarefas' | 'compromissos' | 'agenda'
+  scope: 'minhas' | 'todas'
+  // Para kind 'agenda' (grade dia/semana/mês):
+  rangeStart?: string
+  rangeEnd?: string
+  // Filtra pela agenda de uma pessoa específica (criador ou envolvida).
+  personId?: string
+}
+
+export async function listAgendaItems(params: AgendaListParams): Promise<AgendaItem[]> {
+  const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_view')
+  const admin = await createAdminClient()
+
+  let query = admin
+    .from('agenda_items')
+    .select('*')
+    .is('deleted_at', null)
+
+  if (params.kind === 'tarefas') {
+    query = query.eq('item_type', 'tarefa').order('created_at', { ascending: false }).limit(500)
+  } else if (params.kind === 'agenda') {
+    const rangeStart = params.rangeStart || new Date().toISOString()
+    const rangeEnd = params.rangeEnd || new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString()
+    const dayStart = rangeStart.slice(0, 10)
+    const dayEnd = rangeEnd.slice(0, 10)
+    query = query
+      .or(
+        `and(start_at.gte.${rangeStart},start_at.lte.${rangeEnd}),and(item_type.eq.tarefa,due_date.gte.${dayStart},due_date.lte.${dayEnd})`,
+      )
+      .order('start_at', { ascending: true, nullsFirst: false })
+      .limit(500)
+  } else {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    query = query
+      .neq('item_type', 'tarefa')
+      .or(`start_at.gte.${cutoff},start_at.is.null`)
+      .order('start_at', { ascending: true, nullsFirst: false })
+      .limit(200)
+  }
+
+  const { data: rows, error } = await query
+  if (error) throw error
+
+  const items = (rows || []) as any[]
+  if (!items.length) return []
+
+  const itemIds = items.map((row) => String(row.id))
+
+  const [{ data: participantRows }, { data: linkRows }] = await Promise.all([
+    admin
+      .from('agenda_item_participants')
+      .select('item_id, user_id, role, user:user_id ( name, avatar_url )')
+      .in('item_id', itemIds),
+    admin.from('agenda_item_links').select('item_id, entity_type, entity_id, label').in('item_id', itemIds),
+  ])
+
+  const participantsByItem = new Map<string, AgendaParticipant[]>()
+  for (const row of participantRows || []) {
+    const list = participantsByItem.get(String((row as any).item_id)) || []
+    list.push({
+      user_id: String((row as any).user_id),
+      name: String((row as any).user?.name || '—'),
+      avatar_url: (row as any).user?.avatar_url || null,
+      role: (row as any).role === 'autorizado' ? 'autorizado' : 'envolvido',
+    })
+    participantsByItem.set(String((row as any).item_id), list)
+  }
+
+  const linksByItem = new Map<string, AgendaItem['links']>()
+  for (const row of linkRows || []) {
+    const list = linksByItem.get(String((row as any).item_id)) || []
+    list.push({
+      entity_type: String((row as any).entity_type),
+      entity_id: String((row as any).entity_id),
+      label: String((row as any).label || ''),
+    })
+    linksByItem.set(String((row as any).item_id), list)
+  }
+
+  const creatorIds = Array.from(new Set(items.map((row) => String(row.created_by))))
+  const { data: creators } = await admin.from('users').select('id, name').in('id', creatorIds)
+  const creatorNames = new Map<string, string>((creators || []).map((row: any) => [String(row.id), String(row.name || '—')]))
+
+  const result: AgendaItem[] = []
+  for (const row of items) {
+    const id = String(row.id)
+    const participants = participantsByItem.get(id) || []
+    const involvedIds = new Set(participants.map((p) => p.user_id))
+    const isMine = String(row.created_by) === user.id || involvedIds.has(user.id)
+
+    if (params.kind === 'agenda') {
+      const personId = params.personId || user.id
+      const isOfPerson = String(row.created_by) === personId || involvedIds.has(personId)
+      if (!isOfPerson) continue
+    } else if (params.scope === 'minhas' && !isMine) {
+      continue
+    }
+
+    const isPrivate = String(row.visibility) === 'privada'
+    const canSeeContent = !isPrivate || isMine
+
+    result.push({
+      id,
+      item_type: row.item_type,
+      title: canSeeContent ? String(row.title) : 'Item privado',
+      description: canSeeContent ? String(row.description || '') : '',
+      all_day: Boolean(row.all_day),
+      due_date: row.due_date ? String(row.due_date) : null,
+      start_at: row.start_at ? String(row.start_at) : null,
+      end_at: row.end_at ? String(row.end_at) : null,
+      priority: row.priority,
+      status: row.status || null,
+      visibility: row.visibility,
+      meeting_link_mode: canSeeContent ? row.meeting_link_mode : 'nenhum',
+      meeting_link: canSeeContent ? String(row.meeting_link || '') : '',
+      created_by: String(row.created_by),
+      created_by_name: creatorNames.get(String(row.created_by)) || '—',
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+      participants: canSeeContent ? participants : participants.filter((p) => p.role === 'envolvido'),
+      links: canSeeContent ? linksByItem.get(id) || [] : [],
+      masked: !canSeeContent,
+    })
+  }
+
+  return result
+}
+
+function normalizePayload(payload: AgendaItemPayload) {
+  const title = String(payload.title || '').trim()
+  if (!title) throw new Error('Informe um título.')
+  if (title.length > 200) throw new Error('Título excede 200 caracteres.')
+
+  const itemType = payload.item_type
+  const isTask = itemType === 'tarefa'
+
+  if (!isTask && !payload.start_at) {
+    throw new Error('Compromissos precisam de data e horário.')
+  }
+
+  let meetingLinkMode = payload.meeting_link_mode || 'nenhum'
+  let meetingLink = String(payload.meeting_link || '').trim()
+  if (meetingLinkMode === 'gerar_meet') {
+    if (itemType !== 'reuniao_virtual') {
+      throw new Error('Só reuniões virtuais geram link do Meet.')
+    }
+    // O link em si é preenchido pelo espelhamento no Google.
+    meetingLink = ''
+  } else if (meetingLinkMode === 'externo') {
+    if (!/^https:\/\/\S+$/i.test(meetingLink)) {
+      throw new Error('Informe um link válido começando com https://')
+    }
+  } else {
+    meetingLink = ''
+    meetingLinkMode = 'nenhum'
+  }
+
+  return {
+    item_type: itemType,
+    title,
+    description: String(payload.description || '').trim(),
+    all_day: Boolean(payload.all_day),
+    due_date: payload.due_date || null,
+    start_at: payload.start_at || null,
+    end_at: payload.end_at || null,
+    priority: payload.priority || 'media',
+    status: isTask ? payload.status || 'pendente' : null,
+    visibility: payload.visibility === 'privada' ? 'privada' : 'publica',
+    meeting_link_mode: meetingLinkMode,
+    meeting_link: meetingLink,
+  }
+}
+
+async function replaceItemRelations(admin: AdminClient, itemId: string, payload: AgendaItemPayload) {
+  const involved = Array.from(new Set((payload.participant_user_ids || []).map(String).filter(Boolean)))
+  const authorized = Array.from(new Set((payload.authorized_user_ids || []).map(String).filter(Boolean)))
+    .filter((id) => !involved.includes(id))
+
+  await admin.from('agenda_item_participants').delete().eq('item_id', itemId)
+  const participantRows = [
+    ...involved.map((userId) => ({ item_id: itemId, user_id: userId, role: 'envolvido' })),
+    ...(payload.visibility === 'privada'
+      ? authorized.map((userId) => ({ item_id: itemId, user_id: userId, role: 'autorizado' }))
+      : []),
+  ]
+  if (participantRows.length) {
+    const { error } = await admin.from('agenda_item_participants').insert(participantRows)
+    if (error) throw error
+  }
+
+  await admin.from('agenda_item_links').delete().eq('item_id', itemId)
+  const validTypes = new Set(AGENDA_LINK_ENTITY_TYPES.map((t) => t.value))
+  const linkRows = (payload.links || [])
+    .filter((link) => validTypes.has(link.entity_type) && link.entity_id)
+    .map((link) => ({
+      item_id: itemId,
+      entity_type: link.entity_type,
+      entity_id: link.entity_id,
+      label: String(link.label || '').slice(0, 200),
+    }))
+  if (linkRows.length) {
+    const { error } = await admin.from('agenda_item_links').insert(linkRows)
+    if (error) throw error
+  }
+
+  return { involved }
+}
+
+export async function saveAgendaItem(
+  payload: AgendaItemPayload,
+): Promise<{ success: boolean; id?: string; error?: string; warning?: string }> {
+  try {
+    const { user } = await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
+    const admin = await createAdminClient()
+    const normalized = normalizePayload(payload)
+
+    let itemId = payload.id ? String(payload.id) : ''
+    let previouslyInvolved = new Set<string>()
+
+    if (itemId) {
+      const { data: existing, error: findErr } = await admin
+        .from('agenda_items')
+        .select('id, created_by')
+        .eq('id', itemId)
+        .is('deleted_at', null)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!existing) throw new Error('Item não encontrado.')
+
+      const { data: currentParticipants } = await admin
+        .from('agenda_item_participants')
+        .select('user_id, role')
+        .eq('item_id', itemId)
+        .eq('role', 'envolvido')
+      previouslyInvolved = new Set((currentParticipants || []).map((row: any) => String(row.user_id)))
+
+      const isCreator = String(existing.created_by) === user.id
+      if (!isCreator && !previouslyInvolved.has(user.id)) {
+        throw new Error('Apenas o criador ou os envolvidos podem editar este item.')
+      }
+
+      const { error: updErr } = await admin
+        .from('agenda_items')
+        .update({ ...normalized, updated_at: new Date().toISOString() })
+        .eq('id', itemId)
+      if (updErr) throw updErr
+    } else {
+      const { data: inserted, error: insErr } = await admin
+        .from('agenda_items')
+        .insert({ ...normalized, created_by: user.id })
+        .select('id')
+        .single()
+      if (insErr) throw insErr
+      itemId = String(inserted.id)
+    }
+
+    const { involved } = await replaceItemRelations(admin, itemId, payload)
+
+    // Notifica apenas quem acabou de ser adicionado (não re-notifica em
+    // toda edição) — e nunca o próprio autor da ação.
+    const newlyInvolved = involved.filter((id) => id !== user.id && !previouslyInvolved.has(id))
+    if (newlyInvolved.length) {
+      const { data: me } = await admin.from('users').select('name').eq('id', user.id).maybeSingle()
+      const actorName = String(me?.name || 'Alguém')
+      const kindLabel = normalized.item_type === 'tarefa' ? 'tarefa' : 'compromisso'
+      await createWorkspaceNotifications(
+        admin,
+        newlyInvolved.map((userId) => ({
+          user_id: userId,
+          type: 'agenda_atribuicao',
+          title: `${actorName} te adicionou na ${kindLabel === 'tarefa' ? 'tarefa' : 'agenda'}: ${normalized.title}`,
+          href: `/agenda?item=${itemId}`,
+          entity_type: 'agenda_item',
+          entity_id: itemId,
+          actor_user_id: user.id,
+        })),
+      )
+    }
+
+    // Espelha compromissos no Google Calendar do organizador; os
+    // envolvidos entram como convidados e o Google propaga o evento.
+    let warning: string | undefined
+    if (normalized.item_type !== 'tarefa') {
+      const mirror = await mirrorAgendaItemToGoogle(admin, itemId, user.id)
+      if (!mirror.mirrored && mirror.reason === 'sem_conexao') {
+        warning =
+          'Salvo no Workspace, mas nenhum envolvido tem conta Google conectada — o compromisso não foi para o Google Agenda.'
+      } else if (!mirror.mirrored && mirror.reason === 'erro') {
+        warning = 'Salvo no Workspace, mas o espelhamento no Google Agenda falhou. Tente salvar de novo.'
+      }
+      if (normalized.meeting_link_mode === 'gerar_meet' && mirror.mirrored && !mirror.meetLink) {
+        warning = 'Compromisso criado, mas o Google não retornou o link do Meet. Edite e salve de novo.'
+      }
+    }
+
+    return { success: true, id: itemId, warning }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export async function updateTaskStatus(itemId: string, status: AgendaTaskStatus): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+
+    const { data: item, error: findErr } = await admin
+      .from('agenda_items')
+      .select('id, item_type, created_by')
+      .eq('id', itemId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (findErr) throw findErr
+    if (!item || item.item_type !== 'tarefa') throw new Error('Tarefa não encontrada.')
+
+    const { data: participants } = await admin
+      .from('agenda_item_participants')
+      .select('user_id')
+      .eq('item_id', itemId)
+      .eq('role', 'envolvido')
+    const involvedIds = new Set((participants || []).map((row: any) => String(row.user_id)))
+    if (String(item.created_by) !== user.id && !involvedIds.has(user.id)) {
+      throw new Error('Apenas o criador ou os envolvidos podem mover esta tarefa.')
+    }
+
+    const { error } = await admin
+      .from('agenda_items')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', itemId)
+    if (error) throw error
+
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export async function deleteAgendaItem(itemId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_delete')
+    const admin = await createAdminClient()
+
+    const { data: item, error: findErr } = await admin
+      .from('agenda_items')
+      .select('id, created_by, google_event_id, google_owner_user_id')
+      .eq('id', itemId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (findErr) throw findErr
+    if (!item) throw new Error('Item não encontrado.')
+    if (String(item.created_by) !== user.id) throw new Error('Apenas o criador pode excluir este item.')
+
+    const { error } = await admin
+      .from('agenda_items')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', itemId)
+    if (error) throw error
+
+    await removeAgendaItemFromGoogle(admin, {
+      google_event_id: item.google_event_id ? String(item.google_event_id) : null,
+      google_owner_user_id: item.google_owner_user_id ? String(item.google_owner_user_id) : null,
+    })
+
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export type AvailabilityEntry = {
+  user_id: string
+  name: string
+  status: 'livre' | 'ocupado' | 'sem_conexao'
+  busy: BusyBlock[]
+}
+
+// Consulta a disponibilidade real (free/busy do Google) de cada
+// envolvido no horário proposto, usando o token do próprio usuário.
+export async function getAvailability(params: {
+  userIds: string[]
+  startAt: string
+  endAt: string
+}): Promise<{ success: boolean; entries: AvailabilityEntry[]; error?: string }> {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_view')
+    const admin = await createAdminClient()
+
+    const userIds = Array.from(new Set((params.userIds || []).map(String).filter(Boolean))).slice(0, 30)
+    if (!userIds.length || !params.startAt || !params.endAt) {
+      return { success: false, error: 'Informe envolvidos e horário.', entries: [] }
+    }
+
+    const { data: users } = await admin.from('users').select('id, name').in('id', userIds)
+    const names = new Map<string, string>((users || []).map((row: any) => [String(row.id), String(row.name || '—')]))
+
+    const entries = await Promise.all(
+      userIds.map(async (userId): Promise<AvailabilityEntry> => {
+        const name = names.get(userId) || '—'
+        const token = await getValidGoogleTokenAdmin(admin, userId)
+        if (!token) return { user_id: userId, name, status: 'sem_conexao', busy: [] }
+        const busy = await queryFreeBusy(token, params.startAt, params.endAt)
+        if (busy === null) return { user_id: userId, name, status: 'sem_conexao', busy: [] }
+        return { user_id: userId, name, status: busy.length ? 'ocupado' : 'livre', busy }
+      }),
+    )
+
+    return { success: true, entries }
+  } catch (error: any) {
+    return { success: false, error: error.message, entries: [] }
+  }
+}
+
+export async function searchAgendaLinkTargets(entityType: string, query: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_view')
+    const meta = AGENDA_LINK_ENTITY_TYPES.find((t) => t.value === entityType)
+    if (!meta) return { success: false, error: 'Tipo de vínculo inválido.', results: [] }
+
+    const admin = await createAdminClient()
+    const term = String(query || '').trim()
+
+    let q = admin.from(meta.table).select(`id, ${meta.nameColumn}`).limit(15)
+    if (term) q = q.ilike(meta.nameColumn, `%${term}%`)
+
+    const { data, error } = await q
+    if (error) throw error
+
+    return {
+      success: true,
+      results: (data || []).map((row: any) => ({
+        entity_type: entityType,
+        entity_id: String(row.id),
+        label: String(row[meta.nameColumn] || '—'),
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message, results: [] }
+  }
+}
