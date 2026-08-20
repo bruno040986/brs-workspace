@@ -9,6 +9,7 @@
 
 import { claimDueJobs, completeJob, failJob } from './queue'
 import { registerBuiltinHandlers } from './handlers'
+import { registerAgendaHandlers } from '@/lib/agenda/reminders'
 import type { EngineJob } from './decisions'
 
 export type JobHandler = (job: EngineJob) => Promise<void>
@@ -41,6 +42,7 @@ export type RunResult = {
  */
 export async function runDueJobs(workerId: string, limit = 10): Promise<RunResult> {
   registerBuiltinHandlers({ registerHandler })
+  registerAgendaHandlers({ registerHandler })
 
   const claimed = await claimDueJobs(workerId, limit)
   const results: RunResult['results'] = []

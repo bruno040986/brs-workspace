@@ -64,6 +64,8 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
   const [status, setStatus] = useState('pendente')
   const [visibility, setVisibility] = useState('publica')
   const [linkMode, setLinkMode] = useState<'nenhum' | 'externo' | 'gerar_meet'>('nenhum')
+  const [recurFreq, setRecurFreq] = useState<'nenhuma' | 'daily' | 'weekly' | 'monthly'>('nenhuma')
+  const [recurWeekdays, setRecurWeekdays] = useState<number[]>([])
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null)
   const [availability, setAvailability] = useState<AvailabilityEntry[] | null>(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
@@ -108,6 +110,8 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
       setStatus(item.status || 'pendente')
       setVisibility(item.visibility)
       setLinkMode(item.meeting_link_mode === 'nenhum' ? 'nenhum' : item.meeting_link_mode)
+      setRecurFreq(item.recurrence?.freq || 'nenhuma')
+      setRecurWeekdays(item.recurrence?.weekdays || [])
       setMeetingLink(item.meeting_link || '')
       setInvolvedIds(item.participants.filter((p) => p.role === 'envolvido').map((p) => p.user_id))
       setAuthorizedIds(item.participants.filter((p) => p.role === 'autorizado').map((p) => p.user_id))
@@ -124,6 +128,8 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
       setVisibility('publica')
       setLinkMode('nenhum')
       setMeetingLink('')
+      setRecurFreq('nenhuma')
+      setRecurWeekdays([])
       setInvolvedIds([bootstrap.currentUserId])
       setAuthorizedIds([])
       setLinks([])
@@ -187,6 +193,14 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
       visibility: visibility as AgendaItemPayload['visibility'],
       meeting_link_mode: itemType === 'reuniao_virtual' ? linkMode : 'nenhum',
       meeting_link: itemType === 'reuniao_virtual' && linkMode === 'externo' ? meetingLink : '',
+      recurrence:
+        isTask && recurFreq !== 'nenhuma'
+          ? {
+              freq: recurFreq,
+              weekdays: recurFreq === 'weekly' ? recurWeekdays : undefined,
+              day: recurFreq === 'monthly' && dueDate ? Number(dueDate.slice(8, 10)) : undefined,
+            }
+          : null,
       participant_user_ids: involvedIds,
       authorized_user_ids: authorizedIds,
       links,
@@ -339,6 +353,56 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
               </select>
             </div>
           </div>
+
+          {isTask && (
+            <div>
+              <span style={fieldLabel}>Recorrência</span>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select
+                  className="form-control"
+                  value={recurFreq}
+                  onChange={(e) => setRecurFreq(e.target.value as typeof recurFreq)}
+                  style={{ width: 'auto' }}
+                >
+                  <option value="nenhuma">Sem recorrência</option>
+                  <option value="daily">Diária</option>
+                  <option value="weekly">Semanal</option>
+                  <option value="monthly">Mensal (dia da data inicial)</option>
+                </select>
+                {recurFreq === 'weekly' && (
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((label, day) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() =>
+                          setRecurWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]))
+                        }
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: '50%',
+                          border: `1.5px solid ${recurWeekdays.includes(day) ? 'var(--brs-navy)' : 'var(--brs-gray-200)'}`,
+                          background: recurWeekdays.includes(day) ? 'var(--brs-navy)' : 'transparent',
+                          color: recurWeekdays.includes(day) ? '#fff' : 'var(--brs-gray-600)',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {recurFreq !== 'nenhuma' && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)' }}>
+                    ao marcar Feito, a tarefa volta para Pendente na próxima data
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {itemType === 'reuniao_virtual' && (
             <div>

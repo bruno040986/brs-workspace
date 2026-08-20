@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CalendarDays, KanbanSquare, Link2, Lock, Plus, Rows3, Video } from 'lucide-react'
+import { CalendarDays, KanbanSquare, Link2, Lock, Plus, Repeat, Rows3, Video } from 'lucide-react'
 import {
   AGENDA_PRIORITIES,
   AGENDA_TASK_STATUSES,
@@ -11,9 +11,10 @@ import {
   type AgendaItem,
   type AgendaTaskStatus,
 } from '@/lib/agenda/types'
-import { listAgendaItems, updateTaskStatus, type AgendaBootstrap } from '../actions'
+import { getAgendaItemById, listAgendaItems, updateTaskStatus, type AgendaBootstrap } from '../actions'
 import ItemEditorModal from './ItemEditorModal'
 import CalendarView from './CalendarView'
+import ReportView from './ReportView'
 
 type AgendaClientProps = {
   bootstrap: AgendaBootstrap
@@ -104,7 +105,14 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const viewParam = searchParams.get('view')
-  const view = viewParam === 'compromissos' ? 'compromissos' : viewParam === 'agenda' ? 'agenda' : 'tarefas'
+  const view =
+    viewParam === 'compromissos'
+      ? 'compromissos'
+      : viewParam === 'agenda'
+        ? 'agenda'
+        : viewParam === 'relatorio'
+          ? 'relatorio'
+          : 'tarefas'
   const openItemId = searchParams.get('item')
 
   const [items, setItems] = useState<AgendaItem[]>([])
@@ -119,7 +127,7 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
   const openedFromUrlRef = useRef(false)
 
   const reload = useCallback(async () => {
-    if (view === 'agenda') {
+    if (view === 'agenda' || view === 'relatorio') {
       setReloadKey((key) => key + 1)
       return
     }
@@ -137,14 +145,23 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
   }, [reload])
 
   useEffect(() => {
-    if (!openItemId || openedFromUrlRef.current || loading) return
+    if (!openItemId || openedFromUrlRef.current) return
+    openedFromUrlRef.current = true
     const target = items.find((item) => item.id === openItemId)
     if (target) {
-      openedFromUrlRef.current = true
       setEditingItem(target)
       setEditorOpen(true)
+      return
     }
-  }, [openItemId, items, loading])
+    // Deep-link do sino: o item pode não estar na listagem atual
+    // (outra visão, outro filtro) — busca direto.
+    getAgendaItemById(openItemId).then((item) => {
+      if (item && !item.masked) {
+        setEditingItem(item)
+        setEditorOpen(true)
+      }
+    })
+  }, [openItemId, items])
 
   function openEditor(item: AgendaItem | null) {
     setEditingItem(item)
@@ -171,6 +188,9 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
     if (!res.success) {
       setItems(previous)
       window.alert(res.error || 'Não foi possível mover a tarefa.')
+    } else if (res.recurred) {
+      // Recorrente concluída: voltou a Pendente com a próxima data.
+      await reload()
     }
   }
 
@@ -235,6 +255,11 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem' }}>
           <AvatarStack item={item} />
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+            {item.recurrence && (
+              <span title="Tarefa recorrente" style={{ color: 'var(--brs-gray-400)', display: 'flex' }}>
+                <Repeat size={13} />
+              </span>
+            )}
             {item.links.length > 0 && (
               <span title={item.links.map((l) => l.label).join(', ')} style={{ color: 'var(--brs-gray-400)', display: 'flex' }}>
                 <Link2 size={13} />
@@ -255,7 +280,7 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
     <div style={{ display: 'grid', gap: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {view !== 'agenda' && (
+          {(view === 'tarefas' || view === 'compromissos') && (
           <div style={{ display: 'flex', border: '1px solid var(--brs-gray-200)', borderRadius: 999, overflow: 'hidden' }}>
             {(['minhas', 'todas'] as const).map((value) => (
               <button
@@ -310,14 +335,16 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
           )}
         </div>
 
-        {bootstrap.canInclude && (
+        {bootstrap.canInclude && view !== 'relatorio' && (
           <button type="button" className="btn btn-primary" onClick={() => openEditor(null)}>
             <Plus size={16} /> {view === 'tarefas' ? 'Nova tarefa' : 'Novo compromisso'}
           </button>
         )}
       </div>
 
-      {view === 'agenda' ? (
+      {view === 'relatorio' ? (
+        <ReportView reloadKey={reloadKey} />
+      ) : view === 'agenda' ? (
         <CalendarView bootstrap={bootstrap} onOpenItem={openEditor} reloadKey={reloadKey} />
       ) : loading ? (
         <div style={{ color: 'var(--brs-gray-400)', padding: '2rem 0', textAlign: 'center' }}>Carregando…</div>

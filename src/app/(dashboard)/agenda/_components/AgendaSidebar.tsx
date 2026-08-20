@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { CalendarDays, Clock3, KanbanSquare, LayoutDashboard } from 'lucide-react'
+import { BarChart3, CalendarDays, Clock3, KanbanSquare, LayoutDashboard } from 'lucide-react'
 
 export default function AgendaSidebar() {
   const pathname = usePathname()
@@ -32,6 +32,12 @@ export default function AgendaSidebar() {
             className={`sidebar-link${pathname === '/agenda' && view === 'compromissos' ? ' active' : ''}`}
           >
             <Clock3 size={18} /> Compromissos
+          </Link>
+          <Link
+            href="/agenda?view=relatorio"
+            className={`sidebar-link${pathname === '/agenda' && view === 'relatorio' ? ' active' : ''}`}
+          >
+            <BarChart3 size={18} /> Relatórios
           </Link>
 
           <div className="sidebar-section-label sidebar-section-label-spaced">Sistema</div>

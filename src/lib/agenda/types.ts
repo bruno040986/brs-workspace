@@ -32,6 +32,43 @@ export const AGENDA_LINK_ENTITY_TYPES: Array<{ value: string; label: string; tab
   { value: 'commercial_entity', label: 'Estrutura Comercial', table: 'commercial_entities', nameColumn: 'name' },
 ]
 
+export type AgendaRecurrence = {
+  freq: 'daily' | 'weekly' | 'monthly'
+  // weekly: dias da semana (0 = domingo … 6 = sábado)
+  weekdays?: number[]
+  // monthly: dia do mês (1–28)
+  day?: number
+}
+
+// Próxima data (YYYY-MM-DD) de uma tarefa recorrente após `fromDate`.
+export function nextOccurrenceDate(recurrence: AgendaRecurrence, fromDate: string): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const format = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const base = new Date(`${fromDate}T12:00:00`)
+
+  if (recurrence.freq === 'daily') {
+    base.setDate(base.getDate() + 1)
+    return format(base)
+  }
+
+  if (recurrence.freq === 'weekly') {
+    const weekdays = (recurrence.weekdays || []).filter((d) => d >= 0 && d <= 6).sort()
+    const days = weekdays.length ? weekdays : [base.getDay()]
+    for (let i = 1; i <= 7; i += 1) {
+      const candidate = new Date(base)
+      candidate.setDate(candidate.getDate() + i)
+      if (days.includes(candidate.getDay())) return format(candidate)
+    }
+    base.setDate(base.getDate() + 7)
+    return format(base)
+  }
+
+  // monthly
+  const day = Math.min(28, Math.max(1, recurrence.day || base.getDate()))
+  const next = new Date(base.getFullYear(), base.getMonth() + 1, day, 12)
+  return format(next)
+}
+
 export type AgendaParticipant = {
   user_id: string
   name: string
@@ -59,6 +96,7 @@ export type AgendaItem = {
   visibility: AgendaVisibility
   meeting_link_mode: AgendaMeetingLinkMode
   meeting_link: string
+  recurrence: AgendaRecurrence | null
   created_by: string
   created_by_name: string
   created_at: string
@@ -84,6 +122,7 @@ export type AgendaItemPayload = {
   visibility: AgendaVisibility
   meeting_link_mode: AgendaMeetingLinkMode
   meeting_link: string
+  recurrence: AgendaRecurrence | null
   participant_user_ids: string[]
   authorized_user_ids: string[]
   links: AgendaItemLink[]

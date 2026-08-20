@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/nvti-batches",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/agenda-sync",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

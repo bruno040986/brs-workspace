@@ -6,11 +6,15 @@ import { hasPermission } from '@/lib/auth/permissions'
 import { createWorkspaceNotifications } from '@/lib/notifications'
 import { mirrorAgendaItemToGoogle, removeAgendaItemFromGoogle } from '@/lib/agenda/googleMirror'
 import { getValidGoogleTokenAdmin, queryFreeBusy, type BusyBlock } from '@/lib/google/calendarApi'
+import { enqueueMeetingReminder, enqueueTaskDueReminder } from '@/lib/agenda/reminders'
 import {
   AGENDA_LINK_ENTITY_TYPES,
+  AGENDA_TASK_STATUSES,
+  nextOccurrenceDate,
   type AgendaItem,
   type AgendaItemPayload,
   type AgendaParticipant,
+  type AgendaRecurrence,
   type AgendaTaskStatus,
 } from '@/lib/agenda/types'
 
@@ -165,6 +169,7 @@ export async function listAgendaItems(params: AgendaListParams): Promise<AgendaI
       visibility: row.visibility,
       meeting_link_mode: canSeeContent ? row.meeting_link_mode : 'nenhum',
       meeting_link: canSeeContent ? String(row.meeting_link || '') : '',
+      recurrence: canSeeContent && row.recurrence ? (row.recurrence as AgendaRecurrence) : null,
       created_by: String(row.created_by),
       created_by_name: creatorNames.get(String(row.created_by)) || '—',
       created_at: String(row.created_at),
@@ -207,6 +212,22 @@ function normalizePayload(payload: AgendaItemPayload) {
     meetingLinkMode = 'nenhum'
   }
 
+  let recurrence: AgendaRecurrence | null = null
+  if (isTask && payload.recurrence) {
+    const freq = payload.recurrence.freq
+    if (freq === 'daily') recurrence = { freq }
+    else if (freq === 'weekly') {
+      const weekdays = (payload.recurrence.weekdays || []).filter((d) => d >= 0 && d <= 6)
+      if (!weekdays.length) throw new Error('Escolha os dias da semana da recorrência.')
+      recurrence = { freq, weekdays }
+    } else if (freq === 'monthly') {
+      recurrence = { freq, day: Math.min(28, Math.max(1, Number(payload.recurrence.day || 1))) }
+    }
+    if (recurrence && !payload.due_date) {
+      throw new Error('Tarefa recorrente precisa de uma data inicial.')
+    }
+  }
+
   return {
     item_type: itemType,
     title,
@@ -220,6 +241,7 @@ function normalizePayload(payload: AgendaItemPayload) {
     visibility: payload.visibility === 'privada' ? 'privada' : 'publica',
     meeting_link_mode: meetingLinkMode,
     meeting_link: meetingLink,
+    recurrence,
   }
 }
 
@@ -329,6 +351,15 @@ export async function saveAgendaItem(
       )
     }
 
+    // Lembretes via fila de jobs (idempotentes pela dedupe_key; ao
+    // remarcar, o job antigo se auto-invalida ao rodar).
+    if (normalized.item_type !== 'tarefa' && normalized.start_at) {
+      await enqueueMeetingReminder(itemId, normalized.start_at)
+    }
+    if (normalized.item_type === 'tarefa' && normalized.due_date && normalized.status !== 'feito') {
+      await enqueueTaskDueReminder(itemId, normalized.due_date)
+    }
+
     // Espelha compromissos no Google Calendar do organizador; os
     // envolvidos entram como convidados e o Google propaga o evento.
     let warning: string | undefined
@@ -351,14 +382,17 @@ export async function saveAgendaItem(
   }
 }
 
-export async function updateTaskStatus(itemId: string, status: AgendaTaskStatus): Promise<{ success: boolean; error?: string }> {
+export async function updateTaskStatus(
+  itemId: string,
+  status: AgendaTaskStatus,
+): Promise<{ success: boolean; error?: string; recurred?: boolean }> {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
     const admin = await createAdminClient()
 
     const { data: item, error: findErr } = await admin
       .from('agenda_items')
-      .select('id, item_type, created_by')
+      .select('id, item_type, created_by, due_date, recurrence')
       .eq('id', itemId)
       .is('deleted_at', null)
       .maybeSingle()
@@ -375,6 +409,28 @@ export async function updateTaskStatus(itemId: string, status: AgendaTaskStatus)
       throw new Error('Apenas o criador ou os envolvidos podem mover esta tarefa.')
     }
 
+    // Tarefa recorrente marcada como Feito: registra "feito nesta
+    // ocorrência" e reagenda para a próxima data, voltando a Pendente.
+    const recurrence = (item.recurrence || null) as AgendaRecurrence | null
+    if (status === 'feito' && recurrence) {
+      const todayIso = new Date().toISOString().slice(0, 10)
+      const occurrenceDate = String(item.due_date || todayIso)
+      await admin
+        .from('agenda_task_occurrences')
+        .upsert(
+          { item_id: itemId, occurrence_date: occurrenceDate, done_at: new Date().toISOString(), done_by: user.id },
+          { onConflict: 'item_id,occurrence_date' },
+        )
+      const nextDue = nextOccurrenceDate(recurrence, occurrenceDate)
+      const { error } = await admin
+        .from('agenda_items')
+        .update({ status: 'pendente', due_date: nextDue, updated_at: new Date().toISOString() })
+        .eq('id', itemId)
+      if (error) throw error
+      await enqueueTaskDueReminder(itemId, nextDue)
+      return { success: true, recurred: true }
+    }
+
     const { error } = await admin
       .from('agenda_items')
       .update({ status, updated_at: new Date().toISOString() })
@@ -385,6 +441,140 @@ export async function updateTaskStatus(itemId: string, status: AgendaTaskStatus)
   } catch (error: any) {
     return { success: false, error: error.message }
   }
+}
+
+// Carrega um único item (deep-link do sino), com o mesmo mascaramento
+// de privacidade da listagem.
+export async function getAgendaItemById(itemId: string): Promise<AgendaItem | null> {
+  const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_view')
+  const admin = await createAdminClient()
+
+  const { data: row } = await admin.from('agenda_items').select('*').eq('id', itemId).is('deleted_at', null).maybeSingle()
+  if (!row) return null
+
+  const [{ data: participantRows }, { data: linkRows }, { data: creator }] = await Promise.all([
+    admin
+      .from('agenda_item_participants')
+      .select('user_id, role, user:user_id ( name, avatar_url )')
+      .eq('item_id', itemId),
+    admin.from('agenda_item_links').select('entity_type, entity_id, label').eq('item_id', itemId),
+    admin.from('users').select('name').eq('id', String(row.created_by)).maybeSingle(),
+  ])
+
+  const participants: AgendaParticipant[] = (participantRows || []).map((p: any) => ({
+    user_id: String(p.user_id),
+    name: String(p.user?.name || '—'),
+    avatar_url: p.user?.avatar_url || null,
+    role: p.role === 'autorizado' ? 'autorizado' : 'envolvido',
+  }))
+  const isMine = String(row.created_by) === user.id || participants.some((p) => p.user_id === user.id)
+  const canSeeContent = String(row.visibility) !== 'privada' || isMine
+
+  return {
+    id: String(row.id),
+    item_type: row.item_type,
+    title: canSeeContent ? String(row.title) : 'Item privado',
+    description: canSeeContent ? String(row.description || '') : '',
+    all_day: Boolean(row.all_day),
+    due_date: row.due_date ? String(row.due_date) : null,
+    start_at: row.start_at ? String(row.start_at) : null,
+    end_at: row.end_at ? String(row.end_at) : null,
+    priority: row.priority,
+    status: row.status || null,
+    visibility: row.visibility,
+    meeting_link_mode: canSeeContent ? row.meeting_link_mode : 'nenhum',
+    meeting_link: canSeeContent ? String(row.meeting_link || '') : '',
+    recurrence: canSeeContent && row.recurrence ? (row.recurrence as AgendaRecurrence) : null,
+    created_by: String(row.created_by),
+    created_by_name: String(creator?.name || '—'),
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+    participants: canSeeContent ? participants : participants.filter((p) => p.role === 'envolvido'),
+    links: canSeeContent
+      ? (linkRows || []).map((l: any) => ({ entity_type: String(l.entity_type), entity_id: String(l.entity_id), label: String(l.label || '') }))
+      : [],
+    masked: !canSeeContent,
+  }
+}
+
+export type AgendaReportRow = {
+  user_id: string
+  name: string
+  pendente: number
+  em_andamento: number
+  aguardando: number
+  feito: number
+  atrasadas: number
+  total_abertas: number
+}
+
+// Relatório de gestão: tarefas por pessoa (contada para cada
+// envolvido; sem envolvidos, conta para o criador).
+export async function getAgendaReport(): Promise<{ rows: AgendaReportRow[]; totals: Omit<AgendaReportRow, 'user_id' | 'name'> }> {
+  await requirePermission(PERMISSION_RESOURCE, 'can_view')
+  const admin = await createAdminClient()
+
+  const { data: tasks } = await admin
+    .from('agenda_items')
+    .select('id, status, due_date, created_by')
+    .eq('item_type', 'tarefa')
+    .is('deleted_at', null)
+    .limit(2000)
+
+  const taskIds = (tasks || []).map((row: any) => String(row.id))
+  const involvedByTask = new Map<string, string[]>()
+  if (taskIds.length) {
+    const { data: participantRows } = await admin
+      .from('agenda_item_participants')
+      .select('item_id, user_id')
+      .eq('role', 'envolvido')
+      .in('item_id', taskIds)
+    for (const row of participantRows || []) {
+      const list = involvedByTask.get(String((row as any).item_id)) || []
+      list.push(String((row as any).user_id))
+      involvedByTask.set(String((row as any).item_id), list)
+    }
+  }
+
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const emptyRow = () => ({ pendente: 0, em_andamento: 0, aguardando: 0, feito: 0, atrasadas: 0, total_abertas: 0 })
+  const byUser = new Map<string, ReturnType<typeof emptyRow>>()
+  const totals = emptyRow()
+
+  for (const task of tasks || []) {
+    const status = String(task.status || 'pendente') as AgendaTaskStatus
+    const isOpen = status !== 'feito'
+    const isLate = isOpen && task.due_date && String(task.due_date) < todayIso
+    const owners = involvedByTask.get(String(task.id))?.length
+      ? involvedByTask.get(String(task.id))!
+      : [String(task.created_by)]
+
+    if (AGENDA_TASK_STATUSES.some((s) => s.value === status)) {
+      totals[status] += 1
+      if (isOpen) totals.total_abertas += 1
+      if (isLate) totals.atrasadas += 1
+    }
+
+    for (const userId of owners) {
+      const row = byUser.get(userId) || emptyRow()
+      row[status] += 1
+      if (isOpen) row.total_abertas += 1
+      if (isLate) row.atrasadas += 1
+      byUser.set(userId, row)
+    }
+  }
+
+  const userIds = Array.from(byUser.keys())
+  const { data: users } = userIds.length
+    ? await admin.from('users').select('id, name').in('id', userIds)
+    : { data: [] as any[] }
+  const names = new Map<string, string>((users || []).map((row: any) => [String(row.id), String(row.name || '—')]))
+
+  const rows: AgendaReportRow[] = userIds
+    .map((userId) => ({ user_id: userId, name: names.get(userId) || '—', ...byUser.get(userId)! }))
+    .sort((a, b) => b.total_abertas - a.total_abertas || a.name.localeCompare(b.name))
+
+  return { rows, totals }
 }
 
 export async function deleteAgendaItem(itemId: string): Promise<{ success: boolean; error?: string }> {
