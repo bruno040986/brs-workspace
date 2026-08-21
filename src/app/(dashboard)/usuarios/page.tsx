@@ -32,6 +32,7 @@ const SYSTEM_MODULES = [
   { id: 'workspace-com', name: 'Comercial', parentId: 'cat-workspace', level: 1 },
   { id: 'workspace-acc', name: 'Acessos', parentId: 'cat-workspace', level: 1 },
   { id: 'workspace-agenda', name: 'Agenda & Tarefas', parentId: 'cat-workspace', level: 1 },
+  { id: 'workspace-tec', name: 'Tecnologia', parentId: 'cat-workspace', level: 1 },
 
   // Subsistemas Category
   { id: 'cat-subsistemas', name: 'Subsistemas', isHeader: true, level: 0 },
@@ -64,6 +65,7 @@ const SYSTEM_MODULES = [
   { id: 'operacional-nvti', name: 'Higienização de CPF (NVTI)', parentId: 'cat-subsistemas', level: 1 },
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
+  { id: 'central-integracoes', name: 'Central de Integrações', parentId: 'cat-subsistemas', level: 1 },
 
   // Sistema Category
   { id: 'cat-sistema', name: 'Sistema', isHeader: true, level: 0 },
