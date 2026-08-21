@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, Calendar,
   Megaphone, ChevronRight, X, ExternalLink,
   ShieldCheck, Briefcase, Banknote, Monitor, Key, Loader2, UserCircle2,
-  Bus, BarChart3, ShoppingCart
+  Bus, BarChart3, ShoppingCart, Cpu
 } from 'lucide-react'
 import { getLinksBySector } from './links/actions'
 import { getMyEffectivePermissions, getMyHubContext } from '@/lib/auth/actions'
@@ -271,6 +271,20 @@ export default function HubPage() {
       ]
     },
     { 
+      id: 'tec', 
+      name: 'Tecnologia', 
+      icon: Cpu, 
+      color: 'tec',
+      links: [
+        { label: 'Central de Integrações', href: '/central-integracoes' },
+        { label: 'WeSales', href: 'https://app.wesales.com.br/', external: true },
+        { label: 'CallFace', href: 'https://app.callface.ai/', external: true },
+        { label: 'Vende.AI', href: 'https://ia.vendeaitecnologia.com.br/', external: true },
+        { label: 'Vercel', href: 'https://vercel.com/', external: true },
+        { label: 'Supabase', href: 'https://supabase.com/dashboard', external: true },
+      ]
+    },
+    { 
       id: 'acc', 
       name: 'Acessos', 
       icon: Key, 
@@ -300,6 +314,9 @@ export default function HubPage() {
         }
         if (link.href === '/higienizacao-nvti') {
           return canView('operacional-nvti')
+        }
+        if (link.href === '/central-integracoes') {
+          return canView('central-integracoes')
         }
         if (link.href === '/rh/parceiros/config/comercial') {
           return hasAnyPermission(permissions, [
