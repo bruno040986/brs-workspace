@@ -257,6 +257,7 @@ export default function HubPage() {
       color: 'com',
       links: [
         { label: 'Cadastros Comerciais', href: '/rh/parceiros/config/comercial' },
+        { label: 'AlvoConsig — Gestão de Leads', href: '/alvoconsig' },
         { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp' },
         { label: 'Higienização de CPF NVTI', href: '/higienizacao-nvti' },
         { label: 'Visão do Gerente', href: '#', disabled: true },
