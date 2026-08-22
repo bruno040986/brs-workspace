@@ -68,6 +68,15 @@ export type PromotoraFiscalConfiguration = {
   nfse_email: string
   nfse_system_url: string
   retention_overrides: Partial<Record<keyof TaxRegimeConfiguration['section_4'], PromotoraFiscalRetentionOverride>>
+  /**
+   * Amarração do imposto da comissão líquida (Instituições Financeiras):
+   * a configuração marcada é a fonte do % de imposto usado no Comissionamento
+   * (ISS + retenções da seção 4 + ajuste adicional). Flag exclusiva — no
+   * máximo uma configuração marcada por instituição.
+   */
+  usar_para_comissao?: boolean
+  /** Ajuste adicional em centésimos de % (ex.: "50" = 0,50%). */
+  comissao_ajuste_adicional?: string
 }
 
 export type PromotoraFiscalData = {
@@ -611,6 +620,8 @@ function normalizePromotoraFiscalConfiguration(raw: any): PromotoraFiscalConfigu
     nfse_email: normalizeText(record.nfse_email ?? '', 120).toLowerCase(),
     nfse_system_url: normalizeText(record.nfse_system_url ?? '', 500),
     retention_overrides: overrides,
+    usar_para_comissao: record.usar_para_comissao === true,
+    comissao_ajuste_adicional: normalizePercent(record.comissao_ajuste_adicional),
   }
 }
 

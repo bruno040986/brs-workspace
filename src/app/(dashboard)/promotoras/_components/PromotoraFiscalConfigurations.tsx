@@ -7,6 +7,7 @@ import { formatCtnCode } from '@/lib/ctns'
 import { formatNbsCode } from '@/lib/nbs'
 import { getTaxRegimeTotals, formatPercentSequence, type TaxRateField } from '@/lib/tax-regimes'
 import { createEmptyFiscalFigure, normalizeCompanyFiscalData, type CompanyFiscalData, type FiscalFigureRecord } from '@/lib/company-fiscal-data'
+import { calcularImpostoComissao } from '@/lib/comissao-liquida'
 import type { PromotoraLookupPayload } from '../actions'
 import type { PromotoraFiscalConfiguration, PromotoraFiscalData, PromotoraFiscalRetentionOverride } from '@/lib/promotoras'
 
@@ -19,6 +20,8 @@ type Props = {
   disabled?: boolean
   onChange: (next: PromotoraFiscalData) => void
   onAutoSave?: () => void | Promise<void>
+  /** Instituições Financeiras: habilita a flag de imposto da comissão líquida. */
+  enableComissaoLiquida?: boolean
 }
 
 type SectionField = {
@@ -570,6 +573,75 @@ function RetentionSection({
   )
 }
 
+function ComissaoLiquidaSection({
+  config,
+  disabled,
+  onToggle,
+  onChangeAjuste,
+}: {
+  config: PromotoraFiscalConfiguration
+  disabled: boolean
+  onToggle: (marcada: boolean) => void
+  onChangeAjuste: (valor: string) => void
+}) {
+  const marcada = config.usar_para_comissao === true
+  const resultado = useMemo(() => calcularImpostoComissao(config), [config])
+
+  return (
+    <div style={{ border: `1px solid ${marcada ? '#A7F3D0' : 'var(--brs-gray-200)'}`, background: marcada ? '#F0FDF4' : '#F8FAFC', borderRadius: 14, padding: '1rem', display: 'grid', gap: '0.75rem' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: disabled ? 'default' : 'pointer', fontWeight: 700, color: 'var(--brs-gray-900)' }}>
+        <input
+          type="checkbox"
+          disabled={disabled}
+          checked={marcada}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        Usar esta configuração no cálculo da comissão líquida (Comissionamento)
+      </label>
+      <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '-0.4rem' }}>
+        Entram na soma o ISS e os impostos passíveis de retenção habilitados (com os overrides acima).
+        Impostos com creditamento nunca entram. Flag única por instituição — marcar aqui desmarca as demais.
+      </div>
+
+      {marcada ? (
+        <div style={{ display: 'grid', gap: '0.6rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {resultado.itens.length === 0 ? (
+              <span style={{ fontSize: '0.85rem', color: '#92400E' }}>
+                Nenhum ISS/retenção habilitado nesta configuração — o total considera só o ajuste adicional.
+              </span>
+            ) : (
+              resultado.itens.map((item) => (
+                <span key={item.label} className="badge badge-gray" style={{ background: '#fff' }}>
+                  {item.label}: {item.percent.toFixed(2).replace('.', ',')}%
+                </span>
+              ))
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ marginBottom: 0, width: 220 }}>
+              <label className="form-label">Ajuste adicional (%)</label>
+              <input
+                className="form-control"
+                disabled={disabled}
+                value={formatPercentSequence(config.comissao_ajuste_adicional || '')}
+                onChange={(e) => onChangeAjuste(normalizeDigits(e.target.value))}
+                placeholder="00,00"
+              />
+              <div style={{ fontSize: '0.76rem', color: 'var(--brs-gray-400)', marginTop: '0.2rem' }}>
+                Arredondamento ou custo % não-tributário que incide sobre o recebido.
+              </div>
+            </div>
+            <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', fontSize: '1.05rem', paddingBottom: '1.2rem' }}>
+              Total p/ comissão líquida: {resultado.totalPercent.toFixed(2).replace('.', ',')}%
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ConfigurationCard({
   config,
   companyFiscalData,
@@ -580,6 +652,8 @@ function ConfigurationCard({
   onChange,
   onRemove,
   onAutoSave,
+  enableComissaoLiquida,
+  onToggleComissao,
 }: {
   config: PromotoraFiscalConfiguration
   companyFiscalData: CompanyFiscalData | null
@@ -590,6 +664,8 @@ function ConfigurationCard({
   onAutoSave?: () => void | Promise<void>
   companyLabel?: string
   companyId?: string
+  enableComissaoLiquida?: boolean
+  onToggleComissao?: (marcada: boolean) => void
 }) {
   const companyName = String(companyLabel || '').trim() || 'Empresa contratada'
   const figureOptions = useMemo(() => buildFigureOptions(companyFiscalData), [companyFiscalData])
@@ -866,6 +942,15 @@ function ConfigurationCard({
             onChangeOverride={updateRetention}
           />
 
+          {enableComissaoLiquida ? (
+            <ComissaoLiquidaSection
+              config={config}
+              disabled={disabled}
+              onToggle={(marcada) => onToggleComissao?.(marcada)}
+              onChangeAjuste={(valor) => update({ comissao_ajuste_adicional: valor }, false)}
+            />
+          ) : null}
+
           <div className="form-group" style={{ marginBottom: 0, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))', gap: '0.8rem' }}>
             <div>
               <label className="form-label">Meio de Envio de NFSe</label>
@@ -928,6 +1013,7 @@ export default function PromotoraFiscalConfigurations({
   disabled = false,
   onChange,
   onAutoSave,
+  enableComissaoLiquida = false,
 }: Props) {
   const configs = value?.configurations || []
   const safeCompanyFiscalData = useMemo(() => normalizeCompanyFiscalData(companyFiscalData), [companyFiscalData])
@@ -965,6 +1051,15 @@ export default function PromotoraFiscalConfigurations({
 
   function removeConfig(index: number) {
     commit(configs.filter((_, currentIndex) => currentIndex !== index), true)
+  }
+
+  // Flag exclusiva: marcar uma configuração desmarca as demais.
+  function marcarComissao(index: number, marcada: boolean) {
+    const nextConfigs = configs.map((config, currentIndex) => ({
+      ...config,
+      usar_para_comissao: marcada && currentIndex === index,
+    }))
+    commit(nextConfigs, false)
   }
 
   const hasCompanyFigures = (safeCompanyFiscalData?.figures || []).length > 0
@@ -1011,6 +1106,8 @@ export default function PromotoraFiscalConfigurations({
               onChange={(next) => updateConfig(index, next, false)}
               onRemove={() => removeConfig(index)}
               onAutoSave={onAutoSave}
+              enableComissaoLiquida={enableComissaoLiquida}
+              onToggleComissao={(marcada) => marcarComissao(index, marcada)}
             />
           </div>
         ))

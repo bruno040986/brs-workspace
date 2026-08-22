@@ -1167,6 +1167,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
 
       {activeTab === 'fiscal' && (
         <PromotoraFiscalConfigurations
+          enableComissaoLiquida
           value={item.fiscal_data || { configurations: [] }}
           companyFiscalData={selectedCompanyFiscalData}
           companyLabel={String(selectedCompany?.nickname || '')}

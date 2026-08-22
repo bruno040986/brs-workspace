@@ -9,6 +9,7 @@ import {
   vinculoHabilitaPromotora,
   type InstituicaoFinanceiraRecord,
 } from '@/lib/financial-institutions'
+import { impostoComissaoDaInstituicao } from '@/lib/comissao-liquida'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -196,7 +197,22 @@ export async function saveInstituicaoFinanceira(payload: InstituicaoFinanceiraRe
     if (!row.name) return { success: false, error: 'O Nome Comercial é obrigatório.' }
     validateFinancialConfigurations(row)
 
+    // Imposto da comissão líquida: flag exclusiva nas configurações fiscais e
+    // total recalculado a cada salvamento (cache canônico p/ o Comissionamento).
+    const configuracoesFiscais = Array.isArray((row.fiscal_data as any)?.configurations)
+      ? ((row.fiscal_data as any).configurations as any[])
+      : []
+    let flagJaMarcada = false
+    for (const config of configuracoesFiscais) {
+      if (config?.usar_para_comissao === true) {
+        if (flagJaMarcada) config.usar_para_comissao = false
+        flagJaMarcada = true
+      }
+    }
+    const impostoComissao = impostoComissaoDaInstituicao(configuracoesFiscais as any)
+
     const dbRow: Record<string, any> = {
+      imposto_comissao_percent: impostoComissao,
       name: row.name,
       cnpj: row.cnpj,
       razao_social: row.razao_social,

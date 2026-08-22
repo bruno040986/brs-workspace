@@ -189,6 +189,11 @@ export default function PrazosComissaoPage() {
           <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--brs-gray-200)', paddingTop: '1rem' }}>
             <div style={{ fontWeight: 800, marginBottom: '0.35rem' }}>Comissionamento (prévia de repasses)</div>
             <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>Prévia considera spread 0 quando não cadastrado — os spreads reais vêm do cadastro de Spreads</div>
+            {selectedTabela && selectedInstitution?.imposto_comissao_percent === null && (
+              <div style={{ padding: '0.6rem 0.85rem', borderRadius: 10, border: '1px solid #FDE68A', background: '#FFFBEB', color: '#92400E', fontSize: '0.83rem', marginBottom: '0.75rem' }}>
+                Imposto não configurado na instituição — marque uma configuração tributária como fonte da comissão líquida no cadastro da IF (aba Fiscal e Tributário). Prévia considerando líquido = bruto.
+              </div>
+            )}
             <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.75rem' }}>Imposto: {selectedInstitution?.imposto_comissao_percent ?? 0}% · Líquido: {preview.liquido ?? '-'}%</div>
             <div className="table-wrapper"><table className="data-table"><thead><tr><th>Tipo de Agente</th><th>% Repasse</th><th>Repasse</th></tr></thead><tbody>{preview.repasses.length === 0 ? <tr><td colSpan={3} style={{ textAlign: 'center', padding: '1rem' }}>Nenhum tipo de agente com percentual cadastrado.</td></tr> : preview.repasses.map((repasse) => <tr key={repasse.tipoAgenteId}><td>{repasse.codigoArw ?? '-'} - {repasse.tipoAgenteNome}</td><td>{repasse.percentualRepasse ?? '-'}%</td><td>{repasse.repasse === null ? '-' : repasse.repasse.toFixed(2)}</td></tr>)}</tbody></table></div>
           </div>
