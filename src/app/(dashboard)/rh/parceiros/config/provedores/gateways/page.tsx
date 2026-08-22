@@ -6,8 +6,8 @@ import { GATEWAY_CAMPOS, gatewayUsaTaxaPercentual } from '@/lib/gateways'
 import { getGateways, limparCredencialGateway, saveGateway } from './actions'
 
 const GATEWAY_LOGOS: Record<string, string> = {
-  mercadopago: '/logotipos/logo-mercado-pago.webp',
-  abacatepay: '/logotipos/logo-abacate-pay.avif',
+  mercadopago: '/logotipos/logo-mercado-pago.png',
+  abacatepay: '/logotipos/logo-abacate-pay.png',
 }
 
 type CredencialGateway = { key: string; preenchido: boolean; mascarado: string }
@@ -199,14 +199,7 @@ export default function GatewaysPagamentoPage() {
             return (
               <div key={gateway.id} className="card" style={{ padding: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                    {GATEWAY_LOGOS[gateway.id] ? (
-                      <div style={{ width: 48, height: 48, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--brs-gray-200)', background: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={GATEWAY_LOGOS[gateway.id]} alt={gateway.nome} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4 }} />
-                      </div>
-                    ) : null}
-                    <div>
+                  <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>{gateway.nome}</div>
                       <span className={`badge ${gateway.ativo ? 'badge-success' : 'badge-gray'}`}>{gateway.ativo ? 'Ativo' : 'Inativo'}</span>
@@ -219,8 +212,16 @@ export default function GatewaysPagamentoPage() {
                         Atualizado em {formatDateTime(gateway.atualizado_em)}
                       </div>
                     ) : null}
-                    </div>
                   </div>
+
+                  {GATEWAY_LOGOS[gateway.id] ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={GATEWAY_LOGOS[gateway.id]}
+                      alt={gateway.nome}
+                      style={{ width: 160, height: 'auto', maxHeight: 101, objectFit: 'contain', flexShrink: 0, alignSelf: 'center' }}
+                    />
+                  ) : null}
                 </div>
 
                 <div style={{ display: 'grid', gap: '1rem' }}>
