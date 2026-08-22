@@ -623,9 +623,31 @@ function ComissaoLiquidaSection({
               <label className="form-label">Ajuste adicional (%)</label>
               <input
                 className="form-control"
+                inputMode="numeric"
                 disabled={disabled}
                 value={formatPercentSequence(config.comissao_ajuste_adicional || '')}
-                onChange={(e) => onChangeAjuste(normalizeDigits(e.target.value))}
+                onKeyDown={(event) => {
+                  const key = event.key
+                  const atual = config.comissao_ajuste_adicional || ''
+                  if (key === 'Backspace') {
+                    event.preventDefault()
+                    onChangeAjuste(normalizeDigits(atual.slice(0, -1)))
+                    return
+                  }
+                  if (key === 'Delete') {
+                    event.preventDefault()
+                    onChangeAjuste('')
+                    return
+                  }
+                  if (key === 'Tab' || key.startsWith('Arrow') || key === 'Home' || key === 'End') return
+                  if (/^\d$/.test(key)) {
+                    event.preventDefault()
+                    onChangeAjuste(normalizeDigits(`${atual}${key}`))
+                    return
+                  }
+                  if (key.length === 1) event.preventDefault()
+                }}
+                onChange={() => {}}
                 placeholder="00,00"
               />
               <div style={{ fontSize: '0.76rem', color: 'var(--brs-gray-400)', marginTop: '0.2rem' }}>
