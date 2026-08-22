@@ -143,7 +143,9 @@ export async function criarMasterAlvoconsig(payload: {
         password: senha,
         email_confirm: true,
         // Segurança: master deve trocar a senha provisória no primeiro acesso.
-        app_metadata: { temp_password_reset_required: true },
+        // external: usuário do CRM não entra no espelho interno public.users
+        // e é bloqueado pelo middleware do Workspace.
+        app_metadata: { temp_password_reset_required: true, external: 'alvoconsig' },
       })
       if (createError) {
         authUserId = await findAuthUserIdByEmail(email)

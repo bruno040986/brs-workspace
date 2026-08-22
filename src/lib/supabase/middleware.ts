@@ -206,6 +206,22 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // O cookie SSO tem domain=.brspromotora.com.br: sessões de PARCEIROS (portal)
+  // e de usuários do CRM AlvoConsig chegam até aqui. O Workspace é só para
+  // usuários internos — bloqueia qualquer sessão externa.
+  const userEmail = String(user?.email || '').toLowerCase()
+  const isExternalUser = Boolean(
+    user &&
+      (userEmail.endsWith('@parceiro.brspromotora.com.br') ||
+        (user as { app_metadata?: { external?: string | boolean } }).app_metadata?.external),
+  )
+  if (isExternalUser) {
+    if (isApiRequest(pathname)) {
+      return NextResponse.json({ error: 'Acesso restrito a usuários internos.' }, { status: 403 })
+    }
+    return NextResponse.redirect('https://parceiro.brspromotora.com.br/')
+  }
+
   // Troca de senha obrigatória no primeiro acesso (flag no app_metadata).
   const mustChangePassword = Boolean(
     (user as { app_metadata?: { temp_password_reset_required?: boolean } } | null)
