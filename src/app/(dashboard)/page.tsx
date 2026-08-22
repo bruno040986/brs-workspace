@@ -185,6 +185,7 @@ export default function HubPage() {
       icon: Banknote, 
       color: 'fin',
       links: [
+        { label: 'Conta Virtual Parceiros', href: '/financeiro/conta-parceiros' },
         { label: 'Conta Azul', href: 'https://login.contaazul.com/#/', external: true },
         { label: 'BluePay', href: 'https://app.bluepaysolutions.com.br/auth/users/sign_in?_gl=1*3n59ks*_gcl_au*MTQyNTExODg5Ny4xNzQxNjE0Nzky*_ga*Mzc0NjY5NTMzLjE3NDE2MTQ3OTE.*_ga_3GXPGWJ0SL*czE3NDc2NTY1NjckbzMkZzEkdDE3NDc2NTgzMzAkajAkbDAkaDA&utm_source=site&utm_medium=menu&utm_campaign=inb', external: true },
         { label: 'Portal Nacional da NFSe', href: 'https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional', external: true },

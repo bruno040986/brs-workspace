@@ -66,6 +66,7 @@ const SYSTEM_MODULES = [
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
   { id: 'central-integracoes', name: 'Central de Integrações', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'financeiro-conta-parceiros', name: 'Financeiro — Conta Virtual Parceiros', parentId: 'cat-subsistemas', level: 1 },
   { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-subsistemas', level: 1 },
 
   // Sistema Category

@@ -3,11 +3,12 @@
 /**
  * Aba "AlvoConsig" do editor do Agente Corban.
  *
- * Habilita o CRM AlvoConsig para o parceiro (crm_parceiro_config) e gerencia o
- * usuário MASTER (crm_usuarios, papel 'master'). Com o CRM habilitado:
- * - o card AlvoConsig aparece no Portal Parceiro do parceiro;
- * - o master loga via SSO e pode criar atendentes dentro do CRM;
- * - o parceiro passa a aparecer na Alocação de Lotes (/alvoconsig).
+ * Habilitar o AlvoConsig = toggle + quantidade de atendentes. O MASTER é
+ * SEMPRE o login único do parceiro (aba Acesso): e-mail sintético
+ * <arw_code>@parceiro.brspromotora.com.br, mesma credencial do ARW e do
+ * Portal Parceiro — nada de nome/e-mail/senha na aba (decisão Bruno
+ * 23/08/2026). Ao habilitar, o master é vinculado automaticamente em
+ * crm_usuarios e o vínculo agentes_parceiros.auth_user_id é preenchido.
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -25,20 +26,17 @@ const supabaseAdmin = createClient(
 )
 
 const PERMISSION_RESOURCE = 'comercial-agentes'
-
-function normalizeEmail(value: string) {
-  return String(value || '').trim().toLowerCase()
-}
+const DOMINIO_PARCEIRO = '@parceiro.brspromotora.com.br'
 
 async function findAuthUserIdByEmail(email: string): Promise<string | null> {
-  const target = normalizeEmail(email)
+  const target = email.trim().toLowerCase()
   let page = 1
   while (page <= 20) {
     const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 })
     if (error) throw error
     const users = data?.users || []
     for (const user of users) {
-      if (normalizeEmail(user.email || '') === target) return user.id
+      if (String(user.email || '').toLowerCase() === target) return user.id
     }
     if (users.length < 200) return null
     page += 1
@@ -51,7 +49,7 @@ export async function getAlvoconsigConfig(agenteParceiroId: string) {
     await requirePermission(PERMISSION_RESOURCE)
     if (!agenteParceiroId) return { success: false, error: 'Agente inválido.' }
 
-    const [configRes, mastersRes] = await Promise.all([
+    const [configRes, usuariosRes, agenteRes] = await Promise.all([
       supabaseAdmin
         .from('crm_parceiro_config')
         .select('agente_parceiro_id, habilitado, max_atendentes, habilitado_em')
@@ -63,15 +61,28 @@ export async function getAlvoconsigConfig(agenteParceiroId: string) {
         .eq('agente_parceiro_id', agenteParceiroId)
         .order('papel', { ascending: false })
         .order('created_at', { ascending: true }),
+      supabaseAdmin
+        .from('agentes_parceiros')
+        .select('id, arw_code, auth_user_id')
+        .eq('id', agenteParceiroId)
+        .maybeSingle(),
     ])
 
     if (configRes.error) throw configRes.error
-    if (mastersRes.error) throw mastersRes.error
+    if (usuariosRes.error) throw usuariosRes.error
+
+    const arwCode = String(agenteRes.data?.arw_code || '').trim().toLowerCase()
+    let loginProvisionado = Boolean(agenteRes.data?.auth_user_id)
+    if (!loginProvisionado && arwCode) {
+      loginProvisionado = Boolean(await findAuthUserIdByEmail(`${arwCode}${DOMINIO_PARCEIRO}`))
+    }
 
     return {
       success: true,
       config: configRes.data || null,
-      usuarios: mastersRes.data || [],
+      usuarios: usuariosRes.data || [],
+      arwCode,
+      loginProvisionado,
     }
   } catch (error: any) {
     console.error('Erro ao carregar config AlvoConsig do agente:', error)
@@ -89,6 +100,69 @@ export async function salvarAlvoconsigConfig(payload: {
     if (!payload.agenteParceiroId) return { success: false, error: 'Agente inválido.' }
 
     const maxAtendentes = Math.max(0, Math.min(500, Number.parseInt(String(payload.maxAtendentes), 10) || 0))
+
+    if (payload.habilitado) {
+      // Master = login único do parceiro (aba Acesso). Valida e vincula.
+      const { data: agente, error: agenteError } = await supabaseAdmin
+        .from('agentes_parceiros')
+        .select('id, name, fantasy_name, representante_legal, arw_code, auth_user_id')
+        .eq('id', payload.agenteParceiroId)
+        .maybeSingle()
+      if (agenteError) throw agenteError
+      if (!agente) return { success: false, error: 'Agente não encontrado.' }
+
+      const arwCode = String(agente.arw_code || '').trim().toLowerCase()
+      if (!arwCode) {
+        return { success: false, error: 'Preencha o Código ARW na aba Acesso antes de habilitar o AlvoConsig.' }
+      }
+
+      const emailSintetico = `${arwCode}${DOMINIO_PARCEIRO}`
+      let authUserId = agente.auth_user_id ? String(agente.auth_user_id) : null
+      if (!authUserId) {
+        authUserId = await findAuthUserIdByEmail(emailSintetico)
+      }
+      if (!authUserId) {
+        return {
+          success: false,
+          error: `O login do parceiro (código ${arwCode.toUpperCase()}) ainda não foi provisionado. Conclua o provisionamento do acesso (aba Acesso / validação do cadastro) antes de habilitar.`,
+        }
+      }
+
+      // Garante que esse login não é usuário do CRM de OUTRO parceiro.
+      const { data: existente } = await supabaseAdmin
+        .from('crm_usuarios')
+        .select('id, agente_parceiro_id')
+        .eq('auth_user_id', authUserId)
+        .maybeSingle()
+      if (existente && String(existente.agente_parceiro_id) !== String(payload.agenteParceiroId)) {
+        return { success: false, error: 'Esse login já é usuário do CRM de outro parceiro.' }
+      }
+
+      const nomeMaster = String(agente.representante_legal || agente.fantasy_name || agente.name || arwCode.toUpperCase()).trim()
+
+      const { error: masterError } = await supabaseAdmin.from('crm_usuarios').upsert(
+        {
+          auth_user_id: authUserId,
+          agente_parceiro_id: payload.agenteParceiroId,
+          papel: 'master',
+          nome: nomeMaster,
+          email: emailSintetico,
+          ativo: true,
+          created_by: user.id,
+        },
+        { onConflict: 'auth_user_id' },
+      )
+      if (masterError) throw masterError
+
+      // Backfill do vínculo login ↔ cadastro (usado pelo portal e pelo saque).
+      if (!agente.auth_user_id) {
+        await supabaseAdmin
+          .from('agentes_parceiros')
+          .update({ auth_user_id: authUserId })
+          .eq('id', payload.agenteParceiroId)
+          .is('auth_user_id', null)
+      }
+    }
 
     const { data: atual } = await supabaseAdmin
       .from('crm_parceiro_config')
@@ -114,87 +188,6 @@ export async function salvarAlvoconsigConfig(payload: {
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao salvar config AlvoConsig:', error)
-    return { success: false, error: error.message }
-  }
-}
-
-export async function criarMasterAlvoconsig(payload: {
-  agenteParceiroId: string
-  nome: string
-  email: string
-  senha: string
-}) {
-  try {
-    const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
-
-    if (!payload.agenteParceiroId) return { success: false, error: 'Agente inválido.' }
-    const nome = String(payload.nome || '').trim()
-    const email = normalizeEmail(payload.email)
-    const senha = String(payload.senha || '')
-    if (!nome) return { success: false, error: 'Informe o nome do master.' }
-    if (!email || !email.includes('@')) return { success: false, error: 'Informe um e-mail válido.' }
-
-    // 1. Resolve (ou cria) o usuário no Supabase Auth.
-    let authUserId: string | null = null
-    if (senha) {
-      if (senha.length < 8) return { success: false, error: 'A senha deve ter ao menos 8 caracteres.' }
-      const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password: senha,
-        email_confirm: true,
-        // Segurança: master deve trocar a senha provisória no primeiro acesso.
-        // external: usuário do CRM não entra no espelho interno public.users
-        // e é bloqueado pelo middleware do Workspace.
-        app_metadata: { temp_password_reset_required: true, external: 'alvoconsig' },
-      })
-      if (createError) {
-        authUserId = await findAuthUserIdByEmail(email)
-        if (!authUserId) throw createError
-      } else {
-        authUserId = created.user?.id || null
-      }
-    } else {
-      // Sem senha: vincula um login já existente (ex.: provisionado pelo portal).
-      authUserId = await findAuthUserIdByEmail(email)
-      if (!authUserId) {
-        return { success: false, error: 'Nenhum login encontrado com esse e-mail. Informe uma senha provisória para criar o acesso.' }
-      }
-    }
-    if (!authUserId) return { success: false, error: 'Falha ao resolver o login do master.' }
-
-    // 2. Garante que esse login não está vinculado a OUTRO parceiro.
-    const { data: existente } = await supabaseAdmin
-      .from('crm_usuarios')
-      .select('id, agente_parceiro_id, papel')
-      .eq('auth_user_id', authUserId)
-      .maybeSingle()
-    if (existente && String(existente.agente_parceiro_id) !== String(payload.agenteParceiroId)) {
-      return { success: false, error: 'Esse e-mail já é usuário do CRM de outro parceiro.' }
-    }
-
-    // 3. Upsert do vínculo master.
-    const { error: upsertError } = await supabaseAdmin
-      .from('crm_usuarios')
-      .upsert(
-        {
-          auth_user_id: authUserId,
-          agente_parceiro_id: payload.agenteParceiroId,
-          papel: 'master',
-          nome,
-          email,
-          ativo: true,
-          created_by: user.id,
-        },
-        { onConflict: 'auth_user_id' },
-      )
-    if (upsertError) throw upsertError
-
-    return { success: true }
-  } catch (error: any) {
-    console.error('Erro ao criar master AlvoConsig:', error)
-    if (String(error?.message || '').toLowerCase().includes('password')) {
-      return { success: false, error: 'Senha recusada pelo provedor de auth (mínimo 8 caracteres).' }
-    }
     return { success: false, error: error.message }
   }
 }
