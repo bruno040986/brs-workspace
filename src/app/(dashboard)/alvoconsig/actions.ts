@@ -213,7 +213,7 @@ export async function criarLote(payload: {
     // dono). O worker do CRM consome com rate limit — lotes grandes levam o
     // tempo que precisarem, sem estourar a API.
     for (let i = 0; i < ids.length; i += 500) {
-      const chunk = ids.slice(i, i + 500).map((contatoId) => ({
+      const chunk = ids.slice(i, i + 500).map((contatoId: string) => ({
         operacao: 'upsert_contato',
         contato_id: contatoId,
         payload: {},
