@@ -1,7 +1,7 @@
 # Plano Definitivo — Estrutura Empresarial, Signatários e Coobrigação Solidária
 
 > Status: **AGUARDANDO AUTORIZAÇÃO DO BRUNO — NADA IMPLEMENTADO**
-> Escopo: brs-rh (workspace) + brs-portal-parceiro (portal)
+> Escopo: brs-workspace (workspace) + brs-portal-parceiro (portal)
 > Decisões-base: especificação Jarvis + decisões do Bruno de 09/08/2026
 > (coobrigação solidária aprovada pelo jurídico; duas testemunhas sempre;
 > gerente da geração congelado no contrato; Opção A em `corban_data`).
