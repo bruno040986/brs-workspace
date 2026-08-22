@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Search, X } from 'lucide-react'
 import { CONVENIO_ESFERAS, esferaLabel } from '@/lib/cadastros-credito'
-import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from '../actions'
+import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
 
 type ConvenioItem = {
   id: string

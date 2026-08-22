@@ -24,15 +24,15 @@ export default function InstituicoesFinanceirasSidebar() {
           </Link>
 
           <div className="sidebar-section-label sidebar-section-label-spaced">Relacionados</div>
-          <Link href="/cadastros-credito/convenios" className="sidebar-link">
+          <Link href="/convenios" className="sidebar-link">
             <Landmark size={18} />
             Convênios
           </Link>
-          <Link href="/cadastros-credito/tabelas" className="sidebar-link">
+          <Link href="/comissionamento/tabelas" className="sidebar-link">
             <Table2 size={18} />
-            Tabelas de Crédito
+            Comissionamento (ARW)
           </Link>
-          <Link href="/cadastros-credito/coeficientes" className="sidebar-link">
+          <Link href="/coeficientes" className="sidebar-link">
             <Percent size={18} />
             Coeficientes
           </Link>

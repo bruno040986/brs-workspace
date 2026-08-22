@@ -1,0 +1,496 @@
+'use server'
+
+/**
+ * Server actions do Comissionamento (espelho ARW): Formas de Contrato, Tipos
+ * de Formalização, Tabelas de Comissão, Prazos Comissão e Spreads.
+ * Permissão: sistema-config-credito.
+ */
+
+import { createClient } from '@supabase/supabase-js'
+import { revalidatePath } from 'next/cache'
+import { requirePermission } from '@/lib/auth/server'
+import { ORIGENS_MARGEM } from '@/lib/comissionamento'
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  },
+)
+
+const PERMISSION_RESOURCE = 'sistema-config-credito'
+
+const REVALIDATE_BASE = '/comissionamento'
+
+// ----------------------------------------------------------------------------
+// Lookups compartilhados
+// ----------------------------------------------------------------------------
+export async function getComissionamentoLookups() {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+
+    const [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas] = await Promise.all([
+      supabaseAdmin
+        .from('financial_institutions')
+        .select('id, name, logo_url, is_active, imposto_comissao_percent')
+        .is('deleted_at', null)
+        .order('is_active', { ascending: false })
+        .order('name'),
+      supabaseAdmin.from('formas_contrato').select('*').order('is_active', { ascending: false }).order('nome'),
+      supabaseAdmin.from('tipos_formalizacao').select('*').order('is_active', { ascending: false }).order('nome'),
+      supabaseAdmin.from('convenios').select('id, nome, codigo, is_active').is('deleted_at', null).order('nome'),
+      supabaseAdmin
+        .from('agente_corban_tipos_agente')
+        .select('id, name, codigo_arw, percentual_repasse')
+        .order('codigo_arw', { ascending: true, nullsFirst: false }),
+      supabaseAdmin
+        .from('tabelas_comissao')
+        .select('id, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, com_seguro, is_active')
+        .is('deleted_at', null)
+        .order('is_active', { ascending: false })
+        .order('nome'),
+    ])
+
+    const firstError = [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas].find((r) => r.error)
+    if (firstError?.error) throw firstError.error
+
+    return {
+      success: true,
+      instituicoes: instituicoes.data || [],
+      formasContrato: formas.data || [],
+      tiposFormalizacao: formalizacoes.data || [],
+      convenios: convenios.data || [],
+      tiposAgente: tiposAgente.data || [],
+      tabelasComissao: tabelas.data || [],
+    }
+  } catch (error: any) {
+    console.error('Erro nos lookups do comissionamento:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Catálogos simples (Forma de Contrato / Tipo de Formalização)
+// ----------------------------------------------------------------------------
+export async function saveFormaContrato(payload: {
+  id?: string
+  nome: string
+  codigo_arw?: string | null
+  origem_margem: string
+}) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
+    const nome = String(payload.nome || '').trim()
+    if (!nome) return { success: false, error: 'Informe o nome da forma de contrato.' }
+    const origem = ORIGENS_MARGEM.some((o) => o.value === payload.origem_margem)
+      ? payload.origem_margem
+      : 'nenhuma'
+
+    const row = {
+      nome,
+      codigo_arw: String(payload.codigo_arw || '').trim() || null,
+      origem_margem: origem,
+      updated_at: new Date().toISOString(),
+    }
+    const query = payload.id
+      ? supabaseAdmin.from('formas_contrato').update(row).eq('id', payload.id)
+      : supabaseAdmin.from('formas_contrato').insert(row)
+    const { error } = await query
+    if (error) throw error
+
+    revalidatePath(`${REVALIDATE_BASE}/formas-contrato`)
+    return { success: true }
+  } catch (error: any) {
+    if ((error as any)?.code === '23505') return { success: false, error: 'Já existe uma forma de contrato com esse nome.' }
+    console.error('Erro ao salvar forma de contrato:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function setFormaContratoAtiva(id: string, isActive: boolean) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_activate_inactivate')
+    const { error } = await supabaseAdmin
+      .from('formas_contrato')
+      .update({ is_active: isActive, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/formas-contrato`)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export async function saveTipoFormalizacao(payload: { id?: string; nome: string; codigo_arw?: string | null }) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
+    const nome = String(payload.nome || '').trim()
+    if (!nome) return { success: false, error: 'Informe o nome do tipo de formalização.' }
+
+    const row = {
+      nome,
+      codigo_arw: String(payload.codigo_arw || '').trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+    const query = payload.id
+      ? supabaseAdmin.from('tipos_formalizacao').update(row).eq('id', payload.id)
+      : supabaseAdmin.from('tipos_formalizacao').insert(row)
+    const { error } = await query
+    if (error) throw error
+
+    revalidatePath(`${REVALIDATE_BASE}/tipos-formalizacao`)
+    return { success: true }
+  } catch (error: any) {
+    if ((error as any)?.code === '23505') return { success: false, error: 'Já existe um tipo de formalização com esse nome.' }
+    console.error('Erro ao salvar tipo de formalização:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function setTipoFormalizacaoAtivo(id: string, isActive: boolean) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_activate_inactivate')
+    const { error } = await supabaseAdmin
+      .from('tipos_formalizacao')
+      .update({ is_active: isActive, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/tipos-formalizacao`)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Tipo de Agente (cadastro do Agente Corban, estendido) e Imposto por IF
+// ----------------------------------------------------------------------------
+export async function saveTipoAgenteComissao(payload: {
+  id: string
+  percentual_repasse: number | null
+  codigo_arw: number | null
+}) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_edit')
+    if (!payload.id) return { success: false, error: 'Tipo de agente inválido.' }
+    const { error } = await supabaseAdmin
+      .from('agente_corban_tipos_agente')
+      .update({
+        percentual_repasse: payload.percentual_repasse,
+        codigo_arw: payload.codigo_arw,
+      })
+      .eq('id', payload.id)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar tipo de agente:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function saveImpostoInstituicao(institutionId: string, impostoPercent: number | null) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_edit')
+    if (!institutionId) return { success: false, error: 'Instituição inválida.' }
+    const { error } = await supabaseAdmin
+      .from('financial_institutions')
+      .update({ imposto_comissao_percent: impostoPercent, updated_at: new Date().toISOString() })
+      .eq('id', institutionId)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar imposto da instituição:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Tabela de Comissão
+// ----------------------------------------------------------------------------
+export type TabelaComissaoPayload = {
+  id?: string
+  codigo_tabela_banco?: string | null
+  nome: string
+  institution_id: string
+  forma_contrato_id: string
+  convenio_id?: string | null
+  tipo_formalizacao_id?: string | null
+  com_seguro?: boolean | null
+  observacao?: string
+  id_arw?: string | null
+}
+
+export async function getTabelasComissao() {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    const { data, error } = await supabaseAdmin
+      .from('tabelas_comissao')
+      .select(
+        '*, financial_institutions ( id, name, logo_url, imposto_comissao_percent ), formas_contrato ( id, nome, origem_margem ), convenios ( id, nome, codigo ), tipos_formalizacao ( id, nome ), prazos_comissao ( id )',
+      )
+      .is('deleted_at', null)
+      .order('is_active', { ascending: false })
+      .order('nome')
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
+    console.error('Erro ao listar tabelas de comissão:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
+    const nome = String(payload.nome || '').trim()
+    if (!nome) return { success: false, error: 'Informe o nome da tabela.' }
+    if (!payload.institution_id) return { success: false, error: 'Selecione a instituição financeira.' }
+    if (!payload.forma_contrato_id) return { success: false, error: 'Selecione a forma de contrato.' }
+
+    const row = {
+      codigo_tabela_banco: String(payload.codigo_tabela_banco || '').trim() || null,
+      nome,
+      institution_id: payload.institution_id,
+      forma_contrato_id: payload.forma_contrato_id,
+      convenio_id: payload.convenio_id || null,
+      tipo_formalizacao_id: payload.tipo_formalizacao_id || null,
+      com_seguro: payload.com_seguro ?? null,
+      observacao: String(payload.observacao || ''),
+      id_arw: String(payload.id_arw || '').trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+    const query = payload.id
+      ? supabaseAdmin.from('tabelas_comissao').update(row).eq('id', payload.id)
+      : supabaseAdmin.from('tabelas_comissao').insert(row)
+    const { error } = await query
+    if (error) throw error
+
+    revalidatePath(`${REVALIDATE_BASE}/tabelas`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar tabela de comissão:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function setTabelaComissaoAtiva(id: string, isActive: boolean) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_activate_inactivate')
+    const { error } = await supabaseAdmin
+      .from('tabelas_comissao')
+      .update({ is_active: isActive, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/tabelas`)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Prazo Comissão
+// ----------------------------------------------------------------------------
+export type PrazoComissaoPayload = {
+  id?: string
+  tabela_comissao_id: string
+  forma_pagamento: string
+  valor_inicial?: number | null
+  valor_final?: number | null
+  prazo_inicial: number
+  prazo_final: number
+  data_base?: string | null
+  manter_enquadramento?: boolean
+  comissao?: number | null
+  emissao?: number | null
+  seguro?: number | null
+  forma_pagamento_seguro?: string | null
+  id_arw?: string | null
+}
+
+export async function getPrazosComissao(tabelaComissaoId?: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    let query = supabaseAdmin
+      .from('prazos_comissao')
+      .select(
+        '*, tabelas_comissao ( id, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ) )',
+      )
+      .order('created_at', { ascending: false })
+      .limit(300)
+    if (tabelaComissaoId) query = query.eq('tabela_comissao_id', tabelaComissaoId)
+    const { data, error } = await query
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
+    console.error('Erro ao listar prazos comissão:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function savePrazoComissao(payload: PrazoComissaoPayload) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
+    if (!payload.tabela_comissao_id) return { success: false, error: 'Selecione a Tabela de Comissão.' }
+
+    const prazoInicial = Number.parseInt(String(payload.prazo_inicial), 10)
+    const prazoFinal = Number.parseInt(String(payload.prazo_final), 10)
+    if (!Number.isFinite(prazoInicial) || prazoInicial <= 0) return { success: false, error: 'Informe o prazo inicial.' }
+    if (!Number.isFinite(prazoFinal) || prazoFinal < prazoInicial) {
+      return { success: false, error: 'O prazo final deve ser maior ou igual ao inicial.' }
+    }
+
+    const usaFaixa = payload.forma_pagamento === 'faixa_percentual' || payload.forma_pagamento === 'faixa_fixo'
+
+    const row = {
+      tabela_comissao_id: payload.tabela_comissao_id,
+      forma_pagamento: payload.forma_pagamento,
+      valor_inicial: usaFaixa ? payload.valor_inicial ?? null : null,
+      valor_final: usaFaixa ? payload.valor_final ?? null : null,
+      prazo_inicial: prazoInicial,
+      prazo_final: prazoFinal,
+      data_base: payload.data_base || null,
+      manter_enquadramento: payload.manter_enquadramento !== false,
+      comissao: payload.comissao ?? null,
+      emissao: payload.emissao ?? null,
+      seguro: payload.seguro ?? null,
+      forma_pagamento_seguro: payload.forma_pagamento_seguro || null,
+      id_arw: String(payload.id_arw || '').trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+    const query = payload.id
+      ? supabaseAdmin.from('prazos_comissao').update(row).eq('id', payload.id)
+      : supabaseAdmin.from('prazos_comissao').insert(row)
+    const { error } = await query
+    if (error) throw error
+
+    revalidatePath(`${REVALIDATE_BASE}/prazos`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar prazo comissão:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function excluirPrazoComissao(id: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_delete')
+    const { error } = await supabaseAdmin.from('prazos_comissao').delete().eq('id', id)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/prazos`)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Spreads (margem mínima)
+// ----------------------------------------------------------------------------
+export type SpreadPayload = {
+  id?: string
+  forma_contrato_id: string
+  tipo_agente_id: string
+  institution_id: string
+  convenio_id?: string | null
+  tipo_formalizacao_id?: string | null
+  pontos: number
+  vigencia_inicio?: string
+}
+
+export async function getSpreads(filtros?: { institutionId?: string; formaContratoId?: string }) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    let query = supabaseAdmin
+      .from('spreads')
+      .select(
+        '*, formas_contrato ( id, nome ), agente_corban_tipos_agente ( id, name, codigo_arw ), financial_institutions ( id, name ), convenios ( id, nome ), tipos_formalizacao ( id, nome )',
+      )
+      .order('vigencia_inicio', { ascending: false })
+      .limit(500)
+    if (filtros?.institutionId) query = query.eq('institution_id', filtros.institutionId)
+    if (filtros?.formaContratoId) query = query.eq('forma_contrato_id', filtros.formaContratoId)
+    const { data, error } = await query
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
+    console.error('Erro ao listar spreads:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function saveSpread(payload: SpreadPayload) {
+  try {
+    const { user } = await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
+    if (!payload.forma_contrato_id) return { success: false, error: 'Selecione a forma de contrato.' }
+    if (!payload.tipo_agente_id) return { success: false, error: 'Selecione o tipo de agente.' }
+    if (!payload.institution_id) return { success: false, error: 'Selecione a instituição.' }
+    const pontos = Number(payload.pontos)
+    if (!Number.isFinite(pontos) || pontos < 0) return { success: false, error: 'Informe os pontos percentuais do spread.' }
+
+    const vigenciaInicio = String(payload.vigencia_inicio || '').slice(0, 10) || new Date().toISOString().slice(0, 10)
+
+    if (!payload.id) {
+      // Encerra a vigência aberta anterior da mesma chave (histórico preservado).
+      const diaAnterior = new Date(`${vigenciaInicio}T12:00:00Z`)
+      diaAnterior.setUTCDate(diaAnterior.getUTCDate() - 1)
+      let encerrar = supabaseAdmin
+        .from('spreads')
+        .update({ vigencia_fim: diaAnterior.toISOString().slice(0, 10) })
+        .eq('forma_contrato_id', payload.forma_contrato_id)
+        .eq('tipo_agente_id', payload.tipo_agente_id)
+        .eq('institution_id', payload.institution_id)
+        .is('vigencia_fim', null)
+        .lt('vigencia_inicio', vigenciaInicio)
+      encerrar = payload.convenio_id ? encerrar.eq('convenio_id', payload.convenio_id) : encerrar.is('convenio_id', null)
+      encerrar = payload.tipo_formalizacao_id
+        ? encerrar.eq('tipo_formalizacao_id', payload.tipo_formalizacao_id)
+        : encerrar.is('tipo_formalizacao_id', null)
+      const { error: encerrarError } = await encerrar
+      if (encerrarError) throw encerrarError
+    }
+
+    const row = {
+      forma_contrato_id: payload.forma_contrato_id,
+      tipo_agente_id: payload.tipo_agente_id,
+      institution_id: payload.institution_id,
+      convenio_id: payload.convenio_id || null,
+      tipo_formalizacao_id: payload.tipo_formalizacao_id || null,
+      pontos,
+      vigencia_inicio: vigenciaInicio,
+      created_by: user.id,
+    }
+    const query = payload.id
+      ? supabaseAdmin.from('spreads').update(row).eq('id', payload.id)
+      : supabaseAdmin.from('spreads').insert(row)
+    const { error } = await query
+    if (error) throw error
+
+    revalidatePath(`${REVALIDATE_BASE}/spreads`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar spread:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function encerrarSpread(id: string, vigenciaFim: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_edit')
+    const fim = String(vigenciaFim || '').slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fim)) return { success: false, error: 'Informe a data de fim da vigência.' }
+    const { error } = await supabaseAdmin.from('spreads').update({ vigencia_fim: fim }).eq('id', id)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/spreads`)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
