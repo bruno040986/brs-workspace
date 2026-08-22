@@ -397,25 +397,29 @@ export async function excluirPrazoComissao(id: string) {
 export type SpreadPayload = {
   id?: string
   forma_contrato_id: string
-  tipo_agente_id: string
-  institution_id: string
-  convenio_id?: string | null
-  tipo_formalizacao_id?: string | null
+  // Arrays de ids; vazio = vale para todos.
+  tipos_agente?: string[]
+  instituicoes?: string[]
+  convenios?: string[]
+  tipos_formalizacao?: string[]
   pontos: number
   vigencia_inicio?: string
 }
 
-export async function getSpreads(filtros?: { institutionId?: string; formaContratoId?: string }) {
+function normalizeIdArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean)))
+}
+
+export async function getSpreads(filtros?: { formaContratoId?: string }) {
   try {
     await requirePermission(PERMISSION_RESOURCE)
     let query = supabaseAdmin
       .from('spreads')
-      .select(
-        '*, formas_contrato ( id, nome ), agente_corban_tipos_agente ( id, name, codigo_arw ), financial_institutions ( id, name ), convenios ( id, nome ), tipos_formalizacao ( id, nome )',
-      )
+      .select('*, formas_contrato ( id, nome )')
       .order('vigencia_inicio', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(500)
-    if (filtros?.institutionId) query = query.eq('institution_id', filtros.institutionId)
     if (filtros?.formaContratoId) query = query.eq('forma_contrato_id', filtros.formaContratoId)
     const { data, error } = await query
     if (error) throw error
@@ -430,39 +434,17 @@ export async function saveSpread(payload: SpreadPayload) {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
     if (!payload.forma_contrato_id) return { success: false, error: 'Selecione a forma de contrato.' }
-    if (!payload.tipo_agente_id) return { success: false, error: 'Selecione o tipo de agente.' }
-    if (!payload.institution_id) return { success: false, error: 'Selecione a instituição.' }
     const pontos = Number(payload.pontos)
     if (!Number.isFinite(pontos) || pontos < 0) return { success: false, error: 'Informe os pontos percentuais do spread.' }
 
     const vigenciaInicio = String(payload.vigencia_inicio || '').slice(0, 10) || new Date().toISOString().slice(0, 10)
 
-    if (!payload.id) {
-      // Encerra a vigência aberta anterior da mesma chave (histórico preservado).
-      const diaAnterior = new Date(`${vigenciaInicio}T12:00:00Z`)
-      diaAnterior.setUTCDate(diaAnterior.getUTCDate() - 1)
-      let encerrar = supabaseAdmin
-        .from('spreads')
-        .update({ vigencia_fim: diaAnterior.toISOString().slice(0, 10) })
-        .eq('forma_contrato_id', payload.forma_contrato_id)
-        .eq('tipo_agente_id', payload.tipo_agente_id)
-        .eq('institution_id', payload.institution_id)
-        .is('vigencia_fim', null)
-        .lt('vigencia_inicio', vigenciaInicio)
-      encerrar = payload.convenio_id ? encerrar.eq('convenio_id', payload.convenio_id) : encerrar.is('convenio_id', null)
-      encerrar = payload.tipo_formalizacao_id
-        ? encerrar.eq('tipo_formalizacao_id', payload.tipo_formalizacao_id)
-        : encerrar.is('tipo_formalizacao_id', null)
-      const { error: encerrarError } = await encerrar
-      if (encerrarError) throw encerrarError
-    }
-
     const row = {
       forma_contrato_id: payload.forma_contrato_id,
-      tipo_agente_id: payload.tipo_agente_id,
-      institution_id: payload.institution_id,
-      convenio_id: payload.convenio_id || null,
-      tipo_formalizacao_id: payload.tipo_formalizacao_id || null,
+      tipos_agente: normalizeIdArray(payload.tipos_agente),
+      instituicoes: normalizeIdArray(payload.instituicoes),
+      convenios: normalizeIdArray(payload.convenios),
+      tipos_formalizacao: normalizeIdArray(payload.tipos_formalizacao),
       pontos,
       vigencia_inicio: vigenciaInicio,
       created_by: user.id,
