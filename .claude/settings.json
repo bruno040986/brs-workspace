@@ -25,16 +25,10 @@
       "mcp__claude-flow__*"
     ],
     "deny": [
-      "Bash(git commit *)",
-      "Bash(git push *)",
       "Bash(git reset *)",
       "Bash(git checkout *)",
       "Bash(git restore *)",
-      "Bash(supabase *)",
-      "Bash(npx supabase *)",
       "Bash(psql *)",
-      "Bash(vercel *)",
-      "Bash(npx vercel *)",
       "Bash(curl *)",
       "Bash(wget *)",
       "Bash(rm -rf *)",

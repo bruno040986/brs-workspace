@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CalendarDays, KanbanSquare, Link2, Lock, Plus, Repeat, Rows3, Video } from 'lucide-react'
+import { CalendarDays, KanbanSquare, Link2, Lock, Mail, Plus, Repeat, Rows3, Video } from 'lucide-react'
 import {
   AGENDA_PRIORITIES,
   AGENDA_TASK_STATUSES,
@@ -373,6 +373,14 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--brs-gray-600)' }}>{formatDateTime(item.start_at)}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      {item.guests.length > 0 && (
+                        <span
+                          title={`${item.guests.length} convidado(s) externo(s): ${item.guests.map((g) => g.name || g.email).join(', ')}`}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-400)' }}
+                        >
+                          <Mail size={13} /> {item.guests.length}
+                        </span>
+                      )}
                       {item.meeting_link && (
                         <a
                           href={item.meeting_link}

@@ -1,21 +1,25 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Link2, Lock, Trash2, X } from 'lucide-react'
+import { Link2, Lock, Mail, Trash2, X } from 'lucide-react'
 import CommentsTimeline from '@/components/comments/CommentsTimeline'
 import {
   AGENDA_ITEM_TYPES,
   AGENDA_LINK_ENTITY_TYPES,
   AGENDA_PRIORITIES,
   AGENDA_TASK_STATUSES,
+  GUEST_EMAIL_REGEX,
+  type AgendaGuest,
   type AgendaItem,
   type AgendaItemLink,
   type AgendaItemPayload,
   type AgendaItemType,
+  type SuggestedGuest,
 } from '@/lib/agenda/types'
 import {
   deleteAgendaItem,
   getAvailability,
+  getSuggestedGuests,
   saveAgendaItem,
   searchAgendaLinkTargets,
   type AgendaBootstrap,
@@ -73,6 +77,9 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
   const [involvedIds, setInvolvedIds] = useState<string[]>([])
   const [authorizedIds, setAuthorizedIds] = useState<string[]>([])
   const [links, setLinks] = useState<AgendaItemLink[]>([])
+  const [guests, setGuests] = useState<AgendaGuest[]>([])
+  const [guestInput, setGuestInput] = useState('')
+  const [guestSuggestions, setGuestSuggestions] = useState<SuggestedGuest[]>([])
   const [participantFilter, setParticipantFilter] = useState('')
   const [linkEntityType, setLinkEntityType] = useState(AGENDA_LINK_ENTITY_TYPES[0].value)
   const [linkQuery, setLinkQuery] = useState('')
@@ -116,6 +123,7 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
       setInvolvedIds(item.participants.filter((p) => p.role === 'envolvido').map((p) => p.user_id))
       setAuthorizedIds(item.participants.filter((p) => p.role === 'autorizado').map((p) => p.user_id))
       setLinks(item.links)
+      setGuests(item.guests || [])
     } else {
       setItemType(defaultType)
       setTitle('')
@@ -133,8 +141,26 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
       setInvolvedIds([bootstrap.currentUserId])
       setAuthorizedIds([])
       setLinks([])
+      setGuests([])
     }
+    setGuestInput('')
+    setGuestSuggestions([])
   }, [open, item, defaultType, bootstrap.currentUserId])
+
+  // Sugestões de convidados a partir dos vínculos selecionados.
+  useEffect(() => {
+    if (!open || itemType === 'tarefa' || !links.length) {
+      setGuestSuggestions([])
+      return
+    }
+    let cancelled = false
+    getSuggestedGuests(links).then((res) => {
+      if (!cancelled && res.success) setGuestSuggestions(res.suggestions)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, itemType, links])
 
   useEffect(() => {
     if (!open) return
@@ -164,6 +190,37 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
 
   function toggleAuthorized(userId: string) {
     setAuthorizedIds((prev) => (prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]))
+  }
+
+  function addGuestFromInput() {
+    const pieces = guestInput.split(/[\s,;]+/).map((piece) => piece.trim().toLowerCase()).filter(Boolean)
+    if (!pieces.length) return
+    const invalid = pieces.filter((email) => !GUEST_EMAIL_REGEX.test(email))
+    if (invalid.length) {
+      setError(`E-mail inválido: ${invalid[0]}`)
+      return
+    }
+    setError('')
+    setGuests((prev) => {
+      const existing = new Set(prev.map((g) => g.email))
+      const additions = pieces
+        .filter((email) => !existing.has(email))
+        .map((email) => ({ email, name: '', source: 'manual' as const }))
+      return [...prev, ...additions]
+    })
+    setGuestInput('')
+  }
+
+  function addSuggestedGuest(suggestion: SuggestedGuest) {
+    setGuests((prev) =>
+      prev.some((g) => g.email === suggestion.email)
+        ? prev
+        : [...prev, { email: suggestion.email, name: suggestion.name, source: 'vinculo' as const }],
+    )
+  }
+
+  function removeGuest(email: string) {
+    setGuests((prev) => prev.filter((g) => g.email !== email))
   }
 
   function addLink(link: AgendaItemLink) {
@@ -204,6 +261,7 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
       participant_user_ids: involvedIds,
       authorized_user_ids: authorizedIds,
       links,
+      guests: guests.map((g) => ({ email: g.email, name: g.name, source: g.source })),
     }
 
     const res = await saveAgendaItem(payload)
@@ -585,6 +643,104 @@ export default function ItemEditorModal({ open, onClose, onSaved, bootstrap, ite
               </div>
             </div>
           </div>
+
+          {!isTask && (
+            <div>
+              <span style={fieldLabel}>
+                <Mail size={12} style={{ display: 'inline', verticalAlign: '-2px' }} /> Convidados externos
+              </span>
+              {guests.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
+                  {guests.map((guest) => (
+                    <span
+                      key={guest.email}
+                      title={
+                        guest.source === 'google'
+                          ? 'Veio do convite no Google Calendar'
+                          : guest.name || guest.email
+                      }
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        background: guest.source === 'google' ? 'var(--brs-gray-100)' : 'var(--brs-gray-50)',
+                        border: '1px solid var(--brs-gray-100)',
+                        borderRadius: 999,
+                        padding: '0.2rem 0.6rem',
+                        fontSize: '0.78rem',
+                        color: 'var(--brs-gray-600)',
+                      }}
+                    >
+                      {guest.name ? `${guest.name} — ${guest.email}` : guest.email}
+                      {guest.source !== 'google' && (
+                        <button
+                          type="button"
+                          onClick={() => removeGuest(guest.email)}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--brs-gray-400)', padding: 0, display: 'flex' }}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  className="form-control"
+                  type="email"
+                  placeholder="email@empresa.com.br (Enter para adicionar)"
+                  value={guestInput}
+                  onChange={(e) => setGuestInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault()
+                      addGuestFromInput()
+                    }
+                  }}
+                  onBlur={() => guestInput.trim() && addGuestFromInput()}
+                  style={{ flex: 1 }}
+                />
+                <button type="button" className="btn btn-ghost" onClick={addGuestFromInput} disabled={!guestInput.trim()}>
+                  Adicionar
+                </button>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem' }}>
+                Convidados de fora recebem o convite pelo Google Agenda (com o link da reunião).
+              </div>
+              {guestSuggestions.filter((s) => !guests.some((g) => g.email === s.email)).length > 0 && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <span style={{ ...fieldLabel, marginBottom: '0.25rem' }}>Sugestões do vínculo</span>
+                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {guestSuggestions
+                      .filter((s) => !guests.some((g) => g.email === s.email))
+                      .map((suggestion) => (
+                        <button
+                          key={suggestion.email}
+                          type="button"
+                          onClick={() => addSuggestedGuest(suggestion)}
+                          title={`${suggestion.entity_label} · ${suggestion.role} — clique para adicionar`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            background: 'transparent',
+                            border: '1.5px dashed var(--brs-gray-200)',
+                            borderRadius: 999,
+                            padding: '0.2rem 0.6rem',
+                            fontSize: '0.78rem',
+                            color: 'var(--brs-gray-600)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          + {suggestion.name ? `${suggestion.name} (${suggestion.role})` : `${suggestion.role}`} — {suggestion.email}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <span style={fieldLabel}><Lock size={12} style={{ display: 'inline', verticalAlign: '-2px' }} /> Visibilidade</span>

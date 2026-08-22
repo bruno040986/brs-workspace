@@ -79,7 +79,20 @@ export async function mirrorAgendaItemToGoogle(
     ])
     if (!organizer) return { mirrored: false, reason: 'sem_conexao' }
 
-    const emails = await attendeeEmails(admin, involvedIds)
+    const internalEmails = await attendeeEmails(admin, involvedIds)
+
+    // Convidados externos entram como attendees — o Google entrega o
+    // convite por e-mail para qualquer domínio.
+    const { data: guestRows } = await admin
+      .from('agenda_item_guests')
+      .select('email')
+      .eq('item_id', itemId)
+    const emails = Array.from(
+      new Set([
+        ...internalEmails,
+        ...(guestRows || []).map((row: any) => String(row.email || '').trim().toLowerCase()).filter(Boolean),
+      ]),
+    )
     const startAt = String(item.start_at)
     const endAt = item.end_at
       ? String(item.end_at)

@@ -82,6 +82,22 @@ export type AgendaItemLink = {
   label: string
 }
 
+export type AgendaGuest = {
+  email: string
+  name: string
+  source: 'manual' | 'vinculo' | 'google'
+}
+
+// Sugestão de convidado extraída do cadastro de um vínculo.
+export type SuggestedGuest = {
+  email: string
+  name: string
+  role: string
+  entity_label: string
+}
+
+export const GUEST_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export type AgendaItem = {
   id: string
   item_type: AgendaItemType
@@ -103,6 +119,7 @@ export type AgendaItem = {
   updated_at: string
   participants: AgendaParticipant[]
   links: AgendaItemLink[]
+  guests: AgendaGuest[]
   // true quando o item é privado e o usuário atual não está autorizado:
   // título/descrição chegam mascarados pela server action.
   masked?: boolean
@@ -126,6 +143,7 @@ export type AgendaItemPayload = {
   participant_user_ids: string[]
   authorized_user_ids: string[]
   links: AgendaItemLink[]
+  guests: Array<{ email: string; name: string; source?: AgendaGuest['source'] }>
 }
 
 export function priorityOrder(priority: AgendaPriority): number {

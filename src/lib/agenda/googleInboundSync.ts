@@ -12,6 +12,7 @@
 
 import { createAdminClient } from '@/lib/supabase/server'
 import { getValidGoogleTokenAdmin } from '@/lib/google/calendarApi'
+import { GUEST_EMAIL_REGEX } from './types'
 
 type AdminClient = Awaited<ReturnType<typeof createAdminClient>>
 
@@ -28,6 +29,7 @@ type GoogleListedEvent = {
   hangoutLink?: string
   start?: { dateTime?: string; date?: string }
   end?: { dateTime?: string; date?: string }
+  attendees?: Array<{ email?: string; displayName?: string }>
 }
 
 type SyncPage = { items: GoogleListedEvent[]; nextPageToken?: string; nextSyncToken?: string }
@@ -70,7 +72,35 @@ function eventTimes(event: GoogleListedEvent): { startAt: string | null; endAt: 
   return { startAt: null, endAt: null, allDay: false }
 }
 
-async function processEvent(admin: AdminClient, userId: string, event: GoogleListedEvent): Promise<void> {
+// Grava como convidados externos (source 'google') os attendees do
+// evento importado que não são usuários do Workspace.
+async function syncGoogleGuests(
+  admin: AdminClient,
+  itemId: string,
+  event: GoogleListedEvent,
+  internalEmails: Set<string>,
+): Promise<void> {
+  const seen = new Set<string>()
+  const externals: Array<{ item_id: string; email: string; name: string; source: 'google' }> = []
+  for (const attendee of event.attendees || []) {
+    const email = String(attendee.email || '').trim().toLowerCase()
+    if (!email || seen.has(email) || internalEmails.has(email) || !GUEST_EMAIL_REGEX.test(email)) continue
+    seen.add(email)
+    externals.push({ item_id: itemId, email, name: String(attendee.displayName || ''), source: 'google' })
+    if (externals.length >= 50) break
+  }
+  await admin.from('agenda_item_guests').delete().eq('item_id', itemId).eq('source', 'google')
+  if (externals.length) {
+    await admin.from('agenda_item_guests').upsert(externals, { onConflict: 'item_id,email', ignoreDuplicates: true })
+  }
+}
+
+async function processEvent(
+  admin: AdminClient,
+  userId: string,
+  event: GoogleListedEvent,
+  internalEmails: Set<string>,
+): Promise<void> {
   if (!event.id) return
   // Aniversários, local de trabalho, foco etc. não entram.
   if (event.eventType && event.eventType !== 'default') return
@@ -115,6 +145,7 @@ async function processEvent(admin: AdminClient, userId: string, event: GoogleLis
           { item_id: existing.id, user_id: userId, role: 'envolvido' },
           { onConflict: 'item_id,user_id,role', ignoreDuplicates: true },
         )
+      await syncGoogleGuests(admin, String(existing.id), event, internalEmails)
     }
     return
   }
@@ -145,10 +176,15 @@ async function processEvent(admin: AdminClient, userId: string, event: GoogleLis
   if (error && String((error as any).code || '') !== '23505') throw error
   if (inserted?.id) {
     await admin.from('agenda_item_participants').insert({ item_id: inserted.id, user_id: userId, role: 'envolvido' })
+    await syncGoogleGuests(admin, String(inserted.id), event, internalEmails)
   }
 }
 
-async function syncUser(admin: AdminClient, userId: string): Promise<{ ok: boolean; error?: string }> {
+async function syncUser(
+  admin: AdminClient,
+  userId: string,
+  internalEmails: Set<string>,
+): Promise<{ ok: boolean; error?: string }> {
   const token = await getValidGoogleTokenAdmin(admin, userId)
   if (!token) return { ok: false, error: 'token indisponível' }
 
@@ -186,7 +222,7 @@ async function syncUser(admin: AdminClient, userId: string): Promise<{ ok: boole
 
     for (const event of result.page.items) {
       try {
-        await processEvent(admin, userId, event)
+        await processEvent(admin, userId, event, internalEmails)
       } catch (error: any) {
         console.error(`Sync agenda: erro no evento ${event.id} do usuário ${userId}:`, error?.message)
       }
@@ -218,9 +254,21 @@ export async function runAgendaInboundSync(options?: { budgetMs?: number }): Pro
   const startedAt = Date.now()
   const admin = await createAdminClient()
 
-  const { data: connected } = await admin.from('user_google_auth').select('user_id')
+  const { data: connected } = await admin.from('user_google_auth').select('user_id, email_vinculado')
   const userIds = (connected || []).map((row: any) => String(row.user_id))
   if (!userIds.length) return { usersSynced: 0, errors: [] }
+
+  // E-mails dos usuários do Workspace: attendees com estes endereços
+  // são colegas (viram envolvidos), não convidados externos.
+  const { data: allUsers } = await admin.from('users').select('email')
+  const internalEmails = new Set<string>(
+    [
+      ...(allUsers || []).map((row: any) => String(row.email || '')),
+      ...(connected || []).map((row: any) => String(row.email_vinculado || '')),
+    ]
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  )
 
   // Quem sincronizou há mais tempo vai primeiro.
   const { data: states } = await admin
@@ -235,7 +283,7 @@ export async function runAgendaInboundSync(options?: { budgetMs?: number }): Pro
 
   for (const userId of userIds) {
     if (Date.now() - startedAt > budgetMs) break
-    const result = await syncUser(admin, userId)
+    const result = await syncUser(admin, userId, internalEmails)
     if (result.ok) usersSynced += 1
     else {
       errors.push({ userId, error: result.error || 'erro' })

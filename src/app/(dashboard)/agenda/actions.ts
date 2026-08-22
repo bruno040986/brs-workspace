@@ -10,12 +10,16 @@ import { enqueueMeetingReminder, enqueueTaskDueReminder } from '@/lib/agenda/rem
 import {
   AGENDA_LINK_ENTITY_TYPES,
   AGENDA_TASK_STATUSES,
+  GUEST_EMAIL_REGEX,
   nextOccurrenceDate,
+  type AgendaGuest,
   type AgendaItem,
+  type AgendaItemLink,
   type AgendaItemPayload,
   type AgendaParticipant,
   type AgendaRecurrence,
   type AgendaTaskStatus,
+  type SuggestedGuest,
 } from '@/lib/agenda/types'
 
 const PERMISSION_RESOURCE = 'workspace-agenda'
@@ -102,13 +106,25 @@ export async function listAgendaItems(params: AgendaListParams): Promise<AgendaI
 
   const itemIds = items.map((row) => String(row.id))
 
-  const [{ data: participantRows }, { data: linkRows }] = await Promise.all([
+  const [{ data: participantRows }, { data: linkRows }, { data: guestRows }] = await Promise.all([
     admin
       .from('agenda_item_participants')
       .select('item_id, user_id, role, user:user_id ( name, avatar_url )')
       .in('item_id', itemIds),
     admin.from('agenda_item_links').select('item_id, entity_type, entity_id, label').in('item_id', itemIds),
+    admin.from('agenda_item_guests').select('item_id, email, name, source').in('item_id', itemIds),
   ])
+
+  const guestsByItem = new Map<string, AgendaGuest[]>()
+  for (const row of guestRows || []) {
+    const list = guestsByItem.get(String((row as any).item_id)) || []
+    list.push({
+      email: String((row as any).email),
+      name: String((row as any).name || ''),
+      source: ((row as any).source || 'manual') as AgendaGuest['source'],
+    })
+    guestsByItem.set(String((row as any).item_id), list)
+  }
 
   const participantsByItem = new Map<string, AgendaParticipant[]>()
   for (const row of participantRows || []) {
@@ -176,6 +192,7 @@ export async function listAgendaItems(params: AgendaListParams): Promise<AgendaI
       updated_at: String(row.updated_at),
       participants: canSeeContent ? participants : participants.filter((p) => p.role === 'envolvido'),
       links: canSeeContent ? linksByItem.get(id) || [] : [],
+      guests: canSeeContent ? guestsByItem.get(id) || [] : [],
       masked: !canSeeContent,
     })
   }
@@ -277,7 +294,32 @@ async function replaceItemRelations(admin: AdminClient, itemId: string, payload:
     if (error) throw error
   }
 
-  return { involved }
+  // Convidados externos: substitui os geridos pelo editor; os de
+  // source 'google' pertencem ao sync inbound e não são tocados aqui.
+  const seenEmails = new Set<string>()
+  const guestRows = (payload.guests || [])
+    .map((guest) => ({
+      email: String(guest.email || '').trim().toLowerCase(),
+      name: String(guest.name || '').slice(0, 120),
+      source: guest.source === 'vinculo' ? 'vinculo' : 'manual',
+    }))
+    .filter((guest) => {
+      if (!GUEST_EMAIL_REGEX.test(guest.email) || seenEmails.has(guest.email)) return false
+      seenEmails.add(guest.email)
+      return true
+    })
+    .slice(0, 50)
+    .map((guest) => ({ ...guest, item_id: itemId }))
+
+  await admin.from('agenda_item_guests').delete().eq('item_id', itemId).neq('source', 'google')
+  if (guestRows.length) {
+    const { error } = await admin
+      .from('agenda_item_guests')
+      .upsert(guestRows, { onConflict: 'item_id,email', ignoreDuplicates: true })
+    if (error) throw error
+  }
+
+  return { involved, guestCount: guestRows.length }
 }
 
 export async function saveAgendaItem(
@@ -328,7 +370,7 @@ export async function saveAgendaItem(
       itemId = String(inserted.id)
     }
 
-    const { involved } = await replaceItemRelations(admin, itemId, payload)
+    const { involved, guestCount } = await replaceItemRelations(admin, itemId, payload)
 
     // Notifica apenas quem acabou de ser adicionado (não re-notifica em
     // toda edição) — e nunca o próprio autor da ação.
@@ -368,6 +410,9 @@ export async function saveAgendaItem(
       if (!mirror.mirrored && mirror.reason === 'sem_conexao') {
         warning =
           'Salvo no Workspace, mas nenhum envolvido tem conta Google conectada — o compromisso não foi para o Google Agenda.'
+        if (guestCount > 0) {
+          warning += ' Os convidados externos NÃO receberão o convite até alguém conectar o Google e salvar de novo.'
+        }
       } else if (!mirror.mirrored && mirror.reason === 'erro') {
         warning = 'Salvo no Workspace, mas o espelhamento no Google Agenda falhou. Tente salvar de novo.'
       }
@@ -452,13 +497,14 @@ export async function getAgendaItemById(itemId: string): Promise<AgendaItem | nu
   const { data: row } = await admin.from('agenda_items').select('*').eq('id', itemId).is('deleted_at', null).maybeSingle()
   if (!row) return null
 
-  const [{ data: participantRows }, { data: linkRows }, { data: creator }] = await Promise.all([
+  const [{ data: participantRows }, { data: linkRows }, { data: creator }, { data: guestRows }] = await Promise.all([
     admin
       .from('agenda_item_participants')
       .select('user_id, role, user:user_id ( name, avatar_url )')
       .eq('item_id', itemId),
     admin.from('agenda_item_links').select('entity_type, entity_id, label').eq('item_id', itemId),
     admin.from('users').select('name').eq('id', String(row.created_by)).maybeSingle(),
+    admin.from('agenda_item_guests').select('email, name, source').eq('item_id', itemId),
   ])
 
   const participants: AgendaParticipant[] = (participantRows || []).map((p: any) => ({
@@ -492,6 +538,13 @@ export async function getAgendaItemById(itemId: string): Promise<AgendaItem | nu
     participants: canSeeContent ? participants : participants.filter((p) => p.role === 'envolvido'),
     links: canSeeContent
       ? (linkRows || []).map((l: any) => ({ entity_type: String(l.entity_type), entity_id: String(l.entity_id), label: String(l.label || '') }))
+      : [],
+    guests: canSeeContent
+      ? (guestRows || []).map((g: any) => ({
+          email: String(g.email),
+          name: String(g.name || ''),
+          source: (g.source || 'manual') as AgendaGuest['source'],
+        }))
       : [],
     masked: !canSeeContent,
   }
@@ -649,6 +702,135 @@ export async function getAvailability(params: {
     return { success: true, entries }
   } catch (error: any) {
     return { success: false, error: error.message, entries: [] }
+  }
+}
+
+type RawSuggestion = { email: unknown; name: string; role: string }
+
+function contactListSuggestions(list: unknown, nameKey: string, role: string): RawSuggestion[] {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((contact: any) => contact && contact.is_active !== false)
+    .map((contact: any) => ({ email: contact.email, name: String(contact[nameKey] || ''), role }))
+}
+
+// Extrai e-mails "de pessoa" do cadastro de cada entidade vinculável.
+// Curadoria combinada com o Bruno (20/08/2026): contatos ativos com
+// nome + e-mails principais/por finalidade; fora e-mails utilitários
+// (NFS-e, Receita, PIX).
+async function extractEntitySuggestions(
+  admin: AdminClient,
+  link: AgendaItemLink,
+): Promise<RawSuggestion[]> {
+  if (link.entity_type === 'financial_institution') {
+    const { data } = await admin
+      .from('financial_institutions')
+      .select('general_data, contacts_commercial, contacts_operational')
+      .eq('id', link.entity_id)
+      .maybeSingle()
+    if (!data) return []
+    return [
+      ...contactListSuggestions(data.contacts_commercial, 'nome_completo', 'Comercial'),
+      ...contactListSuggestions(data.contacts_operational, 'nome_responsavel', 'Operacional'),
+      { email: (data.general_data as any)?.email_principal, name: '', role: 'E-mail principal' },
+    ]
+  }
+
+  if (link.entity_type === 'promotora') {
+    const { data } = await admin
+      .from('promotoras')
+      .select('address_data, contacts_commercial, contacts_operational')
+      .eq('id', link.entity_id)
+      .maybeSingle()
+    if (!data) return []
+    return [
+      ...contactListSuggestions(data.contacts_commercial, 'nome_completo', 'Comercial'),
+      ...contactListSuggestions(data.contacts_operational, 'nome_responsavel', 'Operacional'),
+      { email: (data.address_data as any)?.email_principal, name: '', role: 'E-mail principal' },
+    ]
+  }
+
+  if (link.entity_type === 'agente_parceiro') {
+    const { data } = await admin
+      .from('agentes_parceiros')
+      .select(
+        'email_comissao, email_informe, email_formalizacao, email_proposta, email_mesa_liberacao, email_juridico, corban_data',
+      )
+      .eq('id', link.entity_id)
+      .maybeSingle()
+    if (!data) return []
+    const corban = (data.corban_data || {}) as any
+    const byPurpose: RawSuggestion[] = [
+      { email: data.email_comissao, name: '', role: 'Comissão' },
+      { email: data.email_formalizacao, name: '', role: 'Formalização' },
+      { email: data.email_proposta, name: '', role: 'Proposta' },
+      { email: data.email_mesa_liberacao, name: '', role: 'Mesa de liberação' },
+      { email: data.email_juridico, name: '', role: 'Jurídico' },
+      { email: data.email_informe, name: '', role: 'Informe' },
+      { email: corban?.contacts?.email_financeiro, name: '', role: 'Financeiro' },
+    ]
+    const people: RawSuggestion[] = [
+      ...(Array.isArray(corban?.socios) ? corban.socios : []).map((p: any) => ({
+        email: p?.email,
+        name: String(p?.name || ''),
+        role: 'Sócio',
+      })),
+      ...(Array.isArray(corban?.administracao) ? corban.administracao : []).map((p: any) => ({
+        email: p?.email,
+        name: String(p?.name || ''),
+        role: String(p?.cargo || p?.tipo || 'Administração'),
+      })),
+    ]
+    return [...people, ...byPurpose]
+  }
+
+  if (link.entity_type === 'commercial_entity') {
+    const { data } = await admin
+      .from('commercial_entities')
+      .select('name, email_comissao, cadastral_data')
+      .eq('id', link.entity_id)
+      .maybeSingle()
+    if (!data) return []
+    const cadastral = (data.cadastral_data || {}) as any
+    return [
+      {
+        email: cadastral?.email_professional || data.email_comissao,
+        name: String(data.name || ''),
+        role: 'Profissional',
+      },
+    ]
+  }
+
+  return []
+}
+
+// Sugestões de convidados a partir dos vínculos selecionados no item.
+export async function getSuggestedGuests(
+  links: AgendaItemLink[],
+): Promise<{ success: boolean; suggestions: SuggestedGuest[]; error?: string }> {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_view')
+    const admin = await createAdminClient()
+
+    const validTypes = new Set(AGENDA_LINK_ENTITY_TYPES.map((t) => t.value))
+    const safeLinks = (links || []).filter((link) => validTypes.has(link.entity_type) && link.entity_id).slice(0, 10)
+
+    const suggestions: SuggestedGuest[] = []
+    const seen = new Set<string>()
+    for (const link of safeLinks) {
+      const raw = await extractEntitySuggestions(admin, link)
+      for (const suggestion of raw) {
+        const email = String(suggestion.email || '').trim().toLowerCase()
+        if (!email || seen.has(email) || !GUEST_EMAIL_REGEX.test(email)) continue
+        seen.add(email)
+        suggestions.push({ email, name: suggestion.name, role: suggestion.role, entity_label: link.label })
+        if (suggestions.length >= 40) break
+      }
+    }
+
+    return { success: true, suggestions }
+  } catch (error: any) {
+    return { success: false, error: error.message, suggestions: [] }
   }
 }
 
