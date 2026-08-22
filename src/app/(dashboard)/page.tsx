@@ -219,6 +219,7 @@ export default function HubPage() {
         { label: 'Sistema de Cadastro de Parceiros (SCP)', href: '/rh/parceiros' },
         { label: 'Links de Bancos', href: '#', disabled: true },
         { label: 'Instituições Financeiras', href: '/instituicoes-financeiras' },
+        { label: 'Cadastros de Crédito (Convênios e Coeficientes)', href: '/cadastros-credito' },
         { label: 'Link de Averbadores', href: '#', disabled: true },
         { label: 'Agente Corban', href: '/agente-corban' },
         { label: 'Promotoras', href: '/promotoras' },

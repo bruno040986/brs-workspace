@@ -66,6 +66,7 @@ const SYSTEM_MODULES = [
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
   { id: 'central-integracoes', name: 'Central de Integrações', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-subsistemas', level: 1 },
 
   // Sistema Category
   { id: 'cat-sistema', name: 'Sistema', isHeader: true, level: 0 },
@@ -84,6 +85,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-contaazul', name: 'API Conta Azul', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-arw', name: 'API ARW', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-instituicoes', name: 'Instituições Financeiras', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-credito', name: 'Cadastros de Crédito (Convênios/Tabelas/Coeficientes)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-crm', name: 'API CRM', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-regimes-tributarios', name: 'Regimes Tributários', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-recalculo-tributario', name: 'Recálculo Tributário', parentId: 'sistema-config-root', level: 2 },
