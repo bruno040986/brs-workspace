@@ -17,6 +17,7 @@ export const GATEWAY_CAMPOS: Record<string, GatewayCredencialCampo[]> = {
   ],
   abacatepay: [
     { key: 'api_key', label: 'API Key' },
+    { key: 'webhook_secret', label: 'Segredo do webhook', dica: 'Definido ao cadastrar o webhook no dashboard do Abacate (vai na URL como ?webhookSecret=). O portal recusa webhooks sem ele.' },
   ],
 }
 
