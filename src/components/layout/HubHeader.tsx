@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { 
   Bell, Grid, User, LogOut, Settings, X,
   ShieldCheck, ExternalLink, HelpCircle, LayoutGrid,
-  Megaphone, Briefcase, Banknote, Monitor, UserCircle2, Key, Users
+  Megaphone, Briefcase, Banknote, Monitor, UserCircle2, Key, Users, Cpu
 } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -317,6 +317,7 @@ export default function HubHeader({ user }: HubHeaderProps) {
     { label: 'Operacional', icon: Monitor, href: '/?sector=ops', color: '#ea580c', id: 'workspace-ops' },
     { label: 'Marketing', icon: Megaphone, href: '/?sector=mkt', color: '#db2777', id: 'workspace-mkt' },
     { label: 'Comercial', icon: Briefcase, href: '/?sector=com', color: '#ca8a04', id: 'workspace-com' },
+    { label: 'Tecnologia', icon: Cpu, href: '/?sector=tec', color: '#0891b2', id: 'workspace-tec' },
     { label: 'Acessos', icon: Key, href: '/?sector=acc', color: '#475569', id: 'workspace-acc' },
   ]
 
