@@ -18,6 +18,7 @@ import {
   Users,
 } from 'lucide-react'
 import CopyableFieldShell from '@/components/forms/CopyableFieldShell'
+import AlvoconsigTab from './AlvoconsigTab'
 import { avaliarGarantia, type ProducaoMes } from '@/lib/agente-corban-garantia'
 import {
   AGENTE_CORBAN_BANK_ACCOUNT_TYPES,
@@ -112,6 +113,7 @@ type TabKey =
   | 'bancarios'
   | 'garantia'
   | 'documentos'
+  | 'alvoconsig'
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'dados-principais', label: 'Dados Principais' },
@@ -123,6 +125,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'bancarios', label: 'Dados Bancários' },
   { key: 'garantia', label: 'Garantia' },
   { key: 'documentos', label: 'Documentos' },
+  { key: 'alvoconsig', label: 'AlvoConsig' },
 ]
 
 const GENDER_OPTIONS = [
@@ -2401,6 +2404,16 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === 'alvoconsig' && (
+            recordId ? (
+              <AlvoconsigTab agenteParceiroId={recordId} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--brs-gray-500)', fontSize: '0.9rem' }}>
+                Salve o cadastro do agente antes de configurar o AlvoConsig.
+              </div>
+            )
           )}
         </div>
       </div>
