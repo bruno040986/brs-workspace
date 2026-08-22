@@ -209,6 +209,19 @@ export async function criarLote(payload: {
       if (updateError) throw updateError
     }
 
+    // Enfileira a criação/vínculo de cada contato no WeSales (com o campo de
+    // dono). O worker do CRM consome com rate limit — lotes grandes levam o
+    // tempo que precisarem, sem estourar a API.
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500).map((contatoId) => ({
+        operacao: 'upsert_contato',
+        contato_id: contatoId,
+        payload: {},
+      }))
+      const { error: queueError } = await supabaseAdmin.from('crm_wesales_queue').insert(chunk)
+      if (queueError) console.error('Falha ao enfileirar sync WeSales do lote:', queueError)
+    }
+
     revalidatePath('/alvoconsig/alocacao')
     return { success: true, loteId: lote.id, alocados: ids.length }
   } catch (error: any) {
@@ -247,6 +260,24 @@ export async function revogarLote(loteId: string) {
     if (loteError) throw loteError
     if (!lote) return { success: false, error: 'Lote não encontrado.' }
     if (lote.revogado_em) return { success: false, error: 'Lote já revogado.' }
+
+    // Limpa o campo de dono no WeSales (antes de perder o vínculo local).
+    const { data: contatosDoLote } = await supabaseAdmin
+      .from('crm_contatos')
+      .select('id')
+      .eq('lote_id', loteId)
+      .not('wesales_contact_id', 'is', null)
+    if (contatosDoLote?.length) {
+      for (let i = 0; i < contatosDoLote.length; i += 500) {
+        const chunk = contatosDoLote.slice(i, i + 500).map((row: any) => ({
+          operacao: 'atualizar_dono',
+          contato_id: String(row.id),
+          payload: { dono: '' },
+        }))
+        const { error: queueError } = await supabaseAdmin.from('crm_wesales_queue').insert(chunk)
+        if (queueError) console.error('Falha ao enfileirar limpeza de dono no WeSales:', queueError)
+      }
+    }
 
     // O dono anterior perde o acesso; o histórico de tabulações permanece.
     const { error: contatosError } = await supabaseAdmin
