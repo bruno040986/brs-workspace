@@ -81,6 +81,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-google', name: 'Google', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-cpf', name: 'API CPF', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-nvti', name: 'API Nova Vida TI', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-gateways', name: 'Gateways de Pagamento', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-nbs', name: 'NBS', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-quarkrh', name: 'API QuarkRH', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-contaazul', name: 'API Conta Azul', parentId: 'sistema-config-root', level: 2 },

@@ -137,6 +137,7 @@ export default function Sidebar() {
     if (href === '/rh/parceiros/config/provedores/empresas') return canView('sistema-config-empresa')
     if (href === '/rh/parceiros/config/provedores/cpf') return canView('sistema-config-cpf')
     if (href === '/rh/parceiros/config/provedores/nvti') return canView('sistema-config-nvti')
+    if (href === '/rh/parceiros/config/provedores/gateways') return canView('sistema-config-gateways')
     if (href === '/rh/parceiros/config/provedores/cnae') return canView('sistema-config-cnae')
     if (href === '/rh/parceiros/config/provedores/ctn') return canView('sistema-config-ctn')
     if (href === '/rh/parceiros/config/provedores/nbs') return canView('sistema-config-nbs')
@@ -274,6 +275,7 @@ export default function Sidebar() {
         { label: 'Google', href: '/rh/parceiros/config/provedores/google', icon: Globe },
         { label: 'API CPF', href: '/rh/parceiros/config/provedores/cpf', icon: Key },
         { label: 'API Nova Vida TI', href: '/rh/parceiros/config/provedores/nvti', icon: Key },
+        { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', icon: Coins },
       ]),
     },
     {
