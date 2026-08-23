@@ -45,6 +45,7 @@ const SYSTEM_MODULES = [
   { id: 'scp-whatsapp', name: 'Modelos de WhatsApp', parentId: 'scp', level: 2 },
   { id: 'promotoras', name: 'Promotoras', parentId: 'cat-subsistemas', level: 1 },
   { id: 'agente-corban', name: 'Agente Corban', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'agente-corban-cadastros-recebidos', name: 'Cadastros Recebidos', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-tipos-agente', name: 'Tipo de Agente', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-regras-fisico', name: 'Regra de Físico', parentId: 'agente-corban', level: 2 },
