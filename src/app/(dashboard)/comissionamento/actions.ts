@@ -49,7 +49,7 @@ export async function getComissionamentoLookups() {
         .order('codigo_arw', { ascending: true, nullsFirst: false }),
       supabaseAdmin
         .from('tabelas_comissao')
-        .select('id, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, com_seguro, is_active')
+        .select('id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, is_active')
         .is('deleted_at', null)
         .order('is_active', { ascending: false })
         .order('nome'),

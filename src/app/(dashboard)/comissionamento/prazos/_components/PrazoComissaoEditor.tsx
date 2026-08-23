@@ -19,6 +19,7 @@ type Instituicao = { id: string; name: string; imposto_comissao_percent: number 
 type TipoAgente = { id: string; name: string; codigo_arw: number | null; percentual_repasse: number | null }
 type TabelaLookup = {
   id: string
+  codigo?: number
   nome: string
   codigo_tabela_banco: string | null
   institution_id: string
@@ -231,6 +232,8 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
     loadData()
   }, [prazoId])
 
+  const [tabelaQuery, setTabelaQuery] = useState('')
+  const [tabelaDropdownOpen, setTabelaDropdownOpen] = useState(false)
   const selectedTabela = useMemo(() => lookups.tabelasComissao.find((item) => item.id === form.tabela_comissao_id) || null, [form.tabela_comissao_id, lookups.tabelasComissao])
   const selectedInstitution = useMemo(() => lookups.instituicoes.find((item) => item.id === selectedTabela?.institution_id) || null, [lookups.instituicoes, selectedTabela])
   const contexto = useMemo<ContextoTabela | null>(() => selectedTabela ? {
@@ -277,6 +280,19 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
     const inst = lookups.instituicoes.find((instituicao) => instituicao.id === item.institution_id)
     return `${inst?.name || 'Instituição'} - ${item.nome}${item.codigo_tabela_banco ? ` (${item.codigo_tabela_banco})` : ''}`
   }
+
+  const tabelaSugestoes = useMemo(() => {
+    const query = tabelaQuery.trim().toLowerCase()
+    if (query.length < 3) return []
+    return lookups.tabelasComissao
+      .filter((item) => item.is_active || item.id === form.tabela_comissao_id)
+      .filter((item) => {
+        const alvo = `${tabelaLabel(item)} ${item.codigo || ''} ${item.codigo_tabela_banco || ''}`.toLowerCase()
+        return query.split(/\s+/).every((parte) => alvo.includes(parte))
+      })
+      .slice(0, 20)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabelaQuery, lookups.tabelasComissao, form.tabela_comissao_id])
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }))
@@ -342,10 +358,49 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '1rem' }}>
               <div className="form-group" style={{ gridColumn: 'span 6' }}>
                 <label className="form-label">Tabela de Comissão <span className="required">*</span></label>
-                <select className="form-control" required value={form.tabela_comissao_id} onChange={(e) => setField('tabela_comissao_id', e.target.value)}>
-                  <option value="">Selecione</option>
-                  {lookups.tabelasComissao.map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}
-                </select>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="form-control"
+                    placeholder="Digite 3+ caracteres (instituição, nome ou código)..."
+                    value={selectedTabela && !tabelaDropdownOpen ? tabelaLabel(selectedTabela) : tabelaQuery}
+                    onChange={(e) => {
+                      setTabelaQuery(e.target.value)
+                      setTabelaDropdownOpen(true)
+                      if (form.tabela_comissao_id) setField('tabela_comissao_id', '')
+                    }}
+                    onFocus={() => {
+                      if (selectedTabela) {
+                        setTabelaQuery(tabelaLabel(selectedTabela))
+                      }
+                      setTabelaDropdownOpen(true)
+                    }}
+                    onBlur={() => window.setTimeout(() => setTabelaDropdownOpen(false), 150)}
+                  />
+                  {tabelaDropdownOpen && tabelaQuery.trim().length >= 3 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: '#fff', border: '1px solid var(--brs-gray-200)', borderRadius: 10, boxShadow: '0 12px 30px rgba(15,23,42,0.12)', maxHeight: 260, overflowY: 'auto', marginTop: 4 }}>
+                      {tabelaSugestoes.length === 0 ? (
+                        <div style={{ padding: '0.6rem 0.8rem', color: 'var(--brs-gray-400)', fontSize: '0.85rem' }}>Nenhuma tabela encontrada.</div>
+                      ) : (
+                        tabelaSugestoes.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setField('tabela_comissao_id', item.id)
+                              setTabelaQuery('')
+                              setTabelaDropdownOpen(false)
+                            }}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '0.5rem 0.8rem', background: 'transparent', border: 'none', borderBottom: '1px solid var(--brs-gray-100)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--brs-gray-800)' }}
+                          >
+                            <span style={{ fontFamily: 'monospace', color: 'var(--brs-gray-400)', marginRight: 6 }}>{item.codigo || ''}</span>
+                            {tabelaLabel(item)}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="form-group" style={{ gridColumn: 'span 6' }}>
                 <label className="form-label">Forma de Pagamento Comissão</label>
