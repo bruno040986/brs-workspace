@@ -365,7 +365,9 @@ export async function getAgenteCorbanCatalogRows(resource: AgenteCorbanCatalogRe
     const table = getCatalogTable(resource)
     const { data, error } = await supabaseAdmin
       .from(table)
-      .select('id, name, is_active, deleted_at, created_at, updated_at')
+      // '*' para incluir os campos extras do Tipo de Agente
+      // (percentual_repasse, codigo_arw) — os outros catálogos ignoram.
+      .select('*')
       .order('is_active', { ascending: false })
       .order('name', { ascending: true })
 
