@@ -244,7 +244,7 @@ export default function PrazosComissaoPage() {
                     <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.codigo ?? '-'}</td>
                     <td>{formatDate(item.data_base)}</td>
                     <td style={{ fontWeight: 600 }}>{tabela?.nome || '-'}{tabela?.codigo_tabela_banco ? ` (${tabela.codigo_tabela_banco})` : ''}</td>
-                    <td>{item.prazo_inicial}/{item.prazo_final}</td>
+                    <td>{item.prazo_inicial} a {item.prazo_final}</td>
                     <td>{tabela?.financial_institutions?.name || '-'}</td>
                     <td>{promotoraLabel(tabela)}</td>
                     <td>{tabela?.formas_contrato?.nome || '-'}</td>
