@@ -15,6 +15,10 @@ type TabelaComissao = {
   convenio_id: string | null
   tipo_formalizacao_id: string | null
   com_seguro: boolean | null
+  taxa_juros_tipo: 'fixa' | 'faixa' | null
+  taxa_juros: number | null
+  taxa_juros_min: number | null
+  taxa_juros_max: number | null
   observacao: string | null
   id_arw: string | null
   is_active: boolean
@@ -28,6 +32,34 @@ type Lookups = { instituicoes: Instituicao[]; formasContrato: Lookup[]; convenio
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
 const emptyLookups: Lookups = { instituicoes: [], formasContrato: [], convenios: [], tiposFormalizacao: [] }
+
+function formatTaxa(value: number | null | undefined) {
+  if (value === null || value === undefined) return null
+  return `${Number(value).toFixed(2).replace('.', ',')}%`
+}
+
+function jurosLabel(item: { taxa_juros_tipo: 'fixa' | 'faixa' | null; taxa_juros: number | null; taxa_juros_min: number | null; taxa_juros_max: number | null }) {
+  if (item.taxa_juros_tipo === 'fixa') return formatTaxa(item.taxa_juros) || '-'
+  if (item.taxa_juros_tipo === 'faixa') return `${formatTaxa(item.taxa_juros_min) || '?'} a ${formatTaxa(item.taxa_juros_max) || '?'}`
+  return '-'
+}
+
+function parseTaxa(value: string): number | null {
+  const parsed = Number.parseFloat(String(value || '').replace(/\./g, '').replace(',', '.'))
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+function taxaParaTexto(value: number | null | undefined) {
+  if (value === null || value === undefined) return ''
+  return String(value).replace('.', ',')
+}
+
+type EditingTabela = Partial<TabelaComissaoPayload> & {
+  juros_tipo?: string
+  juros_fixa?: string
+  juros_min?: string
+  juros_max?: string
+}
 
 function seguroLabel(value: boolean | null | undefined) {
   if (value === true) return 'Com seguro'
@@ -45,7 +77,7 @@ export default function TabelasComissaoPage() {
   const [institutionFilter, setInstitutionFilter] = useState('all')
   const [formaFilter, setFormaFilter] = useState('all')
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Partial<TabelaComissaoPayload> | null>(null)
+  const [editing, setEditing] = useState<EditingTabela | null>(null)
   const [saving, setSaving] = useState(false)
 
   async function loadData() {
@@ -84,7 +116,7 @@ export default function TabelasComissaoPage() {
   }, [items, searchQuery, institutionFilter, formaFilter])
 
   function openNew() {
-    setEditing({ codigo_tabela_banco: '', nome: '', institution_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '' })
+    setEditing({ codigo_tabela_banco: '', nome: '', institution_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '', juros_tipo: '', juros_fixa: '', juros_min: '', juros_max: '' })
     setIsModalOpen(true)
   }
 
@@ -100,6 +132,10 @@ export default function TabelasComissaoPage() {
       com_seguro: item.com_seguro,
       observacao: item.observacao || '',
       id_arw: item.id_arw || '',
+      juros_tipo: item.taxa_juros_tipo || '',
+      juros_fixa: taxaParaTexto(item.taxa_juros),
+      juros_min: taxaParaTexto(item.taxa_juros_min),
+      juros_max: taxaParaTexto(item.taxa_juros_max),
     })
     setIsModalOpen(true)
   }
@@ -121,6 +157,10 @@ export default function TabelasComissaoPage() {
         com_seguro: editing.com_seguro ?? null,
         observacao: String(editing.observacao || ''),
         id_arw: editing.id_arw || null,
+        taxa_juros_tipo: editing.juros_tipo === 'fixa' || editing.juros_tipo === 'faixa' ? editing.juros_tipo : null,
+        taxa_juros: editing.juros_tipo === 'fixa' ? parseTaxa(editing.juros_fixa || '') : null,
+        taxa_juros_min: editing.juros_tipo === 'faixa' ? parseTaxa(editing.juros_min || '') : null,
+        taxa_juros_max: editing.juros_tipo === 'faixa' ? parseTaxa(editing.juros_max || '') : null,
       })
       if (res.success) {
         setIsModalOpen(false)
@@ -182,7 +222,7 @@ export default function TabelasComissaoPage() {
       <div className="card">
         <div className="table-wrapper">
           <table className="data-table">
-            <thead><tr><th>Instituição</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
+            <thead><tr><th>Instituição</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={10} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
@@ -197,6 +237,7 @@ export default function TabelasComissaoPage() {
                   <td>{item.convenios?.nome || '-'}</td>
                   <td>{item.tipos_formalizacao?.nome || '-'}</td>
                   <td>{seguroLabel(item.com_seguro)}</td>
+                  <td style={{ fontSize: '0.85rem' }}>{jurosLabel(item)}</td>
                   <td>{item.prazos_comissao?.length || 0}</td>
                   <td><span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>{item.is_active ? 'Ativo' : 'Inativo'}</span></td>
                   <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(item)}><Edit2 size={16} />Editar</button><button type="button" className={`btn btn-sm ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id}>{busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}{item.is_active ? 'Inativar' : 'Ativar'}</button></div></td>
@@ -221,6 +262,16 @@ export default function TabelasComissaoPage() {
                   <div className="form-group"><label className="form-label">Convênio</label><select className="form-control" value={editing?.convenio_id || ''} onChange={(e) => setEditing({ ...editing, convenio_id: e.target.value })}><option value="">Sem convênio</option>{lookups.convenios.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>
                   <div className="form-group"><label className="form-label">Tipo de Formalização</label><select className="form-control" value={editing?.tipo_formalizacao_id || ''} onChange={(e) => setEditing({ ...editing, tipo_formalizacao_id: e.target.value })}><option value="">Sem formalização</option>{lookups.tiposFormalizacao.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>
                   <div className="form-group"><label className="form-label">Seguro</label><select className="form-control" value={editing?.com_seguro === true ? 'true' : editing?.com_seguro === false ? 'false' : ''} onChange={(e) => setEditing({ ...editing, com_seguro: e.target.value === '' ? null : e.target.value === 'true' })}><option value="">Não informado</option><option value="true">Com seguro</option><option value="false">Sem seguro</option></select></div>
+                  <div className="form-group"><label className="form-label">Tipo de Taxa de Juros</label><select className="form-control" value={editing?.juros_tipo || ''} onChange={(e) => setEditing({ ...editing, juros_tipo: e.target.value })}><option value="">Não informada</option><option value="fixa">Fixa</option><option value="faixa">Faixa</option></select></div>
+                  {editing?.juros_tipo === 'fixa' && (
+                    <div className="form-group"><label className="form-label">Taxa de Juros (% a.m.)</label><input type="text" inputMode="decimal" className="form-control" placeholder="0,00" value={editing?.juros_fixa || ''} onChange={(e) => setEditing({ ...editing, juros_fixa: e.target.value })} /></div>
+                  )}
+                  {editing?.juros_tipo === 'faixa' && (
+                    <>
+                      <div className="form-group"><label className="form-label">Taxa de Juros — de (% a.m.)</label><input type="text" inputMode="decimal" className="form-control" placeholder="0,00" value={editing?.juros_min || ''} onChange={(e) => setEditing({ ...editing, juros_min: e.target.value })} /></div>
+                      <div className="form-group"><label className="form-label">Taxa de Juros — até (% a.m.)</label><input type="text" inputMode="decimal" className="form-control" placeholder="0,00" value={editing?.juros_max || ''} onChange={(e) => setEditing({ ...editing, juros_max: e.target.value })} /></div>
+                    </>
+                  )}
                   <div className="form-group"><label className="form-label">ID no ARW</label><input type="text" className="form-control" value={editing?.id_arw || ''} onChange={(e) => setEditing({ ...editing, id_arw: e.target.value })} /></div>
                 </div>
                 <div className="form-group" style={{ marginTop: '1rem' }}><label className="form-label">Observação</label><textarea className="form-control" rows={3} value={editing?.observacao || ''} onChange={(e) => setEditing({ ...editing, observacao: e.target.value })} /></div>

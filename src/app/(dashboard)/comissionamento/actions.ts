@@ -225,6 +225,11 @@ export type TabelaComissaoPayload = {
   com_seguro?: boolean | null
   observacao?: string
   id_arw?: string | null
+  /** Taxa de juros (% a.m.) — não existe no ARW, informação do Workspace. */
+  taxa_juros_tipo?: 'fixa' | 'faixa' | null
+  taxa_juros?: number | null
+  taxa_juros_min?: number | null
+  taxa_juros_max?: number | null
 }
 
 export async function getTabelasComissao() {
@@ -254,6 +259,18 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
     if (!payload.institution_id) return { success: false, error: 'Selecione a instituição financeira.' }
     if (!payload.forma_contrato_id) return { success: false, error: 'Selecione a forma de contrato.' }
 
+    const tipoJuros = payload.taxa_juros_tipo === 'fixa' || payload.taxa_juros_tipo === 'faixa' ? payload.taxa_juros_tipo : null
+    const juros = (valor: number | null | undefined) => {
+      const parsed = Number(valor)
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+    }
+    const taxaFixa = tipoJuros === 'fixa' ? juros(payload.taxa_juros) : null
+    const taxaMin = tipoJuros === 'faixa' ? juros(payload.taxa_juros_min) : null
+    const taxaMax = tipoJuros === 'faixa' ? juros(payload.taxa_juros_max) : null
+    if (tipoJuros === 'faixa' && taxaMin !== null && taxaMax !== null && taxaMin > taxaMax) {
+      return { success: false, error: 'Na taxa por faixa, o mínimo deve ser menor ou igual ao máximo.' }
+    }
+
     const row = {
       codigo_tabela_banco: String(payload.codigo_tabela_banco || '').trim() || null,
       nome,
@@ -264,6 +281,10 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
       com_seguro: payload.com_seguro ?? null,
       observacao: String(payload.observacao || ''),
       id_arw: String(payload.id_arw || '').trim() || null,
+      taxa_juros_tipo: tipoJuros,
+      taxa_juros: taxaFixa,
+      taxa_juros_min: taxaMin,
+      taxa_juros_max: taxaMax,
       updated_at: new Date().toISOString(),
     }
     const query = payload.id
