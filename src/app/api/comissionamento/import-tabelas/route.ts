@@ -1,134 +1,41 @@
 /**
- * Importador de Tabelas de Comissão (CSV/XLSX, modelo padronizado).
+ * Importador — PASSO 1: Tabelas de Comissão (planilha ÚNICA de dois passos).
  *
- * Duas fases, ambas por upload (o arquivo é a fonte da verdade; nada fica em
- * memória entre os passos):
- * - fase=analisar: dry-run — resolve referências (com aliases memorizados +
- *   resoluções apontadas na tela), classifica cada linha (nova / atualização
- *   com diff / sem mudança / pendência / inválida). NADA é gravado.
- * - fase=aplicar: exige ZERO pendências/inválidas (decisão Bruno: tudo
- *   resolvido por segurança); atualizações aplicam só as linhas APROVADAS na
- *   tela; grava aliases novos e o log de auditoria.
+ * A mesma planilha traz colunas de tabela + colunas de prazo; aqui só as de
+ * tabela são usadas (as demais são ignoradas). Linhas que repetem a MESMA
+ * tabela (existem por causa dos vários prazos) são deduplicadas: a primeira
+ * vale, as demais viram "repetida" — exatamente como o ARW.
  *
+ * fase=analisar: dry-run. fase=aplicar: exige zero pendências/inválidas;
+ * atualizações aplicam só as aprovadas; grava aliases e log.
  * Exige sistema-config-credito (can_include).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import * as XLSX from 'xlsx'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
-  MODELO_TABELAS_HEADERS,
-  chaveResolucao,
+  COLUNAS_TABELA,
   normalizarTexto,
   parseSeguro,
   parseTaxaPlanilha,
-  type CampoReferencia,
   type DiffCampo,
   type LinhaAnalisada,
   type Resolucoes,
 } from '@/lib/comissionamento-import'
+import {
+  carregarCatalogo,
+  lerPlanilha,
+  resolverReferencia,
+  salvarAliases,
+  type Catalogo,
+} from '@/lib/comissionamento-import-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const MAX_LINHAS = 20_000
-
-type Catalogo = {
-  financeiras: Array<{ id: string; nome: string; codigoBanco: string }>
-  promotoras: Array<{ id: string; nome: string; razao: string }>
-  convenios: Array<{ id: string; nome: string; codigo: string }>
-  formas: Array<{ id: string; nome: string; codigoArw: string }>
-  formalizacoes: Array<{ id: string; nome: string; codigoArw: string }>
-  aliases: Map<string, string>
-}
-
-function lerPlanilha(buffer: Buffer): { headers: string[]; rows: unknown[][] } {
-  const workbook = XLSX.read(buffer, { type: 'buffer', raw: true })
-  const sheetName = workbook.SheetNames[0]
-  if (!sheetName) return { headers: [], rows: [] }
-  const sheet = workbook.Sheets[sheetName]
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: '' })
-  const headers = (rows[0] || []).map((cell) => normalizarTexto(cell).replace(/ /g, '_'))
-  return { headers, rows: rows.slice(1) }
-}
-
-async function carregarCatalogo(admin: Awaited<ReturnType<typeof createAdminClient>>): Promise<Catalogo> {
-  const [financeiras, promotoras, convenios, formas, formalizacoes, aliases] = await Promise.all([
-    admin.from('financial_institutions').select('id, name, linked_bank_code').is('deleted_at', null),
-    admin.from('promotoras').select('id, razao_social, nome_fantasia'),
-    admin.from('convenios').select('id, nome, codigo').is('deleted_at', null),
-    admin.from('formas_contrato').select('id, nome, codigo_arw'),
-    admin.from('tipos_formalizacao').select('id, nome, codigo_arw'),
-    admin.from('comissionamento_import_aliases').select('tipo, texto_normalizado, alvo_id'),
-  ])
-  const aliasesMap = new Map<string, string>()
-  for (const alias of aliases.data || []) {
-    aliasesMap.set(chaveResolucao(alias.tipo as CampoReferencia, String(alias.texto_normalizado)), String(alias.alvo_id))
-  }
-  return {
-    financeiras: (financeiras.data || []).map((row: any) => ({
-      id: String(row.id),
-      nome: normalizarTexto(row.name),
-      codigoBanco: normalizarTexto(row.linked_bank_code),
-    })),
-    promotoras: (promotoras.data || []).map((row: any) => ({
-      id: String(row.id),
-      nome: normalizarTexto(row.nome_fantasia),
-      razao: normalizarTexto(row.razao_social),
-    })),
-    convenios: (convenios.data || []).map((row: any) => ({
-      id: String(row.id),
-      nome: normalizarTexto(row.nome),
-      codigo: normalizarTexto(row.codigo),
-    })),
-    formas: (formas.data || []).map((row: any) => ({
-      id: String(row.id),
-      nome: normalizarTexto(row.nome),
-      codigoArw: normalizarTexto(row.codigo_arw),
-    })),
-    formalizacoes: (formalizacoes.data || []).map((row: any) => ({
-      id: String(row.id),
-      nome: normalizarTexto(row.nome),
-      codigoArw: normalizarTexto(row.codigo_arw),
-    })),
-    aliases: aliasesMap,
-  }
-}
-
-function resolverReferencia(
-  campo: CampoReferencia,
-  texto: string,
-  catalogo: Catalogo,
-  resolucoes: Resolucoes,
-): string | null {
-  const normalizado = normalizarTexto(texto)
-  if (!normalizado) return null
-
-  const chave = chaveResolucao(campo, normalizado)
-  if (resolucoes[chave]) return resolucoes[chave]
-  if (catalogo.aliases.has(chave)) return catalogo.aliases.get(chave)!
-
-  if (campo === 'financeira') {
-    const hit = catalogo.financeiras.find((item) => item.nome === normalizado || (item.codigoBanco && item.codigoBanco === normalizado))
-    return hit?.id || null
-  }
-  if (campo === 'promotora') {
-    const hit = catalogo.promotoras.find((item) => item.nome === normalizado || item.razao === normalizado)
-    return hit?.id || null
-  }
-  if (campo === 'convenio') {
-    const hit = catalogo.convenios.find((item) => item.nome === normalizado || (item.codigo && item.codigo === normalizado))
-    return hit?.id || null
-  }
-  if (campo === 'forma_contrato') {
-    const hit = catalogo.formas.find((item) => item.nome === normalizado || (item.codigoArw && item.codigoArw === normalizado))
-    return hit?.id || null
-  }
-  const hit = catalogo.formalizacoes.find((item) => item.nome === normalizado || (item.codigoArw && item.codigoArw === normalizado))
-  return hit?.id || null
-}
 
 type TabelaExistente = {
   id: string
@@ -148,16 +55,23 @@ type TabelaExistente = {
   id_arw: string | null
 }
 
+function chaveIdentidade(dados: LinhaAnalisada['dados']) {
+  return [
+    dados.institution_id || '',
+    dados.promotora_id || '',
+    dados.forma_contrato_id || '',
+    dados.convenio_id || '',
+    normalizarTexto(dados.codigo_tabela_banco),
+  ].join('|')
+}
+
 function encontrarExistente(dados: LinhaAnalisada['dados'], existentes: TabelaExistente[]): TabelaExistente | null {
-  // 1º: id do ARW (único por registro), quando presente dos dois lados.
   if (dados.id_arw) {
     const porArw = existentes.find((item) => item.id_arw && normalizarTexto(item.id_arw) === normalizarTexto(dados.id_arw))
     if (porArw) return porArw
   }
-  // 2º: identidade IMUTÁVEL da tabela (decisão Bruno 24/08/2026):
-  // financeira + convênio + forma de contrato + código no banco.
-  // Nome e taxa de juros são atributos atualizáveis — NUNCA entram no
-  // cruzamento (no Santander todas as tabelas têm o mesmo nome).
+  // Identidade imutável: financeira + promotora + forma + convênio + código no
+  // banco. Nome e juros são atributos atualizáveis — nunca entram no match.
   if (dados.institution_id && dados.codigo_tabela_banco) {
     const porChave = existentes.find(
       (item) =>
@@ -169,7 +83,6 @@ function encontrarExistente(dados: LinhaAnalisada['dados'], existentes: TabelaEx
     )
     if (porChave) return porChave
   }
-  // Sem id_arw e sem código no banco: não arrisca match — trata como nova.
   return null
 }
 
@@ -183,7 +96,7 @@ function montarDiff(dados: LinhaAnalisada['dados'], atual: TabelaExistente, nome
     return '-'
   }
 
-  const comparacoes: Array<{ campo: string; label: string; atual: string; novo: string }> = [
+  const comparacoes: DiffCampo[] = [
     { campo: 'codigo_tabela_banco', label: 'Código no banco', atual: String(atual.codigo_tabela_banco || '-'), novo: String(dados.codigo_tabela_banco || '-') },
     { campo: 'nome', label: 'Nome', atual: atual.nome, novo: dados.nome },
     { campo: 'institution_id', label: 'Financeira', atual: fmtRef(atual.institution_id), novo: fmtRef(dados.institution_id) },
@@ -199,9 +112,7 @@ function montarDiff(dados: LinhaAnalisada['dados'], atual: TabelaExistente, nome
       novo: fmtJuros(dados.taxa_juros_tipo, dados.taxa_juros, dados.taxa_juros_min, dados.taxa_juros_max),
     },
     { campo: 'observacao', label: 'Observação', atual: String(atual.observacao || '-'), novo: dados.observacao || '-' },
-    { campo: 'id_arw', label: 'ID no ARW', atual: String(atual.id_arw || '-'), novo: String(dados.id_arw || '-') },
   ]
-
   return comparacoes.filter((item) => item.atual !== item.novo)
 }
 
@@ -210,12 +121,11 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   if (!planilha.headers.length) throw new Error('Arquivo vazio ou sem cabeçalho.')
   if (planilha.rows.length > MAX_LINHAS) throw new Error(`Máximo de ${MAX_LINHAS.toLocaleString('pt-BR')} linhas por arquivo.`)
 
-  // Valida o cabeçalho do modelo (ordem livre; casa por nome).
   const indice = new Map<string, number>()
   planilha.headers.forEach((header, i) => indice.set(header, i))
-  const faltando = MODELO_TABELAS_HEADERS.filter((header) => !indice.has(header))
-  if (faltando.length > 2) {
-    throw new Error(`Cabeçalho não bate com o modelo. Colunas faltando: ${faltando.join(', ')}. Baixe o modelo na tela.`)
+  const faltando = COLUNAS_TABELA.filter((header) => !indice.has(header))
+  if (faltando.length > 3) {
+    throw new Error(`Cabeçalho não bate com o modelo. Colunas de tabela faltando: ${faltando.join(', ')}. Baixe o modelo na tela.`)
   }
 
   const celula = (row: unknown[], nome: string) => {
@@ -223,35 +133,20 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     return i === undefined ? '' : row[i] ?? ''
   }
 
-  const catalogo = await carregarCatalogo(admin)
+  const catalogo: Catalogo = await carregarCatalogo(admin)
   const { data: existentesData } = await admin
     .from('tabelas_comissao')
     .select('id, codigo_tabela_banco, nome, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, id_arw')
     .is('deleted_at', null)
   const existentes = (existentesData || []) as TabelaExistente[]
 
-  // Nomes para o diff.
-  const nomes = new Map<string, string>()
-  const [fis, convs, promos] = await Promise.all([
-    admin.from('financial_institutions').select('id, name'),
-    admin.from('convenios').select('id, nome'),
-    admin.from('promotoras').select('id, razao_social, nome_fantasia'),
-  ])
-  for (const row of fis.data || []) nomes.set(String(row.id), String(row.name))
-  for (const row of convs.data || []) nomes.set(String(row.id), String(row.nome))
-  for (const row of promos.data || []) nomes.set(String(row.id), String(row.nome_fantasia || row.razao_social || row.id))
-  const [formasAll, formalizacoesAll] = await Promise.all([
-    admin.from('formas_contrato').select('id, nome'),
-    admin.from('tipos_formalizacao').select('id, nome'),
-  ])
-  for (const row of formasAll.data || []) nomes.set(String(row.id), String(row.nome))
-  for (const row of formalizacoesAll.data || []) nomes.set(String(row.id), String(row.nome))
-
   const linhas: LinhaAnalisada[] = []
+  const identidadesVistas = new Set<string>()
+
   for (let i = 0; i < planilha.rows.length; i++) {
     const row = planilha.rows[i]
     if (!Array.isArray(row) || row.every((cell) => String(cell ?? '').trim() === '')) continue
-    const n = i + 2 // linha da planilha (1 = cabeçalho)
+    const n = i + 2
 
     const nome = String(celula(row, 'nome') ?? '').trim()
     const financeiraTexto = String(celula(row, 'financeira') ?? '').trim()
@@ -285,13 +180,11 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       id_arw: String(celula(row, 'id_arw') ?? '').trim() || null,
     }
 
-    // Validações estruturais.
     if (!nome || !financeiraTexto || !formaTexto) {
       linhas.push({ n, status: 'invalida', erro: 'Nome, financeira e forma de contrato são obrigatórios.', dados, pendencias: [], matchId: null, diff: [] })
       continue
     }
 
-    // Pendências de referência (campo preenchido que não resolveu).
     const pendencias: LinhaAnalisada['pendencias'] = []
     if (!dados.institution_id) pendencias.push({ campo: 'financeira', texto: financeiraTexto, textoNormalizado: normalizarTexto(financeiraTexto) })
     if (promotoraTexto && !dados.promotora_id) pendencias.push({ campo: 'promotora', texto: promotoraTexto, textoNormalizado: normalizarTexto(promotoraTexto) })
@@ -304,21 +197,22 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       continue
     }
 
+    // Planilha única: linhas repetem a tabela (uma por prazo) — só a 1ª conta.
+    const identidade = chaveIdentidade(dados)
+    if (identidadesVistas.has(identidade)) {
+      linhas.push({ n, status: 'repetida', dados, pendencias: [], matchId: null, diff: [] })
+      continue
+    }
+    identidadesVistas.add(identidade)
+
     const existente = encontrarExistente(dados, existentes)
     if (!existente) {
       linhas.push({ n, status: 'nova', dados, pendencias: [], matchId: null, diff: [] })
       continue
     }
 
-    const diff = montarDiff(dados, existente, nomes)
-    linhas.push({
-      n,
-      status: diff.length === 0 ? 'sem_mudanca' : 'atualizacao',
-      dados,
-      pendencias: [],
-      matchId: existente.id,
-      diff,
-    })
+    const diff = montarDiff(dados, existente, catalogo.nomes)
+    linhas.push({ n, status: diff.length === 0 ? 'sem_mudanca' : 'atualizacao', dados, pendencias: [], matchId: existente.id, diff })
   }
 
   const resumo = {
@@ -328,6 +222,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     semMudanca: linhas.filter((linha) => linha.status === 'sem_mudanca').length,
     pendencias: linhas.filter((linha) => linha.status === 'pendencia').length,
     invalidas: linhas.filter((linha) => linha.status === 'invalida').length,
+    repetidas: linhas.filter((linha) => linha.status === 'repetida').length,
   }
 
   return { linhas, resumo }
@@ -363,7 +258,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(analise)
     }
 
-    // fase=aplicar — decisão Bruno: tudo resolvido por segurança.
     if (analise.resumo.pendencias > 0 || analise.resumo.invalidas > 0) {
       return NextResponse.json(
         { error: `Ainda há ${analise.resumo.pendencias} pendência(s) e ${analise.resumo.invalidas} linha(s) inválida(s). Resolva tudo antes de aplicar.` },
@@ -385,6 +279,11 @@ export async function POST(request: NextRequest) {
     const resultado: Array<{ n: number; acao: string; id?: string }> = []
 
     for (const linha of analise.linhas) {
+      if (linha.status === 'repetida') {
+        resultado.push({ n: linha.n, acao: 'repetida' })
+        continue
+      }
+
       const base = {
         codigo_tabela_banco: linha.dados.codigo_tabela_banco,
         nome: linha.dados.nome,
@@ -420,16 +319,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Memoriza os de-paras apontados na tela.
-    const aliasRows = Object.entries(resolucoes)
-      .map(([chave, alvoId]) => {
-        const [tipo, ...resto] = chave.split('::')
-        return { tipo, texto_normalizado: resto.join('::'), alvo_id: alvoId, created_by: user.id }
-      })
-      .filter((row) => row.tipo && row.texto_normalizado && row.alvo_id)
-    if (aliasRows.length) {
-      await admin.from('comissionamento_import_aliases').upsert(aliasRows, { onConflict: 'tipo,texto_normalizado' })
-    }
+    await salvarAliases(admin, resolucoes, user.id)
 
     await admin.from('comissionamento_imports').insert({
       tipo: 'tabelas',
@@ -437,12 +327,12 @@ export async function POST(request: NextRequest) {
       total_linhas: analise.resumo.total,
       criadas,
       atualizadas,
-      sem_mudanca: analise.resumo.semMudanca,
+      sem_mudanca: analise.resumo.semMudanca + analise.resumo.repetidas,
       resultado,
       criado_por: user.id,
     })
 
-    return NextResponse.json({ criadas, atualizadas, semMudanca: analise.resumo.semMudanca })
+    return NextResponse.json({ criadas, atualizadas, semMudanca: analise.resumo.semMudanca, repetidas: analise.resumo.repetidas })
   } catch (error: any) {
     console.error('Erro no import de tabelas de comissão:', error)
     return NextResponse.json({ error: String(error?.message || 'Erro inesperado na importação.') }, { status: 500 })

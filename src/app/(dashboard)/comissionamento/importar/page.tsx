@@ -14,7 +14,12 @@ import {
 } from '@/lib/comissionamento-import'
 import { getComissionamentoLookups } from '../actions'
 
-type AnaliseResponse = { linhas: LinhaAnalisada[]; resumo: ResumoAnalise }
+type PassoImportacao = 'tabelas' | 'prazos'
+type LinhaImportacao = Omit<LinhaAnalisada, 'dados'> & {
+  descricao?: string
+  dados?: Partial<LinhaAnalisada['dados']> & Record<string, unknown>
+}
+type AnaliseResponse = { linhas: LinhaImportacao[]; resumo: ResumoAnalise }
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 type LookupItem = { id: string; nome: string; name?: string; codigo?: string | null; codigo_arw?: string | null }
 type Lookups = {
@@ -35,7 +40,7 @@ const campoLabels: Record<CampoReferencia, string> = {
   tipo_formalizacao: 'Formalização',
 }
 
-function uniquePendencias(linhas: LinhaAnalisada[]) {
+function uniquePendencias(linhas: Array<{ pendencias?: PendenciaLinha[] }>) {
   const map = new Map<string, PendenciaLinha>()
   for (const linha of linhas) {
     for (const pendencia of linha.pendencias || []) {
@@ -65,6 +70,7 @@ function summaryCard(label: string, value: number, color: string) {
 
 export default function ImportarComissionamentoPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [passo, setPasso] = useState<PassoImportacao>('tabelas')
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [analise, setAnalise] = useState<AnaliseResponse | null>(null)
   const [lookups, setLookups] = useState<Lookups>(emptyLookups)
@@ -105,6 +111,7 @@ export default function ImportarComissionamentoPage() {
   const invalidas = useMemo(() => (analise?.linhas || []).filter((linha) => linha.status === 'invalida'), [analise])
   const atualizacoes = useMemo(() => (analise?.linhas || []).filter((linha) => linha.status === 'atualizacao'), [analise])
   const novas = useMemo(() => (analise?.linhas || []).filter((linha) => linha.status === 'nova'), [analise])
+  const repetidas = useMemo(() => (analise?.linhas || []).filter((linha) => linha.status === 'repetida'), [analise])
   const podeAplicar = Boolean(arquivo && analise && analise.resumo.pendencias === 0 && analise.resumo.invalidas === 0)
 
   function resetWizard() {
@@ -114,6 +121,12 @@ export default function ImportarComissionamentoPage() {
     setAtualizacoesAprovadas([])
     setMostrarNovas(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function trocarPasso(nextPasso: PassoImportacao) {
+    if (nextPasso === passo) return
+    setPasso(nextPasso)
+    resetWizard()
   }
 
   function baixarModelo() {
@@ -132,7 +145,8 @@ export default function ImportarComissionamentoPage() {
     formData.append('fase', fase)
     formData.append('resolucoes', JSON.stringify(currentResolucoes))
     if (fase === 'aplicar') formData.append('aprovadas', JSON.stringify(aprovadas || []))
-    const res = await fetch('/api/comissionamento/import-tabelas', { method: 'POST', body: formData })
+    const endpoint = passo === 'tabelas' ? '/api/comissionamento/import-tabelas' : '/api/comissionamento/import-prazos'
+    const res = await fetch(endpoint, { method: 'POST', body: formData })
     const json = await res.json()
     if (!res.ok) throw new Error(json.error || 'Erro na importação.')
     return json
@@ -172,8 +186,9 @@ export default function ImportarComissionamentoPage() {
     setProcessando(true)
     setMessage(null)
     try {
-      const json = (await postar('aplicar', arquivo, resolucoes, atualizacoesAprovadas)) as { criadas: number; atualizadas: number; semMudanca: number }
-      setMessage({ type: 'success', text: `${json.criadas} criadas, ${json.atualizadas} atualizadas, ${json.semMudanca} sem mudança.` })
+      const json = (await postar('aplicar', arquivo, resolucoes, atualizacoesAprovadas)) as { criadas: number; atualizadas: number; semMudanca: number; repetidas: number; lote?: string }
+      const loteTexto = passo === 'prazos' && json.lote ? ` Lote nº ${json.lote}.` : ''
+      setMessage({ type: 'success', text: `${json.criadas} criadas, ${json.atualizadas} atualizadas, ${json.semMudanca} sem mudança, ${json.repetidas || 0} repetidas ignoradas.${loteTexto}` })
       resetWizard()
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Erro ao aplicar importação.' })
@@ -194,6 +209,19 @@ export default function ImportarComissionamentoPage() {
     setAtualizacoesAprovadas((current) => current.includes(n) ? current.filter((item) => item !== n) : [...current, n])
   }
 
+  function linhaTitulo(linha: LinhaImportacao) {
+    if (passo === 'prazos') return linha.descricao || `Linha ${linha.n}`
+    return String(linha.dados?.nome || linha.descricao || `Linha ${linha.n}`)
+  }
+
+  function linhaFinanceira(linha: LinhaImportacao) {
+    return String(linha.dados?.financeira_texto || '-')
+  }
+
+  function linhaConvenio(linha: LinhaImportacao) {
+    return String(linha.dados?.convenio_texto || '-')
+  }
+
   return (
     <div className="page-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
@@ -212,6 +240,12 @@ export default function ImportarComissionamentoPage() {
         </button>
       </div>
 
+      <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: '#F8FAFC' }}>
+        <div style={{ color: 'var(--brs-gray-700)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+          A MESMA planilha (modelo único) serve para os dois passos: no Passo 1 o sistema usa só as colunas da tabela e ignora as repetições (uma linha por prazo repete a tabela — só a primeira conta); no Passo 2, a mesma planilha é lida de novo e cada linha vira um Prazo Comissão da tabela correspondente. Importe sempre o Passo 1 antes do Passo 2.
+        </div>
+      </div>
+
       {message && (
         <div style={{ marginBottom: '1rem', padding: '0.875rem 1rem', borderRadius: 10, border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`, background: message.type === 'success' ? '#ECFDF5' : '#FEF2F2', color: message.type === 'success' ? '#065F46' : '#991B1B', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           {message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
@@ -220,6 +254,17 @@ export default function ImportarComissionamentoPage() {
       )}
 
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <div className="form-group" style={{ marginBottom: '1rem' }}>
+          <label className="form-label">Passo da importação</label>
+          <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className={`btn btn-sm ${passo === 'tabelas' ? 'btn-primary' : 'btn-outline'}`} onClick={() => trocarPasso('tabelas')}>
+              1 — Tabelas de Comissão
+            </button>
+            <button type="button" className={`btn btn-sm ${passo === 'prazos' ? 'btn-primary' : 'btn-outline'}`} onClick={() => trocarPasso('prazos')}>
+              2 — Prazos Comissão
+            </button>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group">
             <label className="form-label">Arquivo (.csv, .xlsx, .xls)</label>
@@ -242,6 +287,7 @@ export default function ImportarComissionamentoPage() {
             {summaryCard('Novas', analise.resumo.novas, '#065F46')}
             {summaryCard('Atualizações', analise.resumo.atualizacoes, '#92400E')}
             {summaryCard('Sem mudança', analise.resumo.semMudanca, 'var(--brs-gray-500)')}
+            {summaryCard('Repetidas (ignoradas)', analise.resumo.repetidas, 'var(--brs-gray-500)')}
             {summaryCard('Pendências', analise.resumo.pendencias, '#991B1B')}
             {summaryCard('Inválidas', analise.resumo.invalidas, '#991B1B')}
           </div>
@@ -282,8 +328,8 @@ export default function ImportarComissionamentoPage() {
               <div style={{ padding: '1rem', borderBottom: '1px solid var(--brs-gray-200)', fontWeight: 800 }}>Linhas inválidas</div>
               <div className="table-wrapper">
                 <table className="data-table">
-                  <thead><tr><th>Linha</th><th>Erro</th></tr></thead>
-                  <tbody>{invalidas.map((linha) => <tr key={linha.n}><td>{linha.n}</td><td>{linha.erro || '-'}</td></tr>)}</tbody>
+                  <thead><tr><th>Linha</th>{passo === 'prazos' ? <th>Descrição</th> : null}<th>Erro</th></tr></thead>
+                  <tbody>{invalidas.map((linha) => <tr key={linha.n}><td>{linha.n}</td>{passo === 'prazos' ? <td>{linhaTitulo(linha)}</td> : null}<td>{linha.erro || '-'}</td></tr>)}</tbody>
                 </table>
               </div>
             </div>
@@ -295,7 +341,7 @@ export default function ImportarComissionamentoPage() {
                 <div key={linha.n} className="card" style={{ padding: '1rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800, color: 'var(--brs-gray-900)', marginBottom: '0.75rem' }}>
                     <input type="checkbox" checked={atualizacoesAprovadas.includes(linha.n)} onChange={() => toggleAtualizacao(linha.n)} />
-                    Linha {linha.n} - {linha.dados.nome}
+                    Linha {linha.n} — {linhaTitulo(linha)}
                     <span style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', fontWeight: 600 }}>Aprovar esta atualização</span>
                   </label>
                   <div className="table-wrapper">
@@ -313,13 +359,39 @@ export default function ImportarComissionamentoPage() {
             <div className="card" style={{ marginBottom: '1.5rem' }}>
               <button type="button" className="btn btn-ghost" style={{ margin: '1rem' }} onClick={() => setMostrarNovas(!mostrarNovas)}>
                 <FileSpreadsheet size={16} />
-                Novas tabelas: {novas.length.toLocaleString('pt-BR')}
+                {passo === 'tabelas' ? 'Novas tabelas' : 'Novos prazos'}: {novas.length.toLocaleString('pt-BR')}
               </button>
               {mostrarNovas && (
                 <div className="table-wrapper">
                   <table className="data-table">
-                    <thead><tr><th>Linha</th><th>Nome</th><th>Financeira</th><th>Convênio</th></tr></thead>
-                    <tbody>{novas.map((linha) => <tr key={linha.n}><td>{linha.n}</td><td style={{ fontWeight: 600 }}>{linha.dados.nome}</td><td>{linha.dados.financeira_texto}</td><td>{linha.dados.convenio_texto || '-'}</td></tr>)}</tbody>
+                    <thead>{passo === 'tabelas' ? <tr><th>Linha</th><th>Nome</th><th>Financeira</th><th>Convênio</th></tr> : <tr><th>Linha</th><th>Descrição</th></tr>}</thead>
+                    <tbody>{novas.map((linha) => passo === 'tabelas' ? <tr key={linha.n}><td>{linha.n}</td><td style={{ fontWeight: 600 }}>{linhaTitulo(linha)}</td><td>{linhaFinanceira(linha)}</td><td>{linhaConvenio(linha)}</td></tr> : <tr key={linha.n}><td>{linha.n}</td><td style={{ fontWeight: 600 }}>{linhaTitulo(linha)}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {repetidas.length > 0 && (
+            <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
+              <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', marginBottom: '0.5rem' }}>
+                Repetidas: {repetidas.length.toLocaleString('pt-BR')} linha(s) ignorada(s)
+              </div>
+              <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                Linhas: {repetidas.map((linha) => linha.n).join(', ')}
+              </div>
+              {passo === 'tabelas' ? (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead><tr><th>Linha</th><th>Nome</th></tr></thead>
+                    <tbody>{repetidas.map((linha) => <tr key={linha.n}><td>{linha.n}</td><td>{linhaTitulo(linha)}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead><tr><th>Linha</th><th>Descrição</th></tr></thead>
+                    <tbody>{repetidas.map((linha) => <tr key={linha.n}><td>{linha.n}</td><td>{linhaTitulo(linha)}</td></tr>)}</tbody>
                   </table>
                 </div>
               )}

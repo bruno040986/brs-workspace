@@ -7,6 +7,7 @@
  */
 
 export const MODELO_TABELAS_HEADERS = [
+  // Identidade/atributos da TABELA DE COMISSÃO (passo 1)
   'codigo_tabela_banco',
   'nome',
   'financeira',
@@ -20,7 +21,26 @@ export const MODELO_TABELAS_HEADERS = [
   'taxa_juros_min',
   'taxa_juros_max',
   'observacao',
-  'id_arw',
+  // Campos do PRAZO COMISSÃO (passo 2 — ignorados no passo 1)
+  'forma_pagamento',
+  'valor_inicial',
+  'valor_final',
+  'prazo_inicial',
+  'prazo_final',
+  'data_base',
+  'manter_enquadramento',
+  'comissao',
+  'emissao',
+  'seguro_valor',
+  'forma_pagamento_seguro',
+  'data_bloqueio',
+] as const
+
+/** Colunas exigidas no passo 1 (Tabelas). As demais são toleradas/ignoradas. */
+export const COLUNAS_TABELA = [
+  'codigo_tabela_banco', 'nome', 'financeira', 'promotora', 'forma_contrato',
+  'convenio', 'tipo_formalizacao', 'seguro', 'taxa_juros_tipo', 'taxa_juros',
+  'taxa_juros_min', 'taxa_juros_max', 'observacao',
 ] as const
 
 export const MODELO_TABELAS_EXEMPLO = [
@@ -37,7 +57,18 @@ export const MODELO_TABELAS_EXEMPLO = [
   '',
   '',
   '',
-  '113149',
+  'faixa_percentual',
+  '10000,00',
+  '100000,00',
+  '1',
+  '10',
+  '19/02/2026',
+  'sim',
+  '6,85',
+  '0',
+  '0',
+  '',
+  '',
 ]
 
 export function gerarModeloCsv(): string {
@@ -87,7 +118,7 @@ export type DiffCampo = {
 
 export type LinhaAnalisada = {
   n: number
-  status: 'nova' | 'atualizacao' | 'sem_mudanca' | 'pendencia' | 'invalida'
+  status: 'nova' | 'atualizacao' | 'sem_mudanca' | 'pendencia' | 'invalida' | 'repetida'
   erro?: string
   dados: {
     codigo_tabela_banco: string | null
@@ -122,6 +153,7 @@ export type ResumoAnalise = {
   semMudanca: number
   pendencias: number
   invalidas: number
+  repetidas: number
 }
 
 /** Resoluções apontadas pelo operador: `${campo}::${textoNormalizado}` -> id. */
@@ -129,4 +161,45 @@ export type Resolucoes = Record<string, string>
 
 export function chaveResolucao(campo: CampoReferencia, textoNormalizado: string) {
   return `${campo}::${textoNormalizado}`
+}
+
+// ---------------------------------------------------------------------------
+// Parsers do passo 2 (Prazo Comissão)
+// ---------------------------------------------------------------------------
+
+export function parseFormaPagamentoPlanilha(value: unknown): string | null {
+  const texto = normalizarTexto(value)
+  if (!texto) return 'percentual'
+  if (texto === '1' || texto.includes('percentual') && !texto.includes('faixa')) return 'percentual'
+  if (texto === '2' || (texto.includes('fixo') && !texto.includes('faixa'))) return 'fixo'
+  if (texto === '3' || (texto.includes('faixa') && texto.includes('percentual'))) return 'faixa_percentual'
+  if (texto === '4' || (texto.includes('faixa') && (texto.includes('fixo') || texto.includes('valor')))) return 'faixa_fixo'
+  return null
+}
+
+export function parseDataPlanilha(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+  // Datas numéricas do Excel (dias desde 1899-12-30).
+  if (typeof value === 'number' && Number.isFinite(value) && value > 20000 && value < 80000) {
+    const base = Date.UTC(1899, 11, 30)
+    return new Date(base + Math.round(value) * 86400000).toISOString().slice(0, 10)
+  }
+  const texto = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(texto)) return texto.slice(0, 10)
+  const br = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (br) return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`
+  return null
+}
+
+export function parseSimNao(value: unknown, padrao: boolean): boolean {
+  const texto = normalizarTexto(value)
+  if (!texto) return padrao
+  if (['sim', 's', 'true', '1'].includes(texto)) return true
+  if (['nao', 'não', 'n', 'false', '0'].includes(texto)) return false
+  return padrao
+}
+
+export function parseIntPlanilha(value: unknown): number | null {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }

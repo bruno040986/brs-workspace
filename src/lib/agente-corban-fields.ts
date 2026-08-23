@@ -385,7 +385,7 @@ const COMPLIANCE_FIELDS: AgenteCorbanFieldDef[] = [
   { key: 'compliance_policies', path: 'compliance.policies', label: 'Aderência às Políticas Internas e Integridade', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'Cobre: seguranca-da-informacao, codigo-de-conduta, pld-ft, canal-de-denuncias, integridade-e-anticorrupcao.' },
   { key: 'compliance_anticorruption', path: 'compliance.anticorruption', label: 'Declaração Anticorrupção e Antissuborno', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'Lei nº 12.846/2013. Cobre: integridade-e-anticorrupcao.' },
   { key: 'compliance_pld_ft', path: 'compliance.pld_ft', label: 'Declaração de PLD/FT e Vedação de Fraudes', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'Cobre: pld-ft.' },
-  { key: 'compliance_pep_status', path: 'compliance.pep_status', label: 'Declaração PEP/PPE', group: 'compliance', kind: 'select', source: 'partner', optionsSource: 'pep_status', notes: 'Quando "pep", exige a Declaração de PEP específica (ramificação do fluxo).' },
+  { key: 'compliance_pep_status', path: 'compliance.pep_status', label: 'Declaração PEP', group: 'compliance', kind: 'select', source: 'partner', optionsSource: 'pep_status', notes: 'Quando "pep", exige a Declaração de PEP específica (ramificação do fluxo).' },
   { key: 'compliance_infosec', path: 'compliance.infosec', label: 'Segurança da Informação e Credenciais', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'Cobre: seguranca-da-informacao.' },
   { key: 'compliance_lgpd_client_data', path: 'compliance.lgpd_client_data', label: 'LGPD — Origem Lícita dos Dados de Clientes', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'Cobre: lgpd, privacidade.' },
   { key: 'compliance_whistleblower', path: 'compliance.whistleblower', label: 'Ciência do Canal Oficial de Denúncias', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'denuncia@brspromotora.com.br. Cobre: canal-de-denuncias.' },
@@ -955,8 +955,8 @@ export const COVERAGE_REGION_OPTIONS: FieldOption[] = [
 ]
 
 export const PEP_STATUS_OPTIONS: FieldOption[] = [
-  { value: 'nao_pep', label: 'NENHUM dos sócios, administradores ou representantes se enquadra como PEP/PPE, nem possui parentesco até 2º grau ou relacionamento próximo com PEP.' },
-  { value: 'pep', label: 'DECLARO QUE SOU / POSSUÍMOS integrante(s) na condição de PEP/PPE (exige a Declaração de PEP específica).' },
+  { value: 'nao_pep', label: 'NENHUM dos sócios, administradores ou representantes se enquadra como PEP, nem possui parentesco até 2º grau ou relacionamento próximo com PEP.' },
+  { value: 'pep', label: 'DECLARO QUE SOU / POSSUÍMOS integrante(s) na condição de PEP (exige a Declaração de PEP específica).' },
 ]
 
 export const NF_CHOICE_OPTIONS: FieldOption[] = [
