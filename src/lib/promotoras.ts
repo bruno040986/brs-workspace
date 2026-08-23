@@ -621,7 +621,9 @@ function normalizePromotoraFiscalConfiguration(raw: any): PromotoraFiscalConfigu
     nfse_system_url: normalizeText(record.nfse_system_url ?? '', 500),
     retention_overrides: overrides,
     usar_para_comissao: record.usar_para_comissao === true,
-    comissao_ajuste_adicional: normalizePercent(record.comissao_ajuste_adicional),
+    // Sequência de CENTÉSIMOS de % ("0100" = 1,00%) — nunca passar por
+    // normalizePercent, que reinterpretaria como valor decimal (bug 24/08).
+    comissao_ajuste_adicional: normalizeRateDigits(record.comissao_ajuste_adicional),
   }
 }
 
