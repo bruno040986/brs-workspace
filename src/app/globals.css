@@ -2746,7 +2746,10 @@ body.sidebar-recolhida .sidebar-collapse-btn { left: 0; }
 
 /* Botões de ação compactos das tabelas (só ícone, tooltip no title). */
 .data-table .btn-acao {
-  padding: 0.25rem 0.4rem;
+  padding: 0.2rem 0.35rem;
   line-height: 1;
   min-height: 0;
 }
+
+/* Célula de ações nunca quebra linha (ícones sempre lado a lado). */
+.data-table td > div[style*="inline-flex"] { flex-wrap: nowrap !important; }

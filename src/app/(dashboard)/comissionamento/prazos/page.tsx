@@ -256,7 +256,7 @@ export default function PrazosComissaoPage() {
                     <td>{item.lote_importacao || '-'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.id_arw || '-'}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'nowrap', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
                         <Link href={`/comissionamento/prazos/${item.id}`} className="btn btn-ghost btn-sm btn-acao" title="Editar" aria-label="Editar">
                           <Edit2 size={15} />
                         </Link>
