@@ -127,11 +127,12 @@ export default function PrazosComissaoPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Clock size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum prazo encontrado</h3><p>Cadastre o primeiro prazo comissão.</p></div></td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Clock size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum prazo encontrado</h3><p>Cadastre o primeiro prazo comissão.</p></div></td></tr>
               ) : items.map((item) => (
                 <tr key={item.id}>
+          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{(item as any).codigo}</td>
                   <td><div style={{ fontWeight: 600 }}>{item.tabelas_comissao?.nome || '-'}</div><div style={{ color: 'var(--brs-gray-500)', fontSize: '0.8rem' }}>{item.tabelas_comissao?.financial_institutions?.name || '-'}</div></td>
                   <td>{formaPagamentoLabel(item.forma_pagamento)}</td>
                   <td>{formaPagamentoUsaFaixa(item.forma_pagamento) ? `${item.valor_inicial ?? '-'} - ${item.valor_final ?? '-'}` : '-'}</td>

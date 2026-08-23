@@ -8,6 +8,7 @@ type Instituicao = { id: string; name: string; logo_url: string | null; is_activ
 type Lookup = { id: string; nome: string; codigo?: string | null; is_active?: boolean; origem_margem?: string }
 type TabelaComissao = {
   id: string
+  codigo: number
   codigo_tabela_banco: string | null
   nome: string
   institution_id: string
@@ -222,14 +223,15 @@ export default function TabelasComissaoPage() {
       <div className="card">
         <div className="table-wrapper">
           <table className="data-table">
-            <thead><tr><th>Instituição</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
+            <thead><tr><th>Código</th><th>Instituição</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Table2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhuma tabela encontrada</h3><p>Cadastre a primeira tabela de comissão.</p></div></td></tr>
+                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Table2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhuma tabela encontrada</h3><p>Cadastre a primeira tabela de comissão.</p></div></td></tr>
               ) : filteredItems.map((item) => (
                 <tr key={item.id}>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.codigo}</td>
                   <td><div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}><div style={{ width: 32, height: 32, border: '1px solid var(--brs-gray-200)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fff' }}>{item.financial_institutions?.logo_url ? <img src={item.financial_institutions.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Table2 size={16} style={{ color: 'var(--brs-gray-400)' }} />}</div><span style={{ fontWeight: 600 }}>{item.financial_institutions?.name || '-'}</span></div></td>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_tabela_banco || '-'}</td>
                   <td style={{ fontWeight: 600 }}>{item.nome}</td>
