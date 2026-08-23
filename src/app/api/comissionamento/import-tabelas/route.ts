@@ -137,24 +137,26 @@ type TabelaExistente = {
 }
 
 function encontrarExistente(dados: LinhaAnalisada['dados'], existentes: TabelaExistente[]): TabelaExistente | null {
+  // 1º: id do ARW (único por registro), quando presente dos dois lados.
   if (dados.id_arw) {
-    const porArw = existentes.find((item) => normalizarTexto(item.id_arw) === normalizarTexto(dados.id_arw))
+    const porArw = existentes.find((item) => item.id_arw && normalizarTexto(item.id_arw) === normalizarTexto(dados.id_arw))
     if (porArw) return porArw
   }
+  // 2º: identidade IMUTÁVEL da tabela (decisão Bruno 24/08/2026):
+  // financeira + convênio + forma de contrato + código no banco.
+  // Nome e taxa de juros são atributos atualizáveis — NUNCA entram no
+  // cruzamento (no Santander todas as tabelas têm o mesmo nome).
   if (dados.institution_id && dados.codigo_tabela_banco) {
-    const porCodigo = existentes.find(
+    const porChave = existentes.find(
       (item) =>
         item.institution_id === dados.institution_id &&
-        normalizarTexto(item.codigo_tabela_banco) === normalizarTexto(dados.codigo_tabela_banco),
+        normalizarTexto(item.codigo_tabela_banco) === normalizarTexto(dados.codigo_tabela_banco) &&
+        item.forma_contrato_id === dados.forma_contrato_id &&
+        String(item.convenio_id || '') === String(dados.convenio_id || ''),
     )
-    if (porCodigo) return porCodigo
+    if (porChave) return porChave
   }
-  if (dados.institution_id && dados.nome) {
-    const porNome = existentes.find(
-      (item) => item.institution_id === dados.institution_id && normalizarTexto(item.nome) === normalizarTexto(dados.nome),
-    )
-    if (porNome) return porNome
-  }
+  // Sem id_arw e sem código no banco: não arrisca match — trata como nova.
   return null
 }
 
