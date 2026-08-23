@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, Calculator, Clock, FileCheck, FileText, Landmark, LayoutDashboard, Percent, Table2 } from 'lucide-react'
+import { Building2, Calculator, Clock, FileCheck, FileText, Landmark, LayoutDashboard, Percent, Table2, Upload } from 'lucide-react'
 
 export default function ComissionamentoSidebar() {
   const pathname = usePathname()
@@ -36,6 +36,10 @@ export default function ComissionamentoSidebar() {
           <Link href="/comissionamento/tipos-formalizacao" className={linkClass('/comissionamento/tipos-formalizacao')}>
             <FileCheck size={18} />
             Tipos de Formalização
+          </Link>
+          <Link href="/comissionamento/importar" className={linkClass('/comissionamento/importar')}>
+            <Upload size={18} />
+            Importar Planilhas
           </Link>
 
           <div className="sidebar-section-label sidebar-section-label-spaced">Relacionados</div>

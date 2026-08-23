@@ -290,7 +290,7 @@ table.data-table {
 }
 
 .data-table td {
-  padding: 0.45rem 0.65rem;
+  padding: 0.3rem 0.6rem;
   border-bottom: 1px solid var(--brs-gray-100);
   color: var(--brs-gray-800);
   vertical-align: middle;
@@ -2741,4 +2741,12 @@ body.sidebar-recolhida .sidebar-collapse-btn { left: 0; }
 
 @media (max-width: 900px) {
   .sidebar-collapse-btn { display: none !important; }
+}
+
+
+/* Botões de ação compactos das tabelas (só ícone, tooltip no title). */
+.data-table .btn-acao {
+  padding: 0.25rem 0.4rem;
+  line-height: 1;
+  min-height: 0;
 }

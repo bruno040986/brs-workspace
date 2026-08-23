@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, Loader2, Plus, Search, Table2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Edit2, Loader2, Plus, Power, PowerOff, Search, Table2, X } from 'lucide-react'
 import { getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setTabelaComissaoAtiva, type TabelaComissaoPayload } from '../actions'
 
 type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null }
@@ -240,7 +240,7 @@ export default function TabelasComissaoPage() {
                   <td style={{ fontSize: '0.85rem' }}>{jurosLabel(item)}</td>
                   <td>{item.prazos_comissao?.length || 0}</td>
                   <td><span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>{item.is_active ? 'Ativo' : 'Inativo'}</span></td>
-                  <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(item)}><Edit2 size={16} />Editar</button><button type="button" className={`btn btn-sm ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id}>{busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}{item.is_active ? 'Inativar' : 'Ativar'}</button></div></td>
+                  <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit2 size={15} /></button><button type="button" className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id} title={item.is_active ? 'Inativar' : 'Ativar'} aria-label={item.is_active ? 'Inativar' : 'Ativar'}>{busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}</button></div></td>
                 </tr>
               ))}
             </tbody>

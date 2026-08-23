@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, Loader2, Percent, Plus, X } from 'lucide-react'
+import { AlertCircle, CalendarOff, CheckCircle, Edit2, Loader2, Percent, Plus, X } from 'lucide-react'
 import { encerrarSpread, getComissionamentoLookups, getSpreads, saveSpread, type SpreadPayload } from '../actions'
 
 type Instituicao = { id: string; name: string }
@@ -333,14 +333,12 @@ export default function SpreadsPage() {
                     <td><span className={`badge ${item.vigencia_fim ? 'badge-gray' : 'badge-success'}`}>{item.vigencia_fim ? 'Encerrado' : 'Vigente'}</span></td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(item)}>
-                          <Edit2 size={16} />
-                          Editar
+                        <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar">
+                          <Edit2 size={15} />
                         </button>
                         {item.vigencia_fim ? null : (
-                          <button type="button" className="btn btn-outline btn-sm" onClick={() => handleClose(item)} disabled={busyId === item.id}>
-                            {busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}
-                            Encerrar vigência
+                          <button type="button" className="btn btn-outline btn-sm btn-acao" onClick={() => handleClose(item)} disabled={busyId === item.id} title="Encerrar vigência" aria-label="Encerrar vigência">
+                            {busyId === item.id ? <Loader2 size={15} className="spinner" /> : <CalendarOff size={15} />}
                           </button>
                         )}
                       </div>

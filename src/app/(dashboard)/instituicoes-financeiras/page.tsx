@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, Building2, CheckCircle, Edit2, Eye, Loader2, Plus, Search } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle, Edit2, Eye, Loader2, Plus, Power, PowerOff, Search } from 'lucide-react'
 import { INSTITUICAO_TIPOS, type InstituicaoTipo } from '@/lib/financial-institutions'
 import { getInstituicoesFinanceiras, setInstituicaoFinanceiraStatus } from './actions'
 
@@ -204,22 +204,21 @@ export default function InstituicoesFinanceirasPage() {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <Link href={`/instituicoes-financeiras/${item.id}?mode=view`} className="btn btn-ghost btn-sm">
-                          <Eye size={16} />
-                          Visualizar
+                        <Link href={`/instituicoes-financeiras/${item.id}?mode=view`} className="btn btn-ghost btn-sm btn-acao" title="Visualizar" aria-label="Visualizar">
+                          <Eye size={15} />
                         </Link>
-                        <Link href={`/instituicoes-financeiras/${item.id}`} className="btn btn-ghost btn-sm">
-                          <Edit2 size={16} />
-                          Editar
+                        <Link href={`/instituicoes-financeiras/${item.id}`} className="btn btn-ghost btn-sm btn-acao" title="Editar" aria-label="Editar">
+                          <Edit2 size={15} />
                         </Link>
                         <button
                           type="button"
-                          className={`btn btn-sm ${item.is_active ? 'btn-outline' : 'btn-primary'}`}
+                          className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`}
                           onClick={() => handleToggle(item)}
                           disabled={busyId === item.id}
+                          title={item.is_active ? 'Inativar' : 'Ativar'}
+                          aria-label={item.is_active ? 'Inativar' : 'Ativar'}
                         >
-                          {busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}
-                          {item.is_active ? 'Inativar' : 'Ativar'}
+                          {busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}
                         </button>
                       </div>
                     </td>

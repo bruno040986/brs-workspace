@@ -165,7 +165,7 @@ export default function PrazosComissaoPage() {
           <td>{item.prazo_inicial}/{item.prazo_final}</td>
           <td>{item.comissao ?? '-'}{item.comissao !== null ? (formaPagamentoEmPercentual(item.forma_pagamento) ? '%' : ' R$') : ''}</td>
           <td>{item.data_base ? new Date(`${item.data_base}T12:00:00`).toLocaleDateString('pt-BR') : '-'}</td>
-          <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(item)}><Edit2 size={16} />Editar</button><button type="button" className="btn btn-outline btn-sm" onClick={() => handleDelete(item)} disabled={busyId === item.id}>{busyId === item.id ? <Loader2 size={16} className="spinner" /> : <Trash2 size={16} />}Excluir</button></div></td>
+          <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit2 size={15} /></button><button type="button" className="btn btn-outline btn-sm btn-acao" onClick={() => handleDelete(item)} disabled={busyId === item.id} title="Excluir" aria-label="Excluir">{busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Trash2 size={15} />}</button></div></td>
         </tr>)}
       </tbody></table></div></div>
 

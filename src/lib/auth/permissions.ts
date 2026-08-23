@@ -201,6 +201,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/central-integracoes', any([view('central-integracoes')])],
   ['/convenios', any([view('workspace-convenios')])],
   ['/comissionamento', any([view('sistema-config-credito')])],
+  ['/api/comissionamento', any([include('sistema-config-credito')])],
   ['/coeficientes', any([view('sistema-config-credito')])],
   ['/alvoconsig', any([view('alvoconsig-gestao')])],
   ['/financeiro', any([view('financeiro-conta-parceiros')])],

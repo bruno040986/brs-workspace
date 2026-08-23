@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Search, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
 import { CONVENIO_ESFERAS, esferaLabel } from '@/lib/cadastros-credito'
 import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
 
@@ -213,18 +213,18 @@ export default function ConveniosPage() {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(item)}>
-                          <Edit2 size={16} />
-                          Editar
+                        <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar">
+                          <Edit2 size={15} />
                         </button>
                         <button
                           type="button"
-                          className={`btn btn-sm ${item.is_active ? 'btn-outline' : 'btn-primary'}`}
+                          className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`}
                           onClick={() => handleToggle(item)}
                           disabled={busyId === item.id}
+                          title={item.is_active ? 'Inativar' : 'Ativar'}
+                          aria-label={item.is_active ? 'Inativar' : 'Ativar'}
                         >
-                          {busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}
-                          {item.is_active ? 'Inativar' : 'Ativar'}
+                          {busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}
                         </button>
                       </div>
                     </td>

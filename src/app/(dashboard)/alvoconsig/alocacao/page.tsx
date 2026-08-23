@@ -257,12 +257,13 @@ export default function AlocacaoPage() {
                       {!lote.revogado_em && (
                         <button
                           type="button"
-                          className="btn btn-outline btn-sm"
+                          className="btn btn-outline btn-sm btn-acao"
                           onClick={() => handleRevogar(lote)}
                           disabled={busyId === lote.id}
+                          title="Revogar"
+                          aria-label="Revogar"
                         >
-                          {busyId === lote.id ? <Loader2 size={16} className="spinner" /> : <Undo2 size={16} />}
-                          Revogar
+                          {busyId === lote.id ? <Loader2 size={15} className="spinner" /> : <Undo2 size={15} />}
                         </button>
                       )}
                     </td>

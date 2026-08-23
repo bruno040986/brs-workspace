@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, FileCheck, Loader2, Plus, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Edit2, FileCheck, Loader2, Plus, Power, PowerOff, X } from 'lucide-react'
 import { getComissionamentoLookups, saveTipoFormalizacao, setTipoFormalizacaoAtivo } from '../actions'
 
 type TipoFormalizacao = { id: string; nome: string; codigo_arw: string | null; is_active: boolean }
@@ -113,10 +113,9 @@ export default function TiposFormalizacaoPage() {
                   <td><span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>{item.is_active ? 'Ativo' : 'Inativo'}</span></td>
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(item)}><Edit2 size={16} />Editar</button>
-                      <button type="button" className={`btn btn-sm ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id}>
-                        {busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}
-                        {item.is_active ? 'Inativar' : 'Ativar'}
+                      <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit2 size={15} /></button>
+                      <button type="button" className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id} title={item.is_active ? 'Inativar' : 'Ativar'} aria-label={item.is_active ? 'Inativar' : 'Ativar'}>
+                        {busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}
                       </button>
                     </div>
                   </td>

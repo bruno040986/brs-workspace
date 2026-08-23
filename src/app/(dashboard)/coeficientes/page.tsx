@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Calculator, CheckCircle, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, CalendarOff, Calculator, CheckCircle, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { createCoeficientes, encerrarCoeficiente, excluirCoeficiente, getCoeficientes, getCoeficientesLookups } from './actions'
 
 type Tabela = {
@@ -177,7 +177,7 @@ export default function CoeficientesPage() {
           <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{formatCoef(Number(item.coeficiente))}</td>
           <td>{formatDate(item.vigencia_inicio)} → {formatDate(item.vigencia_fim)}</td>
           <td><span className={`badge ${item.vigencia_fim ? 'badge-gray' : 'badge-success'}`}>{item.vigencia_fim ? 'Encerrado' : 'Vigente'}</span></td>
-          <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>{item.vigencia_fim ? null : <button type="button" className="btn btn-outline btn-sm" onClick={() => handleClose(item)} disabled={busyId === item.id}>{busyId === item.id ? <Loader2 size={16} className="spinner" /> : null}Encerrar vigência</button>}<button type="button" className="btn btn-ghost btn-sm" onClick={() => handleDelete(item)} disabled={busyId === item.id}>{busyId === item.id ? <Loader2 size={16} className="spinner" /> : <Trash2 size={16} />}Excluir</button></div></td>
+          <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>{item.vigencia_fim ? null : <button type="button" className="btn btn-outline btn-sm btn-acao" onClick={() => handleClose(item)} disabled={busyId === item.id} title="Encerrar vigência" aria-label="Encerrar vigência">{busyId === item.id ? <Loader2 size={15} className="spinner" /> : <CalendarOff size={15} />}</button>}<button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => handleDelete(item)} disabled={busyId === item.id} title="Excluir" aria-label="Excluir">{busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Trash2 size={15} />}</button></div></td>
         </tr>)}
       </tbody></table></div></div>
       {isModalOpen && <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}><div className="modal" style={{ maxWidth: 680 }} onClick={(e) => e.stopPropagation()}><form onSubmit={handleSave}>
