@@ -356,6 +356,24 @@ export async function getPrazosComissao(tabelaComissaoId?: string) {
   }
 }
 
+export async function getPrazoComissao(id: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    if (!id) return { success: false, error: 'ID inválido.' }
+    const { data, error } = await supabaseAdmin
+      .from('prazos_comissao')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return { success: false, error: 'Prazo comissão não encontrado.' }
+    return { success: true, item: data }
+  } catch (error: any) {
+    console.error('Erro ao buscar prazo comissão:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export async function savePrazoComissao(payload: PrazoComissaoPayload) {
   try {
     await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')

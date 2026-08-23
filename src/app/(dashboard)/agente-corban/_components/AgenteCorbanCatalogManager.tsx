@@ -12,6 +12,9 @@ type CatalogRow = {
   deleted_at: string | null
   created_at: string | null
   updated_at: string | null
+  /** Só no catálogo Tipo de Agente (comissionamento). */
+  percentual_repasse?: number | null
+  codigo_arw?: number | null
 }
 
 type Props = {
@@ -36,6 +39,9 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [isActive, setIsActive] = useState(true)
+  const ehTipoAgente = resource === 'agente-corban-tipos-agente'
+  const [percentualRepasse, setPercentualRepasse] = useState('')
+  const [codigoArw, setCodigoArw] = useState('')
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [message, setMessage] = useState<Message>(null)
@@ -46,12 +52,16 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
     setEditingId(null)
     setName('')
     setIsActive(true)
+    setPercentualRepasse('')
+    setCodigoArw('')
   }
 
   function startEdit(row: CatalogRow) {
     setEditingId(row.id)
     setName(row.name || '')
     setIsActive(row.is_active !== false)
+    setPercentualRepasse(row.percentual_repasse === null || row.percentual_repasse === undefined ? '' : String(row.percentual_repasse).replace('.', ','))
+    setCodigoArw(row.codigo_arw === null || row.codigo_arw === undefined ? '' : String(row.codigo_arw))
   }
 
   async function reload() {
@@ -74,10 +84,18 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
     setMessage(null)
     try {
       const { saveAgenteCorbanCatalogRow } = await import('../actions')
+      const pctParsed = Number.parseFloat(percentualRepasse.replace(',', '.'))
+      const codParsed = Number.parseInt(codigoArw, 10)
       const result = await saveAgenteCorbanCatalogRow(resource, {
         id: editingId || undefined,
         name,
         is_active: isActive,
+        ...(ehTipoAgente
+          ? {
+              percentual_repasse: Number.isFinite(pctParsed) ? pctParsed : null,
+              codigo_arw: Number.isFinite(codParsed) ? codParsed : null,
+            }
+          : {}),
       })
       if (!result.success) {
         setMessage({ type: 'error', text: result.error || 'Falha ao salvar registro.' })
@@ -179,6 +197,33 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
             </select>
           </CopyableFieldShell>
 
+          {ehTipoAgente && (
+            <>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <CopyableFieldShell label="% Repasse (comissionamento)" copyValue={percentualRepasse} displayValue={percentualRepasse}>
+                  <input
+                    className="form-control"
+                    inputMode="decimal"
+                    placeholder="Ex.: 94 ou 97,5"
+                    value={percentualRepasse}
+                    onChange={(e) => setPercentualRepasse(e.target.value)}
+                  />
+                </CopyableFieldShell>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <CopyableFieldShell label="Código ARW" copyValue={codigoArw} displayValue={codigoArw}>
+                  <input
+                    className="form-control"
+                    inputMode="numeric"
+                    placeholder="Ex.: 24"
+                    value={codigoArw}
+                    onChange={(e) => setCodigoArw(e.target.value)}
+                  />
+                </CopyableFieldShell>
+              </div>
+            </>
+          )}
+
           <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'flex-end' }}>
             <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
               {saving ? <Loader2 size={16} className="spinner" /> : <Plus size={16} />}
@@ -200,6 +245,8 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
             <thead>
               <tr>
                 <th>Nome</th>
+                {ehTipoAgente && <th>% Repasse</th>}
+                {ehTipoAgente && <th>Cód. ARW</th>}
                 <th>Status</th>
                 <th>Atualizado</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
@@ -208,7 +255,7 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ textAlign: 'center', padding: '3rem', color: 'var(--brs-gray-500)' }}>
+                  <td colSpan={ehTipoAgente ? 6 : 4} style={{ textAlign: 'center', padding: '3rem', color: 'var(--brs-gray-500)' }}>
                     Nenhum registro cadastrado.
                   </td>
                 </tr>
@@ -222,6 +269,10 @@ export default function AgenteCorbanCatalogManager({ resource, title, descriptio
                         </div>
                       </CopyableFieldShell>
                     </td>
+                    {ehTipoAgente && (
+                      <td>{row.percentual_repasse === null || row.percentual_repasse === undefined ? '-' : `${String(row.percentual_repasse).replace('.', ',')}%`}</td>
+                    )}
+                    {ehTipoAgente && <td>{row.codigo_arw ?? '-'}</td>}
                     <td>
                       <span className={`badge ${row.is_active ? 'badge-success' : 'badge-gray'}`}>
                         {row.is_active ? 'Ativo' : 'Inativo'}

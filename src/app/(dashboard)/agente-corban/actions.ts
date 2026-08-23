@@ -228,7 +228,7 @@ export async function getAgenteCorbanLookups() {
           const rows = await safeSelect(
             supabaseAdmin
               .from(getCatalogTable(catalog.resource))
-              .select('id, name, is_active, deleted_at, created_at, updated_at')
+              .select('*')
               .order('is_active', { ascending: false })
               .order('name', { ascending: true }),
             [] as CatalogRow[],
@@ -387,6 +387,9 @@ export async function saveAgenteCorbanCatalogRow(
     id?: string
     name: string
     is_active?: boolean
+    /** Só no catálogo Tipo de Agente (comissionamento). */
+    percentual_repasse?: number | null
+    codigo_arw?: number | null
   },
 ) {
   try {
@@ -397,11 +400,17 @@ export async function saveAgenteCorbanCatalogRow(
     const name = String(payload.name || '').trim()
     if (!name) return { success: false, error: 'Informe o nome.', id: null }
 
-    const row = {
+    const row: Record<string, unknown> = {
       name,
       is_active: payload.is_active !== false,
       deleted_at: payload.is_active === false ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
+    }
+    if (resource === 'agente-corban-tipos-agente') {
+      const pct = Number(payload.percentual_repasse)
+      row.percentual_repasse = Number.isFinite(pct) && pct >= 0 && pct <= 100 ? pct : null
+      const cod = Number.parseInt(String(payload.codigo_arw ?? ''), 10)
+      row.codigo_arw = Number.isFinite(cod) ? cod : null
     }
 
     if (isUpdate) {
