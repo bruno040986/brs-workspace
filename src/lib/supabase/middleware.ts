@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 import { canAccessRoute, getRouteAccessDecision } from '@/lib/auth/permissions'
 import { getEffectivePermissionsForUserId } from '@/lib/auth/effectivePermissions'
+import { WORKSPACE_AUTH_COOKIE_NAME, isWorkspaceAuthCookie } from '@/lib/supabase/authCookie'
 
 function isApiRequest(pathname: string) {
   return pathname.startsWith('/api/')
@@ -41,7 +42,27 @@ function forbiddenResponse(request: NextRequest) {
 }
 
 function hasSupabaseSessionCookie(request: NextRequest) {
-  return request.cookies.getAll().some(({ name }) => name.startsWith('sb-') && name.includes('auth-token'))
+  // Só o cookie EXCLUSIVO do Workspace conta como sessão. Cookies SSO do
+  // portal/CRM (sb-<ref>-auth-token, domain=.brspromotora.com.br) chegam a
+  // este host mas pertencem a outra aplicação — ver src/lib/supabase/authCookie.ts.
+  return request.cookies.getAll().some(({ name }) => isWorkspaceAuthCookie(name))
+}
+
+function isLegacySupabaseCookie(name: string) {
+  return name.startsWith('sb-') && name.includes('auth-token')
+}
+
+// Expira o cookie host-only ANTIGO do Workspace (nome padrão do Supabase),
+// que ficou órfão após a migração para o nome exclusivo. O delete SEM o
+// atributo domain não alcança o cookie SSO de domínio do portal/CRM — apenas
+// o homônimo host-only deste host é removido.
+function expireLegacyAuthCookies(request: NextRequest, response: NextResponse) {
+  for (const { name } of request.cookies.getAll()) {
+    if (isLegacySupabaseCookie(name)) {
+      response.cookies.set(name, '', { maxAge: 0, path: '/' })
+    }
+  }
+  return response
 }
 
 function getRequestHost(request: NextRequest) {
@@ -146,7 +167,7 @@ export async function updateSession(request: NextRequest) {
 
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return expireLegacyAuthCookies(request, NextResponse.redirect(url))
   }
 
   if (isAuthenticatedOpenApi(pathname)) {
@@ -159,6 +180,7 @@ export async function updateSession(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: { name: WORKSPACE_AUTH_COOKIE_NAME },
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -285,5 +307,5 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  return supabaseResponse
+  return expireLegacyAuthCookies(request, supabaseResponse)
 }
