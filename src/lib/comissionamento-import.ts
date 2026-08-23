@@ -10,6 +10,7 @@ export const MODELO_TABELAS_HEADERS = [
   'codigo_tabela_banco',
   'nome',
   'financeira',
+  'promotora',
   'forma_contrato',
   'convenio',
   'tipo_formalizacao',
@@ -26,6 +27,7 @@ export const MODELO_TABELAS_EXEMPLO = [
   '827004875',
   'REFIN 1 OFERTA C/ SEGURO TX 2,38%',
   'BANCO SANTANDER',
+  '',
   'Refin',
   'Prefeitura de Salto/SP',
   'Digital',
@@ -68,7 +70,7 @@ export function parseTaxaPlanilha(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
-export type CampoReferencia = 'financeira' | 'convenio' | 'forma_contrato' | 'tipo_formalizacao'
+export type CampoReferencia = 'financeira' | 'promotora' | 'convenio' | 'forma_contrato' | 'tipo_formalizacao'
 
 export type PendenciaLinha = {
   campo: CampoReferencia
@@ -91,10 +93,12 @@ export type LinhaAnalisada = {
     codigo_tabela_banco: string | null
     nome: string
     financeira_texto: string
+    promotora_texto: string
     forma_texto: string
     convenio_texto: string
     formalizacao_texto: string
     institution_id: string | null
+    promotora_id: string | null
     forma_contrato_id: string | null
     convenio_id: string | null
     tipo_formalizacao_id: string | null

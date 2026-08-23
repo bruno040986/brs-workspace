@@ -41,6 +41,7 @@ type FormState = {
   prazo_inicial: string
   prazo_final: string
   data_base: string
+  data_bloqueio: string
   manter_enquadramento: boolean
   comissao: string
   emissao: string
@@ -57,6 +58,7 @@ const emptyForm: FormState = {
   prazo_inicial: '',
   prazo_final: '',
   data_base: '',
+  data_bloqueio: '',
   manter_enquadramento: true,
   comissao: '',
   emissao: '',
@@ -211,6 +213,7 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
           prazo_inicial: inputValue(item.prazo_inicial),
           prazo_final: inputValue(item.prazo_final),
           data_base: String(item.data_base || ''),
+          data_bloqueio: String(item.data_bloqueio || ''),
           manter_enquadramento: item.manter_enquadramento !== false,
           comissao: inputValue(item.comissao),
           emissao: inputValue(item.emissao),
@@ -312,6 +315,7 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
         prazo_inicial: intOrZero(form.prazo_inicial),
         prazo_final: intOrZero(form.prazo_final),
         data_base: form.data_base || null,
+        data_bloqueio: form.data_bloqueio || null,
         manter_enquadramento: form.manter_enquadramento,
         comissao: numberOrNull(form.comissao),
         emissao: numberOrNull(form.emissao),
@@ -417,6 +421,7 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
               <div className="form-group" style={{ gridColumn: 'span 3' }}><label className="form-label">Prazo Inicial <span className="required">*</span></label><input type="number" required className="form-control" value={form.prazo_inicial} onChange={(e) => setField('prazo_inicial', e.target.value)} /></div>
               <div className="form-group" style={{ gridColumn: 'span 3' }}><label className="form-label">Prazo Final <span className="required">*</span></label><input type="number" required className="form-control" value={form.prazo_final} onChange={(e) => setField('prazo_final', e.target.value)} /></div>
               <div className="form-group" style={{ gridColumn: 'span 3' }}><label className="form-label">Data Base</label><input type="date" className="form-control" value={form.data_base} onChange={(e) => setField('data_base', e.target.value)} /></div>
+              <div className="form-group" style={{ gridColumn: 'span 3' }}><label className="form-label">Data Bloqueio</label><input type="date" className="form-control" value={form.data_bloqueio} onChange={(e) => setField('data_bloqueio', e.target.value)} /></div>
               <label style={{ gridColumn: 'span 3', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, marginTop: '1.65rem' }}><input type="checkbox" checked={form.manter_enquadramento} onChange={(e) => setField('manter_enquadramento', e.target.checked)} />Manter Enquadramento Individual</label>
               <div className="form-group" style={{ gridColumn: 'span 3' }}><label className="form-label">Comissão ({taxaLabel(comissaoPercentual)})</label><input type="number" step="0.01" className="form-control" value={form.comissao} onChange={(e) => setField('comissao', e.target.value)} /></div>
               <div className="form-group" style={{ gridColumn: 'span 3' }}><label className="form-label">Emissão (Valor Fixo)</label><input type="number" step="0.01" className="form-control" value={form.emissao} onChange={(e) => setField('emissao', e.target.value)} /></div>

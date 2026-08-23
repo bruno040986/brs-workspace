@@ -33,7 +33,7 @@ export async function getComissionamentoLookups() {
   try {
     await requirePermission(PERMISSION_RESOURCE)
 
-    const [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas] = await Promise.all([
+    const [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas, promotoras] = await Promise.all([
       supabaseAdmin
         .from('financial_institutions')
         .select('id, name, logo_url, is_active, imposto_comissao_percent')
@@ -49,13 +49,18 @@ export async function getComissionamentoLookups() {
         .order('codigo_arw', { ascending: true, nullsFirst: false }),
       supabaseAdmin
         .from('tabelas_comissao')
-        .select('id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, is_active')
+        .select('id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, is_active')
         .is('deleted_at', null)
         .order('is_active', { ascending: false })
         .order('nome'),
+      supabaseAdmin
+        .from('promotoras')
+        .select('id, razao_social, nome_fantasia, is_active')
+        .order('is_active', { ascending: false })
+        .order('razao_social'),
     ])
 
-    const firstError = [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas].find((r) => r.error)
+    const firstError = [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas, promotoras].find((r) => r.error)
     if (firstError?.error) throw firstError.error
 
     return {
@@ -66,6 +71,11 @@ export async function getComissionamentoLookups() {
       convenios: convenios.data || [],
       tiposAgente: tiposAgente.data || [],
       tabelasComissao: tabelas.data || [],
+      promotoras: (promotoras.data || []).map((row: any) => ({
+        id: String(row.id),
+        nome: String(row.nome_fantasia || '').trim() || String(row.razao_social || '').trim(),
+        is_active: row.is_active !== false,
+      })),
     }
   } catch (error: any) {
     console.error('Erro nos lookups do comissionamento:', error)
@@ -222,6 +232,8 @@ export type TabelaComissaoPayload = {
   forma_contrato_id: string
   convenio_id?: string | null
   tipo_formalizacao_id?: string | null
+  /** Promotora do credenciamento subestabelecido; null = direto com a IF. */
+  promotora_id?: string | null
   com_seguro?: boolean | null
   observacao?: string
   id_arw?: string | null
@@ -238,7 +250,7 @@ export async function getTabelasComissao() {
     const { data, error } = await supabaseAdmin
       .from('tabelas_comissao')
       .select(
-        '*, financial_institutions ( id, name, logo_url, imposto_comissao_percent ), formas_contrato ( id, nome, origem_margem ), convenios ( id, nome, codigo ), tipos_formalizacao ( id, nome ), prazos_comissao ( id )',
+        '*, financial_institutions ( id, name, logo_url, imposto_comissao_percent ), formas_contrato ( id, nome, origem_margem ), convenios ( id, nome, codigo ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ), prazos_comissao ( id )',
       )
       .is('deleted_at', null)
       .order('is_active', { ascending: false })
@@ -278,6 +290,7 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
       forma_contrato_id: payload.forma_contrato_id,
       convenio_id: payload.convenio_id || null,
       tipo_formalizacao_id: payload.tipo_formalizacao_id || null,
+      promotora_id: payload.promotora_id || null,
       com_seguro: payload.com_seguro ?? null,
       observacao: String(payload.observacao || ''),
       id_arw: String(payload.id_arw || '').trim() || null,
@@ -333,6 +346,7 @@ export type PrazoComissaoPayload = {
   emissao?: number | null
   seguro?: number | null
   forma_pagamento_seguro?: string | null
+  data_bloqueio?: string | null
   id_arw?: string | null
 }
 
@@ -342,7 +356,7 @@ export async function getPrazosComissao(tabelaComissaoId?: string) {
     let query = supabaseAdmin
       .from('prazos_comissao')
       .select(
-        '*, tabelas_comissao ( id, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ) )',
+        '*, tabelas_comissao ( id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
       )
       .order('created_at', { ascending: false })
       .limit(300)
@@ -401,6 +415,7 @@ export async function savePrazoComissao(payload: PrazoComissaoPayload) {
       emissao: payload.emissao ?? null,
       seguro: payload.seguro ?? null,
       forma_pagamento_seguro: payload.forma_pagamento_seguro || null,
+      data_bloqueio: payload.data_bloqueio || null,
       id_arw: String(payload.id_arw || '').trim() || null,
       updated_at: new Date().toISOString(),
     }

@@ -37,6 +37,7 @@ const MAX_LINHAS = 20_000
 
 type Catalogo = {
   financeiras: Array<{ id: string; nome: string; codigoBanco: string }>
+  promotoras: Array<{ id: string; nome: string; razao: string }>
   convenios: Array<{ id: string; nome: string; codigo: string }>
   formas: Array<{ id: string; nome: string; codigoArw: string }>
   formalizacoes: Array<{ id: string; nome: string; codigoArw: string }>
@@ -54,8 +55,9 @@ function lerPlanilha(buffer: Buffer): { headers: string[]; rows: unknown[][] } {
 }
 
 async function carregarCatalogo(admin: Awaited<ReturnType<typeof createAdminClient>>): Promise<Catalogo> {
-  const [financeiras, convenios, formas, formalizacoes, aliases] = await Promise.all([
+  const [financeiras, promotoras, convenios, formas, formalizacoes, aliases] = await Promise.all([
     admin.from('financial_institutions').select('id, name, linked_bank_code').is('deleted_at', null),
+    admin.from('promotoras').select('id, razao_social, nome_fantasia'),
     admin.from('convenios').select('id, nome, codigo').is('deleted_at', null),
     admin.from('formas_contrato').select('id, nome, codigo_arw'),
     admin.from('tipos_formalizacao').select('id, nome, codigo_arw'),
@@ -70,6 +72,11 @@ async function carregarCatalogo(admin: Awaited<ReturnType<typeof createAdminClie
       id: String(row.id),
       nome: normalizarTexto(row.name),
       codigoBanco: normalizarTexto(row.linked_bank_code),
+    })),
+    promotoras: (promotoras.data || []).map((row: any) => ({
+      id: String(row.id),
+      nome: normalizarTexto(row.nome_fantasia),
+      razao: normalizarTexto(row.razao_social),
     })),
     convenios: (convenios.data || []).map((row: any) => ({
       id: String(row.id),
@@ -107,6 +114,10 @@ function resolverReferencia(
     const hit = catalogo.financeiras.find((item) => item.nome === normalizado || (item.codigoBanco && item.codigoBanco === normalizado))
     return hit?.id || null
   }
+  if (campo === 'promotora') {
+    const hit = catalogo.promotoras.find((item) => item.nome === normalizado || item.razao === normalizado)
+    return hit?.id || null
+  }
   if (campo === 'convenio') {
     const hit = catalogo.convenios.find((item) => item.nome === normalizado || (item.codigo && item.codigo === normalizado))
     return hit?.id || null
@@ -124,6 +135,7 @@ type TabelaExistente = {
   codigo_tabela_banco: string | null
   nome: string
   institution_id: string
+  promotora_id: string | null
   forma_contrato_id: string
   convenio_id: string | null
   tipo_formalizacao_id: string | null
@@ -152,7 +164,8 @@ function encontrarExistente(dados: LinhaAnalisada['dados'], existentes: TabelaEx
         item.institution_id === dados.institution_id &&
         normalizarTexto(item.codigo_tabela_banco) === normalizarTexto(dados.codigo_tabela_banco) &&
         item.forma_contrato_id === dados.forma_contrato_id &&
-        String(item.convenio_id || '') === String(dados.convenio_id || ''),
+        String(item.convenio_id || '') === String(dados.convenio_id || '') &&
+        String(item.promotora_id || '') === String(dados.promotora_id || ''),
     )
     if (porChave) return porChave
   }
@@ -174,6 +187,7 @@ function montarDiff(dados: LinhaAnalisada['dados'], atual: TabelaExistente, nome
     { campo: 'codigo_tabela_banco', label: 'Código no banco', atual: String(atual.codigo_tabela_banco || '-'), novo: String(dados.codigo_tabela_banco || '-') },
     { campo: 'nome', label: 'Nome', atual: atual.nome, novo: dados.nome },
     { campo: 'institution_id', label: 'Financeira', atual: fmtRef(atual.institution_id), novo: fmtRef(dados.institution_id) },
+    { campo: 'promotora_id', label: 'Promotora', atual: atual.promotora_id ? fmtRef(atual.promotora_id) : 'Direto', novo: dados.promotora_id ? fmtRef(dados.promotora_id) : 'Direto' },
     { campo: 'forma_contrato_id', label: 'Forma de contrato', atual: fmtRef(atual.forma_contrato_id), novo: fmtRef(dados.forma_contrato_id) },
     { campo: 'convenio_id', label: 'Convênio', atual: fmtRef(atual.convenio_id), novo: fmtRef(dados.convenio_id) },
     { campo: 'tipo_formalizacao_id', label: 'Formalização', atual: fmtRef(atual.tipo_formalizacao_id), novo: fmtRef(dados.tipo_formalizacao_id) },
@@ -212,18 +226,20 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   const catalogo = await carregarCatalogo(admin)
   const { data: existentesData } = await admin
     .from('tabelas_comissao')
-    .select('id, codigo_tabela_banco, nome, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, id_arw')
+    .select('id, codigo_tabela_banco, nome, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, id_arw')
     .is('deleted_at', null)
   const existentes = (existentesData || []) as TabelaExistente[]
 
   // Nomes para o diff.
   const nomes = new Map<string, string>()
-  const [fis, convs] = await Promise.all([
+  const [fis, convs, promos] = await Promise.all([
     admin.from('financial_institutions').select('id, name'),
     admin.from('convenios').select('id, nome'),
+    admin.from('promotoras').select('id, razao_social, nome_fantasia'),
   ])
   for (const row of fis.data || []) nomes.set(String(row.id), String(row.name))
   for (const row of convs.data || []) nomes.set(String(row.id), String(row.nome))
+  for (const row of promos.data || []) nomes.set(String(row.id), String(row.nome_fantasia || row.razao_social || row.id))
   const [formasAll, formalizacoesAll] = await Promise.all([
     admin.from('formas_contrato').select('id, nome'),
     admin.from('tipos_formalizacao').select('id, nome'),
@@ -239,6 +255,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
 
     const nome = String(celula(row, 'nome') ?? '').trim()
     const financeiraTexto = String(celula(row, 'financeira') ?? '').trim()
+    const promotoraTexto = String(celula(row, 'promotora') ?? '').trim()
     const formaTexto = String(celula(row, 'forma_contrato') ?? '').trim()
     const convenioTexto = String(celula(row, 'convenio') ?? '').trim()
     const formalizacaoTexto = String(celula(row, 'tipo_formalizacao') ?? '').trim()
@@ -250,10 +267,12 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       codigo_tabela_banco: String(celula(row, 'codigo_tabela_banco') ?? '').trim() || null,
       nome,
       financeira_texto: financeiraTexto,
+      promotora_texto: promotoraTexto,
       forma_texto: formaTexto,
       convenio_texto: convenioTexto,
       formalizacao_texto: formalizacaoTexto,
       institution_id: resolverReferencia('financeira', financeiraTexto, catalogo, resolucoes),
+      promotora_id: promotoraTexto ? resolverReferencia('promotora', promotoraTexto, catalogo, resolucoes) : null,
       forma_contrato_id: resolverReferencia('forma_contrato', formaTexto, catalogo, resolucoes),
       convenio_id: convenioTexto ? resolverReferencia('convenio', convenioTexto, catalogo, resolucoes) : null,
       tipo_formalizacao_id: formalizacaoTexto ? resolverReferencia('tipo_formalizacao', formalizacaoTexto, catalogo, resolucoes) : null,
@@ -275,6 +294,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     // Pendências de referência (campo preenchido que não resolveu).
     const pendencias: LinhaAnalisada['pendencias'] = []
     if (!dados.institution_id) pendencias.push({ campo: 'financeira', texto: financeiraTexto, textoNormalizado: normalizarTexto(financeiraTexto) })
+    if (promotoraTexto && !dados.promotora_id) pendencias.push({ campo: 'promotora', texto: promotoraTexto, textoNormalizado: normalizarTexto(promotoraTexto) })
     if (!dados.forma_contrato_id) pendencias.push({ campo: 'forma_contrato', texto: formaTexto, textoNormalizado: normalizarTexto(formaTexto) })
     if (convenioTexto && !dados.convenio_id) pendencias.push({ campo: 'convenio', texto: convenioTexto, textoNormalizado: normalizarTexto(convenioTexto) })
     if (formalizacaoTexto && !dados.tipo_formalizacao_id) pendencias.push({ campo: 'tipo_formalizacao', texto: formalizacaoTexto, textoNormalizado: normalizarTexto(formalizacaoTexto) })
@@ -369,6 +389,7 @@ export async function POST(request: NextRequest) {
         codigo_tabela_banco: linha.dados.codigo_tabela_banco,
         nome: linha.dados.nome,
         institution_id: linha.dados.institution_id!,
+        promotora_id: linha.dados.promotora_id,
         forma_contrato_id: linha.dados.forma_contrato_id!,
         convenio_id: linha.dados.convenio_id,
         tipo_formalizacao_id: linha.dados.tipo_formalizacao_id,

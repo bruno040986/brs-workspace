@@ -19,15 +19,17 @@ type FeedbackMessage = { type: 'success' | 'error'; text: string }
 type LookupItem = { id: string; nome: string; name?: string; codigo?: string | null; codigo_arw?: string | null }
 type Lookups = {
   instituicoes: Array<{ id: string; name: string }>
+  promotoras: Array<{ id: string; nome: string }>
   convenios: LookupItem[]
   formasContrato: LookupItem[]
   tiposFormalizacao: LookupItem[]
 }
 
-const emptyLookups: Lookups = { instituicoes: [], convenios: [], formasContrato: [], tiposFormalizacao: [] }
+const emptyLookups: Lookups = { instituicoes: [], promotoras: [], convenios: [], formasContrato: [], tiposFormalizacao: [] }
 
 const campoLabels: Record<CampoReferencia, string> = {
   financeira: 'Financeira',
+  promotora: 'Promotora',
   convenio: 'Convênio',
   forma_contrato: 'Forma de Contrato',
   tipo_formalizacao: 'Formalização',
@@ -46,6 +48,7 @@ function uniquePendencias(linhas: LinhaAnalisada[]) {
 
 function lookupOptions(campo: CampoReferencia, lookups: Lookups) {
   if (campo === 'financeira') return lookups.instituicoes.map((item) => ({ id: item.id, label: item.name }))
+  if (campo === 'promotora') return lookups.promotoras.map((item) => ({ id: item.id, label: item.nome }))
   if (campo === 'convenio') return lookups.convenios.map((item) => ({ id: item.id, label: `${item.nome}${item.codigo ? ` (${item.codigo})` : ''}` }))
   if (campo === 'forma_contrato') return lookups.formasContrato.map((item) => ({ id: item.id, label: `${item.nome}${item.codigo_arw ? ` (${item.codigo_arw})` : ''}` }))
   return lookups.tiposFormalizacao.map((item) => ({ id: item.id, label: `${item.nome}${item.codigo_arw ? ` (${item.codigo_arw})` : ''}` }))
@@ -79,6 +82,7 @@ export default function ImportarComissionamentoPage() {
       if (res.success) {
         setLookups({
           instituicoes: (res.instituicoes || []) as Array<{ id: string; name: string }>,
+          promotoras: ((res as any).promotoras || []) as Array<{ id: string; nome: string }>,
           convenios: (res.convenios || []) as LookupItem[],
           formasContrato: (res.formasContrato || []) as LookupItem[],
           tiposFormalizacao: (res.tiposFormalizacao || []) as LookupItem[],

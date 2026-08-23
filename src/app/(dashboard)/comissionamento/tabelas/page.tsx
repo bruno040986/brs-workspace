@@ -6,12 +6,14 @@ import { getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setT
 
 type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null }
 type Lookup = { id: string; nome: string; codigo?: string | null; is_active?: boolean; origem_margem?: string }
+type Promotora = { id: string; nome: string; is_active: boolean }
 type TabelaComissao = {
   id: string
   codigo: number
   codigo_tabela_banco: string | null
   nome: string
   institution_id: string
+  promotora_id: string | null
   forma_contrato_id: string
   convenio_id: string | null
   tipo_formalizacao_id: string | null
@@ -24,15 +26,16 @@ type TabelaComissao = {
   id_arw: string | null
   is_active: boolean
   financial_institutions: Instituicao | null
+  promotoras: { id: string; razao_social: string | null; nome_fantasia: string | null } | null
   formas_contrato: Lookup | null
   convenios: Lookup | null
   tipos_formalizacao: Lookup | null
   prazos_comissao: Array<{ id: string }>
 }
-type Lookups = { instituicoes: Instituicao[]; formasContrato: Lookup[]; convenios: Lookup[]; tiposFormalizacao: Lookup[] }
+type Lookups = { instituicoes: Instituicao[]; formasContrato: Lookup[]; convenios: Lookup[]; tiposFormalizacao: Lookup[]; promotoras: Promotora[] }
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
-const emptyLookups: Lookups = { instituicoes: [], formasContrato: [], convenios: [], tiposFormalizacao: [] }
+const emptyLookups: Lookups = { instituicoes: [], formasContrato: [], convenios: [], tiposFormalizacao: [], promotoras: [] }
 
 function formatTaxa(value: number | null | undefined) {
   if (value === null || value === undefined) return null
@@ -68,6 +71,10 @@ function seguroLabel(value: boolean | null | undefined) {
   return '-'
 }
 
+function promotoraLabel(item: TabelaComissao) {
+  return item.promotoras?.nome_fantasia || item.promotoras?.razao_social || 'Direto'
+}
+
 export default function TabelasComissaoPage() {
   const [items, setItems] = useState<TabelaComissao[]>([])
   const [lookups, setLookups] = useState<Lookups>(emptyLookups)
@@ -77,6 +84,7 @@ export default function TabelasComissaoPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [institutionFilter, setInstitutionFilter] = useState('all')
   const [formaFilter, setFormaFilter] = useState('all')
+  const [promotoraFilter, setPromotoraFilter] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<EditingTabela | null>(null)
   const [saving, setSaving] = useState(false)
@@ -93,6 +101,7 @@ export default function TabelasComissaoPage() {
           formasContrato: (lookupsRes.formasContrato || []) as Lookup[],
           convenios: (lookupsRes.convenios || []) as Lookup[],
           tiposFormalizacao: (lookupsRes.tiposFormalizacao || []) as Lookup[],
+          promotoras: (lookupsRes.promotoras || []) as Promotora[],
         })
       }
     } catch (error: any) {
@@ -112,12 +121,13 @@ export default function TabelasComissaoPage() {
       const matchesSearch = !query || String(item.nome || '').toLowerCase().includes(query) || String(item.codigo_tabela_banco || '').toLowerCase().includes(query) || String(item.financial_institutions?.name || '').toLowerCase().includes(query)
       const matchesInstitution = institutionFilter === 'all' || item.institution_id === institutionFilter
       const matchesForma = formaFilter === 'all' || item.forma_contrato_id === formaFilter
-      return matchesSearch && matchesInstitution && matchesForma
+      const matchesPromotora = !promotoraFilter || (promotoraFilter === 'direto' ? !item.promotora_id : item.promotora_id === promotoraFilter)
+      return matchesSearch && matchesInstitution && matchesForma && matchesPromotora
     })
-  }, [items, searchQuery, institutionFilter, formaFilter])
+  }, [items, searchQuery, institutionFilter, formaFilter, promotoraFilter])
 
   function openNew() {
-    setEditing({ codigo_tabela_banco: '', nome: '', institution_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '', juros_tipo: '', juros_fixa: '', juros_min: '', juros_max: '' })
+    setEditing({ codigo_tabela_banco: '', nome: '', institution_id: '', promotora_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '', juros_tipo: '', juros_fixa: '', juros_min: '', juros_max: '' })
     setIsModalOpen(true)
   }
 
@@ -127,6 +137,7 @@ export default function TabelasComissaoPage() {
       codigo_tabela_banco: item.codigo_tabela_banco || '',
       nome: item.nome,
       institution_id: item.institution_id,
+      promotora_id: item.promotora_id || '',
       forma_contrato_id: item.forma_contrato_id,
       convenio_id: item.convenio_id || '',
       tipo_formalizacao_id: item.tipo_formalizacao_id || '',
@@ -152,6 +163,7 @@ export default function TabelasComissaoPage() {
         codigo_tabela_banco: editing.codigo_tabela_banco || null,
         nome: String(editing.nome || ''),
         institution_id: String(editing.institution_id || ''),
+        promotora_id: editing.promotora_id || null,
         forma_contrato_id: String(editing.forma_contrato_id || ''),
         convenio_id: editing.convenio_id || null,
         tipo_formalizacao_id: editing.tipo_formalizacao_id || null,
@@ -218,21 +230,27 @@ export default function TabelasComissaoPage() {
           <option value="all">Todas as formas</option>
           {lookups.formasContrato.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
         </select>
+        <select className="form-control" style={{ width: 220 }} value={promotoraFilter} onChange={(e) => setPromotoraFilter(e.target.value)}>
+          <option value="">Todas as promotoras</option>
+          <option value="direto">Direto</option>
+          {lookups.promotoras.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+        </select>
       </div>
 
       <div className="card">
         <div className="table-wrapper">
           <table className="data-table">
-            <thead><tr><th>Código</th><th>Instituição</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
+            <thead><tr><th>Código</th><th>Instituição</th><th>Promotora</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={13} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={11} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Table2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhuma tabela encontrada</h3><p>Cadastre a primeira tabela de comissão.</p></div></td></tr>
+                <tr><td colSpan={13} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Table2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhuma tabela encontrada</h3><p>Cadastre a primeira tabela de comissão.</p></div></td></tr>
               ) : filteredItems.map((item) => (
                 <tr key={item.id}>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.codigo}</td>
                   <td><div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}><div style={{ width: 32, height: 32, border: '1px solid var(--brs-gray-200)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fff' }}>{item.financial_institutions?.logo_url ? <img src={item.financial_institutions.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Table2 size={16} style={{ color: 'var(--brs-gray-400)' }} />}</div><span style={{ fontWeight: 600 }}>{item.financial_institutions?.name || '-'}</span></div></td>
+                  <td>{promotoraLabel(item)}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_tabela_banco || '-'}</td>
                   <td style={{ fontWeight: 600 }}>{item.nome}</td>
                   <td>{item.formas_contrato?.nome || '-'}</td>
@@ -260,6 +278,7 @@ export default function TabelasComissaoPage() {
                   <div className="form-group"><label className="form-label">Código no Banco</label><input type="text" className="form-control" value={editing?.codigo_tabela_banco || ''} onChange={(e) => setEditing({ ...editing, codigo_tabela_banco: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Nome <span className="required">*</span></label><input type="text" className="form-control" required value={editing?.nome || ''} onChange={(e) => setEditing({ ...editing, nome: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Instituição <span className="required">*</span></label><select className="form-control" required value={editing?.institution_id || ''} onChange={(e) => setEditing({ ...editing, institution_id: e.target.value })}><option value="">Selecione</option>{lookups.instituicoes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+                  <div className="form-group"><label className="form-label">Promotora</label><select className="form-control" value={editing?.promotora_id || ''} onChange={(e) => setEditing({ ...editing, promotora_id: e.target.value })}><option value="">Direto (sem promotora)</option>{lookups.promotoras.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>
                   <div className="form-group"><label className="form-label">Forma de Contrato <span className="required">*</span></label><select className="form-control" required value={editing?.forma_contrato_id || ''} onChange={(e) => setEditing({ ...editing, forma_contrato_id: e.target.value })}><option value="">Selecione</option>{lookups.formasContrato.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>
                   <div className="form-group"><label className="form-label">Convênio</label><select className="form-control" value={editing?.convenio_id || ''} onChange={(e) => setEditing({ ...editing, convenio_id: e.target.value })}><option value="">Sem convênio</option>{lookups.convenios.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>
                   <div className="form-group"><label className="form-label">Tipo de Formalização</label><select className="form-control" value={editing?.tipo_formalizacao_id || ''} onChange={(e) => setEditing({ ...editing, tipo_formalizacao_id: e.target.value })}><option value="">Sem formalização</option>{lookups.tiposFormalizacao.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>
