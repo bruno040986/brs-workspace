@@ -103,6 +103,29 @@ function taxaCsv(value: number | null | undefined): string {
   return String(value).replace('.', ',')
 }
 
+function celulasTabela(t: TabelaParaExportar): unknown[] {
+  return [
+    t.codigo_tabela_banco,
+    t.nome,
+    t.financeira,
+    t.promotora,
+    t.forma_contrato,
+    t.convenio,
+    t.tipo_formalizacao,
+    t.com_seguro === true ? 'com' : t.com_seguro === false ? 'sem' : '',
+    t.taxa_juros_tipo || '',
+    t.taxa_juros_tipo === 'fixa' ? taxaCsv(t.taxa_juros) : '',
+    t.taxa_juros_tipo === 'faixa' ? taxaCsv(t.taxa_juros_min) : '',
+    t.taxa_juros_tipo === 'faixa' ? taxaCsv(t.taxa_juros_max) : '',
+    t.observacao,
+  ]
+}
+
+function montarCsv(linhas: unknown[][]): string {
+  // BOM para o Excel abrir acentos corretamente.
+  return `﻿${MODELO_TABELAS_HEADERS.join(';')}\n${linhas.map((l) => l.map(csvCelula).join(';')).join('\n')}\n`
+}
+
 /**
  * Exporta as tabelas cadastradas no MESMO layout do modelo de importação:
  * as 13 colunas de tabela preenchidas, as 12 de prazo em branco — o operador
@@ -110,27 +133,56 @@ function taxaCsv(value: number | null | undefined): string {
  */
 export function gerarCsvTabelasCadastradas(tabelas: TabelaParaExportar[]): string {
   const colunasPrazo = MODELO_TABELAS_HEADERS.length - COLUNAS_TABELA.length
-  const linhas = tabelas.map((t) => {
-    const celulas = [
-      t.codigo_tabela_banco,
-      t.nome,
-      t.financeira,
-      t.promotora,
-      t.forma_contrato,
-      t.convenio,
-      t.tipo_formalizacao,
-      t.com_seguro === true ? 'com' : t.com_seguro === false ? 'sem' : '',
-      t.taxa_juros_tipo || '',
-      t.taxa_juros_tipo === 'fixa' ? taxaCsv(t.taxa_juros) : '',
-      t.taxa_juros_tipo === 'faixa' ? taxaCsv(t.taxa_juros_min) : '',
-      t.taxa_juros_tipo === 'faixa' ? taxaCsv(t.taxa_juros_max) : '',
-      t.observacao,
-      ...Array.from({ length: colunasPrazo }, () => ''),
-    ]
-    return celulas.map(csvCelula).join(';')
-  })
-  // BOM para o Excel abrir acentos corretamente.
-  return `﻿${MODELO_TABELAS_HEADERS.join(';')}\n${linhas.join('\n')}\n`
+  return montarCsv(tabelas.map((t) => [...celulasTabela(t), ...Array.from({ length: colunasPrazo }, () => '')]))
+}
+
+/** Prazo cadastrado + a tabela dele, para exportação completa. */
+export type PrazoParaExportar = {
+  tabela: TabelaParaExportar
+  forma_pagamento: string | null
+  valor_inicial: number | null
+  valor_final: number | null
+  prazo_inicial: number | null
+  prazo_final: number | null
+  data_base: string | null
+  manter_enquadramento: boolean | null
+  comissao: number | null
+  emissao: number | null
+  seguro: number | null
+  forma_pagamento_seguro: string | null
+  data_bloqueio: string | null
+}
+
+function dataCsv(value: string | null | undefined): string {
+  // ISO (yyyy-mm-dd) -> dd/mm/yyyy, formato que o importador aceita.
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : ''
+}
+
+/**
+ * Exporta os PRAZOS cadastrados com as 25 colunas preenchidas (tabela + prazo).
+ * Reimportável direto no Passo 2: cada linha casa pela identidade da tabela +
+ * intervalo de prazo + faixa de valores, e vira ATUALIZAÇÃO com diff aprovável
+ * — é o caminho para atualização de comissão em lote.
+ */
+export function gerarCsvPrazosCadastrados(prazos: PrazoParaExportar[]): string {
+  return montarCsv(
+    prazos.map((p) => [
+      ...celulasTabela(p.tabela),
+      p.forma_pagamento || '',
+      taxaCsv(p.valor_inicial),
+      taxaCsv(p.valor_final),
+      p.prazo_inicial ?? '',
+      p.prazo_final ?? '',
+      dataCsv(p.data_base),
+      p.manter_enquadramento === false ? 'nao' : 'sim',
+      taxaCsv(p.comissao),
+      taxaCsv(p.emissao),
+      taxaCsv(p.seguro),
+      p.forma_pagamento_seguro || '',
+      dataCsv(p.data_bloqueio),
+    ]),
+  )
 }
 
 /** Normalização para casar nomes/códigos e memorizar de-paras. */

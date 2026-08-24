@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Clock, Edit2, Loader2, Plus, Trash2 } from 'lucide-react'
+import { AlertCircle, CheckCircle, Clock, Download, Edit2, Loader2, Plus, Trash2 } from 'lucide-react'
+import { gerarCsvPrazosCadastrados } from '@/lib/comissionamento-import'
 import {
   calcularGradeComissionamento,
   formaPagamentoEmPercentual,
@@ -27,9 +28,15 @@ type TabelaLookup = {
   promotora_id: string | null
   com_seguro: boolean | null
   is_active: boolean
+  taxa_juros_tipo?: 'fixa' | 'faixa' | null
+  taxa_juros?: number | null
+  taxa_juros_min?: number | null
+  taxa_juros_max?: number | null
+  observacao?: string | null
   financial_institutions: Instituicao | null
   formas_contrato: { id: string; nome: string } | null
   convenios: { id: string; nome: string } | null
+  tipos_formalizacao?: { id: string; nome: string } | null
   promotoras: { id: string; razao_social: string | null; nome_fantasia: string | null } | null
 }
 type Prazo = PrazoComissaoPayload & {
@@ -175,6 +182,55 @@ export default function PrazosComissaoPage() {
     }
   }
 
+  function handleExportCsv() {
+    if (!items.length) {
+      setMessage({ type: 'error', text: 'Nenhum prazo para exportar com o filtro atual.' })
+      return
+    }
+    const csv = gerarCsvPrazosCadastrados(
+      items.map((item) => {
+        const t = item.tabelas_comissao
+        return {
+          tabela: {
+            codigo_tabela_banco: t?.codigo_tabela_banco ?? null,
+            nome: t?.nome || '',
+            financeira: t?.financial_institutions?.name || '',
+            promotora: t?.promotoras?.nome_fantasia || t?.promotoras?.razao_social || '',
+            forma_contrato: t?.formas_contrato?.nome || '',
+            convenio: t?.convenios?.nome || '',
+            tipo_formalizacao: t?.tipos_formalizacao?.nome || '',
+            com_seguro: t?.com_seguro ?? null,
+            taxa_juros_tipo: t?.taxa_juros_tipo ?? null,
+            taxa_juros: t?.taxa_juros ?? null,
+            taxa_juros_min: t?.taxa_juros_min ?? null,
+            taxa_juros_max: t?.taxa_juros_max ?? null,
+            observacao: t?.observacao ?? null,
+          },
+          forma_pagamento: item.forma_pagamento,
+          valor_inicial: item.valor_inicial,
+          valor_final: item.valor_final,
+          prazo_inicial: item.prazo_inicial,
+          prazo_final: item.prazo_final,
+          data_base: item.data_base,
+          manter_enquadramento: item.manter_enquadramento ?? null,
+          comissao: item.comissao,
+          emissao: item.emissao,
+          seguro: item.seguro,
+          forma_pagamento_seguro: item.forma_pagamento_seguro,
+          data_bloqueio: item.data_bloqueio,
+        }
+      }),
+    )
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `prazos-comissao-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    setMessage({ type: 'success', text: `${items.length} prazo(s) exportado(s) — layout completo, reimportável no Passo 2.` })
+  }
+
   function repasseAgente(item: Prazo, label: string) {
     const linha = (gradesPorPrazo.get(item.id) || []).find((grade) => matchesAgente(label, grade.tipoAgenteNome))
     return formatValor(linha?.repasse ?? null, formaPagamentoEmPercentual(item.forma_pagamento))
@@ -190,10 +246,16 @@ export default function PrazosComissaoPage() {
           </div>
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>Espelho dos prazos e comissões configurados no ARW.</div>
         </div>
-        <Link href="/comissionamento/prazos/novo" className="btn btn-primary">
-          <Plus size={16} />
-          Novo Prazo
-        </Link>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-outline" onClick={handleExportCsv} disabled={loading} title="Exporta os prazos filtrados com as 25 colunas preenchidas — reimportável no Passo 2 para atualização em lote">
+            <Download size={16} />
+            Exportar CSV
+          </button>
+          <Link href="/comissionamento/prazos/novo" className="btn btn-primary">
+            <Plus size={16} />
+            Novo Prazo
+          </Link>
+        </div>
       </div>
 
       {message && (

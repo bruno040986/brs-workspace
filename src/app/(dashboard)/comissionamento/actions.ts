@@ -356,7 +356,7 @@ export async function getPrazosComissao(tabelaComissaoId?: string) {
     let query = supabaseAdmin
       .from('prazos_comissao')
       .select(
-        '*, tabelas_comissao ( id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
+        '*, tabelas_comissao ( id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
       )
       .order('created_at', { ascending: false })
       .limit(300)
