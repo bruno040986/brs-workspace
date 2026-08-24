@@ -117,11 +117,30 @@ brs-workspace (padrões: `app_private.enable_rls_if_exists` + `apply_policy`; IN
    pequeno; o worker/webhook das Fases 2–3 consomem).
 9. Atualizar `docs/` e memória; commit; **avisar o Bruno para voltar ao Sonnet**.
 
-## 7. FASE 2 — Workspace (Sonnet/Codex)
+## 7. FASE 2 — Workspace (Sonnet/Codex) — CONCLUÍDA (23/08/2026)
 Importação pequena via API direto no WeSales (reaproveita mapeamento configurável;
 aplica tag `base:`); criação de campanha a partir do WeSales (search por tag → aplica
 `parceiro:` → copia → calcula ofertas); tela de certificação; job de expurgo (cron); job
-de conferência diária; Central de Integrações mostra saúde dessas rotinas.
+de conferência diária.
+
+Implementado: `src/lib/wesales/client.ts` (client próprio do Workspace), `src/lib/alvoconsig/ofertas.ts`,
+`src/lib/alvoconsig/campanha-encerramento.ts`, `POST /api/alvoconsig/campanhas`, `/api/alvoconsig/upload`
+reescrito (grava direto no WeSales, ≤2.000 linhas), crons `alvoconsig-expurgo` (diário) e
+`alvoconsig-conferencia` (30 min), telas `alocacao` (campanhas), `certificacao` (nova), `contatos` e
+resumo ajustados. `brs-alvoconsig`: worker ganhou `aplicar_tag`/`remover_tag`.
+
+**Pendências:**
+- `WESALES_API_TOKEN`/`WESALES_LOCATION_ID` na Vercel do Workspace (copiar do brs-alvoconsig) — sem
+  isso as rotas de importação/campanha falham.
+- Tela de Central de Integrações NÃO ganhou card de saúde do CRM — em vez disso, a saúde (fila
+  pendente/erro) apareceu como cards na própria home do AlvoConsig (`/alvoconsig`), mais simples e
+  sem mexer no framework de orquestradores (que é para satélites externos, não para isso). Revisar se
+  quiser padronizar com o resto depois.
+- Tela de Certificação depende da Fase 3 (CRM, brs-alvoconsig) marcar
+  `estado_local='certificacao_pendente'` ao mover lead pro estágio final — por ora usa
+  `funil_estagio='pagamento_feito'` como fallback manual e fica vazia até a Fase 3 existir.
+- Conferência não reconcilia convênio via nome, só via `codigo_convenio` (custom field) — se a
+  planilha original não tinha coluna de código, o convênio da cópia local não é corrigido pelo cron.
 
 ## 8. FASE 3 — CRM (Sonnet/Codex)
 Leitura da cópia local (já é); exportar "meus clientes" via tag; presença básica do
