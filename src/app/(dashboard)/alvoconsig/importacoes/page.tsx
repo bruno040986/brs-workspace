@@ -42,7 +42,7 @@ export default function ImportacoesPage() {
   // wizard
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [arquivo, setArquivo] = useState<File | null>(null)
-  const [tipo, setTipo] = useState<'refin' | 'margem'>('margem')
+  const [tipo, setTipo] = useState<'' | 'refin' | 'margem'>('')
   const [convenioId, setConvenioId] = useState('')
   const [instituicaoId, setInstituicaoId] = useState('')
   const [baseTag, setBaseTag] = useState('')
@@ -102,16 +102,21 @@ export default function ImportacoesPage() {
     const file = e.target.files?.[0] || null
     setArquivo(file)
     setAnalise(null)
-    if (file) analisar(file, tipo)
+    if (file && tipo) analisar(file, tipo)
   }
 
-  function handleTipoChange(novoTipo: 'refin' | 'margem') {
+  function handleTipoChange(novoTipo: '' | 'refin' | 'margem') {
     setTipo(novoTipo)
-    if (arquivo) analisar(arquivo, novoTipo)
+    setAnalise(null)
+    if (arquivo && novoTipo) analisar(arquivo, novoTipo)
   }
 
   async function importar() {
-    if (!arquivo || !analise) return
+    if (!arquivo || !analise || !tipo) return
+    if (!convenioId) {
+      setMessage({ type: 'error', text: 'Selecione o convênio.' })
+      return
+    }
     if (!baseTag.trim()) {
       setMessage({ type: 'error', text: 'Informe a base (tag) que os leads vão receber no WeSales.' })
       return
@@ -185,17 +190,18 @@ export default function ImportacoesPage() {
 
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="form-group" style={{ minWidth: 180 }}>
-            <label className="form-label">Tipo de mailing</label>
-            <select className="form-control" value={tipo} onChange={(e) => handleTipoChange(e.target.value as 'refin' | 'margem')}>
+          <div className="form-group" style={{ minWidth: 220 }}>
+            <label className="form-label">Tipo de mailing <span className="required">*</span></label>
+            <select className="form-control" required value={tipo} onChange={(e) => handleTipoChange(e.target.value as '' | 'refin' | 'margem')}>
+              <option value="">Selecione...</option>
               <option value="margem">Margens (calcular por coeficiente)</option>
               <option value="refin">REFIN pré-calculado</option>
             </select>
           </div>
           <div className="form-group" style={{ minWidth: 220 }}>
-            <label className="form-label">Convênio padrão (fallback)</label>
-            <select className="form-control" value={convenioId} onChange={(e) => setConvenioId(e.target.value)}>
-              <option value="">Detectar pela coluna de código</option>
+            <label className="form-label">Convênio <span className="required">*</span></label>
+            <select className="form-control" required value={convenioId} onChange={(e) => setConvenioId(e.target.value)}>
+              <option value="">Selecione...</option>
               {convenios.map((conv) => (
                 <option key={conv.id} value={conv.id}>{conv.nome}{conv.codigo ? ` (${conv.codigo})` : ''}</option>
               ))}
@@ -221,7 +227,7 @@ export default function ImportacoesPage() {
           </div>
           <div className="form-group">
             <label className="form-label">Arquivo (CSV/XLSX, até 20MB, até 2.000 linhas)</label>
-            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="form-control" onChange={handleFile} />
+            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="form-control" onChange={handleFile} disabled={!tipo} />
           </div>
           {processando && <Loader2 size={20} className="spinner" style={{ marginBottom: '0.6rem' }} />}
         </div>
@@ -251,7 +257,7 @@ export default function ImportacoesPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !baseTag.trim() || (tipo === 'refin' && !instituicaoId)}>
+              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !convenioId || !baseTag.trim() || (tipo === 'refin' && !instituicaoId)}>
                 {processando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
                 Confirmar importação
               </button>

@@ -156,6 +156,9 @@ export async function POST(request: NextRequest) {
     if (!baseTagSlug) {
       return NextResponse.json({ error: 'Informe a base (tag) que os leads vão receber no WeSales.' }, { status: 400 })
     }
+    if (!convenioIdPadrao) {
+      return NextResponse.json({ error: 'Selecione o convênio — obrigatório para margem e REFIN.' }, { status: 400 })
+    }
     if (mapeamento.cpf === undefined) {
       return NextResponse.json({ error: 'Mapeie a coluna de CPF.' }, { status: 400 })
     }
