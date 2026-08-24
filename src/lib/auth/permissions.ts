@@ -145,6 +145,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/alvoconsig': any([view('alvoconsig-gestao')]),
   '/alvoconsig/certificacao': any([view('alvoconsig-certificacao')]),
   '/api/alvoconsig/upload': any([include('alvoconsig-gestao')]),
+  '/api/alvoconsig/campanhas': any([include('alvoconsig-gestao')]),
   '/financeiro': any([view('financeiro-conta-parceiros')]),
 }
 

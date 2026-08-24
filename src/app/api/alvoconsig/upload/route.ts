@@ -178,6 +178,20 @@ export async function POST(request: NextRequest) {
       codigoConvenioPadrao = data?.codigo || null
     }
 
+    // Normaliza o código do convênio antes de gravar no WeSales: a busca por
+    // convênio (campanha sem base) compara por igualdade exata contra
+    // convenios.codigo — gravar o texto cru da planilha (zeros à esquerda,
+    // espaço, .0 de Excel etc.) faz essa comparação nunca bater.
+    const { data: conveniosParaNormalizar } = await admin.from('convenios').select('codigo').is('deleted_at', null)
+    const codigoCanonicoPorDigitos = new Map<string, string>()
+    for (const conv of conveniosParaNormalizar || []) {
+      if (conv.codigo) codigoCanonicoPorDigitos.set(cleanDigits(conv.codigo) || conv.codigo, conv.codigo)
+    }
+    function normalizarCodigoConvenio(bruto: string): string {
+      if (!bruto) return bruto
+      return codigoCanonicoPorDigitos.get(cleanDigits(bruto) || bruto) || bruto
+    }
+
     const { data: importRow, error: importError } = await admin
       .from('crm_imports')
       .insert({
@@ -240,7 +254,7 @@ export async function POST(request: NextRequest) {
         if (valor) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
       }
       if (temConvenio) {
-        const codigo = String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || ''
+        const codigo = normalizarCodigoConvenio(String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || '')
         if (codigo) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.convenioCodigo].id, fieldValue: codigo })
       }
       const nome = temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : undefined
