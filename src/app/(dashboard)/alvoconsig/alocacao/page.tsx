@@ -1,33 +1,43 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader2, Send, Undo2 } from 'lucide-react'
-import {
-  contarContatosParaAlocacao,
-  criarLote,
-  getConveniosAtivos,
-  getLotes,
-  getParceirosHabilitados,
-  revogarLote,
-  type FiltrosAlocacao,
-} from '../actions'
+import { useEffect, useState } from 'react'
+import { AlertCircle, CheckCircle, Loader2, Search, Send, Undo2 } from 'lucide-react'
+import { contarDisponiveisNoWeSales, encerrarCampanhaAgora, getCampanhas, getConveniosAtivos, getParceirosHabilitados } from '../actions'
 
-type Parceiro = { agenteParceiroId: string; nome: string; cpfCnpj: string }
+type Parceiro = { agenteParceiroId: string; nome: string; arwCode: string }
 type Convenio = { id: string; nome: string; codigo: string | null }
-type Lote = {
+type Campanha = {
   id: string
   descricao: string
-  qtd_contatos: number
-  liberado_em: string
-  revogado_em: string | null
+  base_tag: string
+  qtd_solicitada: number
+  qtd_alocada: number
+  vigencia_inicio: string
+  vigencia_fim: string
+  status: 'montando' | 'ativa' | 'encerrando' | 'encerrada' | 'cancelada'
   agentes_parceiros?: { id: string; name: string; fantasy_name: string | null } | null
 }
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
-function formatDateTimeBR(value: string) {
+const STATUS_LABEL: Record<Campanha['status'], string> = {
+  montando: 'Montando',
+  ativa: 'Ativa',
+  encerrando: 'Encerrando (aguardando fila)',
+  encerrada: 'Encerrada',
+  cancelada: 'Cancelada',
+}
+const STATUS_BADGE: Record<Campanha['status'], string> = {
+  montando: 'badge-gray',
+  ativa: 'badge-success',
+  encerrando: 'badge-warning',
+  encerrada: 'badge-gray',
+  cancelada: 'badge-danger',
+}
+
+function formatDateBR(value: string) {
   try {
-    return new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+    return new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR')
   } catch {
     return value
   }
@@ -36,37 +46,28 @@ function formatDateTimeBR(value: string) {
 export default function AlocacaoPage() {
   const [parceiros, setParceiros] = useState<Parceiro[]>([])
   const [convenios, setConvenios] = useState<Convenio[]>([])
-  const [lotes, setLotes] = useState<Lote[]>([])
+  const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [parceiroId, setParceiroId] = useState('')
   const [convenioId, setConvenioId] = useState('')
-  const [comMargem, setComMargem] = useState(false)
-  const [comTroco, setComTroco] = useState(false)
-  const [quantidade, setQuantidade] = useState('1000')
+  const [baseTag, setBaseTag] = useState('')
+  const [quantidade, setQuantidade] = useState('500')
+  const [vigenciaFim, setVigenciaFim] = useState('')
   const [descricao, setDescricao] = useState('')
   const [disponiveis, setDisponiveis] = useState<number | null>(null)
+  const [consultando, setConsultando] = useState(false)
   const [criando, setCriando] = useState(false)
-
-  const filtros: FiltrosAlocacao = {
-    convenioId: convenioId || undefined,
-    comMargem: comMargem || undefined,
-    comTroco: comTroco || undefined,
-  }
 
   async function loadData() {
     setLoading(true)
     try {
-      const [parceirosRes, conveniosRes, lotesRes] = await Promise.all([
-        getParceirosHabilitados(),
-        getConveniosAtivos(),
-        getLotes(),
-      ])
+      const [parceirosRes, conveniosRes, campanhasRes] = await Promise.all([getParceirosHabilitados(), getConveniosAtivos(), getCampanhas()])
       if (parceirosRes.success) setParceiros((parceirosRes.items || []) as Parceiro[])
       if (conveniosRes.success) setConvenios((conveniosRes.items || []) as Convenio[])
-      if (lotesRes.success) setLotes((lotesRes.items || []) as unknown as Lote[])
+      if (campanhasRes.success) setCampanhas((campanhasRes.items || []) as unknown as Campanha[])
     } finally {
       setLoading(false)
     }
@@ -76,54 +77,69 @@ export default function AlocacaoPage() {
     loadData()
   }, [])
 
-  const atualizarDisponiveis = useCallback(async () => {
+  async function consultarDisponiveis() {
+    if (!baseTag.trim()) {
+      setMessage({ type: 'error', text: 'Informe a base (tag) para consultar.' })
+      return
+    }
+    setConsultando(true)
     setDisponiveis(null)
-    const res = await contarContatosParaAlocacao({
-      convenioId: convenioId || undefined,
-      comMargem: comMargem || undefined,
-      comTroco: comTroco || undefined,
-    })
-    if (res.success) setDisponiveis(res.disponiveis ?? 0)
-  }, [convenioId, comMargem, comTroco])
+    try {
+      const res = await contarDisponiveisNoWeSales(baseTag)
+      if (res.success) setDisponiveis(res.disponiveis ?? 0)
+      else setMessage({ type: 'error', text: res.error || 'Erro ao consultar o WeSales.' })
+    } finally {
+      setConsultando(false)
+    }
+  }
 
-  useEffect(() => {
-    atualizarDisponiveis()
-  }, [atualizarDisponiveis])
-
-  async function handleCriarLote(e: React.FormEvent) {
+  async function handleCriarCampanha(e: React.FormEvent) {
     e.preventDefault()
     setCriando(true)
     setMessage(null)
     try {
-      const res = await criarLote({
-        agenteParceiroId: parceiroId,
-        quantidade: Number.parseInt(quantidade, 10),
-        descricao,
-        filtros,
+      const res = await fetch('/api/alvoconsig/campanhas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agenteParceiroId: parceiroId,
+          convenioId: convenioId || undefined,
+          baseTagSlug: baseTag,
+          quantidade: Number.parseInt(quantidade, 10),
+          vigenciaFim,
+          descricao,
+        }),
       })
-      if (res.success) {
-        setMessage({ type: 'success', text: `Lote criado: ${Number(res.alocados).toLocaleString('pt-BR')} contato(s) liberado(s) para o parceiro.` })
-        setDescricao('')
-        await Promise.all([loadData(), atualizarDisponiveis()])
-      } else {
-        setMessage({ type: 'error', text: res.error || 'Erro ao criar o lote.' })
+      const json = await res.json()
+      if (!res.ok) {
+        setMessage({ type: 'error', text: json.error || 'Erro ao criar a campanha.' })
+        return
       }
+      setMessage({
+        type: 'success',
+        text: `Campanha criada: ${Number(json.alocados).toLocaleString('pt-BR')} de ${Number(json.encontrados).toLocaleString('pt-BR')} contato(s) encontrados foram copiados e já entraram na fila de sincronização com o WeSales.`,
+      })
+      setDescricao('')
+      setDisponiveis(null)
+      await loadData()
+    } catch {
+      setMessage({ type: 'error', text: 'Erro ao criar a campanha.' })
     } finally {
       setCriando(false)
     }
   }
 
-  async function handleRevogar(lote: Lote) {
-    if (!window.confirm(`Revogar o lote de ${lote.qtd_contatos.toLocaleString('pt-BR')} contato(s)? O parceiro perde o acesso aos leads deste lote (o histórico de tabulações permanece).`)) return
-    setBusyId(lote.id)
+  async function handleEncerrar(campanha: Campanha) {
+    if (!window.confirm(`Encerrar a campanha "${campanha.descricao || campanha.base_tag}" agora? Leads não concretizados voltam para o pool no WeSales (tag "disponivel").`)) return
+    setBusyId(campanha.id)
     setMessage(null)
     try {
-      const res = await revogarLote(lote.id)
+      const res = await encerrarCampanhaAgora(campanha.id)
       if (res.success) {
-        setMessage({ type: 'success', text: 'Lote revogado. Contatos voltaram para a base disponível.' })
-        await Promise.all([loadData(), atualizarDisponiveis()])
+        setMessage({ type: 'success', text: `Campanha encerrada. ${res.expurgados || 0} cópia(s) expurgada(s), ${res.mantidos || 0} mantida(s) (negociação aberta/certificação pendente).` })
+        await loadData()
       } else {
-        setMessage({ type: 'error', text: res.error || 'Erro ao revogar o lote.' })
+        setMessage({ type: 'error', text: res.error || 'Erro ao encerrar a campanha.' })
       }
     } finally {
       setBusyId(null)
@@ -135,10 +151,10 @@ export default function AlocacaoPage() {
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Send size={18} />
-          Alocação de Lotes
+          Campanhas
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-          Libere contatos da base para um parceiro habilitado. O dono é definido no nível do contato e pode ser revogado por lote.
+          Aloca contatos do WeSales (tag da base + disponível) para um parceiro, com vigência. Os leads continuam no WeSales — aqui só copiamos o mínimo para atendimento rápido.
         </div>
       </div>
 
@@ -157,14 +173,14 @@ export default function AlocacaoPage() {
         </div>
       )}
 
-      <form onSubmit={handleCriarLote} className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+      <form onSubmit={handleCriarCampanha} className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ minWidth: 240 }}>
             <label className="form-label">Parceiro <span className="required">*</span></label>
             <select className="form-control" required value={parceiroId} onChange={(e) => setParceiroId(e.target.value)}>
               <option value="">Selecione...</option>
               {parceiros.map((parceiro) => (
-                <option key={parceiro.agenteParceiroId} value={parceiro.agenteParceiroId}>{parceiro.nome}</option>
+                <option key={parceiro.agenteParceiroId} value={parceiro.agenteParceiroId}>{parceiro.nome} ({parceiro.arwCode})</option>
               ))}
             </select>
             {parceiros.length === 0 && !loading && (
@@ -174,42 +190,45 @@ export default function AlocacaoPage() {
             )}
           </div>
           <div className="form-group" style={{ minWidth: 200 }}>
-            <label className="form-label">Convênio</label>
-            <select className="form-control" value={convenioId} onChange={(e) => setConvenioId(e.target.value)}>
-              <option value="">Todos</option>
+            <label className="form-label">Convênio (p/ calcular ofertas) <span className="required">*</span></label>
+            <select className="form-control" required value={convenioId} onChange={(e) => setConvenioId(e.target.value)}>
+              <option value="">Selecione...</option>
               {convenios.map((conv) => (
                 <option key={conv.id} value={conv.id}>{conv.nome}</option>
               ))}
             </select>
           </div>
+          <div className="form-group" style={{ minWidth: 220 }}>
+            <label className="form-label">Base (tag no WeSales) <span className="required">*</span></label>
+            <input type="text" className="form-control" required placeholder="Ex.: mesquita-refin-2026-08" value={baseTag} onChange={(e) => { setBaseTag(e.target.value); setDisponiveis(null) }} />
+          </div>
           <div className="form-group" style={{ width: 140 }}>
             <label className="form-label">Quantidade <span className="required">*</span></label>
-            <input type="number" min={1} max={50000} className="form-control" required value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+            <input type="number" min={1} max={20000} className="form-control" required value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+          </div>
+          <div className="form-group" style={{ width: 170 }}>
+            <label className="form-label">Vigência até <span className="required">*</span></label>
+            <input type="date" className="form-control" required value={vigenciaFim} onChange={(e) => setVigenciaFim(e.target.value)} />
           </div>
           <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
             <label className="form-label">Descrição</label>
-            <input type="text" className="form-control" placeholder="Ex.: Prefeitura SP — 1º lote" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+            <input type="text" className="form-control" placeholder="Ex.: Prefeitura Mesquita — Refin ago/26" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--brs-gray-600)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={comMargem} onChange={(e) => setComMargem(e.target.checked)} />
-            Apenas com margem
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--brs-gray-600)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={comTroco} onChange={(e) => setComTroco(e.target.checked)} />
-            Apenas com troco REFIN
-          </label>
-          <span style={{ fontSize: '0.875rem', color: 'var(--brs-gray-500)' }}>
-            Disponíveis com esses filtros:{' '}
-            <strong style={{ color: 'var(--brs-gray-800)' }}>
-              {disponiveis === null ? '…' : disponiveis.toLocaleString('pt-BR')}
-            </strong>
-          </span>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-outline btn-sm" onClick={consultarDisponiveis} disabled={consultando || !baseTag.trim()}>
+            {consultando ? <Loader2 size={15} className="spinner" /> : <Search size={15} />}
+            Consultar disponíveis no WeSales
+          </button>
+          {disponiveis !== null && (
+            <span style={{ fontSize: '0.875rem', color: 'var(--brs-gray-500)' }}>
+              Disponíveis nessa base: <strong style={{ color: 'var(--brs-gray-800)' }}>{disponiveis.toLocaleString('pt-BR')}</strong>
+            </span>
+          )}
           <div style={{ marginLeft: 'auto' }}>
-            <button type="submit" className="btn btn-primary" disabled={criando || !parceiroId}>
+            <button type="submit" className="btn btn-primary" disabled={criando || !parceiroId || !convenioId || !baseTag.trim() || !vigenciaFim}>
               {criando ? <Loader2 size={16} className="spinner" /> : <Send size={16} />}
-              Liberar lote
+              Criar campanha
             </button>
           </div>
         </div>
@@ -222,48 +241,48 @@ export default function AlocacaoPage() {
               <tr>
                 <th>Parceiro</th>
                 <th>Descrição</th>
-                <th>Contatos</th>
-                <th>Liberado em</th>
+                <th>Base</th>
+                <th>Alocados</th>
+                <th>Vigência</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
-              ) : lotes.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+              ) : campanhas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
                     <div className="empty-state">
                       <Send size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
-                      <h3>Nenhum lote liberado</h3>
-                      <p>Libere o primeiro lote de contatos para um parceiro.</p>
+                      <h3>Nenhuma campanha criada</h3>
+                      <p>Crie a primeira campanha para um parceiro.</p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                lotes.map((lote) => (
-                  <tr key={lote.id}>
-                    <td style={{ fontWeight: 600 }}>{lote.agentes_parceiros?.fantasy_name || lote.agentes_parceiros?.name || '-'}</td>
-                    <td>{lote.descricao || '-'}</td>
-                    <td>{lote.qtd_contatos.toLocaleString('pt-BR')}</td>
-                    <td style={{ fontSize: '0.85rem' }}>{formatDateTimeBR(lote.liberado_em)}</td>
+                campanhas.map((campanha) => (
+                  <tr key={campanha.id}>
+                    <td style={{ fontWeight: 600 }}>{campanha.agentes_parceiros?.fantasy_name || campanha.agentes_parceiros?.name || '-'}</td>
+                    <td>{campanha.descricao || '-'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{campanha.base_tag}</td>
+                    <td>{campanha.qtd_alocada.toLocaleString('pt-BR')} / {campanha.qtd_solicitada.toLocaleString('pt-BR')}</td>
+                    <td style={{ fontSize: '0.85rem' }}>{formatDateBR(campanha.vigencia_inicio)} — {formatDateBR(campanha.vigencia_fim)}</td>
                     <td>
-                      <span className={`badge ${lote.revogado_em ? 'badge-gray' : 'badge-success'}`}>
-                        {lote.revogado_em ? 'Revogado' : 'Ativo'}
-                      </span>
+                      <span className={`badge ${STATUS_BADGE[campanha.status]}`}>{STATUS_LABEL[campanha.status]}</span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {!lote.revogado_em && (
+                      {(campanha.status === 'ativa' || campanha.status === 'encerrando') && (
                         <button
                           type="button"
                           className="btn btn-outline btn-sm btn-acao"
-                          onClick={() => handleRevogar(lote)}
-                          disabled={busyId === lote.id}
-                          title="Revogar"
-                          aria-label="Revogar"
+                          onClick={() => handleEncerrar(campanha)}
+                          disabled={busyId === campanha.id}
+                          title="Encerrar agora"
+                          aria-label="Encerrar agora"
                         >
-                          {busyId === lote.id ? <Loader2 size={15} className="spinner" /> : <Undo2 size={15} />}
+                          {busyId === campanha.id ? <Loader2 size={15} className="spinner" /> : <Undo2 size={15} />}
                         </button>
                       )}
                     </td>

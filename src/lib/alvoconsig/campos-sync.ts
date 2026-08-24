@@ -29,6 +29,16 @@ export const CAMPOS_DO_CRM = ['funil_estagio', 'funil_atualizado_em', 'estado_lo
 export const TAG_PARCEIRO_PREFIXO = 'parceiro:'
 export const TAG_CLIENTE_PREFIXO = 'cliente:'
 export const TAG_BASE_PREFIXO = 'base:'
+/**
+ * Tag "disponivel": bookkeeping da alocação. O WeSales não tem exclusão de
+ * tag por prefixo/wildcard (só valor exato), então não dá para perguntar
+ * "sem nenhuma tag parceiro:*" diretamente. Em vez disso, todo contato
+ * elegível para campanha carrega esta tag; alocar REMOVE "disponivel" e
+ * ADICIONA "parceiro:<arw>"; encerrar campanha sem certificação faz o
+ * inverso (volta pro pool — nunca se descarta lead, só se libera de novo).
+ * Contato com tag `cliente:*` NUNCA recebe "disponivel" de volta.
+ */
+export const TAG_DISPONIVEL = 'disponivel'
 
 export function tagParceiro(arwCode: string) {
   return `${TAG_PARCEIRO_PREFIXO}${String(arwCode || '').trim().toLowerCase()}`
@@ -39,6 +49,24 @@ export function tagCliente(arwCode: string) {
 export function tagBase(slug: string) {
   return `${TAG_BASE_PREFIXO}${String(slug || '').trim().toLowerCase().replace(/\s+/g, '-')}`
 }
+
+/**
+ * Campos personalizados do WeSales usados pelo AlvoConsig (Fase 2). `cpf` e
+ * `dono_alvoconsig` já existiam (worker da fila, Fase 1 do CRM); os demais
+ * nascem sob demanda via `ensureCustomField` na importação/campanha.
+ */
+export const WESALES_FIELD_KEYS = {
+  cpf: 'cpf',
+  matricula: 'alvoconsig_matricula',
+  convenioCodigo: 'alvoconsig_convenio_codigo',
+  margemNovo: 'alvoconsig_margem_novo',
+  margemCartaoRmc: 'alvoconsig_margem_cartao_rmc',
+  margemCartaoRcc: 'alvoconsig_margem_cartao_rcc',
+  refinTroco: 'alvoconsig_refin_troco',
+  refinParcela: 'alvoconsig_refin_parcela',
+  refinPrazo: 'alvoconsig_refin_prazo',
+  refinTaxa: 'alvoconsig_refin_taxa',
+} as const
 
 /** Estágios em que a cópia local NÃO pode ser expurgada no fim da campanha. */
 export const ESTAGIOS_NEGOCIACAO_ABERTA = [

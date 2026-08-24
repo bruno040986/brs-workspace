@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, Contact, Send, Target, Upload, Users } from 'lucide-react'
+import { AlertCircle, AlertTriangle, ListChecks, Send, Target, Upload, Users } from 'lucide-react'
 import { getAlvoconsigResumo } from './actions'
 
 type Resumo = {
-  totalContatos: number
-  semDono: number
-  comDono: number
+  campanhasAtivas: number
+  contatosEmAtendimento: number
   parceirosHabilitados: number
+  filaPendente: number
+  filaErro: number
   importsRecentes: Array<{
     id: string
     tipo: string
@@ -34,10 +35,11 @@ export default function AlvoconsigHomePage() {
   }, [])
 
   const cards = [
-    { label: 'Contatos na base', valor: resumo?.totalContatos, icon: Contact },
-    { label: 'Disponíveis (sem dono)', valor: resumo?.semDono, icon: Target },
-    { label: 'Alocados a parceiros', valor: resumo?.comDono, icon: Send },
+    { label: 'Campanhas ativas', valor: resumo?.campanhasAtivas, icon: Send },
+    { label: 'Contatos em atendimento', valor: resumo?.contatosEmAtendimento, icon: ListChecks },
     { label: 'Parceiros habilitados', valor: resumo?.parceirosHabilitados, icon: Users },
+    { label: 'Fila WeSales — pendente', valor: resumo?.filaPendente, icon: Target },
+    { label: 'Fila WeSales — com erro', valor: resumo?.filaErro, icon: AlertTriangle },
   ]
 
   return (
@@ -48,7 +50,7 @@ export default function AlvoconsigHomePage() {
           AlvoConsig — Gestão de Leads
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-          Importação de mailing, alocação de lotes por parceiro e visão global da base do CRM.
+          Os leads moram no WeSales — aqui: importação de mailing, campanhas por parceiro e saúde da sincronização.
         </div>
       </div>
 

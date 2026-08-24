@@ -15,6 +15,14 @@
     {
       "path": "/api/cron/agenda-sync",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/alvoconsig-expurgo",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/alvoconsig-conferencia",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

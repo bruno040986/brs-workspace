@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, Contact, Search } from 'lucide-react'
-import { getContatosGlobal, getConveniosAtivos } from '../actions'
+import { getCampanhas, getContatosGlobal, getConveniosAtivos } from '../actions'
 
 type ContatoItem = {
   id: string
@@ -20,6 +20,7 @@ type ContatoItem = {
 }
 
 type Convenio = { id: string; nome: string; codigo: string | null }
+type Campanha = { id: string; descricao: string; base_tag: string }
 
 function formatMoney(value: number | null) {
   if (value === null || value === undefined) return '-'
@@ -34,6 +35,7 @@ function maskCpf(value: string | null) {
 export default function ContatosPage() {
   const [items, setItems] = useState<ContatoItem[]>([])
   const [convenios, setConvenios] = useState<Convenio[]>([])
+  const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [total, setTotal] = useState(0)
   const [pagina, setPagina] = useState(1)
   const [porPagina] = useState(50)
@@ -42,7 +44,7 @@ export default function ContatosPage() {
   const [busca, setBusca] = useState('')
   const [buscaAplicada, setBuscaAplicada] = useState('')
   const [convenioId, setConvenioId] = useState('')
-  const [dono, setDono] = useState<'todos' | 'sem-dono' | 'com-dono'>('todos')
+  const [campanhaId, setCampanhaId] = useState('')
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -50,7 +52,7 @@ export default function ContatosPage() {
       const res = await getContatosGlobal({
         busca: buscaAplicada,
         convenioId: convenioId || undefined,
-        dono,
+        campanhaId: campanhaId || undefined,
         pagina,
       })
       if (res.success) {
@@ -60,11 +62,14 @@ export default function ContatosPage() {
     } finally {
       setLoading(false)
     }
-  }, [buscaAplicada, convenioId, dono, pagina])
+  }, [buscaAplicada, convenioId, campanhaId, pagina])
 
   useEffect(() => {
     getConveniosAtivos().then((res) => {
       if (res.success) setConvenios((res.items || []) as Convenio[])
+    })
+    getCampanhas().then((res) => {
+      if (res.success) setCampanhas((res.items || []) as unknown as Campanha[])
     })
   }, [])
 
@@ -79,10 +84,10 @@ export default function ContatosPage() {
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Contact size={18} />
-          Contatos — Visão Global
+          Contatos — Campanhas Ativas
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-          Toda a base do CRM, cruzando convênios e parceiros ({total.toLocaleString('pt-BR')} contato(s)).
+          Cópias de trabalho de campanhas em andamento ({total.toLocaleString('pt-BR')} contato(s)) — a base completa mora no WeSales.
         </div>
       </div>
 
@@ -113,10 +118,11 @@ export default function ContatosPage() {
             <option key={conv.id} value={conv.id}>{conv.nome}</option>
           ))}
         </select>
-        <select className="form-control" style={{ width: 170 }} value={dono} onChange={(e) => { setPagina(1); setDono(e.target.value as any) }}>
-          <option value="todos">Todos</option>
-          <option value="sem-dono">Sem dono</option>
-          <option value="com-dono">Com dono</option>
+        <select className="form-control" style={{ width: 220 }} value={campanhaId} onChange={(e) => { setPagina(1); setCampanhaId(e.target.value) }}>
+          <option value="">Todas as campanhas</option>
+          {campanhas.map((campanha) => (
+            <option key={campanha.id} value={campanha.id}>{campanha.descricao || campanha.base_tag}</option>
+          ))}
         </select>
       </div>
 

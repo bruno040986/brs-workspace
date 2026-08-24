@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Contact, LayoutDashboard, Send, Target, Upload, Users } from 'lucide-react'
+import { Contact, LayoutDashboard, Send, ShieldCheck, Target, Upload, Users } from 'lucide-react'
 
 export default function AlvoconsigSidebar() {
   const pathname = usePathname()
@@ -27,7 +27,11 @@ export default function AlvoconsigSidebar() {
           </Link>
           <Link href="/alvoconsig/alocacao" className={linkClass('/alvoconsig/alocacao')}>
             <Send size={18} />
-            Alocação de Lotes
+            Campanhas
+          </Link>
+          <Link href="/alvoconsig/certificacao" className={linkClass('/alvoconsig/certificacao')}>
+            <ShieldCheck size={18} />
+            Certificação
           </Link>
           <Link href="/alvoconsig/contatos" className={linkClass('/alvoconsig/contatos')}>
             <Contact size={18} />

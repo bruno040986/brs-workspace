@@ -42,6 +42,7 @@ export default function ImportacoesPage() {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [tipo, setTipo] = useState<'refin' | 'margem'>('margem')
   const [convenioId, setConvenioId] = useState('')
+  const [baseTag, setBaseTag] = useState('')
   const [analise, setAnalise] = useState<Analise | null>(null)
   const [mapeamento, setMapeamento] = useState<Record<string, number | ''>>({})
   const [processando, setProcessando] = useState(false)
@@ -107,6 +108,10 @@ export default function ImportacoesPage() {
 
   async function importar() {
     if (!arquivo || !analise) return
+    if (!baseTag.trim()) {
+      setMessage({ type: 'error', text: 'Informe a base (tag) que os leads vão receber no WeSales.' })
+      return
+    }
     setProcessando(true)
     setMessage(null)
     try {
@@ -119,6 +124,7 @@ export default function ImportacoesPage() {
       formData.append('fase', 'importar')
       formData.append('tipo', tipo)
       formData.append('mapeamento', JSON.stringify(mapeamentoFinal))
+      formData.append('base_tag', baseTag)
       if (convenioId) formData.append('convenio_id', convenioId)
       const res = await fetch('/api/alvoconsig/upload', { method: 'POST', body: formData })
       const json = await res.json()
@@ -128,9 +134,10 @@ export default function ImportacoesPage() {
       }
       setMessage({
         type: 'success',
-        text: `Importação concluída: ${Number(json.importadas).toLocaleString('pt-BR')} contato(s) importado(s), ${Number(json.descartadas).toLocaleString('pt-BR')} linha(s) descartada(s).`,
+        text: `Importação concluída direto no WeSales: ${Number(json.importadas).toLocaleString('pt-BR')} contato(s) com a tag "${json.baseTag}", ${Number(json.descartadas).toLocaleString('pt-BR')} linha(s) descartada(s). Agora é só criar a campanha em Campanhas.`,
       })
       resetWizard()
+      setBaseTag('')
       await loadData()
     } catch {
       setMessage({ type: 'error', text: 'Erro ao importar o mailing.' })
@@ -147,7 +154,7 @@ export default function ImportacoesPage() {
           Importar Mailing
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-          REFIN pré-calculado (só entram linhas com troco &gt; 0) ou margens (Novo / Cartão RMC / Cartão RCC). Cabeçalhos variados são resolvidos pelo mapeamento abaixo.
+          Grava direto no WeSales (nunca se descarta lead) — até 2.000 linhas por vez. Para volume maior, use o CSV nativo na interface do WeSales. REFIN pré-calculado (só troco &gt; 0) ou margens (Novo / Cartão RMC / Cartão RCC).
         </div>
       </div>
 
@@ -184,8 +191,12 @@ export default function ImportacoesPage() {
               ))}
             </select>
           </div>
+          <div className="form-group" style={{ minWidth: 220 }}>
+            <label className="form-label">Base (tag no WeSales) <span className="required">*</span></label>
+            <input type="text" className="form-control" required placeholder="Ex.: mesquita-refin-2026-08" value={baseTag} onChange={(e) => setBaseTag(e.target.value)} />
+          </div>
           <div className="form-group">
-            <label className="form-label">Arquivo (CSV/XLSX, até 20MB)</label>
+            <label className="form-label">Arquivo (CSV/XLSX, até 20MB, até 2.000 linhas)</label>
             <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="form-control" onChange={handleFile} />
           </div>
           {processando && <Loader2 size={20} className="spinner" style={{ marginBottom: '0.6rem' }} />}
@@ -216,7 +227,7 @@ export default function ImportacoesPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando}>
+              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !baseTag.trim()}>
                 {processando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
                 Confirmar importação
               </button>

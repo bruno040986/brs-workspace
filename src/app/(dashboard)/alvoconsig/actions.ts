@@ -3,6 +3,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
+import { countContacts } from '@/lib/wesales/client'
+import { tagBase, TAG_DISPONIVEL } from '@/lib/alvoconsig/campos-sync'
+import { reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,22 +19,7 @@ const supabaseAdmin = createClient(
 )
 
 const PERMISSION_RESOURCE = 'alvoconsig-gestao'
-
-export type FiltrosAlocacao = {
-  convenioId?: string
-  apenasSemDono?: boolean
-  comMargem?: boolean
-  comTroco?: boolean
-}
-
-function aplicarFiltrosContatos(query: any, filtros: FiltrosAlocacao) {
-  let q = query.is('deleted_at', null)
-  if (filtros.convenioId) q = q.eq('convenio_id', filtros.convenioId)
-  if (filtros.apenasSemDono) q = q.is('agente_parceiro_id', null)
-  if (filtros.comMargem) q = q.or('margem_novo.gt.0,margem_cartao_rmc.gt.0,margem_cartao_rcc.gt.0')
-  if (filtros.comTroco) q = q.gt('refin_troco', 0)
-  return q
-}
+const PERMISSION_CERTIFICACAO = 'alvoconsig-certificacao'
 
 // ----------------------------------------------------------------------------
 // Visão geral
@@ -40,11 +28,12 @@ export async function getAlvoconsigResumo() {
   try {
     await requirePermission(PERMISSION_RESOURCE)
 
-    const [total, semDono, comDono, habilitados, imports] = await Promise.all([
-      supabaseAdmin.from('crm_contatos').select('id', { count: 'exact', head: true }).is('deleted_at', null),
-      supabaseAdmin.from('crm_contatos').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('agente_parceiro_id', null),
-      supabaseAdmin.from('crm_contatos').select('id', { count: 'exact', head: true }).is('deleted_at', null).not('agente_parceiro_id', 'is', null),
+    const [campanhasAtivas, contatosEmAtendimento, habilitados, filaPendente, filaErro, imports] = await Promise.all([
+      supabaseAdmin.from('crm_campanhas').select('id', { count: 'exact', head: true }).in('status', ['ativa', 'encerrando']),
+      supabaseAdmin.from('crm_contatos').select('id', { count: 'exact', head: true }).is('deleted_at', null).not('campanha_id', 'is', null),
       supabaseAdmin.from('crm_parceiro_config').select('agente_parceiro_id', { count: 'exact', head: true }).eq('habilitado', true),
+      supabaseAdmin.from('crm_wesales_queue').select('id', { count: 'exact', head: true }).eq('status', 'pendente'),
+      supabaseAdmin.from('crm_wesales_queue').select('id', { count: 'exact', head: true }).eq('status', 'erro'),
       supabaseAdmin
         .from('crm_imports')
         .select('id, tipo, arquivo_nome, total_linhas, importadas, descartadas, status, created_at')
@@ -55,10 +44,11 @@ export async function getAlvoconsigResumo() {
     return {
       success: true,
       resumo: {
-        totalContatos: total.count || 0,
-        semDono: semDono.count || 0,
-        comDono: comDono.count || 0,
+        campanhasAtivas: campanhasAtivas.count || 0,
+        contatosEmAtendimento: contatosEmAtendimento.count || 0,
         parceirosHabilitados: habilitados.count || 0,
+        filaPendente: filaPendente.count || 0,
+        filaErro: filaErro.count || 0,
         importsRecentes: imports.data || [],
       },
     }
@@ -69,7 +59,8 @@ export async function getAlvoconsigResumo() {
 }
 
 // ----------------------------------------------------------------------------
-// Importações
+// Importações (log apenas — a gravação em si vai direto ao WeSales, sem
+// persistir em crm_contatos; ver /api/alvoconsig/upload)
 // ----------------------------------------------------------------------------
 export async function getImports() {
   try {
@@ -106,7 +97,7 @@ export async function getConveniosAtivos() {
 }
 
 // ----------------------------------------------------------------------------
-// Parceiros habilitados (para alocação)
+// Parceiros habilitados (para campanhas)
 // ----------------------------------------------------------------------------
 export async function getParceirosHabilitados() {
   try {
@@ -114,15 +105,18 @@ export async function getParceirosHabilitados() {
 
     const { data, error } = await supabaseAdmin
       .from('crm_parceiro_config')
-      .select('agente_parceiro_id, habilitado, max_atendentes, agentes_parceiros ( id, name, fantasy_name, cpf_cnpj )')
+      .select('agente_parceiro_id, habilitado, max_atendentes, agentes_parceiros ( id, name, fantasy_name, cpf_cnpj, arw_code )')
       .eq('habilitado', true)
     if (error) throw error
 
-    const items = (data || []).map((row: any) => ({
-      agenteParceiroId: String(row.agente_parceiro_id),
-      nome: String(row.agentes_parceiros?.fantasy_name || row.agentes_parceiros?.name || 'Parceiro'),
-      cpfCnpj: String(row.agentes_parceiros?.cpf_cnpj || ''),
-    }))
+    const items = (data || [])
+      .filter((row: any) => String(row.agentes_parceiros?.arw_code || '').trim())
+      .map((row: any) => ({
+        agenteParceiroId: String(row.agente_parceiro_id),
+        nome: String(row.agentes_parceiros?.fantasy_name || row.agentes_parceiros?.name || 'Parceiro'),
+        cpfCnpj: String(row.agentes_parceiros?.cpf_cnpj || ''),
+        arwCode: String(row.agentes_parceiros?.arw_code || ''),
+      }))
     return { success: true, items }
   } catch (error: any) {
     console.error('Erro ao listar parceiros habilitados:', error)
@@ -131,187 +125,162 @@ export async function getParceirosHabilitados() {
 }
 
 // ----------------------------------------------------------------------------
-// Alocação de lotes
+// Campanhas (substituem os lotes — leads vêm do WeSales por tag de base)
 // ----------------------------------------------------------------------------
-export async function contarContatosParaAlocacao(filtros: FiltrosAlocacao) {
+export async function contarDisponiveisNoWeSales(baseTagSlug: string) {
   try {
     await requirePermission(PERMISSION_RESOURCE)
+    const slug = String(baseTagSlug || '').trim()
+    if (!slug) return { success: false, error: 'Informe a base (tag) para consultar.' }
 
-    const { count, error } = await aplicarFiltrosContatos(
-      supabaseAdmin.from('crm_contatos').select('id', { count: 'exact', head: true }),
-      { ...filtros, apenasSemDono: true },
-    )
-    if (error) throw error
-    return { success: true, disponiveis: count || 0 }
+    const total = await countContacts([
+      { field: 'tags', operator: 'contains', value: [tagBase(slug)] },
+      { field: 'tags', operator: 'contains', value: [TAG_DISPONIVEL] },
+    ])
+    return { success: true, disponiveis: total }
   } catch (error: any) {
-    return { success: false, error: error.message }
+    console.error('Erro ao consultar disponíveis no WeSales:', error)
+    return { success: false, error: error.message || 'Erro ao consultar o WeSales.' }
   }
 }
 
-export async function criarLote(payload: {
-  agenteParceiroId: string
-  quantidade: number
-  descricao?: string
-  filtros: FiltrosAlocacao
-}) {
-  try {
-    const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_include')
-
-    if (!payload.agenteParceiroId) return { success: false, error: 'Selecione o parceiro.' }
-    const quantidade = Number.parseInt(String(payload.quantidade), 10)
-    if (!Number.isFinite(quantidade) || quantidade <= 0) {
-      return { success: false, error: 'Informe a quantidade de contatos a liberar.' }
-    }
-    if (quantidade > 50_000) {
-      return { success: false, error: 'Máximo de 50.000 contatos por lote.' }
-    }
-
-    // Seleciona os contatos disponíveis (sem dono) mais antigos primeiro.
-    const { data: contatos, error: selectError } = await aplicarFiltrosContatos(
-      supabaseAdmin.from('crm_contatos').select('id'),
-      { ...payload.filtros, apenasSemDono: true },
-    )
-      .order('created_at', { ascending: true })
-      .limit(quantidade)
-    if (selectError) throw selectError
-
-    const ids = (contatos || []).map((row: any) => String(row.id))
-    if (!ids.length) {
-      return { success: false, error: 'Nenhum contato disponível com esses filtros.' }
-    }
-
-    const { data: lote, error: loteError } = await supabaseAdmin
-      .from('crm_lotes_alocacao')
-      .insert({
-        agente_parceiro_id: payload.agenteParceiroId,
-        descricao: String(payload.descricao || '').trim(),
-        filtros: payload.filtros,
-        qtd_contatos: ids.length,
-        liberado_por: user.id,
-      })
-      .select('id')
-      .single()
-    if (loteError || !lote) throw loteError || new Error('Falha ao criar o lote.')
-
-    // Marca o dono nos contatos, em chunks (limite de tamanho do IN).
-    for (let i = 0; i < ids.length; i += 500) {
-      const chunk = ids.slice(i, i + 500)
-      const { error: updateError } = await supabaseAdmin
-        .from('crm_contatos')
-        .update({
-          agente_parceiro_id: payload.agenteParceiroId,
-          lote_id: lote.id,
-          atendente_id: null,
-          updated_at: new Date().toISOString(),
-        })
-        .in('id', chunk)
-        .is('agente_parceiro_id', null)
-      if (updateError) throw updateError
-    }
-
-    // Enfileira a criação/vínculo de cada contato no WeSales (com o campo de
-    // dono). O worker do CRM consome com rate limit — lotes grandes levam o
-    // tempo que precisarem, sem estourar a API.
-    for (let i = 0; i < ids.length; i += 500) {
-      const chunk = ids.slice(i, i + 500).map((contatoId: string) => ({
-        operacao: 'upsert_contato',
-        contato_id: contatoId,
-        payload: {},
-      }))
-      const { error: queueError } = await supabaseAdmin.from('crm_wesales_queue').insert(chunk)
-      if (queueError) console.error('Falha ao enfileirar sync WeSales do lote:', queueError)
-    }
-
-    revalidatePath('/alvoconsig/alocacao')
-    return { success: true, loteId: lote.id, alocados: ids.length }
-  } catch (error: any) {
-    console.error('Erro ao criar lote de alocação:', error)
-    return { success: false, error: error.message }
-  }
-}
-
-export async function getLotes() {
+export async function getCampanhas() {
   try {
     await requirePermission(PERMISSION_RESOURCE)
 
     const { data, error } = await supabaseAdmin
-      .from('crm_lotes_alocacao')
-      .select('id, agente_parceiro_id, descricao, qtd_contatos, liberado_em, revogado_em, observacao, agentes_parceiros ( id, name, fantasy_name )')
-      .order('liberado_em', { ascending: false })
+      .from('crm_campanhas')
+      .select('id, descricao, base_tag, qtd_solicitada, qtd_alocada, vigencia_inicio, vigencia_fim, status, created_at, encerrada_em, agentes_parceiros ( id, name, fantasy_name )')
+      .order('created_at', { ascending: false })
       .limit(100)
     if (error) throw error
     return { success: true, items: data || [] }
   } catch (error: any) {
-    console.error('Erro ao listar lotes:', error)
+    console.error('Erro ao listar campanhas:', error)
     return { success: false, error: error.message }
   }
 }
 
-export async function revogarLote(loteId: string) {
+/**
+ * Encerra a campanha manualmente (antes da vigência acabar, ou o cron do
+ * expurgo faz isso automaticamente todo dia). RPC exige fila zerada — se
+ * ainda houver sync pendente, devolve status 'encerrando' para tentar de
+ * novo depois (o cron de expurgo insiste diariamente).
+ */
+export async function encerrarCampanhaAgora(campanhaId: string) {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
-    if (!loteId) return { success: false, error: 'Lote inválido.' }
+    if (!campanhaId) return { success: false, error: 'Campanha inválida.' }
 
-    const { data: lote, error: loteError } = await supabaseAdmin
-      .from('crm_lotes_alocacao')
-      .select('id, agente_parceiro_id, revogado_em')
-      .eq('id', loteId)
+    const { data: campanha } = await supabaseAdmin
+      .from('crm_campanhas')
+      .select('id, agente_parceiro_id')
+      .eq('id', campanhaId)
       .maybeSingle()
-    if (loteError) throw loteError
-    if (!lote) return { success: false, error: 'Lote não encontrado.' }
-    if (lote.revogado_em) return { success: false, error: 'Lote já revogado.' }
+    if (!campanha) return { success: false, error: 'Campanha não encontrada.' }
 
-    // Limpa o campo de dono no WeSales (antes de perder o vínculo local).
-    const { data: contatosDoLote } = await supabaseAdmin
-      .from('crm_contatos')
-      .select('id')
-      .eq('lote_id', loteId)
-      .not('wesales_contact_id', 'is', null)
-    if (contatosDoLote?.length) {
-      for (let i = 0; i < contatosDoLote.length; i += 500) {
-        const chunk = contatosDoLote.slice(i, i + 500).map((row: any) => ({
-          operacao: 'atualizar_dono',
-          contato_id: String(row.id),
-          payload: { dono: '' },
-        }))
-        const { error: queueError } = await supabaseAdmin.from('crm_wesales_queue').insert(chunk)
-        if (queueError) console.error('Falha ao enfileirar limpeza de dono no WeSales:', queueError)
-      }
+    const { data: resultado, error } = await supabaseAdmin.rpc('crm_encerrar_campanha', {
+      p_campanha_id: campanhaId,
+      p_user_id: user.id,
+    })
+    if (error) throw error
+
+    const payload = resultado as { ok: boolean; motivo?: string; pendentes?: number; expurgados?: number; mantidos?: number }
+    if (!payload.ok) {
+      return { success: false, error: `Fila com ${payload.pendentes || 0} sincronização(ões) pendente(s) — aguarde a fila esvaziar e tente de novo.` }
     }
 
-    // O dono anterior perde o acesso; o histórico de tabulações permanece.
-    const { error: contatosError } = await supabaseAdmin
-      .from('crm_contatos')
-      .update({
-        agente_parceiro_id: null,
-        atendente_id: null,
-        lote_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('lote_id', loteId)
-    if (contatosError) throw contatosError
-
-    const { error: updateError } = await supabaseAdmin
-      .from('crm_lotes_alocacao')
-      .update({ revogado_em: new Date().toISOString(), revogado_por: user.id })
-      .eq('id', loteId)
-    if (updateError) throw updateError
+    await reverterTagsDaCampanha(supabaseAdmin, campanhaId, campanha.agente_parceiro_id)
 
     revalidatePath('/alvoconsig/alocacao')
+    return { success: true, expurgados: payload.expurgados || 0, mantidos: payload.mantidos || 0 }
+  } catch (error: any) {
+    console.error('Erro ao encerrar campanha:', error)
+    return { success: false, error: error.message || 'Erro ao encerrar a campanha.' }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Certificação de clientes conquistados
+// ----------------------------------------------------------------------------
+/**
+ * Pendências de certificação. Depende do Fase 3 (CRM, brs-alvoconsig) marcar
+ * `estado_local='certificacao_pendente'` ao mover um lead pra estágio final —
+ * ainda não implementado, então esta lista fica vazia até lá. Também mostra
+ * contatos já no estágio 'pagamento_feito' como fallback manual.
+ */
+export async function getContatosPendentesCertificacao() {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+
+    const { data, error } = await supabaseAdmin
+      .from('crm_contatos')
+      .select('id, cpf, nome, telefone, funil_estagio, estado_local, agente_parceiro_id, campanha_id, convenios ( id, nome ), agentes_parceiros ( id, name, fantasy_name )')
+      .is('deleted_at', null)
+      .or('estado_local.eq.certificacao_pendente,funil_estagio.eq.pagamento_feito')
+      .order('funil_atualizado_em', { ascending: false })
+      .limit(200)
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
+    console.error('Erro ao listar pendências de certificação:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function certificarCliente(payload: { contatoId: string; produto?: string; valor?: number | null; observacao?: string }) {
+  try {
+    const { user } = await requirePermission(PERMISSION_CERTIFICACAO, 'can_include')
+    if (!payload.contatoId) return { success: false, error: 'Contato inválido.' }
+
+    const { data: resultado, error } = await supabaseAdmin.rpc('crm_certificar_cliente', {
+      p_contato_id: payload.contatoId,
+      p_user_id: user.id,
+      p_produto: payload.produto || null,
+      p_valor: payload.valor ?? null,
+      p_observacao: payload.observacao || null,
+    })
+    if (error) throw error
+
+    const resposta = resultado as { ok: boolean; motivo?: string; wesales_contact_id?: string }
+    if (!resposta.ok) {
+      return { success: false, error: resposta.motivo === 'contato_nao_encontrado' ? 'Contato não encontrado.' : 'Contato sem WeSales ou sem dono — não é possível certificar.' }
+    }
+
+    revalidatePath('/alvoconsig/certificacao')
     return { success: true }
   } catch (error: any) {
-    console.error('Erro ao revogar lote:', error)
+    console.error('Erro ao certificar cliente:', error)
+    return { success: false, error: error.message || 'Erro ao certificar o cliente.' }
+  }
+}
+
+export async function getClientesDoParceiro(agenteParceiroId: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    if (!agenteParceiroId) return { success: true, items: [] }
+
+    const { data, error } = await supabaseAdmin
+      .from('crm_clientes_parceiro')
+      .select('id, produto, valor, certificado_em, observacao')
+      .eq('agente_parceiro_id', agenteParceiroId)
+      .order('certificado_em', { ascending: false })
+      .limit(500)
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
     return { success: false, error: error.message }
   }
 }
 
 // ----------------------------------------------------------------------------
-// Contatos (visão global)
+// Contatos (cópias de trabalho de campanhas ativas — não é mais "toda a base",
+// que agora mora no WeSales)
 // ----------------------------------------------------------------------------
 export async function getContatosGlobal(params: {
   busca?: string
   convenioId?: string
-  dono?: 'todos' | 'sem-dono' | 'com-dono'
+  campanhaId?: string
   pagina?: number
 }) {
   try {
@@ -323,14 +292,14 @@ export async function getContatosGlobal(params: {
     let query = supabaseAdmin
       .from('crm_contatos')
       .select(
-        'id, cpf, nome, telefone, margem_novo, margem_cartao_rmc, margem_cartao_rcc, refin_troco, funil_estagio, agente_parceiro_id, convenios ( id, nome ), agentes_parceiros ( id, name, fantasy_name )',
+        'id, cpf, nome, telefone, margem_novo, margem_cartao_rmc, margem_cartao_rcc, refin_troco, funil_estagio, agente_parceiro_id, campanha_id, estado_local, convenios ( id, nome ), agentes_parceiros ( id, name, fantasy_name )',
         { count: 'exact' },
       )
       .is('deleted_at', null)
+      .not('campanha_id', 'is', null)
 
     if (params.convenioId) query = query.eq('convenio_id', params.convenioId)
-    if (params.dono === 'sem-dono') query = query.is('agente_parceiro_id', null)
-    if (params.dono === 'com-dono') query = query.not('agente_parceiro_id', 'is', null)
+    if (params.campanhaId) query = query.eq('campanha_id', params.campanhaId)
 
     const busca = String(params.busca || '').trim()
     if (busca) {
