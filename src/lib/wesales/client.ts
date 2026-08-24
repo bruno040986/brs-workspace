@@ -66,6 +66,15 @@ async function http<T>(path: string, init?: { method?: string; body?: unknown })
     })
     if (res.status === 429 && tentativa < MAX_TENTATIVAS_429) {
       tentativa += 1
+      // Diagnóstico (Bruno pediu o limite real desta integração, 24/08/2026):
+      // a doc genérica do LeadConnector diz 100 req/10s + 200k/dia por app por
+      // location, mas isso bateu 429 bem antes disso — logamos os cabeçalhos
+      // reais que o WeSales manda pra descobrir o teto desta Private
+      // Integration específica (ver logs da função na Vercel).
+      const cabecalhosLimite = ['x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-interval-milliseconds', 'retry-after']
+        .map((h) => `${h}=${res.headers.get(h) ?? '—'}`)
+        .join(' ')
+      console.warn(`WeSales 429 em ${url} (tentativa ${tentativa}/${MAX_TENTATIVAS_429}) — ${cabecalhosLimite}`)
       const retryAfter = Number.parseFloat(res.headers.get('retry-after') || '')
       const esperaMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 400 * 2 ** tentativa + Math.random() * 300
       await sleep(esperaMs)
