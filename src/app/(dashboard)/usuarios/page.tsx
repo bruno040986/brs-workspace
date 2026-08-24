@@ -69,6 +69,7 @@ const SYSTEM_MODULES = [
   { id: 'central-integracoes', name: 'Central de Integrações', parentId: 'cat-subsistemas', level: 1 },
   { id: 'financeiro-conta-parceiros', name: 'Financeiro — Conta Virtual Parceiros', parentId: 'cat-subsistemas', level: 1 },
   { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'alvoconsig-certificacao', name: 'Certificação de Clientes', parentId: 'alvoconsig-gestao', level: 2 },
 
   // Sistema Category
   { id: 'cat-sistema', name: 'Sistema', isHeader: true, level: 0 },
