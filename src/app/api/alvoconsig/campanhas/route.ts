@@ -13,7 +13,8 @@ import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import { customFieldValue, resolveCustomField, searchContactsAte, type WesalesContact } from '@/lib/wesales/client'
 import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { calcularOfertas } from '@/lib/alvoconsig/ofertas'
+import { MAX_OFERTAS_REFIN, refinSlotFieldKey } from '@/lib/alvoconsig/refin-slots'
+import { calcularOfertas, resolverOfertasRefin, type RawRefinSlot } from '@/lib/alvoconsig/ofertas'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -98,19 +99,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve os IDs dos campos personalizados usados (1x, não por contato).
-    const [cpfField, matriculaField, convenioField, margemNovoField, margemRmcField, margemRccField, refinTrocoField, refinParcelaField, refinPrazoField, refinTaxaField] =
-      await Promise.all([
-        resolveCustomField(WESALES_FIELD_KEYS.cpf),
-        resolveCustomField(WESALES_FIELD_KEYS.matricula),
-        resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo),
-        resolveCustomField(WESALES_FIELD_KEYS.margemNovo),
-        resolveCustomField(WESALES_FIELD_KEYS.margemCartaoRmc),
-        resolveCustomField(WESALES_FIELD_KEYS.margemCartaoRcc),
-        resolveCustomField(WESALES_FIELD_KEYS.refinTroco),
-        resolveCustomField(WESALES_FIELD_KEYS.refinParcela),
-        resolveCustomField(WESALES_FIELD_KEYS.refinPrazo),
-        resolveCustomField(WESALES_FIELD_KEYS.refinTaxa),
-      ])
+    const [cpfField, matriculaField, convenioField, margemNovoField, margemRmcField, margemRccField] = await Promise.all([
+      resolveCustomField(WESALES_FIELD_KEYS.cpf),
+      resolveCustomField(WESALES_FIELD_KEYS.matricula),
+      resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo),
+      resolveCustomField(WESALES_FIELD_KEYS.margemNovo),
+      resolveCustomField(WESALES_FIELD_KEYS.margemCartaoRmc),
+      resolveCustomField(WESALES_FIELD_KEYS.margemCartaoRcc),
+    ])
+    // REFIN: até MAX_OFERTAS_REFIN slots, 6 campos cada (ver refin-slots.ts).
+    const refinSlotFields: Record<string, { id: string } | null> = {}
+    await Promise.all(
+      Array.from({ length: MAX_OFERTAS_REFIN }, (_, i) => i + 1).flatMap((slot) =>
+        (['troco', 'parcela', 'prazo', 'taxa', 'tabela', 'instituicao'] as const).map(async (campo) => {
+          const key = refinSlotFieldKey(slot, campo)
+          refinSlotFields[key] = await resolveCustomField(key)
+        }),
+      ),
+    )
 
     const { data: conveniosData } = await admin.from('convenios').select('id, codigo').is('deleted_at', null)
     const convenioPorCodigo = new Map<string, string>()
@@ -149,15 +155,32 @@ export async function POST(request: NextRequest) {
         cartao_rmc: margemRmcField ? parseMoneyField(customFieldValue(contato, margemRmcField.id)) : null,
         cartao_rcc: margemRccField ? parseMoneyField(customFieldValue(contato, margemRccField.id)) : null,
       }
-      const refinTroco = refinTrocoField ? parseMoneyField(customFieldValue(contato, refinTrocoField.id)) : null
-      const refin = refinTroco
-        ? {
-            troco: refinTroco,
-            parcela: refinParcelaField ? parseMoneyField(customFieldValue(contato, refinParcelaField.id)) : null,
-            prazo: refinPrazoField ? parseIntField(customFieldValue(contato, refinPrazoField.id)) : null,
-            taxa: refinTaxaField ? customFieldValue(contato, refinTaxaField.id) : null,
-          }
-        : null
+      // Lê os até MAX_OFERTAS_REFIN slots preenchidos (ver refin-slots.ts).
+      const rawSlots: RawRefinSlot[] = []
+      for (let slot = 1; slot <= MAX_OFERTAS_REFIN; slot++) {
+        const trocoField = refinSlotFields[refinSlotFieldKey(slot, 'troco')]
+        if (!trocoField) continue
+        const troco = parseMoneyField(customFieldValue(contato, trocoField.id))
+        if (troco === null) continue
+        const parcelaField = refinSlotFields[refinSlotFieldKey(slot, 'parcela')]
+        const prazoField = refinSlotFields[refinSlotFieldKey(slot, 'prazo')]
+        const taxaField = refinSlotFields[refinSlotFieldKey(slot, 'taxa')]
+        const tabelaField = refinSlotFields[refinSlotFieldKey(slot, 'tabela')]
+        const instField = refinSlotFields[refinSlotFieldKey(slot, 'instituicao')]
+        rawSlots.push({
+          slot,
+          troco,
+          parcela: parcelaField ? parseMoneyField(customFieldValue(contato, parcelaField.id)) : null,
+          prazo: prazoField ? parseIntField(customFieldValue(contato, prazoField.id)) : null,
+          taxa: taxaField ? customFieldValue(contato, taxaField.id) : null,
+          tabelaCodigo: tabelaField ? customFieldValue(contato, tabelaField.id) : null,
+          instituicaoId: instField ? customFieldValue(contato, instField.id) : null,
+        })
+      }
+      const refin = await resolverOfertasRefin(admin, rawSlots, convenioResolvido)
+      // Resumo escalar (listas/filtros rápidos) = maior troco entre as ofertas; o
+      // detalhe completo mora em ofertas.refin (jsonb).
+      const refinTrocoResumo = refin.length ? Math.max(...refin.map((o) => o.troco || 0)) : null
 
       const ofertas = await calcularOfertas(admin, convenioResolvido, margens, refin)
 
@@ -171,8 +194,7 @@ export async function POST(request: NextRequest) {
         margem_novo: margens.novo,
         margem_cartao_rmc: margens.cartao_rmc,
         margem_cartao_rcc: margens.cartao_rcc,
-        refin_troco: refinTroco,
-        refin,
+        refin_troco: refinTrocoResumo,
         margens_atualizadas_em: agora,
         agente_parceiro_id: agenteParceiroId,
         campanha_id: campanha.id,

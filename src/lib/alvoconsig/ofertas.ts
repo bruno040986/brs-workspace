@@ -21,28 +21,81 @@ export type OfertaCalculada = {
   valorLiberado: number
 }
 
-export type RefinInfo = {
+/** Uma oferta de REFIN "crua", como veio do slot no WeSales (ver refin-slots.ts). */
+export type RawRefinSlot = {
+  slot: number
   troco: number | null
   parcela: number | null
   prazo: number | null
   taxa: string | null
+  tabelaCodigo: string | null
+  instituicaoId: string | null
+}
+
+/** Oferta de REFIN já casada (quando possível) com a tabela de comissão cadastrada. */
+export type RefinOferta = RawRefinSlot & {
+  tabelaComissaoId: string | null
+  tabelaNome: string | null
+  instituicaoNome: string | null
 }
 
 export type OfertasContato = {
   novo: OfertaCalculada[]
   cartao_rmc: OfertaCalculada[]
   cartao_rcc: OfertaCalculada[]
-  refin: RefinInfo | null
+  refin: RefinOferta[]
   calculado_em: string
+}
+
+function digitsOuTexto(value: string | null | undefined): string {
+  const texto = String(value || '').trim()
+  const digitos = texto.replace(/\D/g, '')
+  return digitos || texto
+}
+
+/**
+ * Casa cada slot de REFIN com a tabela de comissão cadastrada (mesma
+ * instituição + código do banco, dentro do convênio da campanha). Sem
+ * migration: uma única query em lote, não N+1 por slot.
+ */
+export async function resolverOfertasRefin(admin: AdminClient, slots: RawRefinSlot[], convenioId: string | null): Promise<RefinOferta[]> {
+  if (!slots.length) return []
+  const instituicaoIds = [...new Set(slots.map((s) => s.instituicaoId).filter(Boolean))] as string[]
+  if (!convenioId || !instituicaoIds.length) {
+    return slots.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
+  }
+
+  const { data: tabelas, error } = await admin
+    .from('tabelas_comissao')
+    .select('id, codigo_tabela_banco, nome, institution_id, financial_institutions ( name )')
+    .eq('convenio_id', convenioId)
+    .in('institution_id', instituicaoIds)
+    .is('deleted_at', null)
+  if (error) {
+    console.error('Erro ao resolver tabelas de REFIN:', error)
+    return slots.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
+  }
+
+  const porChave = new Map<string, { id: string; nome: string; instituicaoNome: string }>()
+  for (const t of (tabelas || []) as any[]) {
+    if (!t.codigo_tabela_banco) continue
+    porChave.set(`${t.institution_id}|${digitsOuTexto(t.codigo_tabela_banco)}`, { id: t.id, nome: t.nome, instituicaoNome: t.financial_institutions?.name || '' })
+  }
+
+  return slots.map((s) => {
+    const chave = s.instituicaoId && s.tabelaCodigo ? `${s.instituicaoId}|${digitsOuTexto(s.tabelaCodigo)}` : ''
+    const match = chave ? porChave.get(chave) : null
+    return { ...s, tabelaComissaoId: match?.id ?? null, tabelaNome: match?.nome ?? null, instituicaoNome: match?.instituicaoNome ?? null }
+  })
 }
 
 export async function calcularOfertas(
   admin: AdminClient,
   convenioId: string | null,
   margens: { novo?: number | null; cartao_rmc?: number | null; cartao_rcc?: number | null },
-  refin?: RefinInfo | null,
+  refin?: RefinOferta[],
 ): Promise<OfertasContato> {
-  const vazio: OfertasContato = { novo: [], cartao_rmc: [], cartao_rcc: [], refin: refin ?? null, calculado_em: new Date().toISOString() }
+  const vazio: OfertasContato = { novo: [], cartao_rmc: [], cartao_rcc: [], refin: refin ?? [], calculado_em: new Date().toISOString() }
   if (!convenioId) return vazio
 
   const temAlgumaMargem = Object.values(margens).some((v) => typeof v === 'number' && v > 0)
@@ -88,5 +141,5 @@ export async function calcularOfertas(
     porOrigem[key].sort((a, b) => b.valorLiberado - a.valorLiberado)
   }
 
-  return { ...porOrigem, refin: refin ?? null, calculado_em: new Date().toISOString() }
+  return { ...porOrigem, refin: refin ?? [], calculado_em: new Date().toISOString() }
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react'
-import { getConveniosAtivos, getImports } from '../actions'
+import { getConveniosAtivos, getImports, getInstituicoesAtivas } from '../actions'
 
 type ImportItem = {
   id: string
@@ -18,6 +18,7 @@ type ImportItem = {
 }
 
 type Convenio = { id: string; nome: string; codigo: string | null }
+type Instituicao = { id: string; name: string }
 
 type CampoImport = { key: string; label: string; obrigatorio?: boolean }
 
@@ -34,6 +35,7 @@ type FeedbackMessage = { type: 'success' | 'error'; text: string }
 export default function ImportacoesPage() {
   const [items, setItems] = useState<ImportItem[]>([])
   const [convenios, setConvenios] = useState<Convenio[]>([])
+  const [instituicoes, setInstituicoes] = useState<Instituicao[]>([])
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -42,6 +44,7 @@ export default function ImportacoesPage() {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [tipo, setTipo] = useState<'refin' | 'margem'>('margem')
   const [convenioId, setConvenioId] = useState('')
+  const [instituicaoId, setInstituicaoId] = useState('')
   const [baseTag, setBaseTag] = useState('')
   const [analise, setAnalise] = useState<Analise | null>(null)
   const [mapeamento, setMapeamento] = useState<Record<string, number | ''>>({})
@@ -50,9 +53,10 @@ export default function ImportacoesPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [importsRes, conveniosRes] = await Promise.all([getImports(), getConveniosAtivos()])
+      const [importsRes, conveniosRes, instituicoesRes] = await Promise.all([getImports(), getConveniosAtivos(), getInstituicoesAtivas()])
       if (importsRes.success) setItems((importsRes.items || []) as unknown as ImportItem[])
       if (conveniosRes.success) setConvenios((conveniosRes.items || []) as Convenio[])
+      if (instituicoesRes.success) setInstituicoes((instituicoesRes.items || []) as Instituicao[])
     } finally {
       setLoading(false)
     }
@@ -112,6 +116,10 @@ export default function ImportacoesPage() {
       setMessage({ type: 'error', text: 'Informe a base (tag) que os leads vão receber no WeSales.' })
       return
     }
+    if (tipo === 'refin' && !instituicaoId) {
+      setMessage({ type: 'error', text: 'Importação de REFIN exige a Instituição Financeira — a planilha é sempre de um banco só.' })
+      return
+    }
     setProcessando(true)
     setMessage(null)
     try {
@@ -126,6 +134,7 @@ export default function ImportacoesPage() {
       formData.append('mapeamento', JSON.stringify(mapeamentoFinal))
       formData.append('base_tag', baseTag)
       if (convenioId) formData.append('convenio_id', convenioId)
+      if (tipo === 'refin' && instituicaoId) formData.append('instituicao_id', instituicaoId)
       const res = await fetch('/api/alvoconsig/upload', { method: 'POST', body: formData })
       const json = await res.json()
       if (!res.ok) {
@@ -138,6 +147,7 @@ export default function ImportacoesPage() {
       })
       resetWizard()
       setBaseTag('')
+      setInstituicaoId('')
       await loadData()
     } catch {
       setMessage({ type: 'error', text: 'Erro ao importar o mailing.' })
@@ -191,6 +201,20 @@ export default function ImportacoesPage() {
               ))}
             </select>
           </div>
+          {tipo === 'refin' && (
+            <div className="form-group" style={{ minWidth: 220 }}>
+              <label className="form-label">Instituição Financeira <span className="required">*</span></label>
+              <select className="form-control" required value={instituicaoId} onChange={(e) => setInstituicaoId(e.target.value)}>
+                <option value="">Selecione...</option>
+                {instituicoes.map((inst) => (
+                  <option key={inst.id} value={inst.id}>{inst.name}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem' }}>
+                A planilha REFIN é sempre de um banco só — vale para o arquivo inteiro.
+              </div>
+            </div>
+          )}
           <div className="form-group" style={{ minWidth: 220 }}>
             <label className="form-label">Base (tag no WeSales) <span className="required">*</span></label>
             <input type="text" className="form-control" required placeholder="Ex.: mesquita-refin-2026-08" value={baseTag} onChange={(e) => setBaseTag(e.target.value)} />
@@ -227,7 +251,7 @@ export default function ImportacoesPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !baseTag.trim()}>
+              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !baseTag.trim() || (tipo === 'refin' && !instituicaoId)}>
                 {processando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
                 Confirmar importação
               </button>

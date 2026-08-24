@@ -79,6 +79,24 @@ export async function getImports() {
   }
 }
 
+/** Para o seletor de Instituição Financeira na importação de REFIN (obrigatório nesse tipo). */
+export async function getInstituicoesAtivas() {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+
+    const { data, error } = await supabaseAdmin
+      .from('financial_institutions')
+      .select('id, name')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .order('name', { ascending: true })
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
 export async function getConveniosAtivos() {
   try {
     await requirePermission(PERMISSION_RESOURCE)

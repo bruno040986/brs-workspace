@@ -54,6 +54,9 @@ export function tagBase(slug: string) {
  * Campos personalizados do WeSales usados pelo AlvoConsig (Fase 2). `cpf` e
  * `dono_alvoconsig` já existiam (worker da fila, Fase 1 do CRM); os demais
  * nascem sob demanda via `ensureCustomField` na importação/campanha.
+ *
+ * REFIN não entra aqui — são até 5 ofertas por CPF (slots), cada uma com 6
+ * campos próprios. Ver src/lib/alvoconsig/refin-slots.ts.
  */
 export const WESALES_FIELD_KEYS = {
   cpf: 'cpf',
@@ -62,10 +65,6 @@ export const WESALES_FIELD_KEYS = {
   margemNovo: 'alvoconsig_margem_novo',
   margemCartaoRmc: 'alvoconsig_margem_cartao_rmc',
   margemCartaoRcc: 'alvoconsig_margem_cartao_rcc',
-  refinTroco: 'alvoconsig_refin_troco',
-  refinParcela: 'alvoconsig_refin_parcela',
-  refinPrazo: 'alvoconsig_refin_prazo',
-  refinTaxa: 'alvoconsig_refin_taxa',
 } as const
 
 /** Estágios em que a cópia local NÃO pode ser expurgada no fim da campanha. */

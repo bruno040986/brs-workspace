@@ -20,12 +20,15 @@ import { hasPermissionForUser } from '@/lib/auth/server'
 import {
   addContactTags,
   createContact,
+  customFieldValue,
   ensureCustomField,
   findContactByCpf,
   normalizeCpfDigits,
   updateContact,
+  type WesalesContact,
 } from '@/lib/wesales/client'
 import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
+import { MAX_OFERTAS_REFIN, digitsOrRaw, refinSlotFieldKey, refinSlotFieldName, todosOsSlotsECampos } from '@/lib/alvoconsig/refin-slots'
 import {
   camposParaTipo,
   cleanDigits,
@@ -145,6 +148,7 @@ export async function POST(request: NextRequest) {
     }
     const baseTagSlug = String(formData.get('base_tag') || '').trim()
     const convenioIdPadrao = String(formData.get('convenio_id') || '').trim() || null
+    const instituicaoId = String(formData.get('instituicao_id') || '').trim() || null
 
     if (!baseTagSlug) {
       return NextResponse.json({ error: 'Informe a base (tag) que os leads vão receber no WeSales.' }, { status: 400 })
@@ -154,6 +158,9 @@ export async function POST(request: NextRequest) {
     }
     if (tipo === 'refin' && mapeamento.refin_troco === undefined) {
       return NextResponse.json({ error: 'Mapeie a coluna do Valor do Troco (REFIN).' }, { status: 400 })
+    }
+    if (tipo === 'refin' && !instituicaoId) {
+      return NextResponse.json({ error: 'Importação de REFIN exige a Instituição Financeira — a planilha não traz banco por linha, então é informada uma vez para o arquivo inteiro.' }, { status: 400 })
     }
     const margensMapeadas = (['margem_novo', 'margem_cartao_rmc', 'margem_cartao_rcc'] as const).filter((key) => mapeamento[key] !== undefined)
     if (tipo === 'margem' && margensMapeadas.length === 0) {
@@ -198,10 +205,12 @@ export async function POST(request: NextRequest) {
       if (mapeamento.margem_cartao_rmc !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.margemCartaoRmc, 'AlvoConsig — Margem Cartão RMC'])
       if (mapeamento.margem_cartao_rcc !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.margemCartaoRcc, 'AlvoConsig — Margem Cartão RCC'])
     } else {
-      fieldsAGarantir.push([WESALES_FIELD_KEYS.refinTroco, 'AlvoConsig — Refin Troco'])
-      if (mapeamento.refin_parcela !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.refinParcela, 'AlvoConsig — Refin Parcela'])
-      if (mapeamento.refin_prazo !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.refinPrazo, 'AlvoConsig — Refin Prazo'])
-      if (mapeamento.refin_taxa !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.refinTaxa, 'AlvoConsig — Refin Taxa'])
+      // REFIN: até MAX_OFERTAS_REFIN ofertas por CPF, cada uma em seu "slot" de
+      // 6 campos (troco/parcela/prazo/taxa/tabela/instituição) — nunca sobrescreve
+      // outra oferta do mesmo CPF. Ver src/lib/alvoconsig/refin-slots.ts.
+      for (const { slot, campo } of todosOsSlotsECampos()) {
+        fieldsAGarantir.push([refinSlotFieldKey(slot, campo), refinSlotFieldName(slot, campo)])
+      }
     }
 
     let fieldDefs: Record<string, { id: string }>
@@ -213,104 +222,164 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Não foi possível preparar os campos no WeSales: ${error?.message || error}` }, { status: 502 })
     }
 
-    const vistos = new Set<string>()
-    const linhasValidas: Array<{ cpf: string; row: unknown[] }> = []
+    const tags = [tagBase(baseTagSlug), TAG_DISPONIVEL]
+    let importadas = 0
     let descartadas = 0
+    const erros: string[] = []
 
-    for (const row of planilha.rows) {
-      if (!Array.isArray(row)) continue
-      const cpf = normalizeCpfCell(celula(row, mapeamento.cpf))
-      if (!cpf || vistos.has(cpf)) {
-        descartadas += 1
-        continue
+    /** Escreve os campos comuns (matrícula/convênio) + nome/telefone + tags no contato (cria se preciso). */
+    async function gravarContato(cpf: string, row: unknown[], customFields: Array<{ id: string; fieldValue: string }>, existente: WesalesContact | null) {
+      customFields.unshift({ id: fieldDefs[WESALES_FIELD_KEYS.cpf].id, fieldValue: normalizeCpfDigits(cpf) })
+      if (temMatricula) {
+        const valor = String(celula(row, mapeamento.matricula) ?? '').trim()
+        if (valor) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
       }
-      if (tipo === 'refin') {
-        const troco = parseMoney(celula(row, mapeamento.refin_troco))
-        if (troco === null || troco <= 0) {
+      if (temConvenio) {
+        const codigo = String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || ''
+        if (codigo) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.convenioCodigo].id, fieldValue: codigo })
+      }
+      const nome = temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : undefined
+      const telefone = temTelefone ? cleanDigits(celula(row, mapeamento.telefone)) : ''
+
+      if (existente) {
+        await updateContact(existente.id, { customFields })
+        await addContactTags(existente.id, tags)
+      } else {
+        const { contact, duplicateOfId } = await createContact({
+          name: nome || undefined,
+          phone: phoneToE164(telefone),
+          tags,
+          source: 'AlvoConsig — Importação API',
+          customFields,
+        })
+        const contactId = contact?.id || duplicateOfId
+        if (!contactId) throw new Error('Criação bloqueada pela location (duplicado sem contactId).')
+        if (!contact) {
+          // Telefone já pertence a outro contato: vincula sem sobrescrever nome/telefone.
+          await updateContact(contactId, { customFields })
+          await addContactTags(contactId, tags)
+        }
+      }
+    }
+
+    if (tipo === 'margem') {
+      // 1 oferta por pessoa — mantém o comportamento antigo (primeira linha do CPF ganha).
+      const vistos = new Set<string>()
+      const linhasValidas: Array<{ cpf: string; row: unknown[] }> = []
+      for (const row of planilha.rows) {
+        if (!Array.isArray(row)) continue
+        const cpf = normalizeCpfCell(celula(row, mapeamento.cpf))
+        if (!cpf || vistos.has(cpf)) {
           descartadas += 1
           continue
         }
-      } else {
         const algumaMargem = margensMapeadas.some((key) => parseMoney(celula(row, mapeamento[key])) !== null)
         if (!algumaMargem) {
           descartadas += 1
           continue
         }
+        vistos.add(cpf)
+        linhasValidas.push({ cpf, row })
       }
-      vistos.add(cpf)
-      linhasValidas.push({ cpf, row })
-    }
 
-    const tags = [tagBase(baseTagSlug), TAG_DISPONIVEL]
-    let importadas = 0
-    const erros: string[] = []
-
-    await comConcorrenciaLimitada(
-      linhasValidas.map(({ cpf, row }) => async () => {
-        try {
-          const customFields = [{ id: fieldDefs[WESALES_FIELD_KEYS.cpf].id, fieldValue: normalizeCpfDigits(cpf) }]
-
-          if (temMatricula) {
-            const valor = String(celula(row, mapeamento.matricula) ?? '').trim()
-            if (valor) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
-          }
-          if (temConvenio) {
-            const codigo = String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || ''
-            if (codigo) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.convenioCodigo].id, fieldValue: codigo })
-          }
-          if (tipo === 'margem') {
+      await comConcorrenciaLimitada(
+        linhasValidas.map(({ cpf, row }) => async () => {
+          try {
+            const customFields: Array<{ id: string; fieldValue: string }> = []
             for (const key of margensMapeadas) {
               const valor = parseMoney(celula(row, mapeamento[key]))
               const fieldKey = key === 'margem_novo' ? WESALES_FIELD_KEYS.margemNovo : key === 'margem_cartao_rmc' ? WESALES_FIELD_KEYS.margemCartaoRmc : WESALES_FIELD_KEYS.margemCartaoRcc
               if (valor !== null) customFields.push({ id: fieldDefs[fieldKey].id, fieldValue: String(valor) })
             }
-          } else {
-            const troco = parseMoney(celula(row, mapeamento.refin_troco))
-            customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.refinTroco].id, fieldValue: String(troco) })
-            if (mapeamento.refin_parcela !== undefined) {
-              const parcela = parseMoney(celula(row, mapeamento.refin_parcela))
-              if (parcela !== null) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.refinParcela].id, fieldValue: String(parcela) })
-            }
-            if (mapeamento.refin_prazo !== undefined) {
-              const prazo = parseIntSafe(celula(row, mapeamento.refin_prazo))
-              if (prazo !== null) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.refinPrazo].id, fieldValue: String(prazo) })
-            }
-            if (mapeamento.refin_taxa !== undefined) {
-              const taxa = String(celula(row, mapeamento.refin_taxa) ?? '').trim()
-              if (taxa) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.refinTaxa].id, fieldValue: taxa })
-            }
+            const existente = await findContactByCpf(cpf)
+            await gravarContato(cpf, row, customFields, existente)
+            importadas += 1
+          } catch (error: any) {
+            erros.push(`CPF ${cpf}: ${error?.message || error}`)
           }
-
-          const nome = temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : undefined
-          const telefone = temTelefone ? cleanDigits(celula(row, mapeamento.telefone)) : ''
-
-          const existente = await findContactByCpf(cpf)
-          if (existente) {
-            await updateContact(existente.id, { customFields })
-            await addContactTags(existente.id, tags)
-          } else {
-            const { contact, duplicateOfId } = await createContact({
-              name: nome || undefined,
-              phone: phoneToE164(telefone),
-              tags,
-              source: 'AlvoConsig — Importação API',
-              customFields,
-            })
-            const contactId = contact?.id || duplicateOfId
-            if (!contactId) throw new Error('Criação bloqueada pela location (duplicado sem contactId).')
-            if (!contact) {
-              // Telefone já pertence a outro contato: vincula sem sobrescrever nome/telefone.
-              await updateContact(contactId, { customFields })
-              await addContactTags(contactId, tags)
-            }
-          }
-          importadas += 1
-        } catch (error: any) {
-          erros.push(`CPF ${cpf}: ${error?.message || error}`)
+        }),
+        CONCORRENCIA,
+      )
+    } else {
+      // REFIN: agrupa por CPF (até MAX_OFERTAS_REFIN linhas/ofertas), aloca slot
+      // por (instituição, tabela) — reimportação da MESMA oferta atualiza o slot
+      // em vez de duplicar.
+      type OfertaLinha = { tabela: string | null; troco: number; parcela: number | null; prazo: number | null; taxa: string | null }
+      const gruposPorCpf = new Map<string, { row: unknown[]; ofertas: OfertaLinha[] }>()
+      for (const row of planilha.rows) {
+        if (!Array.isArray(row)) continue
+        const cpf = normalizeCpfCell(celula(row, mapeamento.cpf))
+        const troco = parseMoney(celula(row, mapeamento.refin_troco))
+        if (!cpf || troco === null || troco <= 0) {
+          descartadas += 1
+          continue
         }
-      }),
-      CONCORRENCIA,
-    )
+        const grupo = gruposPorCpf.get(cpf) || { row, ofertas: [] }
+        if (grupo.ofertas.length >= MAX_OFERTAS_REFIN) {
+          descartadas += 1
+          continue
+        }
+        grupo.ofertas.push({
+          tabela: mapeamento.refin_tabela !== undefined ? String(celula(row, mapeamento.refin_tabela) ?? '').trim() || null : null,
+          troco,
+          parcela: mapeamento.refin_parcela !== undefined ? parseMoney(celula(row, mapeamento.refin_parcela)) : null,
+          prazo: mapeamento.refin_prazo !== undefined ? parseIntSafe(celula(row, mapeamento.refin_prazo)) : null,
+          taxa: mapeamento.refin_taxa !== undefined ? String(celula(row, mapeamento.refin_taxa) ?? '').trim() || null : null,
+        })
+        gruposPorCpf.set(cpf, grupo)
+      }
+
+      await comConcorrenciaLimitada(
+        [...gruposPorCpf.entries()].map(([cpf, { row, ofertas }]) => async () => {
+          try {
+            const existente = await findContactByCpf(cpf)
+
+            // Slots já ocupados (instituição + tabela) neste contato, se já existir.
+            const slotsOcupados = Array.from({ length: MAX_OFERTAS_REFIN }, (_, i) => i + 1).map((slot) => ({
+              slot,
+              instituicaoId: existente ? customFieldValue(existente, fieldDefs[refinSlotFieldKey(slot, 'instituicao')].id) : null,
+              tabelaCodigo: existente ? customFieldValue(existente, fieldDefs[refinSlotFieldKey(slot, 'tabela')].id) : null,
+            }))
+            const usadosNestaImportacao = new Set<number>()
+
+            const customFields: Array<{ id: string; fieldValue: string }> = []
+            let algumaOfertaGravada = 0
+            for (const oferta of ofertas) {
+              let alvo = slotsOcupados.find(
+                (s) =>
+                  !usadosNestaImportacao.has(s.slot) &&
+                  s.instituicaoId === instituicaoId &&
+                  s.tabelaCodigo &&
+                  oferta.tabela &&
+                  digitsOrRaw(s.tabelaCodigo) === digitsOrRaw(oferta.tabela),
+              )
+              if (!alvo) alvo = slotsOcupados.find((s) => !usadosNestaImportacao.has(s.slot) && !s.tabelaCodigo)
+              if (!alvo) {
+                erros.push(`CPF ${cpf}: sem slot livre (5 ofertas já ocupadas) para a oferta da tabela "${oferta.tabela || '(sem código)'}"`)
+                continue
+              }
+              usadosNestaImportacao.add(alvo.slot)
+              customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'troco')].id, fieldValue: String(oferta.troco) })
+              if (oferta.parcela !== null) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'parcela')].id, fieldValue: String(oferta.parcela) })
+              if (oferta.prazo !== null) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'prazo')].id, fieldValue: String(oferta.prazo) })
+              if (oferta.taxa) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'taxa')].id, fieldValue: oferta.taxa })
+              if (oferta.tabela) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'tabela')].id, fieldValue: oferta.tabela })
+              customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'instituicao')].id, fieldValue: instituicaoId! })
+              algumaOfertaGravada += 1
+            }
+            if (algumaOfertaGravada === 0) {
+              descartadas += ofertas.length
+              return
+            }
+            await gravarContato(cpf, row, customFields, existente)
+            importadas += algumaOfertaGravada
+          } catch (error: any) {
+            erros.push(`CPF ${cpf}: ${error?.message || error}`)
+          }
+        }),
+        CONCORRENCIA,
+      )
+    }
 
     const status = erros.length > 0 && importadas === 0 ? 'erro' : 'concluido'
     await admin
