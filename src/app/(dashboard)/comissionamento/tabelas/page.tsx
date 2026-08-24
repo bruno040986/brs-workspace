@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, Loader2, Plus, Power, PowerOff, Search, Table2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Download, Edit2, Loader2, Plus, Power, PowerOff, Search, Table2, X } from 'lucide-react'
 import { getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setTabelaComissaoAtiva, type TabelaComissaoPayload } from '../actions'
+import { gerarCsvTabelasCadastradas } from '@/lib/comissionamento-import'
 
 type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null }
 type Lookup = { id: string; nome: string; codigo?: string | null; is_active?: boolean; origem_margem?: string }
@@ -188,6 +189,39 @@ export default function TabelasComissaoPage() {
     }
   }
 
+  function handleExportCsv() {
+    if (!filteredItems.length) {
+      setMessage({ type: 'error', text: 'Nenhuma tabela para exportar com os filtros atuais.' })
+      return
+    }
+    const csv = gerarCsvTabelasCadastradas(
+      filteredItems.map((item) => ({
+        codigo_tabela_banco: item.codigo_tabela_banco,
+        nome: item.nome,
+        financeira: item.financial_institutions?.name || '',
+        promotora: item.promotoras?.nome_fantasia || item.promotoras?.razao_social || '',
+        forma_contrato: item.formas_contrato?.nome || '',
+        convenio: item.convenios?.nome || '',
+        tipo_formalizacao: item.tipos_formalizacao?.nome || '',
+        com_seguro: item.com_seguro,
+        taxa_juros_tipo: item.taxa_juros_tipo,
+        taxa_juros: item.taxa_juros,
+        taxa_juros_min: item.taxa_juros_min,
+        taxa_juros_max: item.taxa_juros_max,
+        observacao: item.observacao,
+      })),
+    )
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const hoje = new Date().toISOString().slice(0, 10)
+    a.href = url
+    a.download = `tabelas-comissao-${hoje}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    setMessage({ type: 'success', text: `${filteredItems.length} tabela(s) exportada(s) no layout do importador.` })
+  }
+
   async function handleToggle(item: TabelaComissao) {
     setBusyId(item.id)
     setMessage(null)
@@ -212,7 +246,10 @@ export default function TabelasComissaoPage() {
           <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Table2 size={18} />Tabelas de Comissão</div>
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>Cadastro de tabelas de comissão por instituição, forma de contrato e convênio.</div>
         </div>
-        <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} />Nova Tabela</button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-outline" onClick={handleExportCsv} disabled={loading} title="Exporta as tabelas filtradas no layout do modelo de importação (colunas de prazo em branco)"><Download size={16} />Exportar CSV</button>
+          <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} />Nova Tabela</button>
+        </div>
       </div>
 
       {message && <div style={{ marginBottom: '1rem', padding: '0.875rem 1rem', borderRadius: 10, border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`, background: message.type === 'success' ? '#ECFDF5' : '#FEF2F2', color: message.type === 'success' ? '#065F46' : '#991B1B', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>{message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}<span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{message.text}</span></div>}

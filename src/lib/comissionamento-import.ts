@@ -75,6 +75,64 @@ export function gerarModeloCsv(): string {
   return `${MODELO_TABELAS_HEADERS.join(';')}\n${MODELO_TABELAS_EXEMPLO.join(';')}\n`
 }
 
+/** Linha de tabela cadastrada, já com os vínculos resolvidos para nome (como a tela lista). */
+export type TabelaParaExportar = {
+  codigo_tabela_banco: string | null
+  nome: string
+  financeira: string
+  promotora: string
+  forma_contrato: string
+  convenio: string
+  tipo_formalizacao: string
+  com_seguro: boolean | null
+  taxa_juros_tipo: 'fixa' | 'faixa' | null
+  taxa_juros: number | null
+  taxa_juros_min: number | null
+  taxa_juros_max: number | null
+  observacao: string | null
+}
+
+function csvCelula(value: unknown): string {
+  const texto = value === null || value === undefined ? '' : String(value)
+  // Aspas quando houver separador, quebra de linha ou aspas — padrão CSV.
+  return /[;"\n\r]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto
+}
+
+function taxaCsv(value: number | null | undefined): string {
+  if (value === null || value === undefined) return ''
+  return String(value).replace('.', ',')
+}
+
+/**
+ * Exporta as tabelas cadastradas no MESMO layout do modelo de importação:
+ * as 13 colunas de tabela preenchidas, as 12 de prazo em branco — o operador
+ * completa só os prazos e sobe a planilha direto no Passo 2 do importador.
+ */
+export function gerarCsvTabelasCadastradas(tabelas: TabelaParaExportar[]): string {
+  const colunasPrazo = MODELO_TABELAS_HEADERS.length - COLUNAS_TABELA.length
+  const linhas = tabelas.map((t) => {
+    const celulas = [
+      t.codigo_tabela_banco,
+      t.nome,
+      t.financeira,
+      t.promotora,
+      t.forma_contrato,
+      t.convenio,
+      t.tipo_formalizacao,
+      t.com_seguro === true ? 'com' : t.com_seguro === false ? 'sem' : '',
+      t.taxa_juros_tipo || '',
+      t.taxa_juros_tipo === 'fixa' ? taxaCsv(t.taxa_juros) : '',
+      t.taxa_juros_tipo === 'faixa' ? taxaCsv(t.taxa_juros_min) : '',
+      t.taxa_juros_tipo === 'faixa' ? taxaCsv(t.taxa_juros_max) : '',
+      t.observacao,
+      ...Array.from({ length: colunasPrazo }, () => ''),
+    ]
+    return celulas.map(csvCelula).join(';')
+  })
+  // BOM para o Excel abrir acentos corretamente.
+  return `﻿${MODELO_TABELAS_HEADERS.join(';')}\n${linhas.join('\n')}\n`
+}
+
 /** Normalização para casar nomes/códigos e memorizar de-paras. */
 export function normalizarTexto(value: unknown): string {
   return String(value ?? '')
