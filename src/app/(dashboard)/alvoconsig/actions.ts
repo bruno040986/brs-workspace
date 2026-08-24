@@ -3,8 +3,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { countContacts } from '@/lib/wesales/client'
-import { tagBase, TAG_DISPONIVEL } from '@/lib/alvoconsig/campos-sync'
+import { countContacts, resolveCustomField } from '@/lib/wesales/client'
+import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
 
 const supabaseAdmin = createClient(
@@ -159,6 +159,63 @@ export async function contarDisponiveisNoWeSales(baseTagSlug: string) {
   } catch (error: any) {
     console.error('Erro ao consultar disponíveis no WeSales:', error)
     return { success: false, error: error.message || 'Erro ao consultar o WeSales.' }
+  }
+}
+
+/** Disponíveis do convênio inteiro (sem filtrar por base específica). */
+export async function contarDisponiveisPorConvenio(convenioId: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    if (!convenioId) return { success: false, error: 'Selecione o convênio.' }
+
+    const { data: convenio } = await supabaseAdmin.from('convenios').select('codigo').eq('id', convenioId).maybeSingle()
+    if (!convenio?.codigo) return { success: true, disponiveis: 0 }
+
+    const convenioField = await resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo)
+    if (!convenioField) return { success: true, disponiveis: 0 }
+
+    const total = await countContacts([
+      { field: 'tags', operator: 'contains', value: [TAG_DISPONIVEL] },
+      { field: `customFields.${convenioField.id}`, operator: 'eq', value: convenio.codigo },
+    ])
+    return { success: true, disponiveis: total }
+  } catch (error: any) {
+    console.error('Erro ao consultar disponíveis do convênio no WeSales:', error)
+    return { success: false, error: error.message || 'Erro ao consultar o WeSales.' }
+  }
+}
+
+/**
+ * Bases (tags) já conhecidas pelo sistema, para o seletor da campanha — sem
+ * digitação livre. Vem do que foi importado pela nossa tela (guardado dentro
+ * de `crm_imports.mapeamento._base_tag`, sem precisar de coluna/migration
+ * nova). Importações feitas direto via CSV nativo do WeSales não aparecem
+ * aqui — nesse caso raro, o operador ainda digita o nome uma vez.
+ */
+export async function getBasesImportadas(convenioId?: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+
+    let query = supabaseAdmin
+      .from('crm_imports')
+      .select('mapeamento, convenio_id, created_at')
+      .eq('status', 'concluido')
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (convenioId) query = query.eq('convenio_id', convenioId)
+    const { data, error } = await query
+    if (error) throw error
+
+    const vistos = new Map<string, string>()
+    for (const row of data || []) {
+      const tag = String((row.mapeamento as any)?._base_tag || '').trim()
+      if (!tag || vistos.has(tag)) continue
+      vistos.set(tag, row.created_at as string)
+    }
+    return { success: true, items: [...vistos.entries()].map(([tag, importadaEm]) => ({ tag, importadaEm })) }
+  } catch (error: any) {
+    console.error('Erro ao listar bases importadas:', error)
+    return { success: false, error: error.message }
   }
 }
 

@@ -1,11 +1,20 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader2, Search, Send, Undo2 } from 'lucide-react'
-import { contarDisponiveisNoWeSales, encerrarCampanhaAgora, getCampanhas, getConveniosAtivos, getParceirosHabilitados } from '../actions'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertCircle, CheckCircle, Loader2, Send, Undo2 } from 'lucide-react'
+import {
+  contarDisponiveisNoWeSales,
+  contarDisponiveisPorConvenio,
+  encerrarCampanhaAgora,
+  getBasesImportadas,
+  getCampanhas,
+  getConveniosAtivos,
+  getParceirosHabilitados,
+} from '../actions'
 
 type Parceiro = { agenteParceiroId: string; nome: string; arwCode: string }
 type Convenio = { id: string; nome: string; codigo: string | null }
+type BaseImportada = { tag: string; importadaEm: string }
 type Campanha = {
   id: string
   descricao: string
@@ -57,9 +66,13 @@ export default function AlocacaoPage() {
   const [quantidade, setQuantidade] = useState('500')
   const [vigenciaFim, setVigenciaFim] = useState('')
   const [descricao, setDescricao] = useState('')
-  const [disponiveis, setDisponiveis] = useState<number | null>(null)
-  const [consultando, setConsultando] = useState(false)
   const [criando, setCriando] = useState(false)
+
+  // Bases conhecidas do convênio escolhido (sem digitação livre) + quantos
+  // disponíveis tem cada uma agora (e o total do convênio, opção "").
+  const [bases, setBases] = useState<BaseImportada[]>([])
+  const [contagens, setContagens] = useState<Record<string, number | null>>({})
+  const [carregandoBases, setCarregandoBases] = useState(false)
 
   async function loadData() {
     setLoading(true)
@@ -77,21 +90,32 @@ export default function AlocacaoPage() {
     loadData()
   }, [])
 
-  async function consultarDisponiveis() {
-    if (!baseTag.trim()) {
-      setMessage({ type: 'error', text: 'Informe a base (tag) para consultar.' })
-      return
-    }
-    setConsultando(true)
-    setDisponiveis(null)
+  const carregarBasesDoConvenio = useCallback(async (id: string) => {
+    setBaseTag('')
+    setBases([])
+    setContagens({})
+    if (!id) return
+    setCarregandoBases(true)
     try {
-      const res = await contarDisponiveisNoWeSales(baseTag)
-      if (res.success) setDisponiveis(res.disponiveis ?? 0)
-      else setMessage({ type: 'error', text: res.error || 'Erro ao consultar o WeSales.' })
+      const basesRes = await getBasesImportadas(id)
+      const lista = basesRes.success ? ((basesRes.items || []) as BaseImportada[]) : []
+      setBases(lista)
+
+      const [totalRes, ...porTagRes] = await Promise.all([
+        contarDisponiveisPorConvenio(id),
+        ...lista.map((b) => contarDisponiveisNoWeSales(b.tag)),
+      ])
+      const mapa: Record<string, number | null> = { '': totalRes.success ? totalRes.disponiveis ?? null : null }
+      lista.forEach((b, i) => { mapa[b.tag] = porTagRes[i]?.success ? porTagRes[i].disponiveis ?? null : null })
+      setContagens(mapa)
     } finally {
-      setConsultando(false)
+      setCarregandoBases(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    carregarBasesDoConvenio(convenioId)
+  }, [convenioId, carregarBasesDoConvenio])
 
   async function handleCriarCampanha(e: React.FormEvent) {
     e.preventDefault()
@@ -120,8 +144,7 @@ export default function AlocacaoPage() {
         text: `Campanha criada: ${Number(json.alocados).toLocaleString('pt-BR')} de ${Number(json.encontrados).toLocaleString('pt-BR')} contato(s) encontrados foram copiados e já entraram na fila de sincronização com o WeSales.`,
       })
       setDescricao('')
-      setDisponiveis(null)
-      await loadData()
+      await Promise.all([loadData(), carregarBasesDoConvenio(convenioId)])
     } catch {
       setMessage({ type: 'error', text: 'Erro ao criar a campanha.' })
     } finally {
@@ -198,9 +221,23 @@ export default function AlocacaoPage() {
               ))}
             </select>
           </div>
-          <div className="form-group" style={{ minWidth: 220 }}>
-            <label className="form-label">Base (tag no WeSales) <span className="required">*</span></label>
-            <input type="text" className="form-control" required placeholder="Ex.: mesquita-refin-2026-08" value={baseTag} onChange={(e) => { setBaseTag(e.target.value); setDisponiveis(null) }} />
+          <div className="form-group" style={{ minWidth: 260 }}>
+            <label className="form-label">Base</label>
+            <select className="form-control" value={baseTag} onChange={(e) => setBaseTag(e.target.value)} disabled={!convenioId || carregandoBases}>
+              <option value="">
+                {carregandoBases
+                  ? 'Carregando...'
+                  : `Todos os disponíveis do convênio${contagens[''] != null ? ` (${contagens[''].toLocaleString('pt-BR')})` : ''}`}
+              </option>
+              {bases.map((base) => (
+                <option key={base.tag} value={base.tag}>
+                  {base.tag}{contagens[base.tag] != null ? ` (${contagens[base.tag]!.toLocaleString('pt-BR')})` : ''}
+                </option>
+              ))}
+            </select>
+            {!convenioId && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem' }}>Selecione o convênio primeiro.</div>
+            )}
           </div>
           <div className="form-group" style={{ width: 140 }}>
             <label className="form-label">Quantidade <span className="required">*</span></label>
@@ -216,17 +253,8 @@ export default function AlocacaoPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-outline btn-sm" onClick={consultarDisponiveis} disabled={consultando || !baseTag.trim()}>
-            {consultando ? <Loader2 size={15} className="spinner" /> : <Search size={15} />}
-            Consultar disponíveis no WeSales
-          </button>
-          {disponiveis !== null && (
-            <span style={{ fontSize: '0.875rem', color: 'var(--brs-gray-500)' }}>
-              Disponíveis nessa base: <strong style={{ color: 'var(--brs-gray-800)' }}>{disponiveis.toLocaleString('pt-BR')}</strong>
-            </span>
-          )}
           <div style={{ marginLeft: 'auto' }}>
-            <button type="submit" className="btn btn-primary" disabled={criando || !parceiroId || !convenioId || !baseTag.trim() || !vigenciaFim}>
+            <button type="submit" className="btn btn-primary" disabled={criando || !parceiroId || !convenioId || !vigenciaFim}>
               {criando ? <Loader2 size={16} className="spinner" /> : <Send size={16} />}
               Criar campanha
             </button>

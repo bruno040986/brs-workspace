@@ -183,7 +183,9 @@ export async function POST(request: NextRequest) {
       .insert({
         tipo,
         arquivo_nome: String(file.name || 'mailing').slice(0, 200),
-        mapeamento,
+        // _base_tag: sem coluna/migration nova — o seletor de Campanhas lê daqui
+        // (getBasesImportadas) pra oferecer as bases já conhecidas sem digitação livre.
+        mapeamento: { ...mapeamento, _base_tag: baseTagSlug },
         convenio_id: convenioIdPadrao,
         total_linhas: planilha.rows.length,
         criado_por: user.id,

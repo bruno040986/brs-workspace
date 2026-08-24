@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const quantidade = Number.parseInt(String(body.quantidade), 10)
 
     if (!agenteParceiroId) return NextResponse.json({ error: 'Selecione o parceiro.' }, { status: 400 })
-    if (!baseTagSlug) return NextResponse.json({ error: 'Informe a base (tag) no WeSales.' }, { status: 400 })
+    if (!convenioId) return NextResponse.json({ error: 'Selecione o convênio.' }, { status: 400 })
     if (!vigenciaFim || Number.isNaN(Date.parse(vigenciaFim))) return NextResponse.json({ error: 'Informe a vigência final da campanha.' }, { status: 400 })
     if (!Number.isFinite(quantidade) || quantidade <= 0) return NextResponse.json({ error: 'Informe a quantidade de contatos.' }, { status: 400 })
     if (quantidade > QUANTIDADE_MAXIMA) return NextResponse.json({ error: `Máximo de ${QUANTIDADE_MAXIMA.toLocaleString('pt-BR')} contatos por campanha.` }, { status: 400 })
@@ -66,22 +66,36 @@ export async function POST(request: NextRequest) {
     const arwCode = String(parceiro?.arw_code || '').trim().toLowerCase()
     if (!arwCode) return NextResponse.json({ error: 'Parceiro sem código ARW — não é possível gerar a tag de dono.' }, { status: 400 })
 
-    // Busca no WeSales: disponíveis desta base (leitura — nunca escreve aqui).
+    // Busca no WeSales: disponíveis (leitura — nunca escreve aqui). Com base
+    // (tag) escolhida, filtra por ela; sem base, escopa pelo convênio inteiro
+    // via o campo personalizado (evita puxar disponíveis de outro convênio).
+    const filtrosBusca: Array<{ field: string; operator: string; value: unknown }> = [
+      { field: 'tags', operator: 'contains', value: [TAG_DISPONIVEL] },
+    ]
+    let descricaoBusca = ''
+    if (baseTagSlug) {
+      filtrosBusca.push({ field: 'tags', operator: 'contains', value: [tagBase(baseTagSlug)] })
+      descricaoBusca = `com a tag "${tagBase(baseTagSlug)}"`
+    } else {
+      const [convenioFieldBusca, convenioParaBusca] = await Promise.all([
+        resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo),
+        admin.from('convenios').select('codigo').eq('id', convenioId).maybeSingle().then((r) => r.data),
+      ])
+      if (convenioFieldBusca && convenioParaBusca?.codigo) {
+        filtrosBusca.push({ field: `customFields.${convenioFieldBusca.id}`, operator: 'eq', value: convenioParaBusca.codigo })
+      }
+      descricaoBusca = 'do convênio selecionado'
+    }
+
     let contatos: WesalesContact[]
     try {
-      contatos = await searchContactsAte(
-        [
-          { field: 'tags', operator: 'contains', value: [tagBase(baseTagSlug)] },
-          { field: 'tags', operator: 'contains', value: [TAG_DISPONIVEL] },
-        ],
-        quantidade,
-      )
+      contatos = await searchContactsAte(filtrosBusca, quantidade)
     } catch (error: any) {
       console.error('Erro ao buscar contatos no WeSales:', error)
       return NextResponse.json({ error: `Falha ao consultar o WeSales: ${error?.message || error}` }, { status: 502 })
     }
     if (!contatos.length) {
-      return NextResponse.json({ error: `Nenhum contato disponível com a tag "${tagBase(baseTagSlug)}" + "${TAG_DISPONIVEL}" no WeSales.` }, { status: 400 })
+      return NextResponse.json({ error: `Nenhum contato disponível ${descricaoBusca} no WeSales.` }, { status: 400 })
     }
 
     // Descarta quem já tem dono ativo localmente (defensivo — não deveria
