@@ -269,6 +269,18 @@ textarea.form-control { resize: vertical; min-height: 100px; }
 /* ─── Tables ─── */
 .table-wrapper { overflow-x: auto; }
 
+/* Tabelas largas: rolagem horizontal extra no topo + cabeçalho fixo (ScrollSyncTable). */
+.scroll-sync-table__top { overflow-x: auto; overflow-y: hidden; height: 14px; }
+.scroll-sync-table__body { overflow-x: auto; }
+.scroll-sync-table__body .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* fundo sólido para as linhas não "vazarem" por trás do cabeçalho ao rolar */
+  background: var(--brs-gray-50);
+  box-shadow: inset 0 -1px 0 var(--brs-gray-200);
+}
+
 table.data-table {
   width: 100%;
   border-collapse: collapse;

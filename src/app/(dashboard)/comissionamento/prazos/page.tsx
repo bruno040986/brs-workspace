@@ -10,6 +10,7 @@ import {
   type LinhaGrade,
   type SpreadRow,
 } from '@/lib/comissionamento'
+import ScrollSyncTable from '@/components/forms/ScrollSyncTable'
 import { excluirPrazoComissao, getComissionamentoLookups, getPrazosComissao, getSpreads, type PrazoComissaoPayload } from '../actions'
 
 type Instituicao = { id: string; name: string; logo_url?: string | null; imposto_comissao_percent: number | null }
@@ -210,7 +211,7 @@ export default function PrazosComissaoPage() {
       </div>
 
       <div className="card">
-        <div className="table-wrapper">
+        <ScrollSyncTable maxHeight="calc(100vh - 260px)">
           <table className="data-table">
             <thead>
               <tr>
@@ -270,7 +271,7 @@ export default function PrazosComissaoPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </ScrollSyncTable>
       </div>
     </div>
   )
