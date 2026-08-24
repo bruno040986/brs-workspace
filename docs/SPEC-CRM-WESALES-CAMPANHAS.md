@@ -142,6 +142,16 @@ resumo ajustados. `brs-alvoconsig`: worker ganhou `aplicar_tag`/`remover_tag`.
 - Conferência não reconcilia convênio via nome, só via `codigo_convenio` (custom field) — se a
   planilha original não tinha coluna de código, o convênio da cópia local não é corrigido pelo cron.
 
+**Refinamento REFIN multi-oferta (24/08/2026):** um CPF pode ter várias ofertas de REFIN
+(linhas diferentes na planilha, cada uma vinculada a uma tabela via `oferta_regra`) — decisão do
+Bruno foi guardar TODAS (até 5, `MAX_OFERTAS_REFIN`), não só a melhor. Ver
+`src/lib/alvoconsig/refin-slots.ts` (6 campos por slot no WeSales: troco/parcela/prazo/taxa/tabela/
+instituição) e `resolverOfertasRefin` em `ofertas.ts` (casa cada slot com `tabelas_comissao` já
+cadastrada, por institution_id + codigo_tabela_banco). Importação de REFIN agora exige a
+Instituição Financeira (planilha é sempre de um banco só). `crm_contatos.refin_troco` virou resumo
+(maior troco); o detalhe completo mora em `ofertas.refin` (array, jsonb) — a coluna antiga
+`crm_contatos.refin` (singular) ficou sem uso, não precisou de migration.
+
 ## 8. FASE 3 — CRM (Sonnet/Codex)
 Leitura da cópia local (já é); exportar "meus clientes" via tag; presença básica do
 atendente; painel do lead lendo `ofertas` pré-calculadas.
