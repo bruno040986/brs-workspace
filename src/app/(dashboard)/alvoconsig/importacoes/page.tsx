@@ -202,7 +202,7 @@ export default function ImportacoesPage() {
             </select>
           </div>
           {tipo === 'refin' && (
-            <div className="form-group" style={{ minWidth: 220 }}>
+            <div className="form-group" style={{ minWidth: 220, position: 'relative' }}>
               <label className="form-label">Instituição Financeira <span className="required">*</span></label>
               <select className="form-control" required value={instituicaoId} onChange={(e) => setInstituicaoId(e.target.value)}>
                 <option value="">Selecione...</option>
@@ -210,8 +210,8 @@ export default function ImportacoesPage() {
                   <option key={inst.id} value={inst.id}>{inst.name}</option>
                 ))}
               </select>
-              <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem' }}>
-                A planilha REFIN é sempre de um banco só — vale para o arquivo inteiro.
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem', whiteSpace: 'nowrap' }}>
+                A planilha REFIN é sempre de um banco só.
               </div>
             </div>
           )}
