@@ -42,16 +42,39 @@ export class WesalesHttpError extends Error {
   }
 }
 
+const MAX_TENTATIVAS_429 = 5
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * 429 (rate limit) tenta de novo com backoff em vez de descartar a operação
+ * na hora — respeita `Retry-After` quando o WeSales manda, senão backoff
+ * exponencial com jitter. Sem isso, uma rajada de importação/campanha perde
+ * ofertas/contatos silenciosamente (incidente 24/08/2026: 12 de 27 ofertas
+ * REFIN descartadas por 429 numa importação só).
+ */
 async function http<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const url = `${BASE_URL}${path}`
-  const res = await fetch(url, {
-    method: init?.method || 'GET',
-    headers: authHeaders(),
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-  })
-  const text = await res.text()
-  if (!res.ok) throw new WesalesHttpError(res.status, text, url)
-  return (text ? JSON.parse(text) : {}) as T
+  let tentativa = 0
+  for (;;) {
+    const res = await fetch(url, {
+      method: init?.method || 'GET',
+      headers: authHeaders(),
+      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    })
+    if (res.status === 429 && tentativa < MAX_TENTATIVAS_429) {
+      tentativa += 1
+      const retryAfter = Number.parseFloat(res.headers.get('retry-after') || '')
+      const esperaMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 400 * 2 ** tentativa + Math.random() * 300
+      await sleep(esperaMs)
+      continue
+    }
+    const text = await res.text()
+    if (!res.ok) throw new WesalesHttpError(res.status, text, url)
+    return (text ? JSON.parse(text) : {}) as T
+  }
 }
 
 export function normalizeCpfDigits(cpf: string) {

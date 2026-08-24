@@ -44,7 +44,10 @@ export const maxDuration = 300
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const LIMITE_LINHAS_API = 2000
-const CONCORRENCIA = 10
+// Reduzido de 10 pra 5 após incidente de 429 (24/08/2026) — o client já tenta
+// de novo com backoff (src/lib/wesales/client.ts), mas menos rajada = menos
+// tempo perdido em retry.
+const CONCORRENCIA = 5
 
 type Workbook = { headers: string[]; rows: unknown[][] }
 
