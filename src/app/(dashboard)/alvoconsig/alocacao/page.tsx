@@ -221,7 +221,7 @@ export default function AlocacaoPage() {
               ))}
             </select>
           </div>
-          <div className="form-group" style={{ minWidth: 260 }}>
+          <div className="form-group" style={{ minWidth: 260, position: 'relative' }}>
             <label className="form-label">Base</label>
             <select className="form-control" value={baseTag} onChange={(e) => setBaseTag(e.target.value)} disabled={!convenioId || carregandoBases}>
               <option value="">
@@ -236,7 +236,9 @@ export default function AlocacaoPage() {
               ))}
             </select>
             {!convenioId && (
-              <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem' }}>Selecione o convênio primeiro.</div>
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.25rem', whiteSpace: 'nowrap' }}>
+                Selecione o convênio primeiro.
+              </div>
             )}
           </div>
           <div className="form-group" style={{ width: 140 }}>
