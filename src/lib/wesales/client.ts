@@ -446,7 +446,7 @@ export async function setContactsBusiness(contactIds: string[], businessId: stri
   for (let i = 0; i < contactIds.length; i += 50) {
     const chunk = contactIds.slice(i, i + 50)
     if (!chunk.length) continue
-    await http(`/contacts/bulk/business`, { method: 'POST', body: { ids: chunk, businessId } })
+    await http(`/contacts/bulk/business`, { method: 'POST', body: { locationId: locationId(), ids: chunk, businessId } })
   }
 }
 
