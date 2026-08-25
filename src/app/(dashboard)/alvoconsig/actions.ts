@@ -103,7 +103,7 @@ export async function getConveniosAtivos() {
 
     const { data, error } = await supabaseAdmin
       .from('convenios')
-      .select('id, nome, codigo')
+      .select('id, nome, nome_reduzido, codigo_sistema')
       .eq('is_active', true)
       .is('deleted_at', null)
       .order('nome', { ascending: true })
@@ -168,15 +168,15 @@ export async function contarDisponiveisPorConvenio(convenioId: string) {
     await requirePermission(PERMISSION_RESOURCE)
     if (!convenioId) return { success: false, error: 'Selecione o convênio.' }
 
-    const { data: convenio } = await supabaseAdmin.from('convenios').select('codigo').eq('id', convenioId).maybeSingle()
-    if (!convenio?.codigo) return { success: true, disponiveis: 0 }
+    const { data: convenio } = await supabaseAdmin.from('convenios').select('codigo_sistema').eq('id', convenioId).maybeSingle()
+    if (!convenio?.codigo_sistema) return { success: true, disponiveis: 0 }
 
     const convenioField = await resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo)
     if (!convenioField) return { success: true, disponiveis: 0 }
 
     const total = await countContacts([
       { field: 'tags', operator: 'contains', value: [TAG_DISPONIVEL] },
-      { field: `customFields.${convenioField.id}`, operator: 'eq', value: convenio.codigo },
+      { field: `customFields.${convenioField.id}`, operator: 'eq', value: convenio.codigo_sistema },
     ])
     return { success: true, disponiveis: total }
   } catch (error: any) {

@@ -13,7 +13,7 @@ import {
 } from '../actions'
 
 type Parceiro = { agenteParceiroId: string; nome: string; arwCode: string }
-type Convenio = { id: string; nome: string; codigo: string | null }
+type Convenio = { id: string; nome: string; nome_reduzido: string; codigo_sistema: string }
 type BaseImportada = { tag: string; importadaEm: string }
 type Campanha = {
   id: string

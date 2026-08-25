@@ -188,3 +188,55 @@ barra lateral.
 - `WESALES_API_TOKEN` na Vercel do brs-alvoconsig (Bruno).
 - Ritmo do worker: subir de 40 ops/min para ~300 ops/min (limite real ~100 req/10 s).
 - Coeficientes do empréstimo Novo ainda não cadastrados (Bruno recebe hoje).
+- 3 registros de teste criados manualmente em "Consignantes/Empregadores" (Pref
+  Salto/SP, Pref de Mesquita/RJ, CLT Consignado do Trabalhador) não foram
+  linkados a nenhum convênio — órfãos, Bruno remove quando quiser.
+- Duplicatas de Oportunidade REFIN já criadas pelo bug de dedup (antes do fix
+  de 25/08) seguem no WeSales — não foram limpas automaticamente.
+
+## 11. Consignante/Empregador (objeto Empresa do WeSales) — decisão 24-25/08/2026
+Convênio (tipo de convênio, nome do empregador/órgão, CNPJ) é tão essencial
+quanto CPF/nome/telefone para o negócio — precisa estar sempre visível no
+contato, não escondido em campo personalizado solto. Objeto nativo do WeSales
+para isso: **Business**, renomeado para **"Consignantes/Empregadores"**
+(singular "Consignante/Empregador").
+
+**Descoberta de API (validada ao vivo em 24/08/2026, não documentada nos
+manuais públicos do GHL):**
+- `/businesses/*` (create/update/get) só aceita os campos padrão (nome,
+  endereço, telefone...) — **não aceita `customFields`**.
+- Campo personalizado em Empresa é outra família de endpoint:
+  `/custom-fields/object-key/business` (schema) e
+  `/custom-fields/` (criar campo, precisa de `parentId` = pasta "Company
+  Info").
+- **O valor** de cada campo (padrão OU personalizado) só é lido/escrito via
+  `/objects/business/records/{id}` (GET/PUT/POST), como um objeto plano
+  `properties` chaveado pelo sufixo da fieldKey (`name`, `city`,
+  `alvoconsig_tipo`...) — bem mais simples que o modelo id-de-campo+valor de
+  contato/oportunidade. É esse endpoint que o client usa
+  (`createBusinessRecord`/`updateBusinessRecord`/`getBusinessRecord` em
+  `src/lib/wesales/client.ts`).
+- Vínculo contato↔empresa: `POST /contacts/bulk/business` (`ids[]` até 50,
+  `businessId` — `null` desvincula). Confirmado que `businessId` aparece
+  direto no GET do contato, sem chamada extra.
+
+**Modelo adotado:**
+- Um Consignante por **convênio** (não por empregador individual — CLT é de
+  outro fluxo, fora deste subsistema). `convenios.wesales_business_id` guarda
+  o id, criado 1x e sempre reaproveitado (nunca casa por nome).
+- Campos do Consignante: `name` = `convenios.nome_reduzido`, `description` =
+  `convenios.nome`, `city`/`state`/`postalcode` = cidade/uf/cep, e 3 campos
+  personalizados (`alvoconsig_tipo` — fixo "Convênio Público" neste fluxo,
+  `alvoconsig_cnpj`, `alvoconsig_razao_social`).
+- Resolução/criação e vínculo dos contatos ficam em
+  `src/lib/alvoconsig/consignantes-wesales.ts`, chamado 1x por importação em
+  `upload/route.ts` (vínculo em lote de até 50 contatos no fim, não por
+  contato dentro do loop).
+
+**`convenios.codigo` virou "Código ARW"** (opcional — só usado pelo
+importador de comissionamento, que casa com planilhas vindas do ARW). A
+identidade do convênio usada na integração com o WeSales (campo
+`alvoconsig_convenio_codigo` no contato, filtro de campanha "todos do
+convênio") passou a ser **`codigo_sistema`** (sequencial, 5 dígitos, gerado
+pelo banco — sempre presente, nunca ambíguo). Ver migration
+`20260825140000_convenios_dados_fiscais_codigo_sistema.sql`.

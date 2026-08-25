@@ -91,10 +91,10 @@ export async function GET(request: NextRequest) {
     console.error('Pipeline de Ofertas não encontrado — conferência de REFIN pulada:', err?.message || err)
   }
 
-  const { data: conveniosData } = await admin.from('convenios').select('id, codigo').is('deleted_at', null)
+  const { data: conveniosData } = await admin.from('convenios').select('id, codigo_sistema').is('deleted_at', null)
   const convenioPorCodigo = new Map<string, string>()
   for (const conv of conveniosData || []) {
-    if (conv.codigo) convenioPorCodigo.set(digits(conv.codigo) || String(conv.codigo), String(conv.id))
+    if (conv.codigo_sistema) convenioPorCodigo.set(conv.codigo_sistema, String(conv.id))
   }
 
   let conferidos = 0

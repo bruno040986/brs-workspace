@@ -17,7 +17,7 @@ type ImportItem = {
   convenios?: { id: string; nome: string } | null
 }
 
-type Convenio = { id: string; nome: string; codigo: string | null }
+type Convenio = { id: string; nome: string; nome_reduzido: string; codigo_sistema: string }
 type Instituicao = { id: string; name: string }
 
 type CampoImport = { key: string; label: string; obrigatorio?: boolean }
@@ -203,7 +203,7 @@ export default function ImportacoesPage() {
             <select className="form-control" required value={convenioId} onChange={(e) => setConvenioId(e.target.value)}>
               <option value="">Selecione...</option>
               {convenios.map((conv) => (
-                <option key={conv.id} value={conv.id}>{conv.nome}{conv.codigo ? ` (${conv.codigo})` : ''}</option>
+                <option key={conv.id} value={conv.id}>{conv.nome} ({conv.codigo_sistema})</option>
               ))}
             </select>
           </div>

@@ -395,3 +395,92 @@ export async function resolvePipelineStage(pipelineNome: string, estagioNome: st
   const stage = (pipeline.stages || []).find((s) => normalizarNome(s.name) === alvo)
   return stage ? { pipeline, stage } : null
 }
+
+// ---------------------------------------------------------------------------
+// Empresas ("Consignantes/Empregadores", objeto Business renomeado no
+// WeSales) — um registro por convênio, fonte de "a quem esse contato está
+// vinculado" (ver src/lib/alvoconsig/consignantes-wesales.ts).
+//
+// IMPORTANTE: campo personalizado em Empresa NÃO passa pelos endpoints
+// `/businesses/*` (esses só aceitam os campos padrão — nome/endereço/etc,
+// sem customFields) nem pelo `/locations/{id}/customFields` que o resto
+// deste arquivo usa (o `model` dele só aceita contact/opportunity/all).
+// Empresa usa a família `/custom-fields/*` (definição do campo) e
+// `/objects/business/records/*` (valor do registro) — validado direto na
+// API em 24/08/2026 antes de escrever este código. Nessa API de records, o
+// valor de CADA campo (padrão ou personalizado) mora junto em `properties`,
+// como objeto plano chaveado pelo sufixo da fieldKey (`name`, `city`,
+// `alvoconsig_tipo`, ...) — bem mais simples que o modelo de
+// id-de-campo+valor usado em contato/oportunidade.
+// ---------------------------------------------------------------------------
+
+export type WesalesBusinessRecord = { id: string; properties: Record<string, unknown> }
+
+export async function createBusinessRecord(properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
+  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records`, {
+    method: 'POST',
+    body: { properties },
+  })
+  return res.record
+}
+
+export async function updateBusinessRecord(businessId: string, properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
+  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}`, {
+    method: 'PUT',
+    body: { properties },
+  })
+  return res.record
+}
+
+export async function getBusinessRecord(businessId: string): Promise<WesalesBusinessRecord | null> {
+  try {
+    const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}`)
+    return res.record ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Vincula (ou desvincula, com businessId=null) até 50 contatos por chamada a uma Empresa. */
+export async function setContactsBusiness(contactIds: string[], businessId: string | null): Promise<void> {
+  for (let i = 0; i < contactIds.length; i += 50) {
+    const chunk = contactIds.slice(i, i + 50)
+    if (!chunk.length) continue
+    await http(`/contacts/bulk/business`, { method: 'POST', body: { ids: chunk, businessId } })
+  }
+}
+
+type BusinessFieldSchema = {
+  fields: Array<{ id: string; fieldKey: string }>
+  folders: Array<{ id: string; objectKey: string }>
+}
+
+let businessSchemaCache: BusinessFieldSchema | null = null
+
+async function businessSchema(): Promise<BusinessFieldSchema> {
+  if (businessSchemaCache) return businessSchemaCache
+  const res = await http<BusinessFieldSchema>(`/custom-fields/object-key/business`)
+  businessSchemaCache = { fields: res.fields || [], folders: res.folders || [] }
+  return businessSchemaCache
+}
+
+/**
+ * Garante que o campo personalizado existe em Empresa (cria se faltar) e
+ * devolve a chave curta (sufixo) — já é o que `properties` usa em
+ * create/updateBusinessRecord.
+ */
+export async function ensureBusinessCustomField(key: string, name: string): Promise<string> {
+  const schema = await businessSchema()
+  const existing = schema.fields.find((f) => f.fieldKey === `business.${key}`)
+  if (existing) return key
+
+  const folder = schema.folders.find((f) => f.objectKey === 'business')
+  if (!folder) throw new Error('Pasta de campos personalizados de Empresa não encontrada no WeSales.')
+
+  await http(`/custom-fields/`, {
+    method: 'POST',
+    body: { name, dataType: 'TEXT', fieldKey: `business.${key}`, objectKey: 'business', parentId: folder.id, showInForms: false },
+  })
+  businessSchemaCache = null
+  return key
+}

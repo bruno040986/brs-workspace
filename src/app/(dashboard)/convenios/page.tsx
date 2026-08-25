@@ -3,13 +3,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
 import { CONVENIO_ESFERAS, esferaLabel } from '@/lib/cadastros-credito'
+import { maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
+import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
 import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
 
 type ConvenioItem = {
   id: string
   nome: string
+  nome_reduzido: string
   codigo: string | null
+  codigo_sistema: string
   esfera: string
+  cnpj: string | null
+  razao_social: string | null
+  cidade: string | null
+  uf: string | null
+  cep: string | null
   is_active: boolean
 }
 
@@ -25,6 +34,7 @@ export default function ConveniosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<Partial<ConvenioRecord> | null>(null)
   const [saving, setSaving] = useState(false)
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false)
 
   async function loadData() {
     setLoading(true)
@@ -56,26 +66,76 @@ export default function ConveniosPage() {
   }, [items, searchQuery, esferaFilter])
 
   function openNew() {
-    setEditing({ nome: '', codigo: '', esfera: 'municipal' })
+    setEditing({ nome: '', nome_reduzido: '', codigo: '', esfera: 'municipal', cnpj: '', razao_social: '', cidade: '', uf: '', cep: '' })
     setIsModalOpen(true)
   }
 
   function openEdit(item: ConvenioItem) {
-    setEditing({ id: item.id, nome: item.nome, codigo: item.codigo || '', esfera: item.esfera })
+    setEditing({
+      id: item.id,
+      nome: item.nome,
+      nome_reduzido: item.nome_reduzido || '',
+      codigo: item.codigo || '',
+      codigo_sistema: item.codigo_sistema,
+      esfera: item.esfera,
+      cnpj: item.cnpj || '',
+      razao_social: item.razao_social || '',
+      cidade: item.cidade || '',
+      uf: item.uf || '',
+      cep: item.cep || '',
+    })
     setIsModalOpen(true)
+  }
+
+  async function fillByCnpj() {
+    if (!editing) return
+    const cnpj = onlyDigits(editing.cnpj || '')
+    if (cnpj.length !== 14) {
+      setMessage({ type: 'error', text: 'Informe um CNPJ válido para consulta.' })
+      return
+    }
+    setConsultandoCnpj(true)
+    try {
+      const res = await fetch(`/api/cnpjws/cnpj/${cnpj}`, { cache: 'no-store' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.razao_social) throw new Error(data?.error || data?.message || 'CNPJ não encontrado.')
+      const rica = normalizeCnpjWsCompleto(data)
+      setEditing((prev) =>
+        prev
+          ? {
+              ...prev,
+              cnpj,
+              razao_social: rica.razao_social || prev.razao_social,
+              cidade: rica.cidade || prev.cidade,
+              uf: rica.uf || prev.uf,
+              cep: rica.cep || prev.cep,
+            }
+          : prev,
+      )
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Falha ao consultar o CNPJ.' })
+    } finally {
+      setConsultandoCnpj(false)
+    }
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!editing?.nome?.trim()) return
+    if (!editing?.nome?.trim() || !editing?.nome_reduzido?.trim()) return
     setSaving(true)
     setMessage(null)
     try {
       const res = await saveConvenio({
         id: editing.id,
         nome: String(editing.nome || ''),
+        nome_reduzido: String(editing.nome_reduzido || ''),
         codigo: String(editing.codigo || ''),
         esfera: String(editing.esfera || 'outro'),
+        cnpj: String(editing.cnpj || ''),
+        razao_social: String(editing.razao_social || ''),
+        cidade: String(editing.cidade || ''),
+        uf: String(editing.uf || ''),
+        cep: String(editing.cep || ''),
       })
       if (res.success) {
         setIsModalOpen(false)
@@ -177,7 +237,9 @@ export default function ConveniosPage() {
             <thead>
               <tr>
                 <th>Nome</th>
-                <th>Código</th>
+                <th>Nome Reduzido</th>
+                <th>Cód. Sistema</th>
+                <th>Cód. ARW</th>
                 <th>Esfera</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
@@ -186,13 +248,13 @@ export default function ConveniosPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
                     <span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} />
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
                     <div className="empty-state">
                       <Landmark size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
                       <h3>Nenhum convênio encontrado</h3>
@@ -204,6 +266,8 @@ export default function ConveniosPage() {
                 filteredItems.map((item) => (
                   <tr key={item.id}>
                     <td style={{ fontWeight: 600 }}>{item.nome}</td>
+                    <td>{item.nome_reduzido || '-'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_sistema}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo || '-'}</td>
                     <td>{esferaLabel(item.esfera)}</td>
                     <td>
@@ -238,7 +302,7 @@ export default function ConveniosPage() {
 
       {isModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
-          <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
             <form onSubmit={handleSave}>
               <div className="modal-header">
                 <h3 className="modal-title">{editing?.id ? 'Editar Convênio' : 'Novo Convênio'}</h3>
@@ -247,30 +311,50 @@ export default function ConveniosPage() {
                 </button>
               </div>
               <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Nome do Convênio <span className="required">*</span></label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    required
-                    placeholder="Ex.: Prefeitura de São Paulo"
-                    value={editing?.nome || ''}
-                    onChange={(e) => setEditing({ ...editing, nome: e.target.value })}
-                  />
-                </div>
-                <div className="form-grid form-grid-2" style={{ marginTop: '1rem' }}>
+                <div className="form-grid form-grid-2">
                   <div className="form-group">
-                    <label className="form-label">Código</label>
+                    <label className="form-label">Nome do Convênio <span className="required">*</span></label>
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="Ex.: 21517"
+                      required
+                      placeholder="Ex.: Prefeitura Municipal de Mesquita"
+                      value={editing?.nome || ''}
+                      onChange={(e) => setEditing({ ...editing, nome: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Nome Reduzido <span className="required">*</span></label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      required
+                      placeholder="Ex.: Pref. Mesquita/RJ, IPERJ..."
+                      value={editing?.nome_reduzido || ''}
+                      onChange={(e) => setEditing({ ...editing, nome_reduzido: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid form-grid-2" style={{ marginTop: '1rem' }}>
+                  {editing?.id && (
+                    <div className="form-group">
+                      <label className="form-label">Código do Sistema</label>
+                      <input type="text" className="form-control" disabled value={editing?.codigo_sistema || ''} style={{ fontFamily: 'monospace' }} />
+                    </div>
+                  )}
+                  <div className="form-group">
+                    <label className="form-label">Código ARW</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Se já cadastrado no ARW"
                       value={editing?.codigo || ''}
                       onChange={(e) => setEditing({ ...editing, codigo: e.target.value })}
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Esfera</label>
+                    <label className="form-label">Esfera <span className="required">*</span></label>
                     <select
                       className="form-control"
                       value={editing?.esfera || 'outro'}
@@ -280,6 +364,68 @@ export default function ConveniosPage() {
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brs-gray-500)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    Dados fiscais (opcional)
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">CNPJ</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="00.000.000/0000-00"
+                        value={maskCnpj(editing?.cnpj || '')}
+                        onChange={(e) => setEditing({ ...editing, cnpj: onlyDigits(e.target.value) })}
+                        onBlur={() => onlyDigits(editing?.cnpj || '').length === 14 && fillByCnpj()}
+                        style={{ flex: 1 }}
+                      />
+                      <button type="button" className="btn btn-outline btn-sm" onClick={fillByCnpj} disabled={consultandoCnpj}>
+                        {consultandoCnpj ? <Loader2 size={15} className="spinner" /> : 'Buscar'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                    <label className="form-label">Razão Social</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={editing?.razao_social || ''}
+                      onChange={(e) => setEditing({ ...editing, razao_social: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-grid form-grid-3" style={{ marginTop: '0.75rem' }}>
+                    <div className="form-group">
+                      <label className="form-label">Cidade</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editing?.cidade || ''}
+                        onChange={(e) => setEditing({ ...editing, cidade: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">UF</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        maxLength={2}
+                        value={editing?.uf || ''}
+                        onChange={(e) => setEditing({ ...editing, uf: e.target.value.toUpperCase() })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">CEP</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editing?.cep || ''}
+                        onChange={(e) => setEditing({ ...editing, cep: onlyDigits(e.target.value) })}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -97,10 +97,10 @@ export async function POST(request: NextRequest) {
     } else {
       const [convenioFieldBusca, convenioParaBusca] = await Promise.all([
         resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo),
-        admin.from('convenios').select('codigo').eq('id', convenioId).maybeSingle().then((r) => r.data),
+        admin.from('convenios').select('codigo_sistema').eq('id', convenioId).maybeSingle().then((r) => r.data),
       ])
-      if (convenioFieldBusca && convenioParaBusca?.codigo) {
-        filtrosBusca.push({ field: `customFields.${convenioFieldBusca.id}`, operator: 'eq', value: convenioParaBusca.codigo })
+      if (convenioFieldBusca && convenioParaBusca?.codigo_sistema) {
+        filtrosBusca.push({ field: `customFields.${convenioFieldBusca.id}`, operator: 'eq', value: convenioParaBusca.codigo_sistema })
       }
       descricaoBusca = 'do convênio selecionado'
     }
@@ -150,10 +150,10 @@ export async function POST(request: NextRequest) {
     const pipelineOfertas = await resolverPipelineOfertas()
     const stageDisponivelId = pipelineOfertas.stages[ETAPA_DISPONIVEL]?.id
 
-    const { data: conveniosData } = await admin.from('convenios').select('id, codigo').is('deleted_at', null)
+    const { data: conveniosData } = await admin.from('convenios').select('id, codigo_sistema').is('deleted_at', null)
     const convenioPorCodigo = new Map<string, string>()
     for (const conv of conveniosData || []) {
-      if (conv.codigo) convenioPorCodigo.set(digits(conv.codigo) || String(conv.codigo), String(conv.id))
+      if (conv.codigo_sistema) convenioPorCodigo.set(conv.codigo_sistema, String(conv.id))
     }
 
     // Cria a campanha (status 'montando' até terminar de copiar).

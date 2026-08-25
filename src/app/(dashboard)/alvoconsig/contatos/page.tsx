@@ -19,7 +19,7 @@ type ContatoItem = {
   agentes_parceiros?: { id: string; name: string; fantasy_name: string | null } | null
 }
 
-type Convenio = { id: string; nome: string; codigo: string | null }
+type Convenio = { id: string; nome: string; nome_reduzido: string; codigo_sistema: string }
 type Campanha = { id: string; descricao: string; base_tag: string }
 
 function formatMoney(value: number | null) {

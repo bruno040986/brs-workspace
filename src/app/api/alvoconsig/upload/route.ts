@@ -30,6 +30,7 @@ import {
   findOpportunitiesByContactDetalhadas,
   normalizeCpfDigits,
   opportunityFieldValue,
+  setContactsBusiness,
   updateContact,
   updateOpportunity,
   type WesalesContact,
@@ -37,6 +38,7 @@ import {
 } from '@/lib/wesales/client'
 import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, MARGEM_FIELD_LABELS, OFERTA_FIELD_KEYS, OFERTA_FIELD_LABELS, nomeOportunidade, resolverPipelineOfertas, ETAPA_DISPONIVEL } from '@/lib/alvoconsig/ofertas-wesales'
+import { resolverOuCriarConsignante } from '@/lib/alvoconsig/consignantes-wesales'
 import {
   camposParaTipo,
   cleanDigits,
@@ -199,31 +201,28 @@ export async function POST(request: NextRequest) {
 
     const admin = await createAdminClient()
 
-    let codigoConvenioPadrao: string | null = null
-    const { data: convenioSelecionado } = await admin.from('convenios').select('codigo').eq('id', convenioIdPadrao).maybeSingle()
-    codigoConvenioPadrao = convenioSelecionado?.codigo || null
+    const { data: convenioSelecionado } = await admin
+      .from('convenios')
+      .select('id, nome, nome_reduzido, codigo_sistema, cnpj, razao_social, cidade, uf, cep, wesales_business_id')
+      .eq('id', convenioIdPadrao)
+      .maybeSingle()
+    if (!convenioSelecionado) {
+      return NextResponse.json({ error: 'Convênio não encontrado.' }, { status: 400 })
+    }
+    // Identidade do convênio gravada no WeSales: o código do sistema
+    // (sequencial, sempre presente) — não o Código ARW, que é opcional e só
+    // serve pro importador de comissionamento. Como o convênio já é
+    // obrigatório na tela, todo contato desta importação usa o mesmo valor —
+    // não há mais tentativa de casar um código por linha da planilha.
+    const codigoConvenioPadrao = convenioSelecionado.codigo_sistema as string
+    function codigoConvenioDaLinha(_row: unknown[]): string {
+      return codigoConvenioPadrao
+    }
 
     let instituicaoNome = ''
     if (tipo === 'refin') {
       const { data: inst } = await admin.from('financial_institutions').select('name').eq('id', instituicaoId).maybeSingle()
       instituicaoNome = inst?.name || ''
-    }
-
-    // Normaliza o código do convênio antes de gravar no WeSales: a busca por
-    // convênio (campanha sem base) compara por igualdade exata contra
-    // convenios.codigo — gravar o texto cru da planilha (zeros à esquerda,
-    // espaço, .0 de Excel etc.) faz essa comparação nunca bater.
-    const { data: conveniosParaNormalizar } = await admin.from('convenios').select('codigo').is('deleted_at', null)
-    const codigoCanonicoPorDigitos = new Map<string, string>()
-    for (const conv of conveniosParaNormalizar || []) {
-      if (conv.codigo) codigoCanonicoPorDigitos.set(cleanDigits(conv.codigo) || conv.codigo, conv.codigo)
-    }
-    function normalizarCodigoConvenio(bruto: string): string {
-      if (!bruto) return bruto
-      return codigoCanonicoPorDigitos.get(cleanDigits(bruto) || bruto) || bruto
-    }
-    function codigoConvenioDaLinha(row: unknown[]): string {
-      return normalizarCodigoConvenio(String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || '')
     }
 
     const { data: importRow, error: importError } = await admin
@@ -276,6 +275,17 @@ export async function POST(request: NextRequest) {
       await admin.from('crm_imports').update({ status: 'erro', erro: `Falha ao preparar campos/pipeline no WeSales: ${error?.message || error}`, concluido_em: new Date().toISOString() }).eq('id', importRow.id)
       return NextResponse.json({ error: `Não foi possível preparar o WeSales: ${error?.message || error}` }, { status: 502 })
     }
+
+    // Consignante/Empregador do convênio no WeSales — não bloqueia a
+    // importação se falhar (contatos/ofertas continuam sendo o essencial);
+    // só fica sem o vínculo de Empresa desta vez.
+    let consignanteBusinessId: string | null = null
+    try {
+      consignanteBusinessId = await resolverOuCriarConsignante(admin, convenioSelecionado)
+    } catch (error: any) {
+      console.error('Falha ao resolver Consignante/Empregador no WeSales:', error?.message || error)
+    }
+    const contactIdsTocados: string[] = []
 
     const tags = [tagBase(baseTagSlug), TAG_DISPONIVEL]
     let importadas = 0
@@ -359,7 +369,8 @@ export async function POST(request: NextRequest) {
               if (codigoConvenioLinha) customFields.push({ id: fieldDefs[triade.convenio].id, fieldValue: codigoConvenioLinha })
             }
             const existente = await findContactByCpf(cpf)
-            await gravarContato(cpf, row, customFields, existente)
+            const contactId = await gravarContato(cpf, row, customFields, existente)
+            contactIdsTocados.push(contactId)
             importadas += 1
           } catch (error: any) {
             erros.push(`CPF ${cpf}: ${error?.message || error}`)
@@ -426,6 +437,7 @@ export async function POST(request: NextRequest) {
           try {
             const existente = await findContactByCpf(cpf)
             const contactId = await gravarContato(cpf, row, [], existente)
+            contactIdsTocados.push(contactId)
 
             const existentesNoPipeline = await findOpportunitiesByContactDetalhadas(contactId, pipelineId)
             const usadosNestaImportacao = new Set<string>()
@@ -483,6 +495,17 @@ export async function POST(request: NextRequest) {
         }),
         CONCORRENCIA,
       )
+    }
+
+    // Vincula todos os contatos tocados nesta importação ao Consignante do
+    // convênio — em lotes de 50 (limite da API), bem mais leve que um
+    // vínculo por contato dentro do loop de concorrência acima.
+    if (consignanteBusinessId && contactIdsTocados.length) {
+      try {
+        await setContactsBusiness(contactIdsTocados, consignanteBusinessId)
+      } catch (error: any) {
+        console.error('Falha ao vincular contatos ao Consignante/Empregador no WeSales:', error?.message || error)
+      }
     }
 
     const status = erros.length > 0 && importadas === 0 ? 'erro' : 'concluido'
