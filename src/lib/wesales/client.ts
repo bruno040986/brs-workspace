@@ -417,7 +417,7 @@ export async function resolvePipelineStage(pipelineNome: string, estagioNome: st
 export type WesalesBusinessRecord = { id: string; properties: Record<string, unknown> }
 
 export async function createBusinessRecord(properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
-  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records`, {
+  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records?locationId=${locationId()}`, {
     method: 'POST',
     body: { properties },
   })
@@ -425,7 +425,7 @@ export async function createBusinessRecord(properties: Record<string, unknown>):
 }
 
 export async function updateBusinessRecord(businessId: string, properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
-  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}`, {
+  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}?locationId=${locationId()}`, {
     method: 'PUT',
     body: { properties },
   })
@@ -434,7 +434,7 @@ export async function updateBusinessRecord(businessId: string, properties: Recor
 
 export async function getBusinessRecord(businessId: string): Promise<WesalesBusinessRecord | null> {
   try {
-    const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}`)
+    const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}?locationId=${locationId()}`)
     return res.record ?? null
   } catch {
     return null
@@ -459,7 +459,7 @@ let businessSchemaCache: BusinessFieldSchema | null = null
 
 async function businessSchema(): Promise<BusinessFieldSchema> {
   if (businessSchemaCache) return businessSchemaCache
-  const res = await http<BusinessFieldSchema>(`/custom-fields/object-key/business`)
+  const res = await http<BusinessFieldSchema>(`/custom-fields/object-key/business?locationId=${locationId()}`)
   businessSchemaCache = { fields: res.fields || [], folders: res.folders || [] }
   return businessSchemaCache
 }
@@ -477,9 +477,9 @@ export async function ensureBusinessCustomField(key: string, name: string): Prom
   const folder = schema.folders.find((f) => f.objectKey === 'business')
   if (!folder) throw new Error('Pasta de campos personalizados de Empresa não encontrada no WeSales.')
 
-  await http(`/custom-fields/`, {
+  await http(`/custom-fields/?locationId=${locationId()}`, {
     method: 'POST',
-    body: { name, dataType: 'TEXT', fieldKey: `business.${key}`, objectKey: 'business', parentId: folder.id, showInForms: false },
+    body: { locationId: locationId(), name, dataType: 'TEXT', fieldKey: `business.${key}`, objectKey: 'business', parentId: folder.id, showInForms: false },
   })
   businessSchemaCache = null
   return key
