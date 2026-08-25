@@ -340,6 +340,28 @@ export async function findOpportunitiesByContact(contactId: string, pipelineId?:
   return res.opportunities ?? []
 }
 
+export async function getOpportunity(opportunityId: string): Promise<WesalesOpportunity | null> {
+  try {
+    const res = await http<{ opportunity: WesalesOpportunity }>(`/opportunities/${opportunityId}`)
+    return res.opportunity ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `findOpportunitiesByContact` (busca em lista) não devolve os `customFields`
+ * de cada oportunidade — incidente 25/08/2026: dedup por campo (instituição+
+ * tabela) sempre falhava e duplicava a mesma oferta a cada reimportação.
+ * Esta versão busca o DETALHE de cada uma (GET por id, que devolve completo)
+ * antes de qualquer comparação por campo.
+ */
+export async function findOpportunitiesByContactDetalhadas(contactId: string, pipelineId?: string): Promise<WesalesOpportunity[]> {
+  const resumidas = await findOpportunitiesByContact(contactId, pipelineId)
+  const detalhadas = await Promise.all(resumidas.map((op) => getOpportunity(op.id)))
+  return detalhadas.filter((op): op is WesalesOpportunity => op !== null)
+}
+
 export type WesalesPipelineStage = { id: string; name: string }
 export type WesalesPipeline = { id: string; name: string; stages?: WesalesPipelineStage[] }
 

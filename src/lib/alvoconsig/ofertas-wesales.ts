@@ -36,6 +36,7 @@ export const OFERTA_FIELD_KEYS = {
   taxa: 'alvoconsig_oferta_taxa',
   tabelaCodigo: 'alvoconsig_oferta_tabela_codigo',
   instituicaoId: 'alvoconsig_oferta_instituicao_id',
+  instituicao: 'alvoconsig_oferta_instituicao',
   // Só fazem sentido pra REFIN (contrato já existente noutro banco) — ficam
   // vazios em ofertas de Novo/Cartão, sem custo nenhum.
   parcelasPagas: 'alvoconsig_oferta_parcelas_pagas',
@@ -53,6 +54,7 @@ export const OFERTA_FIELD_LABELS: Record<keyof typeof OFERTA_FIELD_KEYS, string>
   taxa: 'AlvoConsig — Oferta: Taxa',
   tabelaCodigo: 'AlvoConsig — Oferta: Código da Tabela',
   instituicaoId: 'AlvoConsig — Oferta: Instituição (id)',
+  instituicao: 'AlvoConsig — Oferta: Instituição',
   parcelasPagas: 'AlvoConsig — Oferta: Parcelas Pagas',
   saldoDevedor: 'AlvoConsig — Oferta: Saldo Devedor',
   contrato: 'AlvoConsig — Oferta: Contrato',

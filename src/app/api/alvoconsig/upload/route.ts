@@ -27,7 +27,7 @@ import {
   createOpportunity,
   ensureCustomField,
   findContactByCpf,
-  findOpportunitiesByContact,
+  findOpportunitiesByContactDetalhadas,
   normalizeCpfDigits,
   opportunityFieldValue,
   updateContact,
@@ -427,7 +427,7 @@ export async function POST(request: NextRequest) {
             const existente = await findContactByCpf(cpf)
             const contactId = await gravarContato(cpf, row, [], existente)
 
-            const existentesNoPipeline = await findOpportunitiesByContact(contactId, pipelineId)
+            const existentesNoPipeline = await findOpportunitiesByContactDetalhadas(contactId, pipelineId)
             const usadosNestaImportacao = new Set<string>()
 
             for (const oferta of ofertas) {
@@ -445,6 +445,7 @@ export async function POST(request: NextRequest) {
               const customFields: Array<{ id: string; fieldValue: string }> = [
                 { id: fCampo('tipoOferta'), fieldValue: 'refin' },
                 { id: fCampo('instituicaoId'), fieldValue: instituicaoId! },
+                { id: fCampo('instituicao'), fieldValue: instituicaoNome },
               ]
               if (oferta.parcela !== null) customFields.push({ id: fCampo('parcela'), fieldValue: String(oferta.parcela) })
               if (oferta.prazo !== null) customFields.push({ id: fCampo('prazo'), fieldValue: String(oferta.prazo) })

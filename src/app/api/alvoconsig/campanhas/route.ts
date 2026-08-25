@@ -19,7 +19,7 @@ import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
   createOpportunity,
-  findOpportunitiesByContact,
+  findOpportunitiesByContactDetalhadas,
   opportunityFieldValue,
   resolveCustomField,
   searchContactsAte,
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
     }
 
     /** Cria/atualiza a Oportunidade de uma oferta calculada (Novo/RMC/RCC) — histórico datado, nunca sobrescreve outra campanha anterior. */
-    async function gravarOfertaCalculada(contactId: string, tipo: TipoOferta, calc: OfertaCalculada, existentes: Awaited<ReturnType<typeof findOpportunitiesByContact>>) {
+    async function gravarOfertaCalculada(contactId: string, tipo: TipoOferta, calc: OfertaCalculada, existentes: Awaited<ReturnType<typeof findOpportunitiesByContactDetalhadas>>) {
       const tipoFieldId = fCampo('tipoOferta')
       const instFieldId = fCampo('instituicaoId')
       const tabelaFieldId = fCampo('tabelaCodigo')
@@ -193,6 +193,8 @@ export async function POST(request: NextRequest) {
         { id: tipoFieldId, fieldValue: tipo },
         { id: instFieldId, fieldValue: calc.institutionId },
       ]
+      const instNomeFieldId = fCampo('instituicao')
+      if (instNomeFieldId) customFields.push({ id: instNomeFieldId, fieldValue: calc.instituicao })
       if (calc.codigoTabelaBanco) customFields.push({ id: tabelaFieldId, fieldValue: calc.codigoTabelaBanco })
       if (prazoFieldId) customFields.push({ id: prazoFieldId, fieldValue: String(calc.prazo) })
 
@@ -228,7 +230,7 @@ export async function POST(request: NextRequest) {
       // Ofertas de crédito já existentes deste contato (REFIN da importação +
       // Novo/Cartão de campanhas anteriores) — usado tanto pra ler REFIN
       // quanto pra decidir criar vs atualizar as de Novo/Cartão desta rodada.
-      const oportunidadesExistentes = await findOpportunitiesByContact(contato.id, pipelineOfertas.pipeline.id)
+      const oportunidadesExistentes = await findOpportunitiesByContactDetalhadas(contato.id, pipelineOfertas.pipeline.id)
 
       const rawOfertasRefin: RawOfertaRefin[] = oportunidadesExistentes
         .filter((op) => fCampo('tipoOferta') && opportunityFieldValue(op, fCampo('tipoOferta')!) === 'refin')

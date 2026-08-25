@@ -17,7 +17,7 @@
 
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { customFieldValue, getContact, findOpportunitiesByContact, opportunityFieldValue, resolveCustomField } from '@/lib/wesales/client'
+import { customFieldValue, getContact, findOpportunitiesByContactDetalhadas, opportunityFieldValue, resolveCustomField } from '@/lib/wesales/client'
 import { WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
 import { calcularOfertas, resolverOfertasRefin, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
     // REFIN: lê as Oportunidades do tipo 'refin' deste contato no pipeline de Ofertas.
     let refinRemoto: Awaited<ReturnType<typeof resolverOfertasRefin>> = []
     if (pipelineOfertasId) {
-      const oportunidades = await findOpportunitiesByContact(String(local.wesales_contact_id), pipelineOfertasId)
+      const oportunidades = await findOpportunitiesByContactDetalhadas(String(local.wesales_contact_id), pipelineOfertasId)
       const rawOfertas: RawOfertaRefin[] = oportunidades
         .filter((op) => fCampo('tipoOferta') && opportunityFieldValue(op, fCampo('tipoOferta')!) === 'refin')
         .map((op) => ({
