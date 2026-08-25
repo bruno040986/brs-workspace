@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
 import { CONVENIO_ESFERAS, esferaLabel } from '@/lib/cadastros-credito'
-import { maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
+import { maskCep, maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
 import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
 import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
 
@@ -422,7 +422,8 @@ export default function ConveniosPage() {
                       <input
                         type="text"
                         className="form-control"
-                        value={editing?.cep || ''}
+                        placeholder="00000-000"
+                        value={maskCep(editing?.cep || '')}
                         onChange={(e) => setEditing({ ...editing, cep: onlyDigits(e.target.value) })}
                       />
                     </div>
