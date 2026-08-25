@@ -89,11 +89,19 @@ export default function BasesClient({ slug, initialJobs, jobsError }: {
 
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
         <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', marginBottom: '0.75rem' }}>Enviar nova base</div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input className="form-input" style={{ maxWidth: 300 }} placeholder="Nome da base (ex.: motor-agosto-2)" value={label} onChange={(e) => setLabel(e.target.value)} />
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="form-input" style={{ maxWidth: 320 }} />
-          <button className="btn btn-primary" disabled={uploading} onClick={upload} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {uploading ? <Loader2 size={15} className="spinner" /> : <FileUp size={15} />} Enviar
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 320px) minmax(260px, 380px) auto', gap: '1rem', alignItems: 'end' }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Nome da base<span className="required">*</span></label>
+            <input className="form-control" placeholder="ex.: motor-agosto-2" value={label} onChange={(e) => setLabel(e.target.value)} />
+            <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', marginTop: 4 }}>Vira a tag <code>base-{label ? label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || '…'}</code> no WeSales</div>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Arquivo (CSV ou XLSX)<span className="required">*</span></label>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="form-control" style={{ padding: '0.45rem 0.75rem' }} />
+            <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', marginTop: 4 }}>Export do motor de crédito da Vende.AI, com cabeçalho</div>
+          </div>
+          <button className="btn btn-primary" disabled={uploading} onClick={upload} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: '1.25rem' }}>
+            {uploading ? <Loader2 size={15} className="spinner" /> : <FileUp size={15} />} Enviar base
           </button>
         </div>
         <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.6rem' }}>

@@ -140,10 +140,10 @@ export default function OrchestratorClient({
 
         {tab === 'eventos' ? (
           <>
-            <select className="form-input" style={{ width: 160 }} value={source} onChange={(e) => { setSource(e.target.value); void reload({ source: e.target.value }) }}>
+            <select className="form-control" style={{ width: 180, padding: '0.45rem 0.75rem' }} value={source} onChange={(e) => { setSource(e.target.value); void reload({ source: e.target.value }) }}>
               {SOURCES.map((s) => <option key={s} value={s}>{s || 'Todas as fontes'}</option>)}
             </select>
-            <select className="form-input" style={{ width: 160 }} value={status} onChange={(e) => { setStatus(e.target.value); void reload({ status: e.target.value }) }}>
+            <select className="form-control" style={{ width: 180, padding: '0.45rem 0.75rem' }} value={status} onChange={(e) => { setStatus(e.target.value); void reload({ status: e.target.value }) }}>
               {STATUSES.map((s) => <option key={s} value={s}>{s ? (EVENT_STATUS_LABEL[s]?.label ?? s) : 'Todos os status'}</option>)}
             </select>
           </>
