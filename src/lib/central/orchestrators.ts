@@ -42,7 +42,7 @@ export function getOrchestrator(slug: string): OrchestratorDef | null {
 }
 
 export function orchestratorConfigured(def: OrchestratorDef): boolean {
-  return Boolean(process.env[def.tokenEnv])
+  return Boolean((process.env[def.tokenEnv] || '').trim())
 }
 
 export class OrchestratorApiError extends Error {
@@ -69,7 +69,9 @@ export async function orchestratorFetch<T = unknown>(
   const def = getOrchestrator(slug)
   if (!def) throw new OrchestratorApiError(slug, 404, `Orquestrador "${slug}" não cadastrado.`)
 
-  const token = process.env[def.tokenEnv]
+  // trim: valor colado na Vercel com espaço/quebra de linha no fim quebra o
+  // Bearer silenciosamente (401 sem pista) — normalizamos aqui.
+  const token = (process.env[def.tokenEnv] || '').trim()
   if (!token) {
     throw new OrchestratorApiError(
       slug,
@@ -77,7 +79,7 @@ export async function orchestratorFetch<T = unknown>(
       `Token do orquestrador não configurado (env ${def.tokenEnv}).`,
     )
   }
-  const baseUrl = (process.env[def.baseUrlEnv] || def.defaultBaseUrl || '').replace(/\/$/, '')
+  const baseUrl = (process.env[def.baseUrlEnv] || def.defaultBaseUrl || '').trim().replace(/\/$/, '')
   if (!baseUrl) {
     throw new OrchestratorApiError(slug, 503, `URL do orquestrador não configurada (env ${def.baseUrlEnv}).`)
   }

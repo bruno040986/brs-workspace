@@ -119,6 +119,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
   const [inboxId, setInboxId] = useState('')
   const [templateName, setTemplateName] = useState('')
   const [templateParams, setTemplateParams] = useState('')
+  const [templateMessage, setTemplateMessage] = useState('')
   const [perMinute, setPerMinute] = useState(10)
   const [windowStart, setWindowStart] = useState('09:00')
   const [windowEnd, setWindowEnd] = useState('19:00')
@@ -164,6 +165,11 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
     setPreviewLoading(false)
   }, [slug, audience])
 
+  const resetWizard = () => {
+    setStep(1); setLabel(''); setTagsAny([]); setTagsAll([]); setTagsNone([])
+    setCfKey(''); setCfValue(''); setPreview(null); setTemplateParams(''); setTemplateMessage('')
+  }
+
   const confirm = useCallback(async () => {
     setCreating(true)
     setError(null)
@@ -174,6 +180,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
       params.inboxId = inboxId
       params.templateName = name
       params.templateCategory = category || 'MARKETING'
+      params.templateMessage = templateMessage.trim()
       if (templateParams.trim()) {
         const map: Record<string, string> = {}
         templateParams.split('\n').forEach((line, i) => {
@@ -199,12 +206,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
       setError(res.error)
     }
     setCreating(false)
-  }, [slug, action, label, audience, inboxId, templateName, templateParams, perMinute, windowStart, windowEnd, refreshJobs])
-
-  const resetWizard = () => {
-    setStep(1); setLabel(''); setTagsAny([]); setTagsAll([]); setTagsNone([])
-    setCfKey(''); setCfValue(''); setPreview(null); setTemplateParams('')
-  }
+  }, [slug, action, label, audience, inboxId, templateName, templateMessage, templateParams, perMinute, windowStart, windowEnd, refreshJobs])
 
   const doOp = useCallback(async (id: string, op: 'pause' | 'resume' | 'cancel') => {
     const res = await centralJobOp(slug, id, op)
@@ -221,7 +223,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
   }, [slug, detailId])
 
   const tags = wesalesMeta?.tags ?? []
-  const canNext = step === 1 ? Boolean(action) && (action !== 'vendeai_template' || (inboxId && templateName)) : step === 2 ? hasAudience : true
+  const canNext = step === 1 ? Boolean(action) && (action !== 'vendeai_template' || (inboxId && templateName && templateMessage.trim())) : step === 2 ? hasAudience : true
 
   return (
     <div>
@@ -280,7 +282,8 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
                       <option key={t.name} value={`${t.name}|${t.category}`}>{t.name} ({t.category})</option>
                     ))}
                   </select>
-                  <textarea className="form-input" rows={2} placeholder={'Variáveis do template, uma por linha (linha 1 = {{1}}, etc.).\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateParams} onChange={(e) => setTemplateParams(e.target.value)} />
+                  <textarea className="form-input" rows={3} placeholder={'Texto da mensagem (obrigatório) — espelho do corpo do template aprovado na Meta. A Vende.AI usa isso para registrar a conversa no CRM; o envio real sai pelo template.\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateMessage} onChange={(e) => setTemplateMessage(e.target.value)} />
+                  <textarea className="form-input" rows={2} placeholder={'Variáveis do template, uma por linha (linha 1 = {{1}}, etc.) — opcional.\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateParams} onChange={(e) => setTemplateParams(e.target.value)} />
                   {!vendeaiMeta ? <div style={{ fontSize: '0.78rem', color: '#92400E' }}>Inboxes indisponíveis (orquestrador offline ou WABA pendente).</div> : null}
                 </div>
               ) : null}
@@ -351,6 +354,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
               <div>Público: <strong>{preview ? `${preview.total.toLocaleString('pt-BR')} contato(s)` : 'não calculado'}</strong></div>
               {action === 'callface_calls' ? <div>Ritmo: <strong>{perMinute}/min · {windowStart}-{windowEnd} seg-sex</strong></div> : null}
               {action === 'vendeai_template' ? <div>Template: <strong>{templateName.split('|')[0]}</strong> (inbox {inboxId})</div> : null}
+              {action === 'vendeai_template' ? <div>Mensagem: <em>{templateMessage.slice(0, 120)}{templateMessage.length > 120 ? '…' : ''}</em></div> : null}
               <div style={{ color: '#92400E', fontSize: '0.82rem', marginTop: '0.4rem' }}>
                 Ao confirmar, o job entra na fila do orquestrador e começa imediatamente (respeitando janela e ritmo).
               </div>
