@@ -417,7 +417,7 @@ export async function resolvePipelineStage(pipelineNome: string, estagioNome: st
 export type WesalesBusinessRecord = { id: string; properties: Record<string, unknown> }
 
 export async function createBusinessRecord(properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
-  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records?locationId=${locationId()}`, {
+  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records`, {
     method: 'POST',
     body: { properties },
   })
@@ -425,7 +425,7 @@ export async function createBusinessRecord(properties: Record<string, unknown>):
 }
 
 export async function updateBusinessRecord(businessId: string, properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
-  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}?locationId=${locationId()}`, {
+  const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}`, {
     method: 'PUT',
     body: { properties },
   })
@@ -434,7 +434,7 @@ export async function updateBusinessRecord(businessId: string, properties: Recor
 
 export async function getBusinessRecord(businessId: string): Promise<WesalesBusinessRecord | null> {
   try {
-    const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}?locationId=${locationId()}`)
+    const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records/${businessId}`)
     return res.record ?? null
   } catch {
     return null
