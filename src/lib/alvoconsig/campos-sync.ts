@@ -20,7 +20,6 @@ export const CAMPOS_DO_WESALES = [
   'margem_cartao_rmc',
   'margem_cartao_rcc',
   'refin_troco',
-  'refin',
 ] as const
 
 export const CAMPOS_DO_CRM = ['funil_estagio', 'funil_atualizado_em', 'estado_local', 'ofertas'] as const
@@ -51,20 +50,17 @@ export function tagBase(slug: string) {
 }
 
 /**
- * Campos personalizados do WeSales usados pelo AlvoConsig (Fase 2). `cpf` e
+ * Campos personalizados de CONTATO usados pelo AlvoConsig. `cpf` e
  * `dono_alvoconsig` já existiam (worker da fila, Fase 1 do CRM); os demais
  * nascem sob demanda via `ensureCustomField` na importação/campanha.
  *
- * REFIN não entra aqui — são até 5 ofertas por CPF (slots), cada uma com 6
- * campos próprios. Ver src/lib/alvoconsig/refin-slots.ts.
+ * Margem (foto sem histórico) e as ofertas (REFIN/Novo/Cartão, cada uma sua
+ * própria Oportunidade) ficam em src/lib/alvoconsig/ofertas-wesales.ts.
  */
 export const WESALES_FIELD_KEYS = {
   cpf: 'cpf',
   matricula: 'alvoconsig_matricula',
   convenioCodigo: 'alvoconsig_convenio_codigo',
-  margemNovo: 'alvoconsig_margem_novo',
-  margemCartaoRmc: 'alvoconsig_margem_cartao_rmc',
-  margemCartaoRcc: 'alvoconsig_margem_cartao_rcc',
 } as const
 
 /** Estágios em que a cópia local NÃO pode ser expurgada no fim da campanha. */

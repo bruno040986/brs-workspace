@@ -3,9 +3,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { countContacts, resolveCustomField } from '@/lib/wesales/client'
+import { countContacts, deleteCustomField, resolveCustomField } from '@/lib/wesales/client'
 import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
+import { marcarOfertasPerdidas, reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -266,6 +266,7 @@ export async function encerrarCampanhaAgora(campanhaId: string) {
     }
 
     await reverterTagsDaCampanha(supabaseAdmin, campanhaId, campanha.agente_parceiro_id)
+    await marcarOfertasPerdidas(supabaseAdmin, campanhaId)
 
     revalidatePath('/alvoconsig/alocacao')
     return { success: true, expurgados: payload.expurgados || 0, mantidos: payload.mantidos || 0 }
@@ -395,6 +396,40 @@ export async function getContatosGlobal(params: {
     return { success: true, items: data || [], total: count || 0, pagina, porPagina }
   } catch (error: any) {
     console.error('Erro ao listar contatos:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Faxina única — campos de REFIN antigos (numerados, substituídos pelas
+// Oportunidades em 24/08/2026). Apagar a DEFINIÇÃO do campo já limpa o valor
+// em todos os contatos — sem passo intermediário de "zerar". Disparo manual,
+// só depois de confirmar que a reimportação recriou as ofertas como
+// Oportunidade (não tem tela própria — Bruno pede pra rodar quando quiser).
+// ----------------------------------------------------------------------------
+export async function limparCamposRefinAntigos() {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_delete')
+    const chaves: string[] = []
+    for (let slot = 1; slot <= 5; slot++) {
+      for (const campo of ['troco', 'parcela', 'prazo', 'taxa', 'tabela', 'instituicao']) {
+        chaves.push(`alvoconsig_refin_${campo}_${slot}`)
+      }
+    }
+    const resultados: Array<{ chave: string; removido: boolean }> = []
+    for (const chave of chaves) {
+      const def = await resolveCustomField(chave)
+      if (!def) {
+        resultados.push({ chave, removido: false })
+        continue
+      }
+      await deleteCustomField(def.id)
+      resultados.push({ chave, removido: true })
+    }
+    const removidos = resultados.filter((r) => r.removido).length
+    return { success: true, removidos, total: chaves.length }
+  } catch (error: any) {
+    console.error('Erro ao remover campos antigos de REFIN:', error)
     return { success: false, error: error.message }
   }
 }

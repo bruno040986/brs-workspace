@@ -142,15 +142,39 @@ resumo ajustados. `brs-alvoconsig`: worker ganhou `aplicar_tag`/`remover_tag`.
 - Conferência não reconcilia convênio via nome, só via `codigo_convenio` (custom field) — se a
   planilha original não tinha coluna de código, o convênio da cópia local não é corrigido pelo cron.
 
-**Refinamento REFIN multi-oferta (24/08/2026):** um CPF pode ter várias ofertas de REFIN
-(linhas diferentes na planilha, cada uma vinculada a uma tabela via `oferta_regra`) — decisão do
-Bruno foi guardar TODAS (até 5, `MAX_OFERTAS_REFIN`), não só a melhor. Ver
-`src/lib/alvoconsig/refin-slots.ts` (6 campos por slot no WeSales: troco/parcela/prazo/taxa/tabela/
-instituição) e `resolverOfertasRefin` em `ofertas.ts` (casa cada slot com `tabelas_comissao` já
-cadastrada, por institution_id + codigo_tabela_banco). Importação de REFIN agora exige a
-Instituição Financeira (planilha é sempre de um banco só). `crm_contatos.refin_troco` virou resumo
-(maior troco); o detalhe completo mora em `ofertas.refin` (array, jsonb) — a coluna antiga
-`crm_contatos.refin` (singular) ficou sem uso, não precisou de migration.
+**Refinamento REFIN multi-oferta (24/08/2026, versão inicial):** slots numerados no contato —
+SUPERSEDIDO pelo redesenho de Oportunidades abaixo, no mesmo dia.
+
+**Redesenho — ofertas viram Oportunidade no WeSales (24/08/2026):** dois bugs reais (instituição
+gravada como UUID cru, taxa sem formatar) expuseram o limite do modelo de campos numerados —
+substituído por um mais correto: cada oferta (REFIN de uma tabela/banco, ou Novo/Cartão calculado
+por coeficiente) vira uma **Oportunidade própria** no WeSales, não mais campos "slot 1..5" no
+contato. Ver `src/lib/alvoconsig/ofertas-wesales.ts` (registro de campos/pipeline/etapas) e
+`src/lib/wesales/client.ts` (CRUD de Oportunidade + campos por modelo contact/opportunity +
+resolução de pipeline por nome — a API não cria pipeline, criado uma vez na interface).
+
+- **Pipeline "Ofertas de Crédito"** (criar manualmente no WeSales — nomes exatos das etapas, nessa
+  ordem): Disponível → Em Negociação → Digitação / Análise Bancária → Formalização → Liberada p/
+  Pagamento → Proposta Paga. "Perdida" não é etapa, é o **status** da oportunidade (lost/abandoned)
+  aplicado na etapa em que estava — mostra onde cada oferta se perde.
+- **12 campos de Oportunidade**, um conjunto só reaproveitado por todo tipo de oferta (REFIN usa
+  todos; Novo/Cartão deixa os específicos de REFIN vazios): tipo_oferta, parcela, prazo, taxa,
+  tabela (código banco), instituição (id), parcelas_pagas, saldo_devedor, contrato, contrato
+  elegível, valor do seguro, tem seguro.
+- **9 campos de Contato** para margem — `MARGEM_FIELD_KEYS`: Valor/Data/Convênio × Novo/RMC/RCC —
+  é só a "foto atual" (sem histórico); o histórico real mora nas Oportunidades, criadas na
+  campanha quando a margem é cruzada com o coeficiente.
+- Reimportar a MESMA oferta (mesma instituição+tabela) atualiza a Oportunidade (nunca mexe na
+  etapa — preserva o progresso do atendimento); oferta nova cria outra.
+- Ao encerrar campanha: ofertas abertas dos leads não certificados são marcadas **lost** (mantém a
+  etapa onde pararam) — `marcarOfertasPerdidas` em `campanha-encerramento.ts`.
+- **Pendência**: certificação ainda não coleta "qual oferta foi a escolhida" — quando um cliente é
+  certificado, as ofertas dele não são tocadas no encerramento (nem marcadas ganha, nem perdida).
+  Fica pra quando a tela de certificação (ou o CRM, Fase 3) capturar isso.
+- **Faxina**: os 30 campos numerados antigos (contato) ficam obsoletos mas não foram apagados
+  automaticamente — `limparCamposRefinAntigos()` em `actions.ts` remove as definições (a API
+  permite excluir de verdade); disparo manual, sem tela própria (pedir por conversa quando quiser).
+- `src/lib/alvoconsig/refin-slots.ts` foi deletado (retirado, sem mais uso).
 
 ## 8. FASE 3 — CRM (Sonnet/Codex)
 Leitura da cópia local (já é); exportar "meus clientes" via tag; presença básica do

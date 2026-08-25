@@ -91,41 +91,52 @@ export function normalizeCpfDigits(cpf: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Campos personalizados (resolvidos por key, cache por execução da function)
+// Campos personalizados — de CONTATO ou de OPORTUNIDADE (modelos distintos,
+// cache separado por modelo). Oportunidade é o que passou a guardar cada
+// oferta (REFIN/Novo/Cartão) — ver src/lib/alvoconsig/ofertas-wesales.ts.
 // ---------------------------------------------------------------------------
 
+export type CustomFieldModel = 'contact' | 'opportunity'
 type CustomFieldDef = { id: string; fieldKey?: string; name?: string; model?: string }
 
-let customFieldsCache: CustomFieldDef[] | null = null
+const customFieldsCache = new Map<CustomFieldModel, CustomFieldDef[]>()
 
-async function listCustomFields(): Promise<CustomFieldDef[]> {
-  if (customFieldsCache) return customFieldsCache
-  const res = await http<{ customFields?: CustomFieldDef[] }>(`/locations/${locationId()}/customFields?model=contact`)
-  customFieldsCache = res.customFields || []
-  return customFieldsCache
+async function listCustomFields(model: CustomFieldModel = 'contact'): Promise<CustomFieldDef[]> {
+  const cached = customFieldsCache.get(model)
+  if (cached) return cached
+  const res = await http<{ customFields?: CustomFieldDef[] }>(`/locations/${locationId()}/customFields?model=${model}`)
+  const fields = res.customFields || []
+  customFieldsCache.set(model, fields)
+  return fields
 }
 
-function fieldKeyMatches(def: CustomFieldDef, key: string) {
+function fieldKeyMatches(def: CustomFieldDef, key: string, model: CustomFieldModel) {
   const target = key.toLowerCase()
   const fieldKey = String(def.fieldKey || '').toLowerCase()
-  return fieldKey === target || fieldKey === `contact.${target}` || fieldKey.endsWith(`.${target}`)
+  return fieldKey === target || fieldKey === `${model}.${target}` || fieldKey.endsWith(`.${target}`)
 }
 
-export async function resolveCustomField(key: string): Promise<CustomFieldDef | null> {
-  const fields = await listCustomFields()
-  return fields.find((def) => fieldKeyMatches(def, key)) || null
+export async function resolveCustomField(key: string, model: CustomFieldModel = 'contact'): Promise<CustomFieldDef | null> {
+  const fields = await listCustomFields(model)
+  return fields.find((def) => fieldKeyMatches(def, key, model)) || null
 }
 
 /** Garante que o campo personalizado existe na location (cria se faltar). */
-export async function ensureCustomField(key: string, name: string): Promise<CustomFieldDef> {
-  const existing = await resolveCustomField(key)
+export async function ensureCustomField(key: string, name: string, model: CustomFieldModel = 'contact'): Promise<CustomFieldDef> {
+  const existing = await resolveCustomField(key, model)
   if (existing) return existing
   const res = await http<{ customField?: CustomFieldDef } & CustomFieldDef>(`/locations/${locationId()}/customFields`, {
     method: 'POST',
-    body: { name, dataType: 'TEXT', model: 'contact', fieldKey: key },
+    body: { name, dataType: 'TEXT', model, fieldKey: key },
   })
-  customFieldsCache = null
+  customFieldsCache.delete(model)
   return (res.customField || res) as CustomFieldDef
+}
+
+/** Remove a DEFINIÇÃO do campo (não só o valor) — usado na faxina de campos descontinuados. */
+export async function deleteCustomField(fieldId: string, model: CustomFieldModel = 'contact'): Promise<void> {
+  await http(`/locations/${locationId()}/customFields/${fieldId}`, { method: 'DELETE' })
+  customFieldsCache.delete(model)
 }
 
 // ---------------------------------------------------------------------------
@@ -259,4 +270,106 @@ export async function searchContactsAte(filters: ContactSearchFilter[], limite: 
 export async function countContacts(filters: ContactSearchFilter[]): Promise<number> {
   const page = await searchContacts(filters, { pageLimit: 1 })
   return page.total
+}
+
+// ---------------------------------------------------------------------------
+// Oportunidades — cada oferta (REFIN/Novo/Cartão) vira uma. Ver
+// src/lib/alvoconsig/ofertas-wesales.ts para o pipeline/etapas/campos.
+// ---------------------------------------------------------------------------
+
+export type WesalesOpportunity = {
+  id: string
+  name?: string
+  pipelineId?: string
+  pipelineStageId?: string
+  status?: 'open' | 'won' | 'lost' | 'abandoned'
+  monetaryValue?: number
+  contactId?: string
+  customFields?: Array<{ id: string; fieldValue?: unknown; value?: unknown }>
+  [key: string]: unknown
+}
+
+export function opportunityFieldValue(op: WesalesOpportunity, fieldId: string): string | null {
+  const found = (op.customFields || []).find((f) => f.id === fieldId)
+  const raw = found ? (found.fieldValue ?? found.value) : null
+  return raw === null || raw === undefined ? null : String(raw)
+}
+
+export type OpportunityPayload = {
+  contactId: string
+  pipelineId: string
+  pipelineStageId: string
+  name: string
+  status?: 'open' | 'won' | 'lost' | 'abandoned'
+  monetaryValue?: number
+  customFields?: Array<{ id: string; fieldValue: string }>
+}
+
+export async function createOpportunity(payload: OpportunityPayload): Promise<WesalesOpportunity> {
+  const res = await http<{ opportunity: WesalesOpportunity }>(`/opportunities/`, {
+    method: 'POST',
+    body: { locationId: locationId(), status: 'open', ...payload },
+  })
+  return res.opportunity
+}
+
+export async function updateOpportunity(
+  opportunityId: string,
+  patch: {
+    pipelineStageId?: string
+    status?: 'open' | 'won' | 'lost' | 'abandoned'
+    monetaryValue?: number
+    name?: string
+    customFields?: Array<{ id: string; fieldValue: string }>
+  },
+): Promise<WesalesOpportunity> {
+  const res = await http<{ opportunity: WesalesOpportunity }>(`/opportunities/${opportunityId}`, { method: 'PUT', body: patch })
+  return res.opportunity
+}
+
+/** Endpoint dedicado — muda só o status (ganha/perdida), sem mexer na etapa. */
+export async function updateOpportunityStatus(opportunityId: string, status: 'open' | 'won' | 'lost' | 'abandoned'): Promise<void> {
+  await http(`/opportunities/${opportunityId}/status`, { method: 'PUT', body: { status } })
+}
+
+/** Oportunidades de um contato (opcionalmente só de um pipeline) — pra decidir criar vs atualizar. */
+export async function findOpportunitiesByContact(contactId: string, pipelineId?: string): Promise<WesalesOpportunity[]> {
+  const params = new URLSearchParams({ location_id: locationId(), contact_id: contactId })
+  if (pipelineId) params.set('pipeline_id', pipelineId)
+  const res = await http<{ opportunities?: WesalesOpportunity[] }>(`/opportunities/search?${params.toString()}`)
+  return res.opportunities ?? []
+}
+
+export type WesalesPipelineStage = { id: string; name: string }
+export type WesalesPipeline = { id: string; name: string; stages?: WesalesPipelineStage[] }
+
+let pipelinesCache: WesalesPipeline[] | null = null
+
+async function listPipelines(): Promise<WesalesPipeline[]> {
+  if (pipelinesCache) return pipelinesCache
+  const res = await http<{ pipelines?: WesalesPipeline[] }>(`/opportunities/pipelines?locationId=${locationId()}`)
+  pipelinesCache = res.pipelines ?? []
+  return pipelinesCache
+}
+
+function normalizarNome(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+export async function resolvePipeline(nome: string): Promise<WesalesPipeline | null> {
+  const pipelines = await listPipelines()
+  const alvo = normalizarNome(nome)
+  return pipelines.find((p) => normalizarNome(p.name) === alvo) || null
+}
+
+export async function resolvePipelineStage(pipelineNome: string, estagioNome: string): Promise<{ pipeline: WesalesPipeline; stage: WesalesPipelineStage } | null> {
+  const pipeline = await resolvePipeline(pipelineNome)
+  if (!pipeline) return null
+  const alvo = normalizarNome(estagioNome)
+  const stage = (pipeline.stages || []).find((s) => normalizarNome(s.name) === alvo)
+  return stage ? { pipeline, stage } : null
 }

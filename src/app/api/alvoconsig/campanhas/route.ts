@@ -1,8 +1,14 @@
 /**
  * Criação de campanha — busca no WeSales os contatos disponíveis da base
- * (tag base:<slug> + disponivel), copia o mínimo pra crm_contatos (cópia de
- * trabalho, com ofertas pré-calculadas) e enfileira a troca de tag
- * (disponivel → parceiro:<arw>) para o worker da fila processar no ritmo dele.
+ * (tag base:<slug> + disponivel, ou do convênio inteiro sem base), copia o
+ * mínimo pra crm_contatos (cópia de trabalho, com ofertas pré-calculadas) e
+ * enfileira a troca de tag (disponivel → parceiro:<arw>) para o worker da
+ * fila processar no ritmo dele.
+ *
+ * Cada oferta de REFIN já existe como Oportunidade (criada na importação) —
+ * aqui só lemos. Ofertas de Novo/Cartão são CALCULADAS agora (coeficiente ×
+ * margem) e viram Oportunidade nova, datada — histórico real do que foi
+ * oferecido nesta campanha (ver docs/SPEC-CRM-WESALES-CAMPANHAS.md).
  *
  * Rota (não server action) para ter maxDuration próprio — a busca paginada no
  * WeSales para quantidades grandes pode levar dezenas de segundos.
@@ -11,10 +17,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
-import { customFieldValue, resolveCustomField, searchContactsAte, type WesalesContact } from '@/lib/wesales/client'
+import {
+  createOpportunity,
+  findOpportunitiesByContact,
+  opportunityFieldValue,
+  resolveCustomField,
+  searchContactsAte,
+  updateOpportunity,
+  customFieldValue,
+  type WesalesContact,
+} from '@/lib/wesales/client'
 import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { MAX_OFERTAS_REFIN, refinSlotFieldKey } from '@/lib/alvoconsig/refin-slots'
-import { calcularOfertas, resolverOfertasRefin, type RawRefinSlot } from '@/lib/alvoconsig/ofertas'
+import { ETAPA_DISPONIVEL, MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, TipoOferta, nomeOportunidade, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
+import { calcularOfertas, resolverOfertasRefin, type OfertaCalculada, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -23,6 +38,9 @@ const QUANTIDADE_MAXIMA = 20_000
 
 function digits(value: unknown) {
   return String(value ?? '').replace(/\D/g, '')
+}
+function digitsOrRaw(value: string) {
+  return value.replace(/\D/g, '') || value
 }
 
 function parseMoneyField(value: string | null): number | null {
@@ -113,24 +131,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve os IDs dos campos personalizados usados (1x, não por contato).
-    const [cpfField, matriculaField, convenioField, margemNovoField, margemRmcField, margemRccField] = await Promise.all([
+    const [cpfField, matriculaField, convenioField, novoValorField, rmcValorField, rccValorField] = await Promise.all([
       resolveCustomField(WESALES_FIELD_KEYS.cpf),
       resolveCustomField(WESALES_FIELD_KEYS.matricula),
       resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo),
-      resolveCustomField(WESALES_FIELD_KEYS.margemNovo),
-      resolveCustomField(WESALES_FIELD_KEYS.margemCartaoRmc),
-      resolveCustomField(WESALES_FIELD_KEYS.margemCartaoRcc),
+      resolveCustomField(MARGEM_FIELD_KEYS.novoValor),
+      resolveCustomField(MARGEM_FIELD_KEYS.rmcValor),
+      resolveCustomField(MARGEM_FIELD_KEYS.rccValor),
     ])
-    // REFIN: até MAX_OFERTAS_REFIN slots, 6 campos cada (ver refin-slots.ts).
-    const refinSlotFields: Record<string, { id: string } | null> = {}
-    await Promise.all(
-      Array.from({ length: MAX_OFERTAS_REFIN }, (_, i) => i + 1).flatMap((slot) =>
-        (['troco', 'parcela', 'prazo', 'taxa', 'tabela', 'instituicao'] as const).map(async (campo) => {
-          const key = refinSlotFieldKey(slot, campo)
-          refinSlotFields[key] = await resolveCustomField(key)
-        }),
-      ),
-    )
+
+    // Campos de OPORTUNIDADE (ofertas — REFIN já existentes + Novo/Cartão a criar agora).
+    const entradasOferta = Object.entries(OFERTA_FIELD_KEYS) as Array<[keyof typeof OFERTA_FIELD_KEYS, string]>
+    const ofertaFieldsResolvidos = await Promise.all(entradasOferta.map(([, key]) => resolveCustomField(key, 'opportunity')))
+    const ofertaFieldDefs: Record<string, { id: string } | null> = {}
+    entradasOferta.forEach(([, key], i) => { ofertaFieldDefs[key] = ofertaFieldsResolvidos[i] })
+    const fCampo = (campo: keyof typeof OFERTA_FIELD_KEYS): string | null => ofertaFieldDefs[OFERTA_FIELD_KEYS[campo]]?.id ?? null
+
+    const pipelineOfertas = await resolverPipelineOfertas()
+    const stageDisponivelId = pipelineOfertas.stages[ETAPA_DISPONIVEL]?.id
 
     const { data: conveniosData } = await admin.from('convenios').select('id, codigo').is('deleted_at', null)
     const convenioPorCodigo = new Map<string, string>()
@@ -156,6 +174,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Falha ao criar a campanha.' }, { status: 500 })
     }
 
+    /** Cria/atualiza a Oportunidade de uma oferta calculada (Novo/RMC/RCC) — histórico datado, nunca sobrescreve outra campanha anterior. */
+    async function gravarOfertaCalculada(contactId: string, tipo: TipoOferta, calc: OfertaCalculada, existentes: Awaited<ReturnType<typeof findOpportunitiesByContact>>) {
+      const tipoFieldId = fCampo('tipoOferta')
+      const instFieldId = fCampo('instituicaoId')
+      const tabelaFieldId = fCampo('tabelaCodigo')
+      const prazoFieldId = fCampo('prazo')
+      if (!tipoFieldId || !instFieldId || !tabelaFieldId) return
+
+      const alvo = existentes.find((op) => {
+        if (opportunityFieldValue(op, tipoFieldId) !== tipo) return false
+        if (opportunityFieldValue(op, instFieldId) !== calc.institutionId) return false
+        const tabelaOp = opportunityFieldValue(op, tabelaFieldId)
+        return !!tabelaOp && !!calc.codigoTabelaBanco && digitsOrRaw(tabelaOp) === digitsOrRaw(calc.codigoTabelaBanco)
+      })
+
+      const customFields: Array<{ id: string; fieldValue: string }> = [
+        { id: tipoFieldId, fieldValue: tipo },
+        { id: instFieldId, fieldValue: calc.institutionId },
+      ]
+      if (calc.codigoTabelaBanco) customFields.push({ id: tabelaFieldId, fieldValue: calc.codigoTabelaBanco })
+      if (prazoFieldId) customFields.push({ id: prazoFieldId, fieldValue: String(calc.prazo) })
+
+      if (alvo) {
+        await updateOpportunity(alvo.id, { monetaryValue: calc.valorLiberado, customFields })
+      } else if (stageDisponivelId) {
+        const nova = await createOpportunity({
+          contactId,
+          pipelineId: pipelineOfertas.pipeline.id,
+          pipelineStageId: stageDisponivelId,
+          name: nomeOportunidade(tipo, calc.instituicao, calc.tabela),
+          monetaryValue: calc.valorLiberado,
+          customFields,
+        })
+        existentes.push(nova)
+      }
+    }
+
     const agora = new Date().toISOString()
     const linhas: Array<Record<string, unknown>> = []
     for (const contato of selecionados) {
@@ -165,38 +220,45 @@ export async function POST(request: NextRequest) {
       const convenioResolvido = convenioId || (codigoConvenio && convenioPorCodigo.get(digits(codigoConvenio) || codigoConvenio)) || null
 
       const margens = {
-        novo: margemNovoField ? parseMoneyField(customFieldValue(contato, margemNovoField.id)) : null,
-        cartao_rmc: margemRmcField ? parseMoneyField(customFieldValue(contato, margemRmcField.id)) : null,
-        cartao_rcc: margemRccField ? parseMoneyField(customFieldValue(contato, margemRccField.id)) : null,
+        novo: novoValorField ? parseMoneyField(customFieldValue(contato, novoValorField.id)) : null,
+        cartao_rmc: rmcValorField ? parseMoneyField(customFieldValue(contato, rmcValorField.id)) : null,
+        cartao_rcc: rccValorField ? parseMoneyField(customFieldValue(contato, rccValorField.id)) : null,
       }
-      // Lê os até MAX_OFERTAS_REFIN slots preenchidos (ver refin-slots.ts).
-      const rawSlots: RawRefinSlot[] = []
-      for (let slot = 1; slot <= MAX_OFERTAS_REFIN; slot++) {
-        const trocoField = refinSlotFields[refinSlotFieldKey(slot, 'troco')]
-        if (!trocoField) continue
-        const troco = parseMoneyField(customFieldValue(contato, trocoField.id))
-        if (troco === null) continue
-        const parcelaField = refinSlotFields[refinSlotFieldKey(slot, 'parcela')]
-        const prazoField = refinSlotFields[refinSlotFieldKey(slot, 'prazo')]
-        const taxaField = refinSlotFields[refinSlotFieldKey(slot, 'taxa')]
-        const tabelaField = refinSlotFields[refinSlotFieldKey(slot, 'tabela')]
-        const instField = refinSlotFields[refinSlotFieldKey(slot, 'instituicao')]
-        rawSlots.push({
-          slot,
-          troco,
-          parcela: parcelaField ? parseMoneyField(customFieldValue(contato, parcelaField.id)) : null,
-          prazo: prazoField ? parseIntField(customFieldValue(contato, prazoField.id)) : null,
-          taxa: taxaField ? customFieldValue(contato, taxaField.id) : null,
-          tabelaCodigo: tabelaField ? customFieldValue(contato, tabelaField.id) : null,
-          instituicaoId: instField ? customFieldValue(contato, instField.id) : null,
-        })
-      }
-      const refin = await resolverOfertasRefin(admin, rawSlots, convenioResolvido)
+
+      // Ofertas de crédito já existentes deste contato (REFIN da importação +
+      // Novo/Cartão de campanhas anteriores) — usado tanto pra ler REFIN
+      // quanto pra decidir criar vs atualizar as de Novo/Cartão desta rodada.
+      const oportunidadesExistentes = await findOpportunitiesByContact(contato.id, pipelineOfertas.pipeline.id)
+
+      const rawOfertasRefin: RawOfertaRefin[] = oportunidadesExistentes
+        .filter((op) => fCampo('tipoOferta') && opportunityFieldValue(op, fCampo('tipoOferta')!) === 'refin')
+        .map((op) => ({
+          opportunityId: op.id,
+          troco: op.monetaryValue ?? null,
+          parcela: fCampo('parcela') ? parseMoneyField(opportunityFieldValue(op, fCampo('parcela')!)) : null,
+          prazo: fCampo('prazo') ? parseIntField(opportunityFieldValue(op, fCampo('prazo')!)) : null,
+          taxa: fCampo('taxa') ? opportunityFieldValue(op, fCampo('taxa')!) : null,
+          tabelaCodigo: fCampo('tabelaCodigo') ? opportunityFieldValue(op, fCampo('tabelaCodigo')!) : null,
+          instituicaoId: fCampo('instituicaoId') ? opportunityFieldValue(op, fCampo('instituicaoId')!) : null,
+        }))
+      const refin = await resolverOfertasRefin(admin, rawOfertasRefin, convenioResolvido)
       // Resumo escalar (listas/filtros rápidos) = maior troco entre as ofertas; o
       // detalhe completo mora em ofertas.refin (jsonb).
       const refinTrocoResumo = refin.length ? Math.max(...refin.map((o) => o.troco || 0)) : null
 
       const ofertas = await calcularOfertas(admin, convenioResolvido, margens, refin)
+
+      // Novo/RMC/RCC calculados agora (só roda de fato quando houver
+      // coeficientes cadastrados pro convênio — senão os arrays vêm vazios).
+      for (const tipo of ['novo', 'cartao_rmc', 'cartao_rcc'] as const) {
+        for (const calc of ofertas[tipo]) {
+          try {
+            await gravarOfertaCalculada(contato.id, tipo, calc, oportunidadesExistentes)
+          } catch (error: any) {
+            console.error(`Falha ao gravar oferta calculada (${tipo}) do contato ${contato.id}:`, error?.message || error)
+          }
+        }
+      }
 
       linhas.push({
         wesales_contact_id: contato.id,

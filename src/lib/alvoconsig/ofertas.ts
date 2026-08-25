@@ -1,7 +1,8 @@
 /**
  * Cálculo de ofertas (Novo / Cartão RMC / Cartão RCC / Refin) na MONTAGEM da
  * campanha — grava o resultado em `crm_contatos.ofertas` para leitura
- * instantânea no atendimento (nunca recalcula na hora da ligação).
+ * instantânea no atendimento (nunca recalcula na hora da ligação), E cada
+ * oferta calculada vira uma Oportunidade no WeSales (ver ofertas-wesales.ts).
  *
  * Fórmula igual à do painel do lead no CRM (brs-alvoconsig/lib/crm/actions.ts
  * calcularOfertasInterno), portada aqui pois o Workspace tem o próprio client
@@ -19,11 +20,15 @@ export type OfertaCalculada = {
   coeficiente: number
   margem: number
   valorLiberado: number
+  // ids p/ casar com a Oportunidade correspondente no WeSales (criar/atualizar)
+  tabelaComissaoId: string
+  institutionId: string
+  codigoTabelaBanco: string | null
 }
 
-/** Uma oferta de REFIN "crua", como veio do slot no WeSales (ver refin-slots.ts). */
-export type RawRefinSlot = {
-  slot: number
+/** Uma oferta de REFIN "crua", extraída dos campos de uma Oportunidade do WeSales. */
+export type RawOfertaRefin = {
+  opportunityId: string
   troco: number | null
   parcela: number | null
   prazo: number | null
@@ -33,7 +38,7 @@ export type RawRefinSlot = {
 }
 
 /** Oferta de REFIN já casada (quando possível) com a tabela de comissão cadastrada. */
-export type RefinOferta = RawRefinSlot & {
+export type RefinOferta = RawOfertaRefin & {
   tabelaComissaoId: string | null
   tabelaNome: string | null
   instituicaoNome: string | null
@@ -54,15 +59,15 @@ function digitsOuTexto(value: string | null | undefined): string {
 }
 
 /**
- * Casa cada slot de REFIN com a tabela de comissão cadastrada (mesma
- * instituição + código do banco, dentro do convênio da campanha). Sem
- * migration: uma única query em lote, não N+1 por slot.
+ * Casa cada oferta de REFIN (uma Oportunidade do WeSales) com a tabela de
+ * comissão cadastrada (mesma instituição + código do banco, dentro do
+ * convênio da campanha). Sem migration: uma única query em lote, não N+1.
  */
-export async function resolverOfertasRefin(admin: AdminClient, slots: RawRefinSlot[], convenioId: string | null): Promise<RefinOferta[]> {
-  if (!slots.length) return []
-  const instituicaoIds = [...new Set(slots.map((s) => s.instituicaoId).filter(Boolean))] as string[]
+export async function resolverOfertasRefin(admin: AdminClient, ofertas: RawOfertaRefin[], convenioId: string | null): Promise<RefinOferta[]> {
+  if (!ofertas.length) return []
+  const instituicaoIds = [...new Set(ofertas.map((s) => s.instituicaoId).filter(Boolean))] as string[]
   if (!convenioId || !instituicaoIds.length) {
-    return slots.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
+    return ofertas.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
   }
 
   const { data: tabelas, error } = await admin
@@ -73,7 +78,7 @@ export async function resolverOfertasRefin(admin: AdminClient, slots: RawRefinSl
     .is('deleted_at', null)
   if (error) {
     console.error('Erro ao resolver tabelas de REFIN:', error)
-    return slots.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
+    return ofertas.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
   }
 
   const porChave = new Map<string, { id: string; nome: string; instituicaoNome: string }>()
@@ -82,7 +87,7 @@ export async function resolverOfertasRefin(admin: AdminClient, slots: RawRefinSl
     porChave.set(`${t.institution_id}|${digitsOuTexto(t.codigo_tabela_banco)}`, { id: t.id, nome: t.nome, instituicaoNome: t.financial_institutions?.name || '' })
   }
 
-  return slots.map((s) => {
+  return ofertas.map((s) => {
     const chave = s.instituicaoId && s.tabelaCodigo ? `${s.instituicaoId}|${digitsOuTexto(s.tabelaCodigo)}` : ''
     const match = chave ? porChave.get(chave) : null
     return { ...s, tabelaComissaoId: match?.id ?? null, tabelaNome: match?.nome ?? null, instituicaoNome: match?.instituicaoNome ?? null }
@@ -106,7 +111,7 @@ export async function calcularOfertas(
     .from('coeficientes')
     .select(
       'prazo, coeficiente, vigencia_inicio, vigencia_fim, ' +
-        'tabelas_comissao!inner ( id, nome, com_seguro, is_active, convenio_id, ' +
+        'tabelas_comissao!inner ( id, nome, codigo_tabela_banco, com_seguro, is_active, convenio_id, institution_id, ' +
         'formas_contrato!inner ( id, nome, origem_margem ), ' +
         'financial_institutions!inner ( id, name, is_active ) )',
     )
@@ -135,6 +140,9 @@ export async function calcularOfertas(
       coeficiente: Number(linha.coeficiente),
       margem,
       valorLiberado: Math.round(margem * Number(linha.coeficiente) * 100) / 100,
+      tabelaComissaoId: String(tabela.id),
+      institutionId: String(tabela.institution_id),
+      codigoTabelaBanco: tabela.codigo_tabela_banco ? String(tabela.codigo_tabela_banco) : null,
     })
   }
   for (const key of Object.keys(porOrigem) as Array<keyof typeof porOrigem>) {

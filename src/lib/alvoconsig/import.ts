@@ -109,6 +109,36 @@ export const CAMPOS_IMPORT: CampoImport[] = [
     tipos: ['refin'],
     aliases: ['oferta_saldo_devedor', 'saldo_devedor', 'saldo'],
   },
+  {
+    key: 'refin_parcelas_pagas',
+    label: 'REFIN — Parcelas Pagas',
+    tipos: ['refin'],
+    aliases: ['parcelas_pagas', 'qtd_parcelas_pagas', 'parcelas_pagas_refin'],
+  },
+  {
+    key: 'refin_contrato',
+    label: 'REFIN — Contrato',
+    tipos: ['refin'],
+    aliases: ['contrato', 'numero_contrato', 'contrato_atual'],
+  },
+  {
+    key: 'refin_contrato_elegivel',
+    label: 'REFIN — Contrato Elegível',
+    tipos: ['refin'],
+    aliases: ['contrato_elegivel', 'elegivel'],
+  },
+  {
+    key: 'refin_seguro_valor',
+    label: 'REFIN — Valor do Seguro',
+    tipos: ['refin'],
+    aliases: ['oferta_valor_seguro', 'valor_seguro', 'seguro_valor'],
+  },
+  {
+    key: 'refin_seguro_sim_nao',
+    label: 'REFIN — Tem Seguro',
+    tipos: ['refin'],
+    aliases: ['oferta_com_seguro', 'com_seguro', 'tem_seguro'],
+  },
 ]
 
 export function camposParaTipo(tipo: TipoImport) {

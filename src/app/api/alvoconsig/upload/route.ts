@@ -7,8 +7,12 @@
  * Duas fases, ambas por upload do arquivo (CSV/XLSX):
  * - fase=analisar: lê cabeçalhos + amostra e devolve a sugestão de mapeamento.
  * - fase=importar: por linha, encontra/cria o contato por CPF no WeSales,
- *   grava os campos personalizados e aplica as tags base:<slug> + disponivel
- *   (aditivas — nunca removem tags existentes). REFIN: só linhas com troco > 0.
+ *   grava os campos comuns e aplica as tags base:<slug> + disponivel.
+ *   REFIN: cada linha vira uma OPORTUNIDADE (uma por oferta, decisão de
+ *   24/08/2026 — ver docs/SPEC-CRM-WESALES-CAMPANHAS.md), não mais campos
+ *   numerados no contato. Margem: grava a "foto" (valor/data/convênio) nos
+ *   campos do contato — a oferta de verdade só nasce na campanha, calculada
+ *   pelo coeficiente.
  *
  * Exige alvoconsig-gestao (can_include).
  */
@@ -20,15 +24,19 @@ import { hasPermissionForUser } from '@/lib/auth/server'
 import {
   addContactTags,
   createContact,
-  customFieldValue,
+  createOpportunity,
   ensureCustomField,
   findContactByCpf,
+  findOpportunitiesByContact,
   normalizeCpfDigits,
+  opportunityFieldValue,
   updateContact,
+  updateOpportunity,
   type WesalesContact,
+  type WesalesOpportunity,
 } from '@/lib/wesales/client'
 import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { MAX_OFERTAS_REFIN, digitsOrRaw, refinSlotFieldKey, refinSlotFieldName, todosOsSlotsECampos } from '@/lib/alvoconsig/refin-slots'
+import { MARGEM_FIELD_KEYS, MARGEM_FIELD_LABELS, OFERTA_FIELD_KEYS, OFERTA_FIELD_LABELS, nomeOportunidade, resolverPipelineOfertas, ETAPA_DISPONIVEL } from '@/lib/alvoconsig/ofertas-wesales'
 import {
   camposParaTipo,
   cleanDigits,
@@ -44,6 +52,9 @@ export const maxDuration = 300
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const LIMITE_LINHAS_API = 2000
+// Segurança contra planilha com linha duplicada em excesso pro mesmo CPF —
+// não é mais limite de "slot" (oportunidade não tem teto técnico).
+const MAX_OFERTAS_POR_CPF_POR_IMPORTACAO = 20
 // Reduzido de 10 pra 5 após incidente de 429 (24/08/2026) — o client já tenta
 // de novo com backoff (src/lib/wesales/client.ts), mas menos rajada = menos
 // tempo perdido em retry.
@@ -74,6 +85,19 @@ function phoneToE164(telefone: string | null | undefined): string | null {
   return `+55${d}`
 }
 
+/**
+ * Taxa de juros pra exibição — a planilha pode trazer fração decimal
+ * ("0.0238") ou já formatada ("2,38"); sempre devolve "2,38%". Incidente
+ * 24/08/2026: taxa gravada crua aparecia como "0.0238" no WeSales.
+ */
+function formatarTaxaPercentual(bruto: string | null): string | null {
+  if (!bruto) return null
+  const numero = parseMoney(bruto.replace('%', '').trim())
+  if (numero === null) return bruto.trim() || null
+  const percentual = Math.abs(numero) < 1 ? numero * 100 : numero
+  return `${percentual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+}
+
 /** Executa `tarefas` com no máximo `limite` em paralelo. */
 async function comConcorrenciaLimitada<T>(tarefas: Array<() => Promise<T>>, limite: number): Promise<T[]> {
   const resultados: T[] = new Array(tarefas.length)
@@ -100,10 +124,10 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file')
     const fase = String(formData.get('fase') || 'analisar')
-    const tipo = String(formData.get('tipo') || 'margem') as TipoImport
+    const tipo = String(formData.get('tipo') || '') as TipoImport
 
     if (tipo !== 'refin' && tipo !== 'margem') {
-      return NextResponse.json({ error: 'Tipo de importação inválido.' }, { status: 400 })
+      return NextResponse.json({ error: 'Selecione o tipo de mailing.' }, { status: 400 })
     }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'Envie um arquivo CSV ou XLSX.' }, { status: 400 })
@@ -176,9 +200,13 @@ export async function POST(request: NextRequest) {
     const admin = await createAdminClient()
 
     let codigoConvenioPadrao: string | null = null
-    if (convenioIdPadrao) {
-      const { data } = await admin.from('convenios').select('codigo').eq('id', convenioIdPadrao).maybeSingle()
-      codigoConvenioPadrao = data?.codigo || null
+    const { data: convenioSelecionado } = await admin.from('convenios').select('codigo').eq('id', convenioIdPadrao).maybeSingle()
+    codigoConvenioPadrao = convenioSelecionado?.codigo || null
+
+    let instituicaoNome = ''
+    if (tipo === 'refin') {
+      const { data: inst } = await admin.from('financial_institutions').select('name').eq('id', instituicaoId).maybeSingle()
+      instituicaoNome = inst?.name || ''
     }
 
     // Normaliza o código do convênio antes de gravar no WeSales: a busca por
@@ -193,6 +221,9 @@ export async function POST(request: NextRequest) {
     function normalizarCodigoConvenio(bruto: string): string {
       if (!bruto) return bruto
       return codigoCanonicoPorDigitos.get(cleanDigits(bruto) || bruto) || bruto
+    }
+    function codigoConvenioDaLinha(row: unknown[]): string {
+      return normalizarCodigoConvenio(String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || '')
     }
 
     const { data: importRow, error: importError } = await admin
@@ -213,35 +244,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Falha ao registrar a importação.' }, { status: 500 })
     }
 
-    // Garante os campos personalizados que serão gravados (1x, fora do loop).
+    // Garante os campos personalizados de CONTATO que serão gravados (1x, fora do loop).
     const temNome = mapeamento.nome !== undefined
     const temTelefone = mapeamento.telefone !== undefined
     const temMatricula = mapeamento.matricula !== undefined
     const temConvenio = mapeamento.codigo_convenio !== undefined || !!codigoConvenioPadrao
 
-    const fieldsAGarantir: Array<[string, string]> = [[WESALES_FIELD_KEYS.cpf, 'CPF']]
-    if (temMatricula) fieldsAGarantir.push([WESALES_FIELD_KEYS.matricula, 'AlvoConsig — Matrícula'])
-    if (temConvenio) fieldsAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'AlvoConsig — Código do Convênio'])
+    const fieldsContatoAGarantir: Array<[string, string]> = [[WESALES_FIELD_KEYS.cpf, 'CPF']]
+    if (temMatricula) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.matricula, 'AlvoConsig — Matrícula'])
+    if (temConvenio) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'AlvoConsig — Código do Convênio'])
     if (tipo === 'margem') {
-      if (mapeamento.margem_novo !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.margemNovo, 'AlvoConsig — Margem Novo'])
-      if (mapeamento.margem_cartao_rmc !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.margemCartaoRmc, 'AlvoConsig — Margem Cartão RMC'])
-      if (mapeamento.margem_cartao_rcc !== undefined) fieldsAGarantir.push([WESALES_FIELD_KEYS.margemCartaoRcc, 'AlvoConsig — Margem Cartão RCC'])
-    } else {
-      // REFIN: até MAX_OFERTAS_REFIN ofertas por CPF, cada uma em seu "slot" de
-      // 6 campos (troco/parcela/prazo/taxa/tabela/instituição) — nunca sobrescreve
-      // outra oferta do mesmo CPF. Ver src/lib/alvoconsig/refin-slots.ts.
-      for (const { slot, campo } of todosOsSlotsECampos()) {
-        fieldsAGarantir.push([refinSlotFieldKey(slot, campo), refinSlotFieldName(slot, campo)])
-      }
+      if (mapeamento.margem_novo !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.novoValor, MARGEM_FIELD_LABELS.novoValor], [MARGEM_FIELD_KEYS.novoData, MARGEM_FIELD_LABELS.novoData], [MARGEM_FIELD_KEYS.novoConvenio, MARGEM_FIELD_LABELS.novoConvenio])
+      if (mapeamento.margem_cartao_rmc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rmcValor, MARGEM_FIELD_LABELS.rmcValor], [MARGEM_FIELD_KEYS.rmcData, MARGEM_FIELD_LABELS.rmcData], [MARGEM_FIELD_KEYS.rmcConvenio, MARGEM_FIELD_LABELS.rmcConvenio])
+      if (mapeamento.margem_cartao_rcc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rccValor, MARGEM_FIELD_LABELS.rccValor], [MARGEM_FIELD_KEYS.rccData, MARGEM_FIELD_LABELS.rccData], [MARGEM_FIELD_KEYS.rccConvenio, MARGEM_FIELD_LABELS.rccConvenio])
     }
 
     let fieldDefs: Record<string, { id: string }>
+    let ofertaFieldDefs: Record<string, { id: string }> = {}
+    let pipelineOfertas: Awaited<ReturnType<typeof resolverPipelineOfertas>> | null = null
     try {
-      const resolved = await Promise.all(fieldsAGarantir.map(([key, name]) => ensureCustomField(key, name)))
-      fieldDefs = Object.fromEntries(fieldsAGarantir.map(([key], i) => [key, resolved[i]]))
+      const resolved = await Promise.all(fieldsContatoAGarantir.map(([key, name]) => ensureCustomField(key, name, 'contact')))
+      fieldDefs = Object.fromEntries(fieldsContatoAGarantir.map(([key], i) => [key, resolved[i]]))
+
+      if (tipo === 'refin') {
+        const entradasOferta = Object.entries(OFERTA_FIELD_KEYS) as Array<[keyof typeof OFERTA_FIELD_KEYS, string]>
+        const resolvedOferta = await Promise.all(entradasOferta.map(([campo, key]) => ensureCustomField(key, OFERTA_FIELD_LABELS[campo], 'opportunity')))
+        ofertaFieldDefs = Object.fromEntries(entradasOferta.map(([, key], i) => [key, resolvedOferta[i]]))
+        pipelineOfertas = await resolverPipelineOfertas()
+      }
     } catch (error: any) {
-      await admin.from('crm_imports').update({ status: 'erro', erro: `Falha ao preparar campos no WeSales: ${error?.message || error}`, concluido_em: new Date().toISOString() }).eq('id', importRow.id)
-      return NextResponse.json({ error: `Não foi possível preparar os campos no WeSales: ${error?.message || error}` }, { status: 502 })
+      await admin.from('crm_imports').update({ status: 'erro', erro: `Falha ao preparar campos/pipeline no WeSales: ${error?.message || error}`, concluido_em: new Date().toISOString() }).eq('id', importRow.id)
+      return NextResponse.json({ error: `Não foi possível preparar o WeSales: ${error?.message || error}` }, { status: 502 })
     }
 
     const tags = [tagBase(baseTagSlug), TAG_DISPONIVEL]
@@ -250,14 +283,14 @@ export async function POST(request: NextRequest) {
     const erros: string[] = []
 
     /** Escreve os campos comuns (matrícula/convênio) + nome/telefone + tags no contato (cria se preciso). */
-    async function gravarContato(cpf: string, row: unknown[], customFields: Array<{ id: string; fieldValue: string }>, existente: WesalesContact | null) {
+    async function gravarContato(cpf: string, row: unknown[], customFields: Array<{ id: string; fieldValue: string }>, existente: WesalesContact | null): Promise<string> {
       customFields.unshift({ id: fieldDefs[WESALES_FIELD_KEYS.cpf].id, fieldValue: normalizeCpfDigits(cpf) })
       if (temMatricula) {
         const valor = String(celula(row, mapeamento.matricula) ?? '').trim()
         if (valor) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
       }
       if (temConvenio) {
-        const codigo = normalizarCodigoConvenio(String(celula(row, mapeamento.codigo_convenio) ?? '').trim() || codigoConvenioPadrao || '')
+        const codigo = codigoConvenioDaLinha(row)
         if (codigo) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.convenioCodigo].id, fieldValue: codigo })
       }
       const nome = temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : undefined
@@ -266,26 +299,27 @@ export async function POST(request: NextRequest) {
       if (existente) {
         await updateContact(existente.id, { customFields })
         await addContactTags(existente.id, tags)
-      } else {
-        const { contact, duplicateOfId } = await createContact({
-          name: nome || undefined,
-          phone: phoneToE164(telefone),
-          tags,
-          source: 'AlvoConsig — Importação API',
-          customFields,
-        })
-        const contactId = contact?.id || duplicateOfId
-        if (!contactId) throw new Error('Criação bloqueada pela location (duplicado sem contactId).')
-        if (!contact) {
-          // Telefone já pertence a outro contato: vincula sem sobrescrever nome/telefone.
-          await updateContact(contactId, { customFields })
-          await addContactTags(contactId, tags)
-        }
+        return existente.id
       }
+      const { contact, duplicateOfId } = await createContact({
+        name: nome || undefined,
+        phone: phoneToE164(telefone),
+        tags,
+        source: 'AlvoConsig — Importação API',
+        customFields,
+      })
+      const contactId = contact?.id || duplicateOfId
+      if (!contactId) throw new Error('Criação bloqueada pela location (duplicado sem contactId).')
+      if (!contact) {
+        // Telefone já pertence a outro contato: vincula sem sobrescrever nome/telefone.
+        await updateContact(contactId, { customFields })
+        await addContactTags(contactId, tags)
+      }
+      return contactId
     }
 
     if (tipo === 'margem') {
-      // 1 oferta por pessoa — mantém o comportamento antigo (primeira linha do CPF ganha).
+      // 1 "foto" de margem por pessoa — mantém o comportamento antigo (primeira linha do CPF ganha).
       const vistos = new Set<string>()
       const linhasValidas: Array<{ cpf: string; row: unknown[] }> = []
       for (const row of planilha.rows) {
@@ -304,14 +338,25 @@ export async function POST(request: NextRequest) {
         linhasValidas.push({ cpf, row })
       }
 
+      const hoje = new Date().toISOString().slice(0, 10)
+      const TRIADES = {
+        margem_novo: { valor: MARGEM_FIELD_KEYS.novoValor, data: MARGEM_FIELD_KEYS.novoData, convenio: MARGEM_FIELD_KEYS.novoConvenio },
+        margem_cartao_rmc: { valor: MARGEM_FIELD_KEYS.rmcValor, data: MARGEM_FIELD_KEYS.rmcData, convenio: MARGEM_FIELD_KEYS.rmcConvenio },
+        margem_cartao_rcc: { valor: MARGEM_FIELD_KEYS.rccValor, data: MARGEM_FIELD_KEYS.rccData, convenio: MARGEM_FIELD_KEYS.rccConvenio },
+      } as const
+
       await comConcorrenciaLimitada(
         linhasValidas.map(({ cpf, row }) => async () => {
           try {
             const customFields: Array<{ id: string; fieldValue: string }> = []
+            const codigoConvenioLinha = codigoConvenioDaLinha(row)
             for (const key of margensMapeadas) {
               const valor = parseMoney(celula(row, mapeamento[key]))
-              const fieldKey = key === 'margem_novo' ? WESALES_FIELD_KEYS.margemNovo : key === 'margem_cartao_rmc' ? WESALES_FIELD_KEYS.margemCartaoRmc : WESALES_FIELD_KEYS.margemCartaoRcc
-              if (valor !== null) customFields.push({ id: fieldDefs[fieldKey].id, fieldValue: String(valor) })
+              if (valor === null) continue
+              const triade = TRIADES[key]
+              customFields.push({ id: fieldDefs[triade.valor].id, fieldValue: String(valor) })
+              customFields.push({ id: fieldDefs[triade.data].id, fieldValue: hoje })
+              if (codigoConvenioLinha) customFields.push({ id: fieldDefs[triade.convenio].id, fieldValue: codigoConvenioLinha })
             }
             const existente = await findContactByCpf(cpf)
             await gravarContato(cpf, row, customFields, existente)
@@ -323,10 +368,23 @@ export async function POST(request: NextRequest) {
         CONCORRENCIA,
       )
     } else {
-      // REFIN: agrupa por CPF (até MAX_OFERTAS_REFIN linhas/ofertas), aloca slot
-      // por (instituição, tabela) — reimportação da MESMA oferta atualiza o slot
-      // em vez de duplicar.
-      type OfertaLinha = { tabela: string | null; troco: number; parcela: number | null; prazo: number | null; taxa: string | null }
+      // REFIN: agrupa por CPF (cada linha = uma oferta = uma Oportunidade).
+      // Reimportar a MESMA oferta (mesma instituição+tabela) atualiza a
+      // Oportunidade existente sem mexer na etapa (preserva o progresso do
+      // atendimento) — só cria nova quando é oferta realmente inédita.
+      type OfertaLinha = {
+        tabela: string | null
+        troco: number
+        parcela: number | null
+        prazo: number | null
+        taxa: string | null
+        parcelasPagas: string | null
+        saldoDevedor: string | null
+        contrato: string | null
+        contratoElegivel: string | null
+        seguroValor: string | null
+        seguroSimNao: string | null
+      }
       const gruposPorCpf = new Map<string, { row: unknown[]; ofertas: OfertaLinha[] }>()
       for (const row of planilha.rows) {
         if (!Array.isArray(row)) continue
@@ -337,64 +395,87 @@ export async function POST(request: NextRequest) {
           continue
         }
         const grupo = gruposPorCpf.get(cpf) || { row, ofertas: [] }
-        if (grupo.ofertas.length >= MAX_OFERTAS_REFIN) {
+        if (grupo.ofertas.length >= MAX_OFERTAS_POR_CPF_POR_IMPORTACAO) {
           descartadas += 1
           continue
         }
+        const texto = (idx: number | undefined) => (idx !== undefined ? String(celula(row, idx) ?? '').trim() || null : null)
         grupo.ofertas.push({
-          tabela: mapeamento.refin_tabela !== undefined ? String(celula(row, mapeamento.refin_tabela) ?? '').trim() || null : null,
+          tabela: texto(mapeamento.refin_tabela),
           troco,
           parcela: mapeamento.refin_parcela !== undefined ? parseMoney(celula(row, mapeamento.refin_parcela)) : null,
           prazo: mapeamento.refin_prazo !== undefined ? parseIntSafe(celula(row, mapeamento.refin_prazo)) : null,
-          taxa: mapeamento.refin_taxa !== undefined ? String(celula(row, mapeamento.refin_taxa) ?? '').trim() || null : null,
+          taxa: texto(mapeamento.refin_taxa),
+          parcelasPagas: texto(mapeamento.refin_parcelas_pagas),
+          saldoDevedor: texto(mapeamento.refin_saldo_devedor),
+          contrato: texto(mapeamento.refin_contrato),
+          contratoElegivel: texto(mapeamento.refin_contrato_elegivel),
+          seguroValor: texto(mapeamento.refin_seguro_valor),
+          seguroSimNao: texto(mapeamento.refin_seguro_sim_nao),
         })
         gruposPorCpf.set(cpf, grupo)
       }
+
+      const stageDisponivelId = pipelineOfertas!.stages[ETAPA_DISPONIVEL]?.id
+      const pipelineId = pipelineOfertas!.pipeline.id
+      const fCampo = (campo: keyof typeof OFERTA_FIELD_KEYS) => ofertaFieldDefs[OFERTA_FIELD_KEYS[campo]].id
+      const digitsOrRaw = (v: string) => v.replace(/\D/g, '') || v
 
       await comConcorrenciaLimitada(
         [...gruposPorCpf.entries()].map(([cpf, { row, ofertas }]) => async () => {
           try {
             const existente = await findContactByCpf(cpf)
+            const contactId = await gravarContato(cpf, row, [], existente)
 
-            // Slots já ocupados (instituição + tabela) neste contato, se já existir.
-            const slotsOcupados = Array.from({ length: MAX_OFERTAS_REFIN }, (_, i) => i + 1).map((slot) => ({
-              slot,
-              instituicaoId: existente ? customFieldValue(existente, fieldDefs[refinSlotFieldKey(slot, 'instituicao')].id) : null,
-              tabelaCodigo: existente ? customFieldValue(existente, fieldDefs[refinSlotFieldKey(slot, 'tabela')].id) : null,
-            }))
-            const usadosNestaImportacao = new Set<number>()
+            const existentesNoPipeline = await findOpportunitiesByContact(contactId, pipelineId)
+            const usadosNestaImportacao = new Set<string>()
 
-            const customFields: Array<{ id: string; fieldValue: string }> = []
-            let algumaOfertaGravada = 0
             for (const oferta of ofertas) {
-              let alvo = slotsOcupados.find(
-                (s) =>
-                  !usadosNestaImportacao.has(s.slot) &&
-                  s.instituicaoId === instituicaoId &&
-                  s.tabelaCodigo &&
-                  oferta.tabela &&
-                  digitsOrRaw(s.tabelaCodigo) === digitsOrRaw(oferta.tabela),
-              )
-              if (!alvo) alvo = slotsOcupados.find((s) => !usadosNestaImportacao.has(s.slot) && !s.tabelaCodigo)
-              if (!alvo) {
-                erros.push(`CPF ${cpf}: sem slot livre (5 ofertas já ocupadas) para a oferta da tabela "${oferta.tabela || '(sem código)'}"`)
-                continue
+              const alvo = existentesNoPipeline.find((op) => {
+                if (usadosNestaImportacao.has(op.id)) return false
+                const tipoOp = opportunityFieldValue(op, fCampo('tipoOferta'))
+                if (tipoOp !== 'refin') return false
+                const instOp = opportunityFieldValue(op, fCampo('instituicaoId'))
+                if (instOp !== instituicaoId) return false
+                const tabelaOp = opportunityFieldValue(op, fCampo('tabelaCodigo'))
+                if (!tabelaOp || !oferta.tabela) return false
+                return digitsOrRaw(tabelaOp) === digitsOrRaw(oferta.tabela)
+              })
+
+              const customFields: Array<{ id: string; fieldValue: string }> = [
+                { id: fCampo('tipoOferta'), fieldValue: 'refin' },
+                { id: fCampo('instituicaoId'), fieldValue: instituicaoId! },
+              ]
+              if (oferta.parcela !== null) customFields.push({ id: fCampo('parcela'), fieldValue: String(oferta.parcela) })
+              if (oferta.prazo !== null) customFields.push({ id: fCampo('prazo'), fieldValue: String(oferta.prazo) })
+              const taxaFormatada = formatarTaxaPercentual(oferta.taxa)
+              if (taxaFormatada) customFields.push({ id: fCampo('taxa'), fieldValue: taxaFormatada })
+              if (oferta.tabela) customFields.push({ id: fCampo('tabelaCodigo'), fieldValue: oferta.tabela })
+              if (oferta.parcelasPagas) customFields.push({ id: fCampo('parcelasPagas'), fieldValue: oferta.parcelasPagas })
+              if (oferta.saldoDevedor) customFields.push({ id: fCampo('saldoDevedor'), fieldValue: oferta.saldoDevedor })
+              if (oferta.contrato) customFields.push({ id: fCampo('contrato'), fieldValue: oferta.contrato })
+              if (oferta.contratoElegivel) customFields.push({ id: fCampo('contratoElegivel'), fieldValue: oferta.contratoElegivel })
+              if (oferta.seguroValor) customFields.push({ id: fCampo('seguroValor'), fieldValue: oferta.seguroValor })
+              if (oferta.seguroSimNao) customFields.push({ id: fCampo('seguroSimNao'), fieldValue: oferta.seguroSimNao })
+
+              if (alvo) {
+                usadosNestaImportacao.add(alvo.id)
+                // Só valor/campos — NUNCA mexe na etapa (preserva progresso do atendimento).
+                await updateOpportunity(alvo.id, { monetaryValue: oferta.troco, customFields })
+              } else {
+                const nova = await createOpportunity({
+                  contactId,
+                  pipelineId,
+                  pipelineStageId: stageDisponivelId,
+                  name: nomeOportunidade('refin', instituicaoNome, oferta.tabela),
+                  monetaryValue: oferta.troco,
+                  customFields,
+                })
+                existentesNoPipeline.push(nova)
+                usadosNestaImportacao.add(nova.id)
               }
-              usadosNestaImportacao.add(alvo.slot)
-              customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'troco')].id, fieldValue: String(oferta.troco) })
-              if (oferta.parcela !== null) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'parcela')].id, fieldValue: String(oferta.parcela) })
-              if (oferta.prazo !== null) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'prazo')].id, fieldValue: String(oferta.prazo) })
-              if (oferta.taxa) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'taxa')].id, fieldValue: oferta.taxa })
-              if (oferta.tabela) customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'tabela')].id, fieldValue: oferta.tabela })
-              customFields.push({ id: fieldDefs[refinSlotFieldKey(alvo.slot, 'instituicao')].id, fieldValue: instituicaoId! })
-              algumaOfertaGravada += 1
+              importadas += 1
             }
-            if (algumaOfertaGravada === 0) {
-              descartadas += ofertas.length
-              return
-            }
-            await gravarContato(cpf, row, customFields, existente)
-            importadas += algumaOfertaGravada
           } catch (error: any) {
             erros.push(`CPF ${cpf}: ${error?.message || error}`)
           }

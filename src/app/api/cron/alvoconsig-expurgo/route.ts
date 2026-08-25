@@ -13,7 +13,7 @@
 
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
+import { marcarOfertasPerdidas, reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
     encerradas += 1
     const { revertidos: n } = await reverterTagsDaCampanha(admin, campanha.id, campanha.agente_parceiro_id)
     revertidos += n
+    await marcarOfertasPerdidas(admin, campanha.id)
   }
 
   return Response.json({ ok: true, avaliadas: campanhas?.length || 0, encerradas, aguardandoFila, revertidos })
