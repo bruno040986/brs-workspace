@@ -76,7 +76,7 @@ function TagPicker({ label, hint, all, selected, onChange }: {
         {selected.length === 0 ? <span style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)' }}>Nenhuma selecionada</span> : null}
       </div>
       <input
-        className="form-input"
+        className="form-control"
         placeholder="Buscar tag…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -118,8 +118,9 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
   const [cfValue, setCfValue] = useState('')
   const [inboxId, setInboxId] = useState('')
   const [templateName, setTemplateName] = useState('')
-  const [templateParams, setTemplateParams] = useState('')
-  const [templateMessage, setTemplateMessage] = useState('')
+  // Variáveis do template: chave (nome ou posição) -> origem no cadastro do WeSales
+  // ('{primeiro_nome}', '{cf:nome_convenio}'…) ou texto fixo ('fixed' + text).
+  const [varMap, setVarMap] = useState<Record<string, { source: string; text: string }>>({})
   const [perMinute, setPerMinute] = useState(10)
   const [windowStart, setWindowStart] = useState('09:00')
   const [windowEnd, setWindowEnd] = useState('19:00')
@@ -141,6 +142,66 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
   }), [tagsAny, tagsAll, tagsNone, cfKey, cfValue])
 
   const hasAudience = Boolean(tagsAny.length || tagsAll.length || tagsNone.length || (cfKey && cfValue))
+
+  const selectedTemplate = useMemo(() => {
+    const [name] = templateName.split('|')
+    return (vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).find((t) => t.name === name) ?? null
+  }, [vendeaiMeta, inboxId, templateName])
+
+  // Variáveis do corpo: {{nome}} (NAMED) ou {{1}}/{{}} (posicional). A chave enviada
+  // à Vende.AI/Meta é o nome quando existe, senão a posição (1, 2, …).
+  const templateVars = useMemo(() => {
+    const body = selectedTemplate?.body ?? ''
+    const found = [...body.matchAll(/\{\{([^}]*)\}\}/g)].map((m) => m[1].trim())
+    return found.map((name, i) => ({
+      key: selectedTemplate?.parameterFormat === 'NAMED' && name ? name : String(i + 1),
+      label: name || `{{${i + 1}}}`,
+    }))
+  }, [selectedTemplate])
+  const expectedParams = templateVars.length
+
+  const varSources = useMemo(() => [
+    { value: '{primeiro_nome}', label: 'Primeiro nome' },
+    { value: '{nome_completo}', label: 'Nome completo' },
+    { value: '{segundo_nome}', label: 'Segundo nome' },
+    { value: '{telefone}', label: 'Telefone' },
+    { value: '{cpf}', label: 'CPF' },
+    { value: '{email}', label: 'E-mail' },
+    { value: '{nascimento}', label: 'Data de nascimento' },
+    ...(wesalesMeta?.customFields ?? []).map((f) => {
+      const short = f.key.includes('.') ? f.key.slice(f.key.lastIndexOf('.') + 1) : f.key
+      return { value: `{cf:${short}}`, label: `${f.name} (campo do WeSales)` }
+    }),
+    { value: 'fixed', label: 'Texto fixo…' },
+  ], [wesalesMeta])
+
+  const resolveVar = useCallback((key: string) => {
+    const v = varMap[key]
+    if (!v) return ''
+    return v.source === 'fixed' ? v.text.trim() : v.source
+  }, [varMap])
+  const paramsOk = action !== 'vendeai_template' || templateVars.every((v) => resolveVar(v.key) !== '')
+  let previewIdx = 0
+  const previewBody = (selectedTemplate?.body ?? '').replace(/\{\{[^}]*\}\}/g, () => {
+    const v = templateVars[previewIdx++]
+    const src = v ? resolveVar(v.key) : ''
+    const label = varSources.find((o) => o.value === src)?.label
+    return src ? `[${label ?? src}]` : '[…]'
+  })
+
+  const pickTemplate = (value: string) => {
+    setTemplateName(value)
+    const [name] = value.split('|')
+    const t = (vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).find((x) => x.name === name)
+    const body = t?.body ?? ''
+    const found = [...body.matchAll(/\{\{([^}]*)\}\}/g)].map((m) => m[1].trim())
+    const next: Record<string, { source: string; text: string }> = {}
+    found.forEach((n, i) => {
+      const key = t?.parameterFormat === 'NAMED' && n ? n : String(i + 1)
+      next[key] = { source: '{primeiro_nome}', text: '' }
+    })
+    setVarMap(next)
+  }
 
   const refreshJobs = useCallback(async () => {
     setBusy(true)
@@ -167,7 +228,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
 
   const resetWizard = () => {
     setStep(1); setLabel(''); setTagsAny([]); setTagsAll([]); setTagsNone([])
-    setCfKey(''); setCfValue(''); setPreview(null); setTemplateParams(''); setTemplateMessage('')
+    setCfKey(''); setCfValue(''); setPreview(null); setVarMap({}); setInboxId(''); setTemplateName('')
   }
 
   const confirm = useCallback(async () => {
@@ -180,20 +241,17 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
       params.inboxId = inboxId
       params.templateName = name
       params.templateCategory = category || 'MARKETING'
-      params.templateMessage = templateMessage.trim()
-      if (templateParams.trim()) {
-        const map: Record<string, string> = {}
-        // Cada linha e uma variavel. Posicional: "valor" -> {"1": valor}.
-        // Nomeada (template NAMED da Meta): "nome=valor" -> {"nome": valor}.
-        templateParams.split('\n').forEach((line, i) => {
-          const value = line.trim()
-          if (!value) return
-          const eq = value.indexOf('=')
-          if (eq > 0) map[value.slice(0, eq).trim()] = value.slice(eq + 1).trim()
-          else map[String(i + 1)] = value
-        })
-        params.templateParams = map
-      }
+      // Variáveis: chave (nome/posição) -> placeholder resolvido por contato no
+      // orquestrador ({primeiro_nome}, {cf:campo}…) ou texto fixo literal.
+      const map: Record<string, string> = {}
+      templateVars.forEach((v) => { map[v.key] = resolveVar(v.key) })
+      params.templateParams = map
+      // Espelho no CRM da Vende.AI: corpo do template com os mesmos placeholders.
+      let idx = 0
+      params.templateMessage = (selectedTemplate?.body ?? '').replace(/\{\{[^}]*\}\}/g, () => {
+        const v = templateVars[idx++]
+        return v ? resolveVar(v.key) : ''
+      })
     }
     if (action === 'callface_calls') {
       pacing.perMinute = perMinute
@@ -211,7 +269,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
       setError(res.error)
     }
     setCreating(false)
-  }, [slug, action, label, audience, inboxId, templateName, templateMessage, templateParams, perMinute, windowStart, windowEnd, refreshJobs])
+  }, [slug, action, label, audience, inboxId, templateName, templateVars, resolveVar, selectedTemplate, perMinute, windowStart, windowEnd, refreshJobs])
 
   const doOp = useCallback(async (id: string, op: 'pause' | 'resume' | 'cancel') => {
     const res = await centralJobOp(slug, id, op)
@@ -228,26 +286,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
   }, [slug, detailId])
 
   const tags = wesalesMeta?.tags ?? []
-  const selectedTemplate = useMemo(() => {
-    const [name] = templateName.split('|')
-    return (vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).find((t) => t.name === name) ?? null
-  }, [vendeaiMeta, inboxId, templateName])
-  const expectedParams = selectedTemplate?.paramCount ?? 0
-  const filledParams = templateParams.split('\n').map((l) => l.trim()).filter(Boolean).length
-  const paramsOk = action !== 'vendeai_template' || filledParams === expectedParams
-
-  const pickTemplate = (value: string) => {
-    setTemplateName(value)
-    const [name] = value.split('|')
-    const t = (vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).find((x) => x.name === name)
-    if (!t) return
-    // Pré-preenche: corpo do template com {primeiro_nome} no lugar de cada {{…}},
-    // e uma variável por linha (todas com {primeiro_nome} — ajuste se precisar).
-    const body = t.body ?? ''
-    setTemplateMessage(body.replace(/\{\{[^}]*\}\}/g, '{primeiro_nome}'))
-    setTemplateParams(Array.from({ length: t.paramCount ?? 0 }, () => '{primeiro_nome}').join('\n'))
-  }
-  const canNext = step === 1 ? Boolean(action) && (action !== 'vendeai_template' || (inboxId && templateName && templateMessage.trim() && paramsOk)) : step === 2 ? hasAudience : true
+  const canNext = step === 1 ? Boolean(action) && (action !== 'vendeai_template' || (inboxId && templateName && paramsOk)) : step === 2 ? hasAudience : true
 
   return (
     <div>
@@ -292,59 +331,100 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
               </div>
               <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-500)', marginBottom: '1rem' }}>{ACTION_HINT[action]}</div>
 
-              <input className="form-input" placeholder="Nome do job (ex.: Ligações elegíveis agosto)" value={label} onChange={(e) => setLabel(e.target.value)} style={{ maxWidth: 420, marginBottom: '0.9rem' }} />
+              <div className="form-group" style={{ maxWidth: 480 }}>
+                <label className="form-label">Nome do job</label>
+                <input className="form-control" placeholder="ex.: Confirmação de interesse — base agosto" value={label} onChange={(e) => setLabel(e.target.value)} />
+              </div>
 
               {action === 'vendeai_template' ? (
-                <div style={{ display: 'grid', gap: '0.6rem', maxWidth: 480 }}>
-                  <select className="form-input" value={inboxId} onChange={(e) => setInboxId(e.target.value)}>
-                    <option value="">Escolha a inbox…</option>
-                    {(vendeaiMeta?.inboxes ?? []).map((i) => <option key={String(i.id)} value={String(i.id)}>{i.name}</option>)}
-                  </select>
-                  <select className="form-input" value={templateName} onChange={(e) => pickTemplate(e.target.value)} disabled={!inboxId}>
-                    <option value="">Escolha o template…</option>
-                    {(vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).map((t) => (
-                      <option key={t.name} value={`${t.name}|${t.category}`}>{t.name} ({t.category})</option>
-                    ))}
-                  </select>
-                  {selectedTemplate ? (
-                    <div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', marginBottom: 6 }}>
-                        Preview aprovado na Meta · {expectedParams} variável(is)
-                        {selectedTemplate.parameterFormat === 'NAMED' ? ' · formato NOMEADO: preencha cada variável como nome=valor (ex.: nome={primeiro_nome})' : ' · formato posicional: uma linha por {{1}}, {{2}}…'}
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(300px, 420px)', gap: '1.5rem', alignItems: 'start' }}>
+                  <div>
+                    <div className="form-group">
+                      <label className="form-label">Inbox (número oficial)<span className="required">*</span></label>
+                      <select className="form-control" value={inboxId} onChange={(e) => { setInboxId(e.target.value); setTemplateName(''); setVarMap({}) }}>
+                        <option value="">Escolha a inbox…</option>
+                        {(vendeaiMeta?.inboxes ?? []).map((i) => <option key={String(i.id)} value={String(i.id)}>{i.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Template aprovado na Meta<span className="required">*</span></label>
+                      <select className="form-control" value={templateName} onChange={(e) => pickTemplate(e.target.value)} disabled={!inboxId}>
+                        <option value="">Escolha o template…</option>
+                        {(vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).map((t) => (
+                          <option key={t.name} value={`${t.name}|${t.category}`}>{t.name} ({t.category})</option>
+                        ))}
+                      </select>
+                      {!vendeaiMeta ? <div style={{ fontSize: '0.78rem', color: '#92400E', marginTop: 4 }}>Inboxes indisponíveis (orquestrador offline ou WABA pendente).</div> : null}
+                    </div>
+
+                    {selectedTemplate ? (
+                      <div className="form-group">
+                        <label className="form-label">
+                          Variáveis do template
+                          <span style={{ fontWeight: 400, color: 'var(--brs-gray-400)', marginLeft: 6 }}>
+                            {expectedParams === 0 ? 'nenhuma — o template não tem variáveis' : `${expectedParams} · preenchidas a partir do cadastro do WeSales de cada contato`}
+                          </span>
+                        </label>
+                        {templateVars.map((v) => {
+                          const cur = varMap[v.key] ?? { source: '{primeiro_nome}', text: '' }
+                          return (
+                            <div key={v.key} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <code style={{ fontSize: '0.82rem', color: 'var(--brs-navy)', background: 'var(--brs-gray-50)', padding: '0.35rem 0.5rem', borderRadius: 6, textAlign: 'center' }}>{'{{'}{v.label.replace(/^\{\{|\}\}$/g, '')}{'}}'}</code>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <select className="form-control" value={cur.source} onChange={(e) => setVarMap({ ...varMap, [v.key]: { ...cur, source: e.target.value } })}>
+                                  {varSources.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                                {cur.source === 'fixed' ? (
+                                  <input className="form-control" placeholder="Texto que vai em todas as mensagens" value={cur.text} onChange={(e) => setVarMap({ ...varMap, [v.key]: { ...cur, text: e.target.value } })} />
+                                ) : null}
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {!paramsOk ? (
+                          <div style={{ fontSize: '0.78rem', color: '#991B1B' }}>
+                            Todas as variáveis precisam de origem (ou texto fixo preenchido) — a Meta rejeita o envio se faltar alguma (#132000).
+                          </div>
+                        ) : null}
                       </div>
-                      <div style={{ background: '#e5ddd5', borderRadius: 10, padding: '0.9rem', maxWidth: 380 }}>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <div className="form-label" style={{ marginBottom: 6 }}>Preview da mensagem</div>
+                    {selectedTemplate ? (
+                      <div style={{ background: '#e5ddd5', borderRadius: 12, padding: '1rem' }}>
                         <div style={{ background: '#fff', borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: '0.85rem', color: '#111', whiteSpace: 'pre-wrap', boxShadow: '0 1px 1px rgba(0,0,0,.08)' }}>
                           {selectedTemplate.header ? <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTemplate.header}</div> : null}
-                          {selectedTemplate.body || '(sem corpo retornado)'}
+                          {previewBody || '(sem corpo retornado)'}
                           {selectedTemplate.footer ? <div style={{ color: '#8696a0', fontSize: '0.75rem', marginTop: 6 }}>{selectedTemplate.footer}</div> : null}
                         </div>
                         {(selectedTemplate.buttons ?? []).map((b) => (
                           <div key={b} style={{ background: '#fff', borderRadius: 8, padding: '0.5rem', marginTop: 4, textAlign: 'center', color: '#00a884', fontSize: '0.85rem', fontWeight: 600 }}>↩ {b}</div>
                         ))}
+                        <div style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: 8 }}>
+                          Entre colchetes: o que será substituído, contato a contato, na hora do envio.
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                  <textarea className="form-input" rows={3} placeholder={'Texto da mensagem (obrigatório) — espelho do corpo do template aprovado na Meta. A Vende.AI usa isso para registrar a conversa no CRM; o envio real sai pelo template.\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateMessage} onChange={(e) => setTemplateMessage(e.target.value)} />
-                  <textarea className="form-input" rows={2} placeholder={'Variáveis do template, uma por linha (linha 1 = {{1}}, etc.) — opcional.\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateParams} onChange={(e) => setTemplateParams(e.target.value)} />
-                  {selectedTemplate && !paramsOk ? (
-                    <div style={{ fontSize: '0.78rem', color: '#991B1B' }}>
-                      O template espera {expectedParams} variável(is) e você preencheu {filledParams} — a Meta rejeita o envio se não bater (#132000).
-                    </div>
-                  ) : null}
-                  {!vendeaiMeta ? <div style={{ fontSize: '0.78rem', color: '#92400E' }}>Inboxes indisponíveis (orquestrador offline ou WABA pendente).</div> : null}
+                    ) : (
+                      <div style={{ border: '1px dashed var(--brs-gray-200)', borderRadius: 12, padding: '2rem 1rem', textAlign: 'center', color: 'var(--brs-gray-400)', fontSize: '0.85rem' }}>
+                        Escolha a inbox e o template para ver o preview aqui.
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : null}
 
               {action === 'callface_calls' ? (
                 <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   <label style={{ fontSize: '0.8rem', color: 'var(--brs-gray-600)' }}>Ritmo (contatos/min)
-                    <input type="number" min={1} max={60} className="form-input" value={perMinute} onChange={(e) => setPerMinute(Number(e.target.value) || 10)} style={{ width: 90, marginLeft: 6 }} />
+                    <input type="number" min={1} max={60} className="form-control" value={perMinute} onChange={(e) => setPerMinute(Number(e.target.value) || 10)} style={{ width: 90, marginLeft: 6 }} />
                   </label>
                   <label style={{ fontSize: '0.8rem', color: 'var(--brs-gray-600)' }}>Janela
-                    <input type="time" className="form-input" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} style={{ width: 110, marginLeft: 6 }} />
+                    <input type="time" className="form-control" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} style={{ width: 110, marginLeft: 6 }} />
                   </label>
                   <span style={{ color: 'var(--brs-gray-400)' }}>até</span>
-                  <input type="time" className="form-input" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} style={{ width: 110 }} />
+                  <input type="time" className="form-control" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} style={{ width: 110 }} />
                   <span style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)' }}>seg-sex (América/São Paulo)</span>
                 </div>
               ) : null}
@@ -357,11 +437,11 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
               <TagPicker label="E TODAS estas tags" all={tags} selected={tagsAll} onChange={setTagsAll} />
               <TagPicker label="E NENHUMA destas tags" hint="ex.: callface-descadastro" all={tags} selected={tagsNone} onChange={setTagsNone} />
               <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <select className="form-input" style={{ maxWidth: 260 }} value={cfKey} onChange={(e) => setCfKey(e.target.value)}>
+                <select className="form-control" style={{ maxWidth: 260 }} value={cfKey} onChange={(e) => setCfKey(e.target.value)}>
                   <option value="">Campo personalizado (opcional)…</option>
                   {(wesalesMeta?.customFields ?? []).map((f) => <option key={f.id} value={f.key}>{f.name}</option>)}
                 </select>
-                <input className="form-input" style={{ maxWidth: 200 }} placeholder="Valor (ex.: Sim)" value={cfValue} onChange={(e) => setCfValue(e.target.value)} />
+                <input className="form-control" style={{ maxWidth: 200 }} placeholder="Valor (ex.: Sim)" value={cfValue} onChange={(e) => setCfValue(e.target.value)} />
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.6rem' }}>
                 Contatos marcados como DND (descadastro) são sempre excluídos automaticamente.
@@ -401,7 +481,7 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
               <div>Público: <strong>{preview ? `${preview.total.toLocaleString('pt-BR')} contato(s)` : 'não calculado'}</strong></div>
               {action === 'callface_calls' ? <div>Ritmo: <strong>{perMinute}/min · {windowStart}-{windowEnd} seg-sex</strong></div> : null}
               {action === 'vendeai_template' ? <div>Template: <strong>{templateName.split('|')[0]}</strong> (inbox {inboxId})</div> : null}
-              {action === 'vendeai_template' ? <div>Mensagem: <em>{templateMessage.slice(0, 120)}{templateMessage.length > 120 ? '…' : ''}</em></div> : null}
+              {action === 'vendeai_template' ? <div>Variáveis: <em>{templateVars.map((v) => `${v.label} ← ${varSources.find((o) => o.value === resolveVar(v.key))?.label ?? resolveVar(v.key)}`).join(' · ') || 'nenhuma'}</em></div> : null}
               <div style={{ color: '#92400E', fontSize: '0.82rem', marginTop: '0.4rem' }}>
                 Ao confirmar, o job entra na fila do orquestrador e começa imediatamente (respeitando janela e ritmo).
               </div>
