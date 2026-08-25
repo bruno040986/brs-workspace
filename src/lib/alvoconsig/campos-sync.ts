@@ -28,6 +28,7 @@ export const CAMPOS_DO_CRM = ['funil_estagio', 'funil_atualizado_em', 'estado_lo
 export const TAG_PARCEIRO_PREFIXO = 'parceiro:'
 export const TAG_CLIENTE_PREFIXO = 'cliente:'
 export const TAG_BASE_PREFIXO = 'base:'
+export const TAG_CAMPANHA_PREFIXO = 'campanha:'
 /**
  * Tag "disponivel": bookkeeping da alocação. O WeSales não tem exclusão de
  * tag por prefixo/wildcard (só valor exato), então não dá para perguntar
@@ -47,6 +48,9 @@ export function tagCliente(arwCode: string) {
 }
 export function tagBase(slug: string) {
   return `${TAG_BASE_PREFIXO}${String(slug || '').trim().toLowerCase().replace(/\s+/g, '-')}`
+}
+export function tagCampanha(codigo: string) {
+  return `${TAG_CAMPANHA_PREFIXO}${String(codigo || '').trim().toLowerCase()}`
 }
 
 /**

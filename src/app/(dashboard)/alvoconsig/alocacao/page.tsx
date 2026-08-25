@@ -17,6 +17,7 @@ type Convenio = { id: string; nome: string; nome_reduzido: string; codigo_sistem
 type BaseImportada = { tag: string; importadaEm: string }
 type Campanha = {
   id: string
+  codigo: string
   descricao: string
   base_tag: string
   qtd_solicitada: number
@@ -141,7 +142,7 @@ export default function AlocacaoPage() {
       }
       setMessage({
         type: 'success',
-        text: `Campanha criada: ${Number(json.alocados).toLocaleString('pt-BR')} de ${Number(json.encontrados).toLocaleString('pt-BR')} contato(s) encontrados foram copiados e já entraram na fila de sincronização com o WeSales.`,
+        text: `Campanha ${json.codigo} criada: ${Number(json.alocados).toLocaleString('pt-BR')} de ${Number(json.encontrados).toLocaleString('pt-BR')} contato(s) encontrados foram copiados e já entraram na fila de sincronização com o WeSales.`,
       })
       setDescricao('')
       await Promise.all([loadData(), carregarBasesDoConvenio(convenioId)])
@@ -153,7 +154,7 @@ export default function AlocacaoPage() {
   }
 
   async function handleEncerrar(campanha: Campanha) {
-    if (!window.confirm(`Encerrar a campanha "${campanha.descricao || campanha.base_tag}" agora? Leads não concretizados voltam para o pool no WeSales (tag "disponivel").`)) return
+    if (!window.confirm(`Encerrar a campanha ${campanha.codigo} (${campanha.descricao || campanha.base_tag}) agora? Leads não concretizados voltam para o pool no WeSales (tag "disponivel").`)) return
     setBusyId(campanha.id)
     setMessage(null)
     try {
@@ -269,6 +270,7 @@ export default function AlocacaoPage() {
           <table className="data-table">
             <thead>
               <tr>
+                <th>Código</th>
                 <th>Parceiro</th>
                 <th>Descrição</th>
                 <th>Base</th>
@@ -280,10 +282,10 @@ export default function AlocacaoPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : campanhas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}>
                     <div className="empty-state">
                       <Send size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
                       <h3>Nenhuma campanha criada</h3>
@@ -294,6 +296,7 @@ export default function AlocacaoPage() {
               ) : (
                 campanhas.map((campanha) => (
                   <tr key={campanha.id}>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{campanha.codigo}</td>
                     <td style={{ fontWeight: 600 }}>{campanha.agentes_parceiros?.fantasy_name || campanha.agentes_parceiros?.name || '-'}</td>
                     <td>{campanha.descricao || '-'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{campanha.base_tag}</td>

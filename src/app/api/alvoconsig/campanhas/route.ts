@@ -27,7 +27,7 @@ import {
   customFieldValue,
   type WesalesContact,
 } from '@/lib/wesales/client'
-import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
+import { tagBase, tagCampanha, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { ETAPA_DISPONIVEL, MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, TipoOferta, nomeOportunidade, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
 import { calcularOfertas, resolverOfertasRefin, type OfertaCalculada, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
 
@@ -156,11 +156,22 @@ export async function POST(request: NextRequest) {
       if (conv.codigo_sistema) convenioPorCodigo.set(conv.codigo_sistema, String(conv.id))
     }
 
+    // Código sequencial global (<arw_atual>-<numero>) — identifica a campanha
+    // no Workspace e vira tag adicional no WeSales (campanha:<codigo>), junto
+    // da parceiro:<arw> que já existe. Sequência é do sistema todo, não por
+    // parceiro (decisão 26/08/2026).
+    const { data: numeroCampanha, error: numeroError } = await admin.rpc('next_crm_campanha_numero')
+    if (numeroError || numeroCampanha == null) {
+      return NextResponse.json({ error: 'Falha ao gerar o código da campanha.' }, { status: 500 })
+    }
+    const codigoCampanha = `${arwCode}-${numeroCampanha}`
+
     // Cria a campanha (status 'montando' até terminar de copiar).
     const { data: campanha, error: campanhaError } = await admin
       .from('crm_campanhas')
       .insert({
         agente_parceiro_id: agenteParceiroId,
+        codigo: codigoCampanha,
         descricao,
         base_tag: baseTagSlug,
         filtros: { convenioId },
@@ -312,6 +323,7 @@ export async function POST(request: NextRequest) {
       const filaOps = (inseridos || []).flatMap((row: any) => [
         { operacao: 'remover_tag', contato_id: row.id, payload: { tag: TAG_DISPONIVEL } },
         { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: `parceiro:${arwCode}` } },
+        { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: tagCampanha(codigoCampanha) } },
       ])
       if (filaOps.length) {
         const { error: filaError } = await admin.from('crm_wesales_queue').insert(filaOps)
@@ -324,7 +336,7 @@ export async function POST(request: NextRequest) {
       .update({ qtd_alocada: copiados, status: copiados > 0 ? 'ativa' : 'cancelada' })
       .eq('id', campanha.id)
 
-    return NextResponse.json({ campanhaId: campanha.id, solicitados: quantidade, encontrados: selecionados.length, alocados: copiados })
+    return NextResponse.json({ campanhaId: campanha.id, codigo: codigoCampanha, solicitados: quantidade, encontrados: selecionados.length, alocados: copiados })
   } catch (error: any) {
     console.error('Erro ao criar campanha AlvoConsig:', error)
     return NextResponse.json({ error: 'Erro inesperado ao criar a campanha.' }, { status: 500 })

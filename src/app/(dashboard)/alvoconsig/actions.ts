@@ -225,7 +225,7 @@ export async function getCampanhas() {
 
     const { data, error } = await supabaseAdmin
       .from('crm_campanhas')
-      .select('id, descricao, base_tag, qtd_solicitada, qtd_alocada, vigencia_inicio, vigencia_fim, status, created_at, encerrada_em, agentes_parceiros ( id, name, fantasy_name )')
+      .select('id, codigo, descricao, base_tag, qtd_solicitada, qtd_alocada, vigencia_inicio, vigencia_fim, status, created_at, encerrada_em, agentes_parceiros ( id, name, fantasy_name )')
       .order('created_at', { ascending: false })
       .limit(100)
     if (error) throw error
