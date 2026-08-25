@@ -183,9 +183,14 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
       params.templateMessage = templateMessage.trim()
       if (templateParams.trim()) {
         const map: Record<string, string> = {}
+        // Cada linha e uma variavel. Posicional: "valor" -> {"1": valor}.
+        // Nomeada (template NAMED da Meta): "nome=valor" -> {"nome": valor}.
         templateParams.split('\n').forEach((line, i) => {
           const value = line.trim()
-          if (value) map[String(i + 1)] = value
+          if (!value) return
+          const eq = value.indexOf('=')
+          if (eq > 0) map[value.slice(0, eq).trim()] = value.slice(eq + 1).trim()
+          else map[String(i + 1)] = value
         })
         params.templateParams = map
       }
@@ -223,7 +228,26 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
   }, [slug, detailId])
 
   const tags = wesalesMeta?.tags ?? []
-  const canNext = step === 1 ? Boolean(action) && (action !== 'vendeai_template' || (inboxId && templateName && templateMessage.trim())) : step === 2 ? hasAudience : true
+  const selectedTemplate = useMemo(() => {
+    const [name] = templateName.split('|')
+    return (vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).find((t) => t.name === name) ?? null
+  }, [vendeaiMeta, inboxId, templateName])
+  const expectedParams = selectedTemplate?.paramCount ?? 0
+  const filledParams = templateParams.split('\n').map((l) => l.trim()).filter(Boolean).length
+  const paramsOk = action !== 'vendeai_template' || filledParams === expectedParams
+
+  const pickTemplate = (value: string) => {
+    setTemplateName(value)
+    const [name] = value.split('|')
+    const t = (vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).find((x) => x.name === name)
+    if (!t) return
+    // Pré-preenche: corpo do template com {primeiro_nome} no lugar de cada {{…}},
+    // e uma variável por linha (todas com {primeiro_nome} — ajuste se precisar).
+    const body = t.body ?? ''
+    setTemplateMessage(body.replace(/\{\{[^}]*\}\}/g, '{primeiro_nome}'))
+    setTemplateParams(Array.from({ length: t.paramCount ?? 0 }, () => '{primeiro_nome}').join('\n'))
+  }
+  const canNext = step === 1 ? Boolean(action) && (action !== 'vendeai_template' || (inboxId && templateName && templateMessage.trim() && paramsOk)) : step === 2 ? hasAudience : true
 
   return (
     <div>
@@ -276,14 +300,37 @@ export default function ActionsClient({ slug, initialJobs, jobsError, wesalesMet
                     <option value="">Escolha a inbox…</option>
                     {(vendeaiMeta?.inboxes ?? []).map((i) => <option key={String(i.id)} value={String(i.id)}>{i.name}</option>)}
                   </select>
-                  <select className="form-input" value={templateName} onChange={(e) => setTemplateName(e.target.value)} disabled={!inboxId}>
+                  <select className="form-input" value={templateName} onChange={(e) => pickTemplate(e.target.value)} disabled={!inboxId}>
                     <option value="">Escolha o template…</option>
                     {(vendeaiMeta?.inboxes ?? []).filter((i) => String(i.id) === inboxId).flatMap((i) => i.templates).map((t) => (
                       <option key={t.name} value={`${t.name}|${t.category}`}>{t.name} ({t.category})</option>
                     ))}
                   </select>
+                  {selectedTemplate ? (
+                    <div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', marginBottom: 6 }}>
+                        Preview aprovado na Meta · {expectedParams} variável(is)
+                        {selectedTemplate.parameterFormat === 'NAMED' ? ' · formato NOMEADO: preencha cada variável como nome=valor (ex.: nome={primeiro_nome})' : ' · formato posicional: uma linha por {{1}}, {{2}}…'}
+                      </div>
+                      <div style={{ background: '#e5ddd5', borderRadius: 10, padding: '0.9rem', maxWidth: 380 }}>
+                        <div style={{ background: '#fff', borderRadius: 8, padding: '0.6rem 0.75rem', fontSize: '0.85rem', color: '#111', whiteSpace: 'pre-wrap', boxShadow: '0 1px 1px rgba(0,0,0,.08)' }}>
+                          {selectedTemplate.header ? <div style={{ fontWeight: 700, marginBottom: 6 }}>{selectedTemplate.header}</div> : null}
+                          {selectedTemplate.body || '(sem corpo retornado)'}
+                          {selectedTemplate.footer ? <div style={{ color: '#8696a0', fontSize: '0.75rem', marginTop: 6 }}>{selectedTemplate.footer}</div> : null}
+                        </div>
+                        {(selectedTemplate.buttons ?? []).map((b) => (
+                          <div key={b} style={{ background: '#fff', borderRadius: 8, padding: '0.5rem', marginTop: 4, textAlign: 'center', color: '#00a884', fontSize: '0.85rem', fontWeight: 600 }}>↩ {b}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   <textarea className="form-input" rows={3} placeholder={'Texto da mensagem (obrigatório) — espelho do corpo do template aprovado na Meta. A Vende.AI usa isso para registrar a conversa no CRM; o envio real sai pelo template.\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateMessage} onChange={(e) => setTemplateMessage(e.target.value)} />
                   <textarea className="form-input" rows={2} placeholder={'Variáveis do template, uma por linha (linha 1 = {{1}}, etc.) — opcional.\nPlaceholders: {nome} {primeiro_nome} {telefone} {cpf}'} value={templateParams} onChange={(e) => setTemplateParams(e.target.value)} />
+                  {selectedTemplate && !paramsOk ? (
+                    <div style={{ fontSize: '0.78rem', color: '#991B1B' }}>
+                      O template espera {expectedParams} variável(is) e você preencheu {filledParams} — a Meta rejeita o envio se não bater (#132000).
+                    </div>
+                  ) : null}
                   {!vendeaiMeta ? <div style={{ fontSize: '0.78rem', color: '#92400E' }}>Inboxes indisponíveis (orquestrador offline ou WABA pendente).</div> : null}
                 </div>
               ) : null}

@@ -226,7 +226,21 @@ export async function getWesalesMeta(slug: string) {
 }
 
 export interface VendeaiMeta {
-  inboxes: Array<{ id: string | number; name: string; templates: Array<{ name: string; category: string }> }>
+  inboxes: Array<{
+    id: string | number
+    name: string
+    templates: Array<{
+      name: string
+      category: string
+      body?: string
+      header?: string | null
+      footer?: string | null
+      buttons?: string[]
+      paramCount?: number
+      parameterFormat?: string | null
+      variables?: string[]
+    }>
+  }>
 }
 
 export async function getVendeaiMeta(slug: string) {
