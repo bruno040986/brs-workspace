@@ -419,7 +419,7 @@ export type WesalesBusinessRecord = { id: string; properties: Record<string, unk
 export async function createBusinessRecord(properties: Record<string, unknown>): Promise<WesalesBusinessRecord> {
   const res = await http<{ record: WesalesBusinessRecord }>(`/objects/business/records`, {
     method: 'POST',
-    body: { properties },
+    body: { locationId: locationId(), properties },
   })
   return res.record
 }
