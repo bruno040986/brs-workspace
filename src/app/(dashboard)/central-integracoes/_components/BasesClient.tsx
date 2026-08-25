@@ -18,6 +18,16 @@ function fmt(value: string | null): string {
   return new Date(value).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+function slugPreview(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50)
+}
+
 export default function BasesClient({ slug, initialJobs, jobsError }: {
   slug: string
   initialJobs: CentralJob[]
@@ -93,7 +103,7 @@ export default function BasesClient({ slug, initialJobs, jobsError }: {
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Nome da base<span className="required">*</span></label>
             <input className="form-control" placeholder="ex.: motor-agosto-2" value={label} onChange={(e) => setLabel(e.target.value)} />
-            <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', marginTop: 4 }}>Vira a tag <code>base-{label ? label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || '…'}</code> no WeSales</div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', marginTop: 4 }}>Vira a tag <code>base-{label ? slugPreview(label) : '…'}</code> no WeSales</div>
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Arquivo (CSV ou XLSX)<span className="required">*</span></label>
