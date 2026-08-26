@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CalendarOff, Calculator, CheckCircle, Loader2, Plus, Trash2, X } from 'lucide-react'
-import { createCoeficientes, encerrarCoeficiente, excluirCoeficiente, getCoeficientes, getCoeficientesLookups } from './actions'
+import { AlertCircle, CalendarOff, Calculator, CheckCircle, FileUp, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
+import { createCoeficientes, encerrarCoeficiente, excluirCoeficiente, getCoeficientes, getCoeficientesLookups, getInstituicoesFinanceiras } from './actions'
 
 type Tabela = {
   id: string
@@ -16,6 +16,8 @@ type Tabela = {
   prazos_comissao: Array<{ prazo_inicial: number; prazo_final: number }>
 }
 type Convenio = { id: string; nome: string; codigo: string | null }
+type Instituicao = { id: string; name: string }
+type ResultadoImportacao = { arquivo: string; ok: boolean; mensagem: string; gravados?: number }
 type Coeficiente = {
   id: string
   tabela_comissao_id: string
@@ -37,6 +39,7 @@ export default function CoeficientesPage() {
   const [items, setItems] = useState<Coeficiente[]>([])
   const [tabelas, setTabelas] = useState<Tabela[]>([])
   const [convenios, setConvenios] = useState<Convenio[]>([])
+  const [instituicoes, setInstituicoes] = useState<Instituicao[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -49,12 +52,27 @@ export default function CoeficientesPage() {
   const [vigenciaInicio, setVigenciaInicio] = useState(today())
   const [linhas, setLinhas] = useState<Linha[]>([{ prazo: '', coeficiente: '' }])
 
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [importInstituicaoId, setImportInstituicaoId] = useState('')
+  const [importConvenioId, setImportConvenioId] = useState('')
+  const [importTabelaId, setImportTabelaId] = useState('')
+  const [importFiles, setImportFiles] = useState<File[]>([])
+  const [importando, setImportando] = useState(false)
+  const [resultadosImportacao, setResultadosImportacao] = useState<ResultadoImportacao[] | null>(null)
+
+  const importInstituicaoNome = useMemo(
+    () => instituicoes.find((item) => item.id === importInstituicaoId)?.name || '',
+    [importInstituicaoId, instituicoes],
+  )
+  const importEhSantander = /santander/i.test(importInstituicaoNome)
+
   async function loadData(filters = { convenioId: convenioFilter, tabelaId: tabelaFilter, vigentes: apenasVigentes }) {
     setLoading(true)
     try {
-      const [itemsRes, lookupsRes] = await Promise.all([
+      const [itemsRes, lookupsRes, instituicoesRes] = await Promise.all([
         getCoeficientes({ convenioId: filters.convenioId || undefined, tabelaComissaoId: filters.tabelaId || undefined, apenasVigentes: filters.vigentes }),
         getCoeficientesLookups(),
+        getInstituicoesFinanceiras(),
       ])
       if (itemsRes.success) setItems((itemsRes.items || []) as unknown as Coeficiente[])
       else setMessage({ type: 'error', text: itemsRes.error || 'Erro ao carregar coeficientes.' })
@@ -62,6 +80,7 @@ export default function CoeficientesPage() {
         setTabelas((lookupsRes.tabelas || []) as unknown as Tabela[])
         setConvenios((lookupsRes.convenios || []) as Convenio[])
       }
+      if (instituicoesRes.success) setInstituicoes((instituicoesRes.items || []) as Instituicao[])
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Erro ao carregar coeficientes.' })
     } finally {
@@ -140,6 +159,43 @@ export default function CoeficientesPage() {
     }
   }
 
+  function openImport() {
+    setImportInstituicaoId('')
+    setImportConvenioId('')
+    setImportTabelaId('')
+    setImportFiles([])
+    setResultadosImportacao(null)
+    setIsImportModalOpen(true)
+  }
+
+  async function handleImportar(e: React.FormEvent) {
+    e.preventDefault()
+    if (!importFiles.length) return
+    setImportando(true)
+    setResultadosImportacao(null)
+    try {
+      const body = new FormData()
+      body.set('instituicao_id', importInstituicaoId)
+      body.set('convenio_id', importConvenioId)
+      if (importTabelaId) body.set('tabela_comissao_id', importTabelaId)
+      importFiles.forEach((file) => body.append('files', file))
+
+      const res = await fetch('/api/comissionamento/importar-fatores', { method: 'POST', body })
+      const json = await res.json()
+      if (!res.ok) {
+        setMessage({ type: 'error', text: json.error || 'Erro ao importar o(s) PDF(s).' })
+        return
+      }
+      setResultadosImportacao(json.resultados || [])
+      const gravados = (json.resultados || []).filter((r: ResultadoImportacao) => r.ok).length
+      if (gravados > 0) await loadData()
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Erro ao importar o(s) PDF(s).' })
+    } finally {
+      setImportando(false)
+    }
+  }
+
   async function handleDelete(item: Coeficiente) {
     if (!confirm('Excluir coeficiente apenas correção de lançamento errado?')) return
     setBusyId(item.id)
@@ -161,7 +217,10 @@ export default function CoeficientesPage() {
     <div className="page-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
         <div><div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Calculator size={18} />Coeficientes Financeiros</div><div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>Coeficientes por tabela de comissão, prazo e vigência.</div></div>
-        <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} />Lançar Coeficientes</button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button type="button" className="btn btn-outline" onClick={openImport}><FileUp size={16} />Importar PDF de Fatores</button>
+          <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} />Lançar Coeficientes</button>
+        </div>
       </div>
       {message && <div style={{ marginBottom: '1rem', padding: '0.875rem 1rem', borderRadius: 10, border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`, background: message.type === 'success' ? '#ECFDF5' : '#FEF2F2', color: message.type === 'success' ? '#065F46' : '#991B1B', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>{message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}<span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{message.text}</span></div>}
       <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -193,6 +252,89 @@ export default function CoeficientesPage() {
           {selectedTabela && <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '1rem' }}>Tabela selecionada: {selectedTabela.nome}</div>}
         </div>
         <div className="modal-footer"><button type="button" className="btn btn-outline" onClick={() => setIsModalOpen(false)}>Cancelar</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <Loader2 size={16} className="spinner" /> : null}Salvar</button></div>
+      </form></div></div>}
+
+      {isImportModalOpen && <div className="modal-backdrop" onClick={() => setIsImportModalOpen(false)}><div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}><form onSubmit={handleImportar}>
+        <div className="modal-header"><h3 className="modal-title">Importar PDF de Fatores</h3><button type="button" className="btn btn-ghost btn-icon" onClick={() => setIsImportModalOpen(false)}><X size={20} /></button></div>
+        <div className="modal-body">
+          <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+            Sobe o "Relatório de Fatores PRICE" do banco (PDF) e o sistema grava o coeficiente (1/Fator) de cada dia coberto pelo relatório — sem precisar digitar um por um.
+          </div>
+          <div className="form-grid form-grid-2">
+            <div className="form-group">
+              <label className="form-label">Instituição Financeira <span className="required">*</span></label>
+              <select className="form-control" required value={importInstituicaoId} onChange={(e) => { setImportInstituicaoId(e.target.value); setImportTabelaId('') }}>
+                <option value="">Selecione</option>
+                {instituicoes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Convênio <span className="required">*</span></label>
+              <select className="form-control" required value={importConvenioId} onChange={(e) => setImportConvenioId(e.target.value)}>
+                <option value="">Selecione</option>
+                {convenios.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="form-group" style={{ marginTop: '1rem' }}>
+            <label className="form-label">Tabela de Comissão {!importEhSantander && <span className="required">*</span>}</label>
+            <select
+              className="form-control"
+              required={!!importInstituicaoId && !importEhSantander}
+              disabled={!importInstituicaoId || importEhSantander}
+              value={importTabelaId}
+              onChange={(e) => setImportTabelaId(e.target.value)}
+            >
+              <option value="">{importEhSantander ? 'Resolvida automaticamente pela Regra do PDF' : 'Selecione'}</option>
+              {tabelas
+                .filter((item) => (!importConvenioId || item.convenio_id === importConvenioId))
+                .map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}
+            </select>
+            {!importEhSantander && importInstituicaoId && (
+              <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '0.35rem' }}>
+                Leitor de PDF ainda não implementado para esta instituição — a tabela fica pronta pra quando o leitor for adicionado.
+              </div>
+            )}
+          </div>
+          <div className="form-group" style={{ marginTop: '1rem' }}>
+            <label className="form-label">Arquivo(s) PDF <span className="required">*</span></label>
+            <input
+              type="file"
+              className="form-control"
+              accept="application/pdf"
+              multiple
+              onChange={(e) => setImportFiles(Array.from(e.target.files || []))}
+            />
+            {importFiles.length > 0 && <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '0.35rem' }}>{importFiles.length} arquivo(s) selecionado(s)</div>}
+          </div>
+
+          {resultadosImportacao && (
+            <div style={{ marginTop: '1.25rem', display: 'grid', gap: '0.5rem' }}>
+              {resultadosImportacao.map((r, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: '0.75rem',
+                    borderRadius: 8,
+                    border: `1px solid ${r.ok ? '#A7F3D0' : '#FECACA'}`,
+                    background: r.ok ? '#ECFDF5' : '#FEF2F2',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ fontWeight: 700 }}>{r.arquivo}</div>
+                  <div style={{ color: r.ok ? '#065F46' : '#991B1B' }}>{r.mensagem}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-outline" onClick={() => setIsImportModalOpen(false)}>Fechar</button>
+          <button type="submit" className="btn btn-primary" disabled={importando || !importFiles.length}>
+            {importando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
+            Importar
+          </button>
+        </div>
       </form></div></div>}
     </div>
   )

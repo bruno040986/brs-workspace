@@ -44,6 +44,24 @@ export async function getCoeficientesLookups() {
   }
 }
 
+/** Instituições ativas — usado no seletor do importador de PDF de fatores. */
+export async function getInstituicoesFinanceiras() {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    const { data, error } = await supabaseAdmin
+      .from('financial_institutions')
+      .select('id, name')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .order('name')
+    if (error) throw error
+    return { success: true, items: data || [] }
+  } catch (error: any) {
+    console.error('Erro ao listar instituições financeiras:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export async function getCoeficientes(filtros?: {
   tabelaComissaoId?: string
   convenioId?: string
