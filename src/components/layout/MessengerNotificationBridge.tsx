@@ -222,8 +222,8 @@ export function MessengerNotificationBridge() {
 
   useEffect(() => {
     void bootstrap()
-    const conversationsInterval = window.setInterval(() => void refreshConversations(), 3000)
-    const contactsInterval = window.setInterval(() => void refreshContacts(), 4000)
+    const conversationsInterval = window.setInterval(() => void refreshConversations(), 8000)
+    const contactsInterval = window.setInterval(() => void refreshContacts(), 12000)
     return () => {
       window.clearInterval(conversationsInterval)
       window.clearInterval(contactsInterval)
@@ -254,7 +254,7 @@ export function MessengerNotificationBridge() {
               title: 'Entrada no Messenger',
               body,
             })
-            showBrowserNotification('BRS Messenger', body, `contact-${contact.id}-${Date.now()}`)
+            showBrowserNotification('BRS Messenger', body, `contact-${contact.id}`)
             played = true
           }
         }
@@ -322,7 +322,7 @@ export function MessengerNotificationBridge() {
 
       for (const alert of alerts) {
         const body = `${alert.name || 'Usuário'} enviou uma mensagem.`
-        showBrowserNotification('BRS Messenger', body, `message-${alert.name || 'user'}-${Date.now()}`)
+        showBrowserNotification('BRS Messenger', body, `message-${alert.name || 'user'}`)
       }
 
       playMessageSound()
@@ -404,9 +404,9 @@ export function MessengerNotificationBridge() {
         body,
         icon: NOTIFICATION_ICON,
         badge: NOTIFICATION_ICON,
-        requireInteraction: true,
+        requireInteraction: false,
         silent: true,
-        tag: tag || `brs-messenger-${Date.now()}`,
+        tag: tag || 'brs-messenger',
       })
     } catch (error) {
       console.error('Erro ao mostrar notificação do navegador:', error)
@@ -509,4 +509,3 @@ export function MessengerNotificationBridge() {
     </div>
   )
 }
-

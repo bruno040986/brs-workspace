@@ -202,7 +202,11 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
 
   useEffect(() => {
     if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
-    conversationPollRef.current = window.setInterval(() => void fetchConversations(), 3000)
+    // O Bridge global (layout do dashboard) já faz esse mesmo polling em
+    // background; com o painel aberto só precisamos de uma cadência curta
+    // pra UI, sem duplicar a carga do Bridge com o mesmo intervalo.
+    const interval = hasGlobalMessengerNotifier() ? 5000 : 3000
+    conversationPollRef.current = window.setInterval(() => void fetchConversations(), interval)
     return () => {
       if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
     }
@@ -210,7 +214,8 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
 
   useEffect(() => {
     if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
-    contactsPollRef.current = window.setInterval(() => void fetchContacts(), 4000)
+    const interval = hasGlobalMessengerNotifier() ? 6000 : 4000
+    contactsPollRef.current = window.setInterval(() => void fetchContacts(), interval)
     return () => {
       if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
     }

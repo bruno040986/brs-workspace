@@ -43,11 +43,18 @@ export async function GET() {
       .select('user_id, nickname, status, status_message, last_seen_at, last_interaction_at, is_visible, has_focus')
       .in('user_id', otherUserIds)
 
+    // Sem corte, essa query lia o histórico inteiro de mensagens a cada
+    // poll (3s) — crescendo pra sempre e estourando o Disk IO do Supabase.
+    // Corte por data + limite prático: suficiente pra última mensagem e
+    // contagem de não lidas de conversas ativas.
+    const messagesSinceIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
     const { data: messages, error: msgErr } = await admin
       .from('workspace_chat_messages')
       .select('id, conversation_id, sender_id, body, created_at')
       .in('conversation_id', conversationIds)
+      .gte('created_at', messagesSinceIso)
       .order('created_at', { ascending: false })
+      .limit(2000)
     if (msgErr) throw msgErr
 
     const userMap = new Map((users || []).map((u) => [u.id, u]))
