@@ -142,6 +142,8 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   const initializedConversationsRef = useRef(false)
   const lastContactStatusRef = useRef<Record<string, ChatStatus>>({})
   const lastUnreadByConversationRef = useRef<Record<string, number>>({})
+  const pollCooldownUntilRef = useRef(0)
+  const pollFailuresRef = useRef(0)
   const stickToBottomRef = useRef(true)
   const selectedConversation = useMemo<Conversation | null>(() => {
     const activeConversation = messengerDock.activeConversation
@@ -323,8 +325,24 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     setEffectiveStatus(deriveChatStatus(snapshot, Date.now()))
   }
 
+  function registerPollFailure() {
+    pollFailuresRef.current = Math.min(pollFailuresRef.current + 1, 6)
+    const backoffMs = Math.min(60000, 5000 * 2 ** pollFailuresRef.current)
+    pollCooldownUntilRef.current = Date.now() + backoffMs
+  }
+
+  function registerPollSuccess() {
+    pollFailuresRef.current = 0
+    pollCooldownUntilRef.current = 0
+  }
+
   async function fetchContacts() {
+    if (Date.now() < pollCooldownUntilRef.current) return
     const response = await fetch('/api/chat/contacts')
+    if (!response.ok) {
+      registerPollFailure()
+      return
+    }
     const data = await response.json()
     const nextContacts = Array.isArray(data) ? (data as Contact[]) : []
 
@@ -349,10 +367,16 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     lastContactStatusRef.current = statusMap
     initializedContactsRef.current = true
     setContacts(nextContacts)
+    registerPollSuccess()
   }
 
   async function fetchConversations() {
+    if (Date.now() < pollCooldownUntilRef.current) return
     const response = await fetch('/api/chat/conversations')
+    if (!response.ok) {
+      registerPollFailure()
+      return
+    }
     const data = await response.json()
     const nextConversations = Array.isArray(data) ? (data as Conversation[]) : []
 
@@ -383,6 +407,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     lastUnreadByConversationRef.current = unreadMap
     initializedConversationsRef.current = true
     setConversations(nextConversations)
+    registerPollSuccess()
   }
 
   function pushToast(text: string) {

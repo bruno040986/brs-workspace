@@ -75,6 +75,8 @@ export function MessengerNotificationBridge() {
   const permissionRequestedRef = useRef(false)
   const lastMessageSoundAtRef = useRef(0)
   const lastContactSoundAtRef = useRef(0)
+  const pollCooldownUntilRef = useRef(0)
+  const pollFailuresRef = useRef(0)
   const originalFaviconHrefRef = useRef<string | null>(null)
   const faviconLinkRef = useRef<HTMLLinkElement | null>(null)
 
@@ -235,9 +237,27 @@ export function MessengerNotificationBridge() {
     await Promise.all([refreshConversations(true), refreshContacts(true)])
   }
 
+  function registerPollFailure() {
+    pollFailuresRef.current = Math.min(pollFailuresRef.current + 1, 6)
+    const backoffMs = Math.min(60000, 5000 * 2 ** pollFailuresRef.current)
+    pollCooldownUntilRef.current = Date.now() + backoffMs
+  }
+
+  function registerPollSuccess() {
+    pollFailuresRef.current = 0
+    pollCooldownUntilRef.current = 0
+  }
+
   async function refreshContacts(silent = false) {
+    // Backend fora do ar/instável não deve virar mais uma origem de
+    // retries a cada tick do polling — pausa com backoff progressivo.
+    if (Date.now() < pollCooldownUntilRef.current) return
     try {
       const response = await fetch('/api/chat/contacts', { cache: 'no-store' })
+      if (!response.ok) {
+        registerPollFailure()
+        return
+      }
       const data = await response.json()
       const nextContacts = Array.isArray(data) ? (data as BridgeContact[]) : []
 
@@ -267,15 +287,22 @@ export function MessengerNotificationBridge() {
       }
       contactStatusRef.current = statusMap
       initializedContactsRef.current = true
+      registerPollSuccess()
       if (!silent) return
     } catch (error) {
       console.error('Erro ao atualizar contatos do Messenger:', error)
+      registerPollFailure()
     }
   }
 
   async function refreshConversations(silent = false) {
+    if (Date.now() < pollCooldownUntilRef.current) return
     try {
       const response = await fetch('/api/chat/conversations', { cache: 'no-store' })
+      if (!response.ok) {
+        registerPollFailure()
+        return
+      }
       const data = await response.json()
       const nextConversations = Array.isArray(data) ? (data as BridgeConversation[]) : []
 
@@ -303,6 +330,7 @@ export function MessengerNotificationBridge() {
       unreadByConversationRef.current = unreadMap
       initializedConversationsRef.current = true
       setUnreadCount(nextUnreadTotal)
+      registerPollSuccess()
 
       if (silent || alerts.length === 0) return
 
@@ -328,6 +356,7 @@ export function MessengerNotificationBridge() {
       playMessageSound()
     } catch (error) {
       console.error('Erro ao atualizar conversas do Messenger:', error)
+      registerPollFailure()
     }
   }
 

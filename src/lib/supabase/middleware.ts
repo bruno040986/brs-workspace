@@ -86,6 +86,16 @@ function getPublicCardSlugFromHost(request: NextRequest) {
   return slug
 }
 
+// Circuito por instância de função (não é distribuído entre lambdas, mas
+// numa instância "quente" atendendo várias requisições em sequência evita
+// martelar o Supabase Auth com uma chamada de 4s por requisição quando ele
+// já está instável/fora do ar — reduz nossa contribuição pra tempestade de
+// retries em cima de um Auth já degradado.
+type AuthCircuitState = { openUntil: number; consecutiveFailures: number }
+const authCircuit: AuthCircuitState = { openUntil: 0, consecutiveFailures: 0 }
+const AUTH_CIRCUIT_FAILURE_THRESHOLD = 3
+const AUTH_CIRCUIT_OPEN_MS = 15000
+
 async function getUserWithTimeout(
   supabase: ReturnType<typeof createServerClient>,
   timeoutMs = 4000,
@@ -198,11 +208,32 @@ export async function updateSession(request: NextRequest) {
 
   let user = null
 
+  if (authCircuit.openUntil > Date.now()) {
+    if (isPublicRoute) {
+      return supabaseResponse
+    }
+
+    if (isApiRequest(pathname)) {
+      return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
+    }
+
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
   try {
     const authResult = await getUserWithTimeout(supabase)
     user = authResult.data.user
+    authCircuit.consecutiveFailures = 0
+    authCircuit.openUntil = 0
   } catch (error) {
     console.error('Erro ao validar sessao no proxy:', error)
+
+    authCircuit.consecutiveFailures += 1
+    if (authCircuit.consecutiveFailures >= AUTH_CIRCUIT_FAILURE_THRESHOLD) {
+      authCircuit.openUntil = Date.now() + AUTH_CIRCUIT_OPEN_MS
+    }
 
     if (isPublicRoute) {
       return supabaseResponse
