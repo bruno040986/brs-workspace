@@ -69,6 +69,26 @@ carência_dias sozinhos, sem depender do PDF**:
   Santander** — o erro estimado é de ~7-10% no valor liberado, não é
   arredondamento.
 
+**Investigação adicional (26/08/2026, enquanto o Bruno estava fora):**
+- A **taxa de variação diária** do Fator publicado (mesma regra/prazo, dias
+  consecutivos, antes do salto mensal) bate quase exato com
+  `(1+i)^(-1/30)` — diferença de 0,007%, dentro do arredondamento do PDF (7
+  casas). Ou seja, **o mecanismo de composição diária da fórmula está
+  correto**; o que está errado é só a **data de referência** usada como
+  âncora da carência — não é um problema de fórmula/formato.
+- Testei a hipótese do Bruno de forma literal (carência contada a partir do
+  1º vencimento, não até ele) e uma variante (carência = prazo total do
+  contrato − n×30, usando a data da última parcela real: 10/09/2036) — **nenhuma
+  bateu** com a carência implícita real (~131 dias). A do Bruno dá ~45 dias
+  (igual à carência simples, não resolve); a variante da última parcela dá
+  ~68 dias. Nenhuma fecha os ~131 dias que o Fator publicado realmente usa.
+- **Conclusão por ora**: falta descobrir qual é a data/evento real que a
+  carência do Santander usa como âncora — não é a "vencimento da 1ª parcela"
+  mostrada na tela nem variações simples dela. Precisa de mais dados (um
+  relatório de Fatores de uma semana bem diferente, pra ver como o
+  deslocamento se comporta) ou confirmação direta com o Santander. Não vale a
+  pena continuar só por tentativa e erro sem mais informação.
+
 ## 4. Daycoval — primeiras observações (formato de relatório diferente)
 
 - PDF já traz o **"1º Venc" pronto** por linha — não precisa de regra de
