@@ -9,6 +9,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { getDefaultInstance } from '@/lib/zapi/instances'
 import { ZapiClient } from '@/lib/zapi/client'
+import { getAlertConfig, preencherMensagem } from './alert-config'
 
 const FAILURE_THRESHOLD = 2
 const HEALTH_CHECK_TIMEOUT_MS = 4000
@@ -23,10 +24,9 @@ async function checkSupabaseAuthHealth(): Promise<boolean> {
   }
 }
 
-async function enviarAlerta(mensagem: string) {
-  const telefone = String(process.env.SYSTEM_ALERT_PHONE || '').trim()
+async function enviarAlerta(mensagem: string, telefone: string) {
   if (!telefone) {
-    console.warn('SYSTEM_ALERT_PHONE não configurado — alerta de saúde não enviado:', mensagem)
+    console.warn('Telefone de alerta não configurado (Central de Integrações > Monitoramento) — alerta não enviado:', mensagem)
     return
   }
   try {
@@ -62,12 +62,10 @@ export async function runAuthHealthcheck(): Promise<{ status: 'ok' | 'degradado'
 
   let alertado = false
   if (novoStatus !== statusAnterior) {
+    const config = await getAlertConfig()
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-    if (novoStatus === 'degradado') {
-      await enviarAlerta(`⚠️ BRS Workspace: Supabase Auth degradado/indisponível desde ${agora}. Login pode falhar ou travar.`)
-    } else {
-      await enviarAlerta(`✅ BRS Workspace: Supabase Auth normalizado às ${agora}.`)
-    }
+    const template = novoStatus === 'degradado' ? config.mensagemDegradado : config.mensagemRecuperado
+    await enviarAlerta(preencherMensagem(template, 'Supabase Auth', agora), config.telefone)
     alertado = true
   }
 

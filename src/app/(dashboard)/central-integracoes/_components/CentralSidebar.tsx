@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  Activity, Database, LayoutDashboard, Radio, Rocket, Workflow,
+  Activity, Bell, Database, LayoutDashboard, Radio, Rocket, Workflow,
 } from 'lucide-react'
 
 const LINKS = [
@@ -12,6 +12,7 @@ const LINKS = [
   { href: '/central-integracoes/sistemas', label: 'Sistemas', icon: Radio, exact: false },
   { href: '/central-integracoes/acoes', label: 'Ações Manuais', icon: Rocket, exact: false },
   { href: '/central-integracoes/bases', label: 'Bases (Upload)', icon: Database, exact: false },
+  { href: '/central-integracoes/monitoramento', label: 'Monitoramento', icon: Bell, exact: false },
 ]
 
 export default function CentralSidebar() {
