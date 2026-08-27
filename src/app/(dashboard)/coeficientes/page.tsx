@@ -371,10 +371,17 @@ export default function CoeficientesPage() {
         </div>
         <div className="modal-footer">
           <button type="button" className="btn btn-outline" onClick={() => setIsImportModalOpen(false)}>Fechar</button>
-          <button type="submit" className="btn btn-primary" disabled={importando || !importFiles.length}>
-            {importando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
-            Importar
-          </button>
+          {resultadosImportacao ? (
+            <button type="button" className="btn btn-primary" onClick={openImport}>
+              <Plus size={16} />
+              Nova Importação
+            </button>
+          ) : (
+            <button type="submit" className="btn btn-primary" disabled={importando || !importFiles.length}>
+              {importando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
+              Importar
+            </button>
+          )}
         </div>
       </form></div></div>}
     </div>
