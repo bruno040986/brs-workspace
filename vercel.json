@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/alvoconsig-conferencia",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/auth-healthcheck",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

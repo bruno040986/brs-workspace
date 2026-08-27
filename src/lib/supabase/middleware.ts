@@ -208,18 +208,27 @@ export async function updateSession(request: NextRequest) {
 
   let user = null
 
+  // Redireciona pro login sinalizando ?motivo=instabilidade quando o motivo
+  // for o Supabase Auth não responder a tempo (timeout/disjuntor aberto),
+  // pra distinguir na tela de login de uma sessão realmente inválida — sem
+  // isso, os dois casos pareciam igualmente "e-mail ou senha inválidos".
+  function redirectParaLoginPorInstabilidade() {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('motivo', 'instabilidade')
+    return NextResponse.redirect(url)
+  }
+
   if (authCircuit.openUntil > Date.now()) {
     if (isPublicRoute) {
       return supabaseResponse
     }
 
     if (isApiRequest(pathname)) {
-      return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
+      return NextResponse.json({ error: 'Servico de autenticacao instavel. Tente novamente em instantes.' }, { status: 503 })
     }
 
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return redirectParaLoginPorInstabilidade()
   }
 
   try {
@@ -240,12 +249,10 @@ export async function updateSession(request: NextRequest) {
     }
 
     if (isApiRequest(pathname)) {
-      return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
+      return NextResponse.json({ error: 'Servico de autenticacao instavel. Tente novamente em instantes.' }, { status: 503 })
     }
 
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return redirectParaLoginPorInstabilidade()
   }
 
   // Cookie de sessão presente mas inválido: getUser() devolve user=null sem lançar.

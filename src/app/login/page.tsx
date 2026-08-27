@@ -1,31 +1,65 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
-import { Eye, EyeOff, LogIn } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Eye, EyeOff, LogIn, AlertTriangle } from 'lucide-react'
 import Image from 'next/image'
 
+const MENSAGEM_INSTABILIDADE =
+  'Não foi possível confirmar sua sessão a tempo — o serviço de autenticação está instável no momento (não é senha incorreta). Tente novamente em alguns instantes.'
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [avisoInstabilidade, setAvisoInstabilidade] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
+
+  useEffect(() => {
+    if (searchParams.get('motivo') === 'instabilidade') {
+      setAvisoInstabilidade(true)
+    }
+  }, [searchParams])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError('E-mail ou senha inválidos.')
+    setAvisoInstabilidade(false)
+    try {
+      const { error } = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      ])
+      if (error) {
+        // status 400 = credencial realmente inválida; qualquer outra coisa
+        // (timeout, 5xx, erro de rede) é instabilidade do serviço, não senha errada.
+        if (error.status === 400) {
+          setError('E-mail ou senha inválidos.')
+        } else {
+          setAvisoInstabilidade(true)
+        }
+        setLoading(false)
+      } else {
+        router.push('/')
+        router.refresh()
+      }
+    } catch {
+      setAvisoInstabilidade(true)
       setLoading(false)
-    } else {
-      router.push('/')
-      router.refresh()
     }
   }
 
@@ -49,6 +83,23 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleLogin}>
+          {avisoInstabilidade && (
+            <div
+              className="alert"
+              style={{
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.5rem',
+                background: '#FFF7E6',
+                border: '1px solid #FFD591',
+                color: '#874D00',
+              }}
+            >
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>{MENSAGEM_INSTABILIDADE}</span>
+            </div>
+          )}
           {error && (
             <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
               {error}
