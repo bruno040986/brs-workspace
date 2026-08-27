@@ -51,11 +51,14 @@ export async function parseFatoresSantander(buffer: Buffer): Promise<FatorSantan
   const [, convenioCodigo, convenioNome, regraCodigo, regraNome, seguroTxt, financiaIofTxt] = matchConvenioRegra
 
   const matchFaixa = texto.match(
-    /Faixa Parcelas:\s*([\d;]+)\s*;\s*Data\.?\s*In[íi]cio:\s*(\d{2}\/\d{2}\/\d{4})\s*;\s*Data Final:\s*(\d{2}\/\d{2}\/\d{4})/i,
+    /Faixa Parcelas:\s*([\d;\s]+?)\s*;\s*Data\.?\s*In[íi]cio:\s*(\d{2}\/\d{2}\/\d{4})\s*;\s*Data Final:\s*(\d{2}\/\d{2}\/\d{4})/i,
   )
   if (!matchFaixa) {
     throw new Error('Não encontrei a linha "Faixa Parcelas / Data Início / Data Final" — formato de PDF inesperado.')
   }
+  // Extração real do PDF (pdf2json) separa cada número/";" em tokens
+  // próprios, que viram "12 ; 24 ; 36" ao juntar as linhas — parseInt
+  // ignora o espaço em volta de cada token com folga.
   const prazos = matchFaixa[1]
     .split(';')
     .map((p) => Number.parseInt(p, 10))
@@ -63,12 +66,16 @@ export async function parseFatoresSantander(buffer: Buffer): Promise<FatorSantan
   const dataInicio = dataIsoBr(matchFaixa[2])
   const dataFinal = dataIsoBr(matchFaixa[3])
 
-  const linhaTaxa = linhasPdf.find((l) => /^TAXA\b/i.test(l.texto))
-  if (!linhaTaxa) throw new Error('Não encontrei a linha "TAXA" da tabela — formato de PDF inesperado.')
-  const taxaTokens = linhaTaxa.texto.replace(/^TAXA\s*/i, '').trim().split(/\s+/).filter(Boolean)
+  const taxaIndex = linhasPdf.findIndex((l) => /^TAXA\b/i.test(l.texto))
+  if (taxaIndex === -1) throw new Error('Não encontrei a linha "TAXA" da tabela — formato de PDF inesperado.')
+  // Em alguns PDFs o rótulo "TAXA" e a linha de valores ficam em Y ligeiramente
+  // diferentes (não mesclam na reconstrução de linha) — cai pra linha seguinte.
+  let taxaValoresTexto = linhasPdf[taxaIndex].texto.replace(/^TAXA\s*/i, '').trim()
+  if (!taxaValoresTexto) taxaValoresTexto = (linhasPdf[taxaIndex + 1]?.texto || '').trim()
+  const taxaTokens = taxaValoresTexto.split(/\s+/).filter(Boolean)
   const taxaPercentual = numeroBr(taxaTokens[0])
   if (!Number.isFinite(taxaPercentual) || taxaPercentual <= 0) {
-    throw new Error(`Não consegui ler a taxa na linha "TAXA" (lida: "${linhaTaxa.texto}").`)
+    throw new Error(`Não consegui ler a taxa na linha "TAXA" (lida: "${taxaValoresTexto}").`)
   }
 
   const dadoRegex = /^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/
