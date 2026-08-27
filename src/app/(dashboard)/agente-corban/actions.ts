@@ -299,6 +299,27 @@ export async function saveAgenteCorbanRecord(draft: Partial<AgenteCorbanDraft>) 
         .eq('id', recordId)
       if (error) throw error
 
+      // A senha do parceiro é sempre gerada no ARW e colada aqui (sem
+      // integração automática com o ARW) — este campo é a fonte da verdade
+      // pro login do Portal Parceiro/AlvoConsig. Ao mudar, sincroniza no
+      // Supabase Auth de verdade (decisão Bruno 27/08/2026).
+      const novaSenha = String(persistence.temporary_password || '').trim()
+      const senhaAnterior = String(existingRecord?.temporary_password || '').trim()
+      if (novaSenha && novaSenha !== senhaAnterior) {
+        const authUserId = existingRecord?.auth_user_id ? String(existingRecord.auth_user_id) : null
+        if (authUserId) {
+          const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, { password: novaSenha })
+          if (authError) {
+            console.error('Erro ao sincronizar senha do parceiro com o Auth:', authError)
+            return {
+              success: false,
+              error: `Cadastro salvo, mas a senha de acesso NÃO foi sincronizada: ${authError.message}`,
+              id: recordId,
+            }
+          }
+        }
+      }
+
       revalidateAgenteCorbanPaths(recordId)
       return { success: true, id: recordId }
     }
