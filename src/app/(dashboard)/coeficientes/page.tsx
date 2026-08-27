@@ -66,6 +66,14 @@ export default function CoeficientesPage() {
   )
   const importEhSantander = /santander/i.test(importInstituicaoNome)
 
+  const conveniosDaInstituicao = useMemo(() => {
+    if (!importInstituicaoId) return convenios
+    const idsComTabela = new Set(
+      tabelas.filter((t) => t.financial_institutions?.id === importInstituicaoId).map((t) => t.convenio_id),
+    )
+    return convenios.filter((c) => idsComTabela.has(c.id))
+  }, [convenios, tabelas, importInstituicaoId])
+
   async function loadData(filters = { convenioId: convenioFilter, tabelaId: tabelaFilter, vigentes: apenasVigentes }) {
     setLoading(true)
     try {
@@ -263,17 +271,33 @@ export default function CoeficientesPage() {
           <div className="form-grid form-grid-2">
             <div className="form-group">
               <label className="form-label">Instituição Financeira <span className="required">*</span></label>
-              <select className="form-control" required value={importInstituicaoId} onChange={(e) => { setImportInstituicaoId(e.target.value); setImportTabelaId('') }}>
+              <select
+                className="form-control"
+                required
+                value={importInstituicaoId}
+                onChange={(e) => { setImportInstituicaoId(e.target.value); setImportConvenioId(''); setImportTabelaId('') }}
+              >
                 <option value="">Selecione</option>
                 {instituicoes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label className="form-label">Convênio <span className="required">*</span></label>
-              <select className="form-control" required value={importConvenioId} onChange={(e) => setImportConvenioId(e.target.value)}>
-                <option value="">Selecione</option>
-                {convenios.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+              <select
+                className="form-control"
+                required
+                disabled={!importInstituicaoId}
+                value={importConvenioId}
+                onChange={(e) => setImportConvenioId(e.target.value)}
+              >
+                <option value="">{importInstituicaoId ? 'Selecione' : 'Selecione a instituição primeiro'}</option>
+                {conveniosDaInstituicao.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
               </select>
+              {importInstituicaoId && conveniosDaInstituicao.length === 0 && (
+                <div style={{ color: '#B45309', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                  Nenhum convênio tem Tabela de Comissão cadastrada para "{importInstituicaoNome}" ainda.
+                </div>
+              )}
             </div>
           </div>
           <div className="form-group" style={{ marginTop: '1rem' }}>
@@ -287,6 +311,7 @@ export default function CoeficientesPage() {
             >
               <option value="">{importEhSantander ? 'Resolvida automaticamente pela Regra do PDF' : 'Selecione'}</option>
               {tabelas
+                .filter((item) => item.financial_institutions?.id === importInstituicaoId)
                 .filter((item) => (!importConvenioId || item.convenio_id === importConvenioId))
                 .map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}
             </select>
