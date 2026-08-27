@@ -73,14 +73,27 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const { data: tabela } = await admin
+        const { data: tabela, error: tabelaError } = await admin
           .from('tabelas_comissao')
           .select('id, nome, codigo_tabela_banco, taxa_juros')
           .eq('institution_id', instituicaoId)
           .eq('convenio_id', convenioId)
           .eq('codigo_tabela_banco', parsed.regraCodigo)
+          .eq('is_active', true)
           .is('deleted_at', null)
           .maybeSingle()
+
+        if (tabelaError) {
+          resultados.push({
+            arquivo: file.name,
+            ok: false,
+            mensagem:
+              tabelaError.code === 'PGRST116'
+                ? `Existe mais de uma Tabela de Comissão ativa com o código "${parsed.regraCodigo}" para essa instituição/convênio — corrija o cadastro (desative/exclua a duplicata) antes de importar.`
+                : `Erro ao resolver a Tabela de Comissão: ${tabelaError.message}`,
+          })
+          continue
+        }
 
         const tabelaId = tabela?.id || tabelaIdManual
         if (!tabelaId) {
