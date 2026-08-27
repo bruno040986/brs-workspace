@@ -1828,7 +1828,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
 
           {activeTab === 'acesso' && (
             <div style={{ display: 'grid', gap: '1rem' }}>
-              <SectionTitle icon={<ShieldCheck size={18} />} title="Acesso" description="Preencha os campos conforme o preenchimento no sistema ARW e preencha os campos Código ARW e Senha Inicial ARW para constar no e-mail de boas vindas." />
+              <SectionTitle icon={<ShieldCheck size={18} />} title="Acesso" description="Preencha os campos conforme o preenchimento no sistema ARW. A Senha ARW é a senha de acesso do parceiro ao Portal Parceiro/AlvoConsig — ao trocar a senha no ARW, cole aqui e salve para sincronizar o acesso." />
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: '0.75rem' }}>
                 <div style={{ gridColumn: 'span 4' }}>
@@ -1947,7 +1947,7 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 </div>
                 <div style={{ gridColumn: 'span 4' }}>
                   <PasswordField
-                    label="Senha Inicial ARW"
+                    label="Senha ARW"
                     value={draft.temporary_password || ''}
                     onChange={(next) => patchDraft({ temporary_password: next })}
                     placeholder="Senha provisória de acesso"
