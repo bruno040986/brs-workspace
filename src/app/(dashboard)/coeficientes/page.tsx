@@ -309,20 +309,36 @@ export default function CoeficientesPage() {
           </div>
 
           {resultadosImportacao && (
-            <div style={{ marginTop: '1.25rem', display: 'grid', gap: '0.5rem' }}>
+            <div style={{ marginTop: '1.25rem', display: 'grid', gap: '0.6rem' }}>
               {resultadosImportacao.map((r, idx) => (
                 <div
                   key={idx}
                   style={{
-                    padding: '0.75rem',
-                    borderRadius: 8,
-                    border: `1px solid ${r.ok ? '#A7F3D0' : '#FECACA'}`,
+                    padding: '0.9rem 1rem',
+                    borderRadius: 10,
+                    border: `1.5px solid ${r.ok ? '#6EE7B7' : '#FECACA'}`,
                     background: r.ok ? '#ECFDF5' : '#FEF2F2',
-                    fontSize: '0.85rem',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.65rem',
                   }}
                 >
-                  <div style={{ fontWeight: 700 }}>{r.arquivo}</div>
-                  <div style={{ color: r.ok ? '#065F46' : '#991B1B' }}>{r.mensagem}</div>
+                  {r.ok ? (
+                    <CheckCircle size={22} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
+                  ) : (
+                    <AlertCircle size={22} color="#DC2626" style={{ flexShrink: 0, marginTop: 1 }} />
+                  )}
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: r.ok ? '#065F46' : '#991B1B' }}>
+                      {r.ok ? 'Importação realizada com sucesso' : 'Falha na importação'}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--brs-gray-600)', marginTop: '0.15rem' }}>
+                      {r.arquivo}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: r.ok ? '#047857' : '#B91C1C', marginTop: '0.15rem' }}>
+                      {r.mensagem}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
