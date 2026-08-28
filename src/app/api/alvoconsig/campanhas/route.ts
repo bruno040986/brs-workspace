@@ -5,10 +5,18 @@
  * enfileira a troca de tag (disponivel → parceiro:<arw>) para o worker da
  * fila processar no ritmo dele.
  *
- * Cada oferta de REFIN já existe como Oportunidade (criada na importação) —
- * aqui só lemos. Ofertas de Novo/Cartão são CALCULADAS agora (coeficiente ×
- * margem) e viram Oportunidade nova, datada — histórico real do que foi
- * oferecido nesta campanha (ver docs/SPEC-CRM-WESALES-CAMPANHAS.md).
+ * Cada oferta de REFIN já existe como Oportunidade no pipeline "Ofertas de
+ * Crédito" (criada na importação — é o INVENTÁRIO da BRS) — aqui só lemos.
+ * Ofertas de Novo/Cartão são CALCULADAS agora (coeficiente × margem).
+ *
+ * Funis do parceiro (docs/SPEC-FUNIS-ALVOCONSIG.md, decisão 5): TODA oferta
+ * desta campanha (REFIN lido + Novo/Cartão calculado) vira uma linha em
+ * `crm_ofertas` e um card no pipeline "AC - Oferta"; o lead vira um card em
+ * "AC - Prospecção" (Carteira de Leads). Os cards no WeSales são criados
+ * pelo worker da fila do CRM (brs-alvoconsig, ops mover_oferta /
+ * mover_estagio) no ritmo do rate limit — esta rota não escreve mais
+ * oportunidade nenhuma no WeSales, e não toca mais em "Ofertas de Crédito"
+ * (pipeline da venda própria/NuAzul).
  *
  * Rota (não server action) para ter maxDuration próprio — a busca paginada no
  * WeSales para quantidades grandes pode levar dezenas de segundos.
@@ -18,18 +26,94 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
-  createOpportunity,
   findOpportunitiesByContactDetalhadas,
   opportunityFieldValue,
   resolveCustomField,
   searchContactsAte,
-  updateOpportunity,
   customFieldValue,
   type WesalesContact,
 } from '@/lib/wesales/client'
 import { tagBase, tagCampanha, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { ETAPA_DISPONIVEL, MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, TipoOferta, nomeOportunidade, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
-import { calcularOfertas, resolverOfertasRefin, type OfertaCalculada, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
+import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
+import { calcularOfertas, resolverOfertasRefin, type OfertasContato, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
+
+/** Linha de crm_ofertas ainda sem contato_id/campanha (preenchidos após o upsert do contato). */
+type LinhaOferta = {
+  produto: 'novo' | 'cartao_rmc' | 'cartao_rcc' | 'refin'
+  produto_nome: string
+  instituicao_id: string | null
+  instituicao_nome: string
+  tabela_comissao_id: string | null
+  tabela_nome: string
+  codigo_tabela_banco: string | null
+  com_seguro: boolean | null
+  prazo: number | null
+  coeficiente: number | null
+  taxa: string | null
+  margem: number | null
+  parcela: number | null
+  valor_liberado: number
+  dados: Record<string, unknown>
+}
+
+const PRODUTO_NOME: Record<LinhaOferta['produto'], string> = {
+  novo: 'Empréstimo Novo',
+  cartao_rmc: 'Cartão RMC',
+  cartao_rcc: 'Cartão RCC',
+  refin: 'Refinanciamento',
+}
+
+function montarLinhasOfertas(ofertas: OfertasContato): LinhaOferta[] {
+  const linhas: LinhaOferta[] = []
+  for (const produto of ['novo', 'cartao_rmc', 'cartao_rcc'] as const) {
+    for (const calc of ofertas[produto]) {
+      linhas.push({
+        produto,
+        produto_nome: calc.produto || PRODUTO_NOME[produto],
+        instituicao_id: calc.institutionId || null,
+        instituicao_nome: calc.instituicao,
+        tabela_comissao_id: calc.tabelaComissaoId || null,
+        tabela_nome: calc.tabela,
+        codigo_tabela_banco: calc.codigoTabelaBanco,
+        com_seguro: calc.comSeguro,
+        prazo: calc.prazo || null,
+        coeficiente: calc.coeficiente,
+        taxa: null,
+        margem: calc.margem,
+        parcela: null,
+        valor_liberado: calc.valorLiberado,
+        dados: { origem: 'campanha' },
+      })
+    }
+  }
+  for (const refin of ofertas.refin) {
+    if (!(typeof refin.troco === 'number' && refin.troco > 0)) continue
+    linhas.push({
+      produto: 'refin',
+      produto_nome: PRODUTO_NOME.refin,
+      instituicao_id: refin.instituicaoId || null,
+      instituicao_nome: refin.instituicaoNome || 'Instituição não identificada',
+      tabela_comissao_id: refin.tabelaComissaoId || null,
+      tabela_nome: refin.tabelaNome || refin.tabelaCodigo || '-',
+      codigo_tabela_banco: refin.tabelaCodigo,
+      com_seguro: null,
+      prazo: refin.prazo,
+      coeficiente: null,
+      taxa: refin.taxa,
+      margem: null,
+      parcela: refin.parcela,
+      valor_liberado: refin.troco,
+      // Oportunidade de origem no inventário ("Ofertas de Crédito") — só referência.
+      dados: { origem: 'campanha', refin_opportunity_id: refin.opportunityId },
+    })
+  }
+  return linhas
+}
+
+/** Mesma identidade natural do índice único crm_ofertas_identidade_uidx. */
+function chaveOferta(o: { contato_id: string; produto: string; tabela_comissao_id: string | null; codigo_tabela_banco: string | null; prazo: number | null }) {
+  return `${o.contato_id}|${o.produto}|${o.tabela_comissao_id ?? o.codigo_tabela_banco ?? ''}|${o.prazo ?? 0}`
+}
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -38,9 +122,6 @@ const QUANTIDADE_MAXIMA = 20_000
 
 function digits(value: unknown) {
   return String(value ?? '').replace(/\D/g, '')
-}
-function digitsOrRaw(value: string) {
-  return value.replace(/\D/g, '') || value
 }
 
 function parseMoneyField(value: string | null): number | null {
@@ -147,8 +228,8 @@ export async function POST(request: NextRequest) {
     entradasOferta.forEach(([, key], i) => { ofertaFieldDefs[key] = ofertaFieldsResolvidos[i] })
     const fCampo = (campo: keyof typeof OFERTA_FIELD_KEYS): string | null => ofertaFieldDefs[OFERTA_FIELD_KEYS[campo]]?.id ?? null
 
+    // Só pra LER as ofertas de REFIN do inventário — nada é escrito lá.
     const pipelineOfertas = await resolverPipelineOfertas()
-    const stageDisponivelId = pipelineOfertas.stages[ETAPA_DISPONIVEL]?.id
 
     const { data: conveniosData } = await admin.from('convenios').select('id, codigo_sistema').is('deleted_at', null)
     const convenioPorCodigo = new Map<string, string>()
@@ -185,44 +266,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Falha ao criar a campanha.' }, { status: 500 })
     }
 
-    /** Cria/atualiza a Oportunidade de uma oferta calculada (Novo/RMC/RCC) — histórico datado, nunca sobrescreve outra campanha anterior. */
-    async function gravarOfertaCalculada(contactId: string, tipo: TipoOferta, calc: OfertaCalculada, existentes: Awaited<ReturnType<typeof findOpportunitiesByContactDetalhadas>>) {
-      const tipoFieldId = fCampo('tipoOferta')
-      const instFieldId = fCampo('instituicaoId')
-      const tabelaFieldId = fCampo('tabelaCodigo')
-      const prazoFieldId = fCampo('prazo')
-      if (!tipoFieldId || !instFieldId || !tabelaFieldId) return
-
-      const alvo = existentes.find((op) => {
-        if (opportunityFieldValue(op, tipoFieldId) !== tipo) return false
-        if (opportunityFieldValue(op, instFieldId) !== calc.institutionId) return false
-        const tabelaOp = opportunityFieldValue(op, tabelaFieldId)
-        return !!tabelaOp && !!calc.codigoTabelaBanco && digitsOrRaw(tabelaOp) === digitsOrRaw(calc.codigoTabelaBanco)
-      })
-
-      const customFields: Array<{ id: string; fieldValue: string }> = [
-        { id: tipoFieldId, fieldValue: tipo },
-        { id: instFieldId, fieldValue: calc.institutionId },
-      ]
-      const instNomeFieldId = fCampo('instituicao')
-      if (instNomeFieldId) customFields.push({ id: instNomeFieldId, fieldValue: calc.instituicao })
-      if (calc.codigoTabelaBanco) customFields.push({ id: tabelaFieldId, fieldValue: calc.codigoTabelaBanco })
-      if (prazoFieldId) customFields.push({ id: prazoFieldId, fieldValue: String(calc.prazo) })
-
-      if (alvo) {
-        await updateOpportunity(alvo.id, { monetaryValue: calc.valorLiberado, customFields })
-      } else if (stageDisponivelId) {
-        const nova = await createOpportunity({
-          contactId,
-          pipelineId: pipelineOfertas.pipeline.id,
-          pipelineStageId: stageDisponivelId,
-          name: nomeOportunidade(tipo, calc.instituicao, calc.tabela),
-          monetaryValue: calc.valorLiberado,
-          customFields,
-        })
-        existentes.push(nova)
-      }
-    }
+    // Ofertas desta campanha por contato do WeSales — viram linhas de
+    // crm_ofertas depois que o contato local existe (upsert abaixo).
+    const ofertasPorContato = new Map<string, LinhaOferta[]>()
 
     const agora = new Date().toISOString()
     const linhas: Array<Record<string, unknown>> = []
@@ -261,17 +307,9 @@ export async function POST(request: NextRequest) {
 
       const ofertas = await calcularOfertas(admin, convenioResolvido, margens, refin)
 
-      // Novo/RMC/RCC calculados agora (só roda de fato quando houver
-      // coeficientes cadastrados pro convênio — senão os arrays vêm vazios).
-      for (const tipo of ['novo', 'cartao_rmc', 'cartao_rcc'] as const) {
-        for (const calc of ofertas[tipo]) {
-          try {
-            await gravarOfertaCalculada(contato.id, tipo, calc, oportunidadesExistentes)
-          } catch (error: any) {
-            console.error(`Falha ao gravar oferta calculada (${tipo}) do contato ${contato.id}:`, error?.message || error)
-          }
-        }
-      }
+      // Novo/RMC/RCC calculados agora + REFIN lido: 1 linha por oferta
+      // (só roda de fato quando houver coeficientes pro convênio).
+      ofertasPorContato.set(contato.id, montarLinhasOfertas(ofertas))
 
       linhas.push({
         wesales_contact_id: contato.id,
@@ -320,11 +358,62 @@ export async function POST(request: NextRequest) {
         if (donoError) console.error('Falha ao gravar dono do lead:', donoError)
       }
 
-      const filaOps = (inseridos || []).flatMap((row: any) => [
-        { operacao: 'remover_tag', contato_id: row.id, payload: { tag: TAG_DISPONIVEL } },
-        { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: `parceiro:${arwCode}` } },
-        { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: tagCampanha(codigoCampanha) } },
-      ])
+      // crm_ofertas: 1 linha por oferta deste chunk. Reaproveita o que já
+      // existir (mesma identidade natural) pra não duplicar em recampanha.
+      const contatoIdsChunk = (inseridos || []).map((row: any) => String(row.id))
+      const { data: ofertasExistentes } = await admin
+        .from('crm_ofertas')
+        .select('id, contato_id, produto, tabela_comissao_id, codigo_tabela_banco, prazo')
+        .in('contato_id', contatoIdsChunk)
+        .is('deleted_at', null)
+      const idPorChave = new Map<string, string>()
+      for (const existente of ofertasExistentes || []) {
+        idPorChave.set(
+          chaveOferta({
+            contato_id: String(existente.contato_id),
+            produto: String(existente.produto),
+            tabela_comissao_id: existente.tabela_comissao_id ? String(existente.tabela_comissao_id) : null,
+            codigo_tabela_banco: existente.codigo_tabela_banco ? String(existente.codigo_tabela_banco) : null,
+            prazo: typeof existente.prazo === 'number' ? existente.prazo : null,
+          }),
+          String(existente.id),
+        )
+      }
+
+      const linhasNovas: Array<LinhaOferta & { contato_id: string; agente_parceiro_id: string; campanha_id: string }> = []
+      for (const row of inseridos || []) {
+        for (const linha of ofertasPorContato.get(String(row.wesales_contact_id)) || []) {
+          const candidata = { ...linha, contato_id: String(row.id), agente_parceiro_id: agenteParceiroId, campanha_id: campanha.id }
+          if (idPorChave.has(chaveOferta(candidata))) continue
+          linhasNovas.push(candidata)
+        }
+      }
+      const ofertaIdsDoChunk: Array<{ ofertaId: string; contatoId: string }> = []
+      for (const [chave, id] of idPorChave) ofertaIdsDoChunk.push({ ofertaId: id, contatoId: chave.split('|')[0] })
+      if (linhasNovas.length) {
+        const { data: ofertasInseridas, error: ofertasError } = await admin
+          .from('crm_ofertas')
+          .insert(linhasNovas)
+          .select('id, contato_id')
+        if (ofertasError) console.error('Falha ao gravar ofertas da campanha:', ofertasError)
+        for (const oferta of ofertasInseridas || []) ofertaIdsDoChunk.push({ ofertaId: String(oferta.id), contatoId: String(oferta.contato_id) })
+      }
+
+      // Fila do CRM: tags de dono + card do lead em AC-Prospecção (Carteira
+      // de Leads) + um card por oferta em AC-Oferta (Ofertas Disponíveis).
+      const filaOps = [
+        ...(inseridos || []).flatMap((row: any) => [
+          { operacao: 'remover_tag', contato_id: row.id, payload: { tag: TAG_DISPONIVEL } },
+          { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: `parceiro:${arwCode}` } },
+          { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: tagCampanha(codigoCampanha) } },
+          { operacao: 'mover_estagio', contato_id: row.id, payload: { estagio: 'carteira_de_leads' } },
+        ]),
+        ...ofertaIdsDoChunk.map(({ ofertaId, contatoId }) => ({
+          operacao: 'mover_oferta',
+          contato_id: contatoId,
+          payload: { ofertaId, estagio: 'ofertas_disponiveis' },
+        })),
+      ]
       if (filaOps.length) {
         const { error: filaError } = await admin.from('crm_wesales_queue').insert(filaOps)
         if (filaError) console.error('Falha ao enfileirar tags da campanha:', filaError)
