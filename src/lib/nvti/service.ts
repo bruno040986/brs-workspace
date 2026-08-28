@@ -14,6 +14,7 @@ import { NvtiApiError, consultarCpfRemoto, gerarToken } from './client'
 import { cleanCpf, isValidCpf } from './normalize'
 import { costForCount, currentMonthRange, unitCostForPosition } from './pricing'
 import type { HigienizacaoOutcome, NvtiOrigin, NvtiResultado } from './types'
+import { syncNvtiResultadoParaWesales } from './nvti-wesales'
 
 const TOKEN_MAX_AGE_MS = 20 * 60 * 60 * 1000 // renova antes das 24h de validade
 
@@ -55,6 +56,20 @@ async function insertQueryRow(admin: SupabaseClient, row: LogRowInput): Promise<
     .select('id')
     .single()
   return data?.id ? String(data.id) : undefined
+}
+
+/**
+ * Gravação no WeSales é best-effort: nunca deve derrubar a resposta da NVTI
+ * (o resultado já está salvo em nvti_queries de qualquer forma). Roda pra
+ * TODA consulta bem-sucedida, veio do cache ou não, de qualquer origem
+ * (manual, lote, service — Portal Parceiro incluso quando existir).
+ */
+async function sincronizarComWesales(resultado: NvtiResultado): Promise<void> {
+  try {
+    await syncNvtiResultadoParaWesales(resultado)
+  } catch (error) {
+    console.error('[nvti->wesales] falha ao gravar resultado no WeSales:', error)
+  }
 }
 
 async function countBilledInMonth(admin: SupabaseClient): Promise<number> {
@@ -154,6 +169,7 @@ export async function higienizarCpf(input: HigienizacaoInput): Promise<Higieniza
         success: true,
         response: resultado,
       })
+      await sincronizarComWesales(resultado)
       return { status: 'ok', queryId: queryId || '', fromCache: true, unitCost: 0, resultado }
     }
   }
@@ -203,6 +219,7 @@ export async function higienizarCpf(input: HigienizacaoInput): Promise<Higieniza
       success: true,
       response: resultado,
     })
+    await sincronizarComWesales(resultado)
     return { status: 'ok', queryId: queryId || '', fromCache: false, unitCost: unit, resultado }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Falha ao consultar a NVTI.'
