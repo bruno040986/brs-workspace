@@ -34,6 +34,7 @@ import {
   createContact,
   ensureCustomField,
   findContactByCpf,
+  getContact,
   normalizeCpfDigits,
   updateContact,
   type ContactPayload,
@@ -102,22 +103,32 @@ const NVTI_FIELD_LABELS: Record<keyof typeof NVTI_FIELD_KEYS, string> = {
 
 const TAG_HIGIENIZADO = 'nvti-higienizado'
 
+/** Mesma chave/rótulo que o worker do brs-alvoconsig usa (`garantirContato`) —
+ * é ESTE campo que `findContactByCpf` consulta. Sem ele no contato criado, a
+ * próxima higienização do mesmo CPF não o acha e duplica. */
+const CPF_FIELD_KEY = 'cpf'
+
 let camposGarantidos: Promise<Record<string, string>> | null = null
 
-/** Garante (cria se faltar) todos os custom fields nvti_* — 1x por container quente. */
+/** Garante (cria se faltar) todos os custom fields nvti_* + cpf — 1x por container quente. */
 async function garantirCamposNvti(): Promise<Record<string, string>> {
   if (!camposGarantidos) {
     camposGarantidos = (async () => {
-      const entries = await Promise.all(
-        (Object.entries(NVTI_FIELD_KEYS) as Array<[keyof typeof NVTI_FIELD_KEYS, string]>).map(
+      const entries = await Promise.all([
+        ensureCustomField(CPF_FIELD_KEY, 'CPF').then((def) => [CPF_FIELD_KEY, def.id] as const),
+        ...(Object.entries(NVTI_FIELD_KEYS) as Array<[keyof typeof NVTI_FIELD_KEYS, string]>).map(
           async ([campo, key]) => {
             const def = await ensureCustomField(key, NVTI_FIELD_LABELS[campo])
             return [key, def.id] as const
           },
         ),
-      )
+      ])
       return Object.fromEntries(entries)
-    })()
+    })().catch((error) => {
+      // Não deixa uma falha transitória (rede/token) ficar cacheada pra sempre.
+      camposGarantidos = null
+      throw error
+    })
   }
   return camposGarantidos
 }
@@ -203,7 +214,11 @@ export async function syncNvtiResultadoParaWesales(
     return
   }
 
-  await createContact({
+  // Contato novo: grava também o CPF (chave de busca) — sem isso o contato
+  // nasce "órfão" e a próxima consulta do mesmo CPF duplica.
+  const customFieldsNovo = [{ id: fieldIds[CPF_FIELD_KEY], fieldValue: cpf }, ...customFields]
+
+  const criado = await createContact({
     name: resultado.cadastro.nome || undefined,
     phone: celularE164(ordenados[0]) || undefined,
     email: resultado.emails[0] || undefined,
@@ -213,8 +228,19 @@ export async function syncNvtiResultadoParaWesales(
     postalCode: endereco?.cep || undefined,
     source: 'nvti-higienizacao',
     tags: [TAG_HIGIENIZADO],
-    customFields,
+    customFields: customFieldsNovo,
   })
+
+  // O WeSales deduplica por telefone/e-mail: se ele recusou a criação porque
+  // já existe um contato com esse telefone (sem CPF cadastrado), enriquece
+  // ESSE contato em vez de descartar o resultado — inclusive gravando o CPF,
+  // pra que as próximas consultas o encontrem pelo caminho normal.
+  if (!criado.contact && criado.duplicateOfId) {
+    const duplicado = await getContact(criado.duplicateOfId)
+    const enrich = duplicado ? buildEnrichment(duplicado, resultado, endereco, ordenados[0]) : {}
+    await updateContact(criado.duplicateOfId, { ...enrich, customFields: customFieldsNovo })
+    await addContactTags(criado.duplicateOfId, [TAG_HIGIENIZADO])
+  }
 }
 
 /**
