@@ -170,13 +170,13 @@ Migrations continuam saindo só do brs-workspace.
    do parceiro (master ou atendente). Mover pra Geladeira/Refin/Perda (NA)
    é ação do Workspace (BRS/NuAzul) ou automação futura (ex.: geladeira por
    inatividade). Perda (AC) continua disponível pro parceiro.
-7. **Migração do que já existe** — script one-off (rota admin do
-   Workspace, service role): pra cada `crm_contatos` com
-   `wesales_opportunity_id` no FUNIL DE VENDAS, cria a oportunidade em
-   AC-Prospecção na etapa do de-para, marca a antiga como `abandoned` (não
-   apaga — histórico), atualiza `funil_estagio` + `wesales_opportunity_id`.
-   Ofertas: popula `crm_ofertas` a partir de `crm_contatos.ofertas` e cria
-   as oportunidades em AC-Oferta.
+7. **Migração do que já existe — DISPENSADA (29/08/2026).** Medido no
+   banco antes de escrever o script: `crm_contatos` tinha 22 linhas, todas
+   soft-deletadas, 0 donos ativos, 0 ofertas em jsonb — não havia lead vivo
+   pra migrar. Todo lead alocado daqui em diante já nasce nos funis AC pela
+   fase C. Se algum dia aparecer lead com key legada, a leitura tolera
+   (`normalizarEstagioProspeccao`) e o worker leva a oportunidade antiga
+   pro pipeline AC na 1ª movimentação (PUT com `pipelineId`).
 8. **Dashboard** — `ESTAGIOS_POR_BLOCO` em `lib/crm/actions.ts` remapeia
    pras keys AC junto com o item 2 (senão os KPIs zeram).
 9. **Fica pra depois** — funil de produtos não-bancários (pendência 4):
