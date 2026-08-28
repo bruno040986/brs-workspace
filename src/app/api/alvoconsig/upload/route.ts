@@ -251,11 +251,21 @@ export async function POST(request: NextRequest) {
 
     const fieldsContatoAGarantir: Array<[string, string]> = [[WESALES_FIELD_KEYS.cpf, 'CPF']]
     if (temMatricula) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.matricula, 'AlvoConsig — Matrícula'])
-    if (temConvenio) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'AlvoConsig — Código do Convênio'])
+    if (temConvenio) {
+      fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'Convênio (Código)'])
+      // nome_reduzido cadastrado no convênio — mesmo fieldKey que o CLT usa,
+      // pra padronizar "nome do convênio" entre os dois fluxos (Bruno, 29/08).
+      if (convenioSelecionado.nome_reduzido) {
+        fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.nomeConvenio, 'Convênio (Nome)'])
+      }
+    }
     if (tipo === 'margem') {
-      if (mapeamento.margem_novo !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.novoValor, MARGEM_FIELD_LABELS.novoValor], [MARGEM_FIELD_KEYS.novoData, MARGEM_FIELD_LABELS.novoData], [MARGEM_FIELD_KEYS.novoConvenio, MARGEM_FIELD_LABELS.novoConvenio])
-      if (mapeamento.margem_cartao_rmc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rmcValor, MARGEM_FIELD_LABELS.rmcValor], [MARGEM_FIELD_KEYS.rmcData, MARGEM_FIELD_LABELS.rmcData], [MARGEM_FIELD_KEYS.rmcConvenio, MARGEM_FIELD_LABELS.rmcConvenio])
-      if (mapeamento.margem_cartao_rcc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rccValor, MARGEM_FIELD_LABELS.rccValor], [MARGEM_FIELD_KEYS.rccData, MARGEM_FIELD_LABELS.rccData], [MARGEM_FIELD_KEYS.rccConvenio, MARGEM_FIELD_LABELS.rccConvenio])
+      // Convênio da margem NÃO é mais um campo por produto — é o mesmo
+      // "Convênio (Código)"/"Convênio (Nome)" compartilhado acima (Bruno,
+      // 29/08/2026): uma pessoa só tem um convênio por vez, não um por produto.
+      if (mapeamento.margem_novo !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.novoValor, MARGEM_FIELD_LABELS.novoValor], [MARGEM_FIELD_KEYS.novoData, MARGEM_FIELD_LABELS.novoData])
+      if (mapeamento.margem_cartao_rmc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rmcValor, MARGEM_FIELD_LABELS.rmcValor], [MARGEM_FIELD_KEYS.rmcData, MARGEM_FIELD_LABELS.rmcData])
+      if (mapeamento.margem_cartao_rcc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rccValor, MARGEM_FIELD_LABELS.rccValor], [MARGEM_FIELD_KEYS.rccData, MARGEM_FIELD_LABELS.rccData])
     }
 
     let fieldDefs: Record<string, { id: string }>
@@ -302,6 +312,10 @@ export async function POST(request: NextRequest) {
       if (temConvenio) {
         const codigo = codigoConvenioDaLinha(row)
         if (codigo) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.convenioCodigo].id, fieldValue: codigo })
+        const nomeReduzido = convenioSelecionado?.nome_reduzido as string | null
+        if (nomeReduzido && fieldDefs[WESALES_FIELD_KEYS.nomeConvenio]) {
+          customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.nomeConvenio].id, fieldValue: nomeReduzido })
+        }
       }
       const nome = temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : undefined
       const telefone = temTelefone ? cleanDigits(celula(row, mapeamento.telefone)) : ''
@@ -349,24 +363,25 @@ export async function POST(request: NextRequest) {
       }
 
       const hoje = new Date().toISOString().slice(0, 10)
-      const TRIADES = {
-        margem_novo: { valor: MARGEM_FIELD_KEYS.novoValor, data: MARGEM_FIELD_KEYS.novoData, convenio: MARGEM_FIELD_KEYS.novoConvenio },
-        margem_cartao_rmc: { valor: MARGEM_FIELD_KEYS.rmcValor, data: MARGEM_FIELD_KEYS.rmcData, convenio: MARGEM_FIELD_KEYS.rmcConvenio },
-        margem_cartao_rcc: { valor: MARGEM_FIELD_KEYS.rccValor, data: MARGEM_FIELD_KEYS.rccData, convenio: MARGEM_FIELD_KEYS.rccConvenio },
+      // Convênio da margem: NÃO é mais gravado por produto aqui — é o mesmo
+      // campo único "Convênio (Código/Nome)" que gravarContato() já escreve
+      // pra todo contato tocado nesta importação (Bruno, 29/08/2026).
+      const DUPLAS = {
+        margem_novo: { valor: MARGEM_FIELD_KEYS.novoValor, data: MARGEM_FIELD_KEYS.novoData },
+        margem_cartao_rmc: { valor: MARGEM_FIELD_KEYS.rmcValor, data: MARGEM_FIELD_KEYS.rmcData },
+        margem_cartao_rcc: { valor: MARGEM_FIELD_KEYS.rccValor, data: MARGEM_FIELD_KEYS.rccData },
       } as const
 
       await comConcorrenciaLimitada(
         linhasValidas.map(({ cpf, row }) => async () => {
           try {
             const customFields: Array<{ id: string; fieldValue: string }> = []
-            const codigoConvenioLinha = codigoConvenioDaLinha(row)
             for (const key of margensMapeadas) {
               const valor = parseMoney(celula(row, mapeamento[key]))
               if (valor === null) continue
-              const triade = TRIADES[key]
-              customFields.push({ id: fieldDefs[triade.valor].id, fieldValue: String(valor) })
-              customFields.push({ id: fieldDefs[triade.data].id, fieldValue: hoje })
-              if (codigoConvenioLinha) customFields.push({ id: fieldDefs[triade.convenio].id, fieldValue: codigoConvenioLinha })
+              const dupla = DUPLAS[key]
+              customFields.push({ id: fieldDefs[dupla.valor].id, fieldValue: String(valor) })
+              customFields.push({ id: fieldDefs[dupla.data].id, fieldValue: hoje })
             }
             const existente = await findContactByCpf(cpf)
             const contactId = await gravarContato(cpf, row, customFields, existente)

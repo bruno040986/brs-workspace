@@ -176,6 +176,11 @@ export async function findContactByCpf(cpf: string): Promise<WesalesContact | nu
 export type ContactPayload = {
   name?: string
   phone?: string | null
+  email?: string
+  address1?: string
+  city?: string
+  state?: string
+  postalCode?: string
   tags?: string[]
   source?: string
   customFields?: Array<{ id: string; fieldValue: string }>

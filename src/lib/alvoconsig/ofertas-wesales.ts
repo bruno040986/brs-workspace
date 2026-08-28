@@ -67,34 +67,30 @@ export const OFERTA_FIELD_LABELS: Record<keyof typeof OFERTA_FIELD_KEYS, string>
 export const MARGEM_FIELD_KEYS = {
   novoValor: 'alvoconsig_margem_novo_valor',
   novoData: 'alvoconsig_margem_novo_data',
-  novoConvenio: 'alvoconsig_margem_novo_convenio',
   rmcValor: 'alvoconsig_margem_rmc_valor',
   rmcData: 'alvoconsig_margem_rmc_data',
-  rmcConvenio: 'alvoconsig_margem_rmc_convenio',
   rccValor: 'alvoconsig_margem_rcc_valor',
   rccData: 'alvoconsig_margem_rcc_data',
-  rccConvenio: 'alvoconsig_margem_rcc_convenio',
 } as const
 
 /**
  * Nomes SEM prefixo "AlvoConsig —" de propósito (decisão 29/08/2026, junto
  * com o Bruno): margem por produto (Novo/RMC/RCC) é conceito COMPARTILHADO
- * entre convênio público e CLT — a mesma pessoa pode futuramente ter margem
- * checada nos dois fluxos, e é a mesma base de contatos. O fieldKey continua
- * `alvoconsig_margem_*` (não muda mais depois de criado — renomear o "name"
- * não afeta o fieldKey, confirmado direto na API), então nada quebra; só o
- * rótulo visível vira neutro pra agrupar como "Margem — …" no WeSales.
+ * entre convênio público e CLT (CLT só usa "Novo" — não tem cartão RMC/RCC).
+ * O fieldKey continua `alvoconsig_margem_*` (não muda mais depois de criado —
+ * renomear o "name" não afeta o fieldKey, confirmado direto na API), então
+ * nada quebra; só o rótulo visível fica neutro, na pasta "Dados de Crédito".
+ * Convênio NÃO é mais por produto (removido: novoConvenio/rmcConvenio/
+ * rccConvenio) — é o campo único "Convênio (Código/Nome)" de campos-sync.ts,
+ * porque uma pessoa só tem um convênio por vez, não um por produto.
  */
 export const MARGEM_FIELD_LABELS: Record<keyof typeof MARGEM_FIELD_KEYS, string> = {
-  novoValor: 'Margem — Novo: Valor',
-  novoData: 'Margem — Novo: Data',
-  novoConvenio: 'Margem — Novo: Convênio',
-  rmcValor: 'Margem — RMC: Valor',
-  rmcData: 'Margem — RMC: Data',
-  rmcConvenio: 'Margem — RMC: Convênio',
-  rccValor: 'Margem — RCC: Valor',
-  rccData: 'Margem — RCC: Data',
-  rccConvenio: 'Margem — RCC: Convênio',
+  novoValor: 'Novo Margem',
+  novoData: 'Novo Data',
+  rmcValor: 'RMC Margem',
+  rmcData: 'RMC Data',
+  rccValor: 'RCC Margem',
+  rccData: 'RCC Data',
 } as const
 
 export function nomeOportunidade(tipo: TipoOferta, instituicaoNome: string, tabelaNome: string | null): string {

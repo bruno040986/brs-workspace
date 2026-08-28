@@ -65,6 +65,11 @@ export const WESALES_FIELD_KEYS = {
   cpf: 'cpf',
   matricula: 'alvoconsig_matricula',
   convenioCodigo: 'alvoconsig_convenio_codigo',
+  // Reaproveita o MESMO fieldKey que o CLT já usa (nome_convenio="CLT" fixo) —
+  // decisão do Bruno 29/08/2026: é o mesmo conceito ("nome do convênio/vínculo
+  // do contato"), só a origem do valor muda (CLT: constante; AlvoConsig: o
+  // nome_reduzido cadastrado no convênio, pra ficar padronizado).
+  nomeConvenio: 'nome_convenio',
 } as const
 
 /** Estágios em que a cópia local NÃO pode ser expurgada no fim da campanha. */
