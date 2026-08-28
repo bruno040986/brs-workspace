@@ -64,7 +64,9 @@ function readWorkbook(buffer: Buffer, fileName: string): XLSX.WorkBook {
   const candidates: Array<[string, number]> = [[';', count(';')], [',', count(',')], ['\t', count('\t')]]
   candidates.sort((a, b) => b[1] - a[1])
   const delimiter = candidates[0][1] > 0 ? candidates[0][0] : ','
-  return XLSX.read(text, { type: 'string', raw: false, FS: delimiter })
+  // raw: true — CSV é texto: não deixar o leitor "adivinhar" tipos (data vira
+  // número de série 31658.99, telefone perde zero à esquerda).
+  return XLSX.read(text, { type: 'string', raw: true, FS: delimiter })
 }
 
 function parseRows(buffer: Buffer, fileName: string): Array<Record<string, string>> {
@@ -72,7 +74,7 @@ function parseRows(buffer: Buffer, fileName: string): Array<Record<string, strin
   const sheetName = workbook.SheetNames[0]
   if (!sheetName) return []
   const sheet = workbook.Sheets[sheetName]
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: isTextFile(fileName) })
   return rows.map((row) => {
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(row)) {
