@@ -44,7 +44,7 @@ export const NVTI_FIELD_KEYS = {
   bolsaFamilia: 'nvti_bolsa_familia',
   obito: 'nvti_obito',
   fgtsValorPresumido: 'nvti_fgts_valor_presumido',
-  atualizadoEm: 'nvti_atualizado_em',
+  dataConsulta: 'nvti_data_consulta',
 } as const
 
 const TAG_HIGIENIZADO = 'nvti-higienizado'
@@ -89,7 +89,17 @@ function melhorTelefoneParaCriacao(resultado: NvtiResultado): string {
   return tel ? `${tel.ddd}${tel.numero}` : ''
 }
 
-export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Promise<void> {
+/**
+ * `dataConsulta`: data REAL em que a NVTI verificou o CPF — não "agora".
+ * Numa consulta vinda do cache (reaproveitamento de até 30 dias), "agora" é
+ * só o momento em que alguém pediu de novo; gravar isso quebraria o próprio
+ * motivo de existir do campo (saber há quanto tempo o dado foi verificado de
+ * verdade). O chamador (service.ts) passa a data da linha original.
+ */
+export async function syncNvtiResultadoParaWesales(
+  resultado: NvtiResultado,
+  dataConsulta: Date,
+): Promise<void> {
   const cpf = normalizeCpfDigits(resultado.cpf)
   if (!cpf) return
 
@@ -114,7 +124,7 @@ export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Pr
   push('bolsaFamilia', boolLabel(resultado.credito.bolsa_familia))
   push('obito', boolLabel(resultado.credito.obito))
   push('fgtsValorPresumido', empresa?.fgts_valor_presumido || '')
-  push('atualizadoEm', new Date().toISOString().slice(0, 10))
+  push('dataConsulta', dataConsulta.toISOString().slice(0, 10))
 
   const existing = await findContactByCpf(cpf)
 

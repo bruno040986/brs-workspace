@@ -76,16 +76,25 @@ export const MARGEM_FIELD_KEYS = {
   rccConvenio: 'alvoconsig_margem_rcc_convenio',
 } as const
 
+/**
+ * Nomes SEM prefixo "AlvoConsig —" de propósito (decisão 29/08/2026, junto
+ * com o Bruno): margem por produto (Novo/RMC/RCC) é conceito COMPARTILHADO
+ * entre convênio público e CLT — a mesma pessoa pode futuramente ter margem
+ * checada nos dois fluxos, e é a mesma base de contatos. O fieldKey continua
+ * `alvoconsig_margem_*` (não muda mais depois de criado — renomear o "name"
+ * não afeta o fieldKey, confirmado direto na API), então nada quebra; só o
+ * rótulo visível vira neutro pra agrupar como "Margem — …" no WeSales.
+ */
 export const MARGEM_FIELD_LABELS: Record<keyof typeof MARGEM_FIELD_KEYS, string> = {
-  novoValor: 'AlvoConsig — Margem Novo: Valor',
-  novoData: 'AlvoConsig — Margem Novo: Data',
-  novoConvenio: 'AlvoConsig — Margem Novo: Convênio',
-  rmcValor: 'AlvoConsig — Margem RMC: Valor',
-  rmcData: 'AlvoConsig — Margem RMC: Data',
-  rmcConvenio: 'AlvoConsig — Margem RMC: Convênio',
-  rccValor: 'AlvoConsig — Margem RCC: Valor',
-  rccData: 'AlvoConsig — Margem RCC: Data',
-  rccConvenio: 'AlvoConsig — Margem RCC: Convênio',
+  novoValor: 'Margem — Novo: Valor',
+  novoData: 'Margem — Novo: Data',
+  novoConvenio: 'Margem — Novo: Convênio',
+  rmcValor: 'Margem — RMC: Valor',
+  rmcData: 'Margem — RMC: Data',
+  rmcConvenio: 'Margem — RMC: Convênio',
+  rccValor: 'Margem — RCC: Valor',
+  rccData: 'Margem — RCC: Data',
+  rccConvenio: 'Margem — RCC: Convênio',
 } as const
 
 export function nomeOportunidade(tipo: TipoOferta, instituicaoNome: string, tabelaNome: string | null): string {
