@@ -109,3 +109,83 @@ Refin). Controle do processo comercial/bancário de cada oferta específica.
    "Verificar Ofertas Complementares") ainda não têm funil/processo
    desenhado — o funil de Oferta atual é bancário-específico e não serve
    pra eles sem adaptação.
+
+## Decisões de arquitetura — revisão Fable 5 (29/08/2026)
+
+Desenho dos dois funis **aprovado** como criado no WeSales (ids/cores em
+`brs-alvoconsig/apps/web/src/lib/wesales/ac-stages.ts`). As decisões
+abaixo fecham as pendências 2 e 3 acima e são o roteiro de implementação.
+Migrations continuam saindo só do brs-workspace.
+
+1. **Estado por oferta vira tabela** — `crm_ofertas` (1 linha por
+   oferta): `contato_id`, `agente_parceiro_id`, `tipo` (novo/refin/cartão),
+   `instituicao_id`, `tabela_id`, `valor_liberado`, `parcela`, `prazo`,
+   `taxa`, `estagio` (key de `ESTAGIOS_AC_OFERTA`),
+   `reprovada_no_estagio` (preserva ONDE caiu — "Reprovadas Operacional" é
+   status, não coluna terminal), `wesales_opportunity_id`, timestamps,
+   `deleted_at`. O jsonb `crm_contatos.ofertas` passa a ser só cache do
+   cálculo; o que vale é `crm_ofertas`. É o que a tela de Ofertas lê.
+2. **Vocabulário de etapas do lead** — `crm_contatos.funil_estagio` passa
+   a usar as keys de `ESTAGIOS_AC_PROSPECCAO`; `stages.ts` (17 etapas)
+   sai do CRM e fica só como de-para de migração:
+   `entrou_em_contato→carteira_de_leads`, `respondeu_primeiro_contato→em_contato`,
+   `nao_respondeu→em_prospeccao`, `conversa_em_andamento|em_follow_up|
+   ativar_follow_up_automatizado→em_atendimento`, `oferta_realizada→
+   lead_interessado`, `documentos_enviados→em_negociacao`, `em_digitacao|
+   em_formalizacao|aguardando_pagamento→em_fechamento`, `pagamento_feito→
+   concretizado`, `nao_fechou_pos_oferta|nao_tem_interesse→perda_ac`,
+   `geladeira_*→geladeira`.
+3. **Rollup Oferta→Prospecção: camada de aplicação do brs-alvoconsig,
+   função pura + 3 gatilhos.** Descartados: trigger de banco (não fala com
+   o WeSales), workflow nativo do WeSales (não cruza pipelines de forma
+   confiável) e cron sozinho (latência). `derivarEstagioProspeccao(ofertas)`:
+   alguma `proposta_paga` → `concretizado`; senão alguma em
+   `digitacao_analise_bancaria|formalizacao|liberada_pagamento` →
+   `em_fechamento`; senão alguma `em_negociacao` → `em_negociacao`; senão
+   → **sem alteração**. Só avança — nunca regride sozinho e nunca move pra
+   Perda/Geladeira/NA (decisão humana; "todas reprovadas" fica onde está,
+   como o spec já dizia). Gatilhos: (a) server action `moverOferta` do CRM
+   recalcula e, se mudou, chama o `moverEstagio` do contato (fila
+   `mover_estagio`, como hoje); (b) webhook inbound pra eventos do pipeline
+   AC-Oferta; (c) reconciliação 1x/dia no cron `alvoconsig-conferencia`
+   como rede de segurança.
+4. **Webhook passa a ser pipeline-aware.** Hoje ele casa o `stageId` contra
+   o funil de 17 etapas e escreve em `crm_contatos` por `wesales_contact_id`
+   sem olhar de que pipeline veio. Passa a despachar por `pipelineId`:
+   AC-Prospecção → `crm_contatos.funil_estagio`; AC-Oferta → `crm_ofertas`
+   por `wesales_opportunity_id` (+ rollup). Eventos de qualquer outro
+   pipeline (Ofertas de Crédito da NuAzul, FUNIL DE VENDAS) são ignorados —
+   o mesmo contato pode ter oportunidades da NuAzul, e elas não são do
+   parceiro.
+5. **Campanhas do Workspace param de contaminar a NuAzul.**
+   `api/alvoconsig/campanhas/route.ts` cria hoje as oportunidades de oferta
+   em "Ofertas de Crédito" — pipeline compartilhado com a venda própria,
+   exatamente o problema 1 deste spec. Passa a criar em AC-Oferta ("Ofertas
+   Disponíveis") + a oportunidade do lead em AC-Prospecção ("Carteira de
+   Leads"), gravando os ids em `crm_ofertas`/`crm_contatos`.
+   `ofertas-wesales.ts` recebe o pipeline por parâmetro; NuAzul segue em
+   "Ofertas de Crédito".
+6. **Posse NA é regra de servidor, não só de tela.** Além de o Kanban não
+   mostrar as etapas `posse: 'na'`, `moverEstagio` rejeita destino NA vindo
+   do parceiro (master ou atendente). Mover pra Geladeira/Refin/Perda (NA)
+   é ação do Workspace (BRS/NuAzul) ou automação futura (ex.: geladeira por
+   inatividade). Perda (AC) continua disponível pro parceiro.
+7. **Migração do que já existe** — script one-off (rota admin do
+   Workspace, service role): pra cada `crm_contatos` com
+   `wesales_opportunity_id` no FUNIL DE VENDAS, cria a oportunidade em
+   AC-Prospecção na etapa do de-para, marca a antiga como `abandoned` (não
+   apaga — histórico), atualiza `funil_estagio` + `wesales_opportunity_id`.
+   Ofertas: popula `crm_ofertas` a partir de `crm_contatos.ofertas` e cria
+   as oportunidades em AC-Oferta.
+8. **Dashboard** — `ESTAGIOS_POR_BLOCO` em `lib/crm/actions.ts` remapeia
+   pras keys AC junto com o item 2 (senão os KPIs zeram).
+9. **Fica pra depois** — funil de produtos não-bancários (pendência 4):
+   decidir quando existir produto; "Ofertas Complementares (AC)" é só
+   coluna de estacionamento por enquanto.
+
+**Ordem de execução** (2→8 são execução sobre padrão definido, Sonnet;
+migration do item 1 e o script do item 7 passam pelo Fable):
+1 migration `crm_ofertas` → 2 vocabulário + de-para → 5 campanhas → 4
+webhook → 3 rollup → 6 regra NA → UI Leads (Kanban AC-Prospecção, cores
+reais, sem colunas NA) e UI Ofertas (board AC-Oferta) → 7 migração de dados
+→ 8 dashboard.
