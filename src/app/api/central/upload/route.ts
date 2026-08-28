@@ -33,8 +33,42 @@ function slugifyTag(value: string): string {
     .slice(0, 50)
 }
 
-function parseRows(buffer: Buffer): Array<Record<string, string>> {
-  const workbook = XLSX.read(buffer, { type: 'buffer', raw: false, codepage: 65001 })
+function normalizeHeader(value: string): string {
+  return value
+    .replace(/^\uFEFF/, '') // BOM que o Excel/Vende.AI colocam no começo do arquivo
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+function isTextFile(name: string): boolean {
+  return /\.(csv|txt)$/i.test(name)
+}
+
+/**
+ * CSV/TXT: decodifica e detecta o delimitador (o export da Vende.AI costuma
+ * vir com ";" — o leitor genérico trataria o cabeçalho inteiro como UMA
+ * coluna, "CPF;Nome;Telefone…", e a coluna CPF "sumia"). XLSX: leitura direta.
+ */
+function readWorkbook(buffer: Buffer, fileName: string): XLSX.WorkBook {
+  if (!isTextFile(fileName)) {
+    return XLSX.read(buffer, { type: 'buffer', raw: false })
+  }
+  let text = buffer.toString('utf8')
+  // Arquivo salvo em latin1/Windows-1252: o utf8 gera U+FFFD; refaz em latin1.
+  if (text.includes('\uFFFD')) text = buffer.toString('latin1')
+  text = text.replace(/^\uFEFF/, '')
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? ''
+  const count = (ch: string) => firstLine.split(ch).length - 1
+  const candidates: Array<[string, number]> = [[';', count(';')], [',', count(',')], ['\t', count('\t')]]
+  candidates.sort((a, b) => b[1] - a[1])
+  const delimiter = candidates[0][1] > 0 ? candidates[0][0] : ','
+  return XLSX.read(text, { type: 'string', raw: false, FS: delimiter })
+}
+
+function parseRows(buffer: Buffer, fileName: string): Array<Record<string, string>> {
+  const workbook = readWorkbook(buffer, fileName)
   const sheetName = workbook.SheetNames[0]
   if (!sheetName) return []
   const sheet = workbook.Sheets[sheetName]
@@ -42,7 +76,7 @@ function parseRows(buffer: Buffer): Array<Record<string, string>> {
   return rows.map((row) => {
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(row)) {
-      const header = String(key).trim()
+      const header = String(key).replace(/^\uFEFF/, '').trim()
       if (!header || header.startsWith('__EMPTY')) continue
       out[header] = String(value ?? '').trim()
     }
@@ -81,7 +115,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer())
     let rows: Array<Record<string, string>>
     try {
-      rows = parseRows(buffer)
+      rows = parseRows(buffer, String(file.name || ''))
     } catch {
       return NextResponse.json({ error: 'Não foi possível ler o arquivo. Use CSV ou XLSX.' }, { status: 400 })
     }
@@ -96,10 +130,10 @@ export async function POST(request: NextRequest) {
     }
 
     const headers = Object.keys(rows[0])
-    const hasCpf = headers.some((h) => h.trim().toLowerCase() === 'cpf')
+    const hasCpf = headers.some((h) => normalizeHeader(h) === 'cpf')
     if (!hasCpf) {
       return NextResponse.json(
-        { error: `Coluna "CPF" não encontrada. Colunas lidas: ${headers.slice(0, 12).join(', ')}` },
+        { error: `Coluna "CPF" não encontrada. Colunas lidas (${headers.length}): ${headers.slice(0, 12).map((h) => `"${h}"`).join(', ')}. Se apareceu uma coluna só com ";" no meio, o arquivo está com um separador que não reconheci — me envie o cabeçalho.` },
         { status: 400 },
       )
     }
