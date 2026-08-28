@@ -6,6 +6,7 @@
  */
 
 import { NextRequest } from 'next/server'
+import { timingSafeEqual } from 'node:crypto'
 import { resolvePipeline } from '@/lib/wesales/client'
 
 export const dynamic = 'force-dynamic'
@@ -15,9 +16,10 @@ function isAuthorized(req: NextRequest): boolean {
   const secret = String(process.env.DIAG_WESALES_TOKEN || '')
   if (!secret) return false
   const auth = req.headers.get('authorization') || ''
-  if (auth === `Bearer ${secret}`) return true
-  const url = new URL(req.url)
-  return url.searchParams.get('token') === secret
+  const esperado = `Bearer ${secret}`
+  const a = Buffer.from(auth)
+  const b = Buffer.from(esperado)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 const NOMES_PIPELINE = ['AC - Prospecção (1 card por lead)', 'AC - Oferta (1 card por oferta, vários por lead)']
