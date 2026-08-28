@@ -46,20 +46,31 @@ dele.
 
 1-lead-por-card. Controle de relacionamento/contato, sem detalhe de oferta.
 
-| Etapa | Descrição |
+**Criado de fato no WeSales em 28-29/08/2026** (pipeline "AC - Prospecção (1
+card por lead)"). O Bruno refinou o desenho original em 3 pontos ao criar:
+marcou **(AC)** ou **(NA)** em cada etapa a partir de "Em atendimento"
+indicando de quem é a posse do lead naquele ponto (AC = ainda com o
+parceiro; NA = já reaproveitável pela NuAzul); generalizou a saída pra
+NuAzul também pra "Geladeira", não só "Oferta Futura de Refin"; e separou
+"Perda" em duas (AC/NA) pra distinguir lead morto ainda com o parceiro de
+lead morto depois do bastão já ter passado. Nomes finais, na ordem real
+criada no WeSales:
+
+| Etapa (nome real no WeSales) | Descrição |
 |---|---|
-| Carteira de Leads | Coluna real — todos os leads de uma campanha criada no Workspace entram aqui direto. Tem alguma oferta, mas não mostra qual. |
-| Em prospecção | Está sendo trabalhado por uma campanha (ligação, IA de voz, disparo de mensagem). |
-| Entrou em contato/Respondeu | Respondeu a algum contato da prospecção. |
-| Em atendimento | Conversa ativa, ainda sem definição de interesse. |
-| Lead Interessado | Confirmou interesse em alguma das ofertas apresentadas. |
-| Em negociação | Oferta(s) decidida(s), ajuste final — espelha o "Em negociação" do funil de Oferta (mesmo gatilho, os dois avançam juntos). |
-| Em Fechamento | Agregado — cobre Digitação/Análise, Formalização, Liberada do funil de Oferta (rollup, não sincroniza 1:1 por oferta). |
-| Concretizado | Equivalente a "Proposta Paga" — pelo menos uma oferta pagou. **Ponto de saída**: cliente sai do radar ativo do parceiro; futuras necessidades (inclusive complementares) tendem a ficar com a NuAzul. |
-| Verificar Ofertas Complementares | Gatilho: sucesso (virou cliente). Oferece produtos que somam (energia solar, seguros, coberturas, capitalização, investimento) — não compete com a venda já fechada. Se o complementar não for crédito, bifurca pra outro funil/processo (não bancário). |
-| Geladeira | Aguardo de contato em prazo definido (motivo genérico). |
-| Oferta Futura de Refin | Aguardo específico por regra de carência do convênio/IF (3/6/12 meses, variável). **Ponto de saída** análogo ao Concretizado: quando a data chegar, o retrabalho é da fila da NuAzul, não do parceiro. |
-| Perda | Sem interesse, sem nova tentativa. |
+| Carteira de Leads | Todos os leads de uma campanha criada no Workspace entram aqui direto. Tem alguma oferta, mas não mostra qual. |
+| Em prospecção | Sendo trabalhado por uma campanha (ligação, IA de voz, disparo de mensagem). |
+| Em contato | Respondeu a algum contato da prospecção. |
+| Em atendimento (AC) | Conversa ativa, ainda sem definição de interesse. |
+| Lead Interessado (AC) | Confirmou interesse em alguma das ofertas apresentadas. |
+| Em negociação (AC) | Oferta(s) decidida(s), ajuste final — espelha o "Em negociação" do funil de Oferta (mesmo gatilho, os dois avançam juntos). |
+| Em fechamento (AC) | Agregado — cobre Digitação/Análise, Formalização, Liberada do funil de Oferta (rollup, não sincroniza 1:1 por oferta). |
+| Concretizado (AC) | Equivalente a "Proposta Paga" — pelo menos uma oferta pagou. Credita a produção do parceiro; a saída pra NuAzul acontece nas etapas seguintes, não aqui. |
+| Ofertas Complementares (AC) | Gatilho: sucesso (virou cliente). Oferece produtos que somam (energia solar, seguros, coberturas, capitalização, investimento) — não compete com a venda já fechada. Se o complementar não for crédito, bifurca pra outro funil/processo (não bancário). |
+| **Geladeira (NA)** | Aguardo de contato em prazo definido (motivo genérico). **Saída p/ NuAzul**: já reaproveitável pra retomada de relacionamento. |
+| **Oferta Futura de Refin (NA)** | Aguardo específico por regra de carência do convênio/IF (3/6/12 meses, variável). **Saída p/ NuAzul**: quando a data chegar, o retrabalho é da fila da NuAzul, não do parceiro. |
+| Perda (AC) | Sem interesse/sem nova tentativa, ainda na fase ativa do parceiro. |
+| Perda (NA) | Sem interesse/sem nova tentativa, já depois do bastão ter passado pra NuAzul (veio de Geladeira/Oferta Futura de Refin). |
 
 **Regra de retorno em aberto (a decidir)**: quando uma oferta cai em
 "Reprovadas Operacional" (funil de Oferta) mas o lead ainda tem interesse,
