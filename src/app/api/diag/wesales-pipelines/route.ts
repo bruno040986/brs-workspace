@@ -15,7 +15,9 @@ function isAuthorized(req: NextRequest): boolean {
   const secret = String(process.env.DIAG_WESALES_TOKEN || '')
   if (!secret) return false
   const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
+  if (auth === `Bearer ${secret}`) return true
+  const url = new URL(req.url)
+  return url.searchParams.get('token') === secret
 }
 
 const NOMES_PIPELINE = ['AC - Prospecção (1 card por lead)', 'AC - Oferta (1 card por oferta, vários por lead)']
