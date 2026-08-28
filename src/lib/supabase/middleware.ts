@@ -159,6 +159,8 @@ export async function updateSession(request: NextRequest) {
     '/api/zapi/webhook',
     // Autentica por NVTI_SERVICE_TOKEN no handler (rota de serviço dos orquestradores).
     '/api/nvti/interno',
+    // Autentica por DIAG_WESALES_TOKEN no handler — temporária, remover junto com a rota.
+    '/api/diag',
   ]
   const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {
