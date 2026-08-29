@@ -63,8 +63,16 @@ export function tagCampanha(codigo: string) {
  */
 export const WESALES_FIELD_KEYS = {
   cpf: 'cpf',
-  matricula: 'alvoconsig_matricula',
-  convenioCodigo: 'alvoconsig_convenio_codigo',
+  /** "Matrícula Funcional" (Dados de Crédito, TEXT). */
+  matricula: 'matricula_funcional',
+  /**
+   * "Convênio (Código Workspace)" — Dados de Crédito, NUMERICAL. Grava
+   * `convenios.codigo_sistema` ("00001"); como o campo é numérico, o WeSales
+   * guarda 1 (perde os zeros). A busca `eq "00001"` continua funcionando
+   * (a API converte), mas ao LER use `indexarConveniosPorCodigo` /
+   * `codigoConvenioChave` pra casar "1" com "00001".
+   */
+  convenioCodigo: 'convenio_codigo',
   // Reaproveita o MESMO fieldKey que o CLT já usa (nome_convenio="CLT" fixo) —
   // decisão do Bruno 29/08/2026: é o mesmo conceito ("nome do convênio/vínculo
   // do contato"), só a origem do valor muda (CLT: constante; AlvoConsig: o
@@ -72,12 +80,38 @@ export const WESALES_FIELD_KEYS = {
   nomeConvenio: 'nome_convenio',
   // Demografia copiada pra crm_contatos na alocação (filtros de campanha do
   // parceiro). Vêm da higienização NVTI, que não é obrigatória — ausência
-  // vira NULL ("não informado"). Chaves a CONFIRMAR com o Bruno quando a
-  // reorganização de campos no WeSales terminar (29/08/2026): se a sessão
-  // dele usar outra fieldKey pra Sexo/Vínculo, é só trocar aqui.
+  // vira NULL ("não informado").
   sexo: 'nvti_sexo',
-  vinculo: 'vinculo',
+  /** "Vínculo Funcional" — SINGLE_OPTIONS: CLT | Efetivo | Temporário | Comissionado | Emprestado | Aposentado | Pensionista. */
+  vinculo: 'vinculo_funcional',
+  /**
+   * "Código de Parceiro BRS" — código ARW do parceiro DONO do contato
+   * (espelho legível da tag `parceiro:<arw>`); gravado na alocação da
+   * campanha e limpo na devolução pro pool.
+   */
+  codigoParceiro: 'codigo_de_parceiro_brs',
 } as const
+
+/**
+ * Chave de comparação do código de convênio: o WeSales devolve o NUMERICAL
+ * sem zeros à esquerda ("1"), o Workspace guarda "00001". Normaliza os dois
+ * lados pro mesmo inteiro em texto ("1").
+ */
+export function codigoConvenioChave(valor: string | number | null | undefined): string | null {
+  const digitos = String(valor ?? '').replace(/\D/g, '')
+  if (!digitos) return null
+  return String(Number.parseInt(digitos, 10))
+}
+
+/** Map código_sistema (normalizado) → convenio.id, pra casar o valor lido do WeSales. */
+export function indexarConveniosPorCodigo(rows: Array<{ id: string; codigo_sistema: string | null }> | null | undefined): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const conv of rows || []) {
+    const chave = codigoConvenioChave(conv.codigo_sistema)
+    if (chave) map.set(chave, String(conv.id))
+  }
+  return map
+}
 
 /** Estágios em que a cópia local NÃO pode ser expurgada no fim da campanha. */
 export const ESTAGIOS_NEGOCIACAO_ABERTA = [

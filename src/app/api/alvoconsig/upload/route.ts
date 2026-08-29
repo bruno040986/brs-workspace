@@ -250,9 +250,9 @@ export async function POST(request: NextRequest) {
     const temConvenio = mapeamento.codigo_convenio !== undefined || !!codigoConvenioPadrao
 
     const fieldsContatoAGarantir: Array<[string, string]> = [[WESALES_FIELD_KEYS.cpf, 'CPF']]
-    if (temMatricula) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.matricula, 'AlvoConsig — Matrícula'])
+    if (temMatricula) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.matricula, 'Matrícula Funcional'])
     if (temConvenio) {
-      fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'Convênio (Código)'])
+      fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'Convênio (Código Workspace)'])
       // nome_reduzido cadastrado no convênio — mesmo fieldKey que o CLT usa,
       // pra padronizar "nome do convênio" entre os dois fluxos (Bruno, 29/08).
       if (convenioSelecionado.nome_reduzido) {
@@ -303,7 +303,7 @@ export async function POST(request: NextRequest) {
     const erros: string[] = []
 
     /** Escreve os campos comuns (matrícula/convênio) + nome/telefone + tags no contato (cria se preciso). */
-    async function gravarContato(cpf: string, row: unknown[], customFields: Array<{ id: string; fieldValue: string }>, existente: WesalesContact | null): Promise<string> {
+    async function gravarContato(cpf: string, row: unknown[], customFields: Array<{ id: string; fieldValue: string | number }>, existente: WesalesContact | null): Promise<string> {
       customFields.unshift({ id: fieldDefs[WESALES_FIELD_KEYS.cpf].id, fieldValue: normalizeCpfDigits(cpf) })
       if (temMatricula) {
         const valor = String(celula(row, mapeamento.matricula) ?? '').trim()
@@ -375,12 +375,14 @@ export async function POST(request: NextRequest) {
       await comConcorrenciaLimitada(
         linhasValidas.map(({ cpf, row }) => async () => {
           try {
-            const customFields: Array<{ id: string; fieldValue: string }> = []
+            // Margem é MONETORY e data é DATE no WeSales: mandar NÚMERO e
+            // AAAA-MM-DD (string com vírgula viraria 123456; data BR dá 400).
+            const customFields: Array<{ id: string; fieldValue: string | number }> = []
             for (const key of margensMapeadas) {
               const valor = parseMoney(celula(row, mapeamento[key]))
               if (valor === null) continue
               const dupla = DUPLAS[key]
-              customFields.push({ id: fieldDefs[dupla.valor].id, fieldValue: String(valor) })
+              customFields.push({ id: fieldDefs[dupla.valor].id, fieldValue: valor })
               customFields.push({ id: fieldDefs[dupla.data].id, fieldValue: hoje })
             }
             const existente = await findContactByCpf(cpf)

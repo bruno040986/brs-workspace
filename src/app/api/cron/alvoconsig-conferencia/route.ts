@@ -18,7 +18,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { customFieldValue, getContact, findOpportunitiesByContactDetalhadas, opportunityFieldValue, resolveCustomField } from '@/lib/wesales/client'
-import { WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
+import { codigoConvenioChave, indexarConveniosPorCodigo, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
 import { calcularOfertas, resolverOfertasRefin, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
 
@@ -91,11 +91,9 @@ export async function GET(request: NextRequest) {
     console.error('Pipeline de Ofertas não encontrado — conferência de REFIN pulada:', err?.message || err)
   }
 
+  // "Convênio (Código Workspace)" é NUMERICAL no WeSales ("00001" volta "1").
   const { data: conveniosData } = await admin.from('convenios').select('id, codigo_sistema').is('deleted_at', null)
-  const convenioPorCodigo = new Map<string, string>()
-  for (const conv of conveniosData || []) {
-    if (conv.codigo_sistema) convenioPorCodigo.set(conv.codigo_sistema, String(conv.id))
-  }
+  const convenioPorCodigo = indexarConveniosPorCodigo(conveniosData)
 
   let conferidos = 0
   let corrigidos = 0
@@ -111,7 +109,7 @@ export async function GET(request: NextRequest) {
     const telefoneRemoto = digits(remoto.phone) || local.telefone
     const matriculaRemoto = matriculaField ? customFieldValue(remoto, matriculaField.id) : local.matricula
     const codigoConvenioRemoto = convenioField ? customFieldValue(remoto, convenioField.id) : null
-    const convenioRemoto = (codigoConvenioRemoto && convenioPorCodigo.get(digits(codigoConvenioRemoto) || codigoConvenioRemoto)) || local.convenio_id
+    const convenioRemoto = (codigoConvenioChave(codigoConvenioRemoto) && convenioPorCodigo.get(codigoConvenioChave(codigoConvenioRemoto)!)) || local.convenio_id
     const margemNovoRemoto = novoValorField ? parseMoneyField(customFieldValue(remoto, novoValorField.id)) : local.margem_novo
     const margemRmcRemoto = rmcValorField ? parseMoneyField(customFieldValue(remoto, rmcValorField.id)) : local.margem_cartao_rmc
     const margemRccRemoto = rccValorField ? parseMoneyField(customFieldValue(remoto, rccValorField.id)) : local.margem_cartao_rcc

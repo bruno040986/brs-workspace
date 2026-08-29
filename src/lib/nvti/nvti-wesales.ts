@@ -8,52 +8,61 @@
  * contatos no WeSales — de propósito. Por isso este módulo usa só o client
  * que o Workspace já tem (`@/lib/wesales/client`), sem credencial nova.
  *
- * Organização por PASTA de contato (decisão 29/08/2026, não mais uma pasta
- * "NVTI" própria — os dados se distribuem pelo TIPO de informação):
- *   - Contact: telefones/e-mail (enriquece os nativos; Telefone 2/3 e as
- *     flags de WhatsApp são campos próprios, sem equivalente nativo).
- *   - Informações Gerais: endereço (enriquece os campos nativos — cidade,
- *     UF, CEP, logradouro já existem prontos no WeSales).
- *   - Informações Adicionais: dados de perfil (sexo, classe econômica,
- *     ocupação, nome da mãe, óbito, fonte de renda, veículo/imóvel/bolsa
- *     família).
- *   - Dados de Crédito: score, faixa, persona, propensão, score digital,
- *     FGTS, data da última consulta.
+ * Campos e pastas são os que o Bruno montou direto na UI do WeSales em
+ * 29/08/2026 (o código NÃO cria campo — só resolve por fieldKey; se faltar,
+ * `ensureCustomField` lança com a instrução de criar na UI):
+ *   - Contact: Telefone 2/3 e Flag WhatsApp 1/2/3 (Telefone 1 = nativo `phone`).
+ *   - Informações Gerais: endereço — logradouro/cidade/UF/CEP nos campos
+ *     NATIVOS + Número/Complemento/Bairro personalizados (sem equivalente
+ *     nativo no schema americano).
+ *   - Informações Adicionais: sexo, classe econômica, ocupação, nome da mãe,
+ *     óbito, fonte de renda, veículo/imóvel/bolsa família.
+ *   - Dados de Crédito: score (NUMERICAL), faixa, persona, propensão
+ *     (NUMERICAL), score digital, Possui FGTS? (Sim/Não) e Valor Presumido de
+ *     FGTS (MONETORY). A "Data da Última Consulta (NVTI)" foi REMOVIDA do
+ *     WeSales pelo Bruno — a data real da verificação continua em
+ *     `nvti_queries.created_at` no Workspace.
  *
  * Regras:
  *   - CPF já é contato → ENRIQUECE. Campos nativos (telefone/e-mail/
- *     endereço) só são preenchidos se estiverem VAZIOS — nunca sobrescreve
- *     dado que o time já tem. Campos nvti_* (customFields) são sempre
- *     atualizados — são espaço só da NVTI, ninguém mais escreve ali.
+ *     endereço) e Número/Complemento/Bairro só são preenchidos se estiverem
+ *     VAZIOS — nunca sobrescreve dado que o time já tem. Os demais campos da
+ *     NVTI são sempre atualizados — são espaço só da NVTI.
  *   - CPF não é contato ainda → CRIA um novo.
+ *   - Valores passam por `customFieldEntry` (tipo do campo): número/data/opção
+ *     no formato que a API exige; valor incompatível é pulado com aviso, nunca
+ *     derruba o update (um DATE inválido rejeita o payload inteiro).
  *   - Best-effort: erro aqui nunca derruba a consulta NVTI em si.
  */
 
 import {
   addContactTags,
   createContact,
+  customFieldEntry,
+  customFieldValue,
   ensureCustomField,
   findContactByCpf,
   getContact,
   normalizeCpfDigits,
   updateContact,
   type ContactPayload,
+  type CustomFieldDef,
   type WesalesContact,
 } from '@/lib/wesales/client'
 import type { NvtiCelular, NvtiResultado } from './types'
 
-/**
- * Campos personalizados que só a NVTI alimenta (fieldKey sem prefixo — o
- * nome visível no WeSales é que carrega a pasta/categoria, ex. "Score" em
- * Dados de Crédito, "Sexo" em Informações Adicionais).
- */
+/** fieldKeys REAIS no WeSales (auditados via API em 29/08/2026). */
 export const NVTI_FIELD_KEYS = {
-  // Contact — telefones sem equivalente nativo (Telefone 1 = campo nativo `phone`).
+  // Contact
   telefone2: 'nvti_telefone_2',
   whatsapp1: 'nvti_whatsapp_1',
   whatsapp2: 'nvti_whatsapp_2',
   telefone3: 'nvti_telefone_3',
   whatsapp3: 'nvti_whatsapp_3',
+  // Informações Gerais (endereço) — só quando vazio
+  numero: 'nmero',
+  complemento: 'complemento',
+  bairro: 'bairro',
   // Informações Adicionais
   nomeMae: 'nvti_nome_mae',
   sexo: 'nvti_sexo',
@@ -64,24 +73,28 @@ export const NVTI_FIELD_KEYS = {
   possuiVeiculo: 'nvti_possui_veiculo',
   possuiImovel: 'nvti_possui_imovel',
   bolsaFamilia: 'nvti_bolsa_familia',
-  // Dados de Crédito
-  score: 'nvti_score',
-  faixaScore: 'nvti_faixa_score',
-  personaCredito: 'nvti_persona_credito',
-  propensaoPagamento: 'nvti_propensao_pagamento',
-  scoreDigital: 'nvti_score_digital',
-  possuiFgts: 'nvti_possui_fgts',
-  fgtsValorPresumido: 'nvti_fgts_valor_presumido',
-  dataConsulta: 'nvti_data_consulta',
+  // Dados de Crédito (compartilhados — sem prefixo nvti_)
+  score: 'score',
+  faixaScore: 'faixa_de_score',
+  personaCredito: 'persona_de_credito',
+  propensaoPagamento: 'propensao_de_pagamento',
+  scoreDigital: 'score_digital',
+  possuiFgts: 'possui_fgts',
+  fgtsValorPresumido: 'valor_presumido_de_fgts',
 } as const
 
-/** Rótulo visível de cada campo — já no nome final da pasta correspondente. */
-const NVTI_FIELD_LABELS: Record<keyof typeof NVTI_FIELD_KEYS, string> = {
+type CampoNvti = keyof typeof NVTI_FIELD_KEYS
+
+/** Nome visível no WeSales — só pra mensagem de erro quando o campo não existir. */
+const NVTI_FIELD_LABELS: Record<CampoNvti, string> = {
   telefone2: 'Telefone 2',
   whatsapp1: 'Flag WhatsApp 1',
   whatsapp2: 'Flag WhatsApp 2',
   telefone3: 'Telefone 3',
   whatsapp3: 'Flag WhatsApp 3',
+  numero: 'Número',
+  complemento: 'Complemento',
+  bairro: 'Bairro',
   nomeMae: 'Nome da Mãe',
   sexo: 'Sexo',
   classeEconomica: 'Classe Econômica',
@@ -96,41 +109,39 @@ const NVTI_FIELD_LABELS: Record<keyof typeof NVTI_FIELD_KEYS, string> = {
   personaCredito: 'Persona de Crédito',
   propensaoPagamento: 'Propensão de Pagamento',
   scoreDigital: 'Score Digital',
-  possuiFgts: 'Possui FGTS',
-  fgtsValorPresumido: 'FGTS Valor Presumido',
-  dataConsulta: 'Data da Última Consulta (NVTI)',
+  possuiFgts: 'Possui FGTS?',
+  fgtsValorPresumido: 'Valor Presumido de FGTS',
 }
+
+/** Campos de endereço: só preenche se o contato ainda não tiver valor. */
+const CAMPOS_SO_SE_VAZIO: ReadonlySet<CampoNvti> = new Set(['numero', 'complemento', 'bairro'])
 
 const TAG_HIGIENIZADO = 'nvti-higienizado'
 
-/** Mesma chave/rótulo que o worker do brs-alvoconsig usa (`garantirContato`) —
- * é ESTE campo que `findContactByCpf` consulta. Sem ele no contato criado, a
- * próxima higienização do mesmo CPF não o acha e duplica. */
+/** Mesma chave que o CRM AlvoConsig usa — é ESTE campo que `findContactByCpf` consulta. */
 const CPF_FIELD_KEY = 'cpf'
 
-let camposGarantidos: Promise<Record<string, string>> | null = null
+let camposResolvidos: Promise<Record<string, CustomFieldDef>> | null = null
 
-/** Garante (cria se faltar) todos os custom fields nvti_* + cpf — 1x por container quente. */
-async function garantirCamposNvti(): Promise<Record<string, string>> {
-  if (!camposGarantidos) {
-    camposGarantidos = (async () => {
+/** Resolve todos os campos nvti + cpf (1x por container quente). Lança se algum não existir no WeSales. */
+async function resolverCamposNvti(): Promise<Record<string, CustomFieldDef>> {
+  if (!camposResolvidos) {
+    camposResolvidos = (async () => {
       const entries = await Promise.all([
-        ensureCustomField(CPF_FIELD_KEY, 'CPF').then((def) => [CPF_FIELD_KEY, def.id] as const),
-        ...(Object.entries(NVTI_FIELD_KEYS) as Array<[keyof typeof NVTI_FIELD_KEYS, string]>).map(
-          async ([campo, key]) => {
-            const def = await ensureCustomField(key, NVTI_FIELD_LABELS[campo])
-            return [key, def.id] as const
-          },
-        ),
+        ensureCustomField(CPF_FIELD_KEY, 'CPF').then((def) => [CPF_FIELD_KEY, def] as const),
+        ...(Object.entries(NVTI_FIELD_KEYS) as Array<[CampoNvti, string]>).map(async ([campo, key]) => {
+          const def = await ensureCustomField(key, NVTI_FIELD_LABELS[campo])
+          return [key, def] as const
+        }),
       ])
       return Object.fromEntries(entries)
     })().catch((error) => {
       // Não deixa uma falha transitória (rede/token) ficar cacheada pra sempre.
-      camposGarantidos = null
+      camposResolvidos = null
       throw error
     })
   }
-  return camposGarantidos
+  return camposResolvidos
 }
 
 function boolLabel(value: boolean | null): string {
@@ -163,20 +174,17 @@ function nascimentoIso(valor: string | null | undefined): string | null {
   return null
 }
 
+type CustomFieldWrite = { id: string; fieldValue: string | number }
+
 /**
- * `dataConsulta`: data REAL em que a NVTI verificou o CPF — não "agora".
- * Numa consulta vinda do cache (reaproveitamento de até 30 dias), "agora" é
- * só o momento em que alguém pediu de novo; gravar isso quebraria o próprio
- * motivo de existir do campo. O chamador (service.ts) passa a data real.
+ * Grava o resultado no WeSales. A data real da consulta NÃO é mais gravada
+ * (campo removido do WeSales em 29/08/2026) — fica em `nvti_queries`.
  */
-export async function syncNvtiResultadoParaWesales(
-  resultado: NvtiResultado,
-  dataConsulta: Date,
-): Promise<void> {
+export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Promise<void> {
   const cpf = normalizeCpfDigits(resultado.cpf)
   if (!cpf) return
 
-  const fieldIds = await garantirCamposNvti()
+  const defs = await resolverCamposNvti()
   const endereco = resultado.enderecos[0]
   const empresa = resultado.empresas[0]
   const celulares = resultado.celulares
@@ -187,38 +195,53 @@ export async function syncNvtiResultadoParaWesales(
     ? [celulares[primeiroCelularComWhats], ...celulares.filter((_, i) => i !== primeiroCelularComWhats)]
     : celulares
 
-  const customFields: Array<{ id: string; fieldValue: string }> = []
-  const push = (key: keyof typeof NVTI_FIELD_KEYS, value: string) => {
-    if (value) customFields.push({ id: fieldIds[NVTI_FIELD_KEYS[key]], fieldValue: value })
+  /** Valores desejados por campo (vazio = não mexe). */
+  const valores: Partial<Record<CampoNvti, string>> = {
+    telefone2: celularTexto(ordenados[1]),
+    whatsapp1: ordenados[0] ? boolLabel(ordenados[0].whatsapp) : '',
+    whatsapp2: ordenados[1] ? boolLabel(ordenados[1].whatsapp) : '',
+    telefone3: celularTexto(ordenados[2]),
+    whatsapp3: ordenados[2] ? boolLabel(ordenados[2].whatsapp) : '',
+    numero: endereco?.numero || '',
+    complemento: endereco?.complemento || '',
+    bairro: endereco?.bairro || '',
+    nomeMae: resultado.cadastro.nome_mae,
+    sexo: resultado.cadastro.sexo,
+    classeEconomica: resultado.cadastro.classe_economica,
+    ocupacao: resultado.cadastro.descricao_cbo,
+    obito: boolLabel(resultado.credito.obito),
+    fonteRenda: resultado.credito.fonte_renda,
+    possuiVeiculo: boolLabel(resultado.credito.possui_veiculo),
+    possuiImovel: boolLabel(resultado.credito.possui_imovel),
+    bolsaFamilia: boolLabel(resultado.credito.bolsa_familia),
+    score: resultado.credito.score,
+    faixaScore: resultado.credito.faixa_score,
+    personaCredito: resultado.credito.persona_credito,
+    propensaoPagamento: resultado.credito.propensao_pagamento,
+    scoreDigital: resultado.credito.score_digital,
+    possuiFgts: empresa ? boolLabel(empresa.possui_fgts) : '',
+    fgtsValorPresumido: empresa?.fgts_valor_presumido || '',
   }
-  push('telefone2', celularTexto(ordenados[1]))
-  push('whatsapp1', ordenados[0] ? boolLabel(ordenados[0].whatsapp) : '')
-  push('whatsapp2', ordenados[1] ? boolLabel(ordenados[1].whatsapp) : '')
-  push('telefone3', celularTexto(ordenados[2]))
-  push('whatsapp3', ordenados[2] ? boolLabel(ordenados[2].whatsapp) : '')
-  push('nomeMae', resultado.cadastro.nome_mae)
-  push('sexo', resultado.cadastro.sexo)
-  push('classeEconomica', resultado.cadastro.classe_economica)
-  push('ocupacao', resultado.cadastro.descricao_cbo)
-  push('obito', boolLabel(resultado.credito.obito))
-  push('fonteRenda', resultado.credito.fonte_renda)
-  push('possuiVeiculo', boolLabel(resultado.credito.possui_veiculo))
-  push('possuiImovel', boolLabel(resultado.credito.possui_imovel))
-  push('bolsaFamilia', boolLabel(resultado.credito.bolsa_familia))
-  push('score', resultado.credito.score)
-  push('faixaScore', resultado.credito.faixa_score)
-  push('personaCredito', resultado.credito.persona_credito)
-  push('propensaoPagamento', resultado.credito.propensao_pagamento)
-  push('scoreDigital', resultado.credito.score_digital)
-  push('possuiFgts', empresa ? boolLabel(empresa.possui_fgts) : '')
-  push('fgtsValorPresumido', empresa?.fgts_valor_presumido || '')
-  push('dataConsulta', dataConsulta.toISOString().slice(0, 10))
+
+  /** Monta o payload respeitando o tipo de cada campo e a regra "só se vazio". */
+  const montarCustomFields = (existente: WesalesContact | null): CustomFieldWrite[] => {
+    const out: CustomFieldWrite[] = []
+    for (const [campo, valor] of Object.entries(valores) as Array<[CampoNvti, string]>) {
+      if (!valor) continue
+      const def = defs[NVTI_FIELD_KEYS[campo]]
+      if (!def) continue
+      if (CAMPOS_SO_SE_VAZIO.has(campo) && existente && !vazio(customFieldValue(existente, def.id))) continue
+      const entry = customFieldEntry(def, valor)
+      if (entry) out.push(entry)
+    }
+    return out
+  }
 
   const existing = await findContactByCpf(cpf)
 
   if (existing) {
     const enrich = buildEnrichment(existing, resultado, endereco, ordenados[0])
-    await updateContact(existing.id, { ...enrich, customFields })
+    await updateContact(existing.id, { ...enrich, customFields: montarCustomFields(existing) })
     // Tag por endpoint dedicado (aditivo) — updateContact via PUT não é
     // seguro pra tags (arriscaria substituir as que o contato já tinha).
     await addContactTags(existing.id, [TAG_HIGIENIZADO])
@@ -227,14 +250,16 @@ export async function syncNvtiResultadoParaWesales(
 
   // Contato novo: grava também o CPF (chave de busca) — sem isso o contato
   // nasce "órfão" e a próxima consulta do mesmo CPF duplica.
-  const customFieldsNovo = [{ id: fieldIds[CPF_FIELD_KEY], fieldValue: cpf }, ...customFields]
+  const customFieldsNovo: CustomFieldWrite[] = [{ id: defs[CPF_FIELD_KEY].id, fieldValue: cpf }, ...montarCustomFields(null)]
 
   const criado = await createContact({
     name: resultado.cadastro.nome || undefined,
     phone: celularE164(ordenados[0]) || undefined,
     email: resultado.emails[0] || undefined,
     dateOfBirth: nascimentoIso(resultado.cadastro.nascimento) || undefined,
-    address1: endereco ? [endereco.logradouro, endereco.numero].filter(Boolean).join(', ') || undefined : undefined,
+    // Número/Complemento/Bairro vão nos campos próprios (Informações Gerais);
+    // o nativo `address1` fica só com o logradouro.
+    address1: endereco?.logradouro || undefined,
     city: endereco?.cidade || undefined,
     state: endereco?.uf || undefined,
     postalCode: endereco?.cep || undefined,
@@ -250,15 +275,16 @@ export async function syncNvtiResultadoParaWesales(
   if (!criado.contact && criado.duplicateOfId) {
     const duplicado = await getContact(criado.duplicateOfId)
     const enrich = duplicado ? buildEnrichment(duplicado, resultado, endereco, ordenados[0]) : {}
-    await updateContact(criado.duplicateOfId, { ...enrich, customFields: customFieldsNovo })
+    const customFieldsDup: CustomFieldWrite[] = [{ id: defs[CPF_FIELD_KEY].id, fieldValue: cpf }, ...montarCustomFields(duplicado)]
+    await updateContact(criado.duplicateOfId, { ...enrich, customFields: customFieldsDup })
     await addContactTags(criado.duplicateOfId, [TAG_HIGIENIZADO])
   }
 }
 
 /**
- * Monta o enriquecimento de campos NATIVOS (telefone 1, e-mail, endereço) —
- * só entra no payload o que estiver VAZIO no contato hoje. Nunca sobrescreve
- * dado que o time já tem.
+ * Monta o enriquecimento de campos NATIVOS (telefone 1, e-mail, nascimento,
+ * endereço) — só entra no payload o que estiver VAZIO no contato hoje. Nunca
+ * sobrescreve dado que o time já tem.
  */
 function buildEnrichment(
   existing: WesalesContact,
@@ -272,10 +298,7 @@ function buildEnrichment(
   const nascimento = nascimentoIso(resultado.cadastro.nascimento)
   if (vazio(existing.dateOfBirth) && nascimento) enrich.dateOfBirth = nascimento
   if (endereco) {
-    if (vazio(existing.address1)) {
-      const linha = [endereco.logradouro, endereco.numero].filter(Boolean).join(', ')
-      if (linha) enrich.address1 = linha
-    }
+    if (vazio(existing.address1) && endereco.logradouro) enrich.address1 = endereco.logradouro
     if (vazio(existing.city) && endereco.cidade) enrich.city = endereco.cidade
     if (vazio(existing.state) && endereco.uf) enrich.state = endereco.uf
     if (vazio(existing.postalCode) && endereco.cep) enrich.postalCode = endereco.cep

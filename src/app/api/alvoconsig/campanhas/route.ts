@@ -33,7 +33,7 @@ import {
   customFieldValue,
   type WesalesContact,
 } from '@/lib/wesales/client'
-import { tagBase, tagCampanha, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
+import { codigoConvenioChave, indexarConveniosPorCodigo, tagBase, tagCampanha, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
 import { calcularOfertas, resolverOfertasRefin, type OfertasContato, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
 
@@ -162,7 +162,8 @@ export async function POST(request: NextRequest) {
     const admin = await createAdminClient()
 
     const { data: parceiro } = await admin.from('agentes_parceiros').select('id, arw_code').eq('id', agenteParceiroId).maybeSingle()
-    const arwCode = String(parceiro?.arw_code || '').trim().toLowerCase()
+    const arwCodeOriginal = String(parceiro?.arw_code || '').trim()
+    const arwCode = arwCodeOriginal.toLowerCase()
     if (!arwCode) return NextResponse.json({ error: 'Parceiro sem código ARW — não é possível gerar a tag de dono.' }, { status: 400 })
 
     // Busca no WeSales: disponíveis (leitura — nunca escreve aqui). Com base
@@ -234,11 +235,10 @@ export async function POST(request: NextRequest) {
     // Só pra LER as ofertas de REFIN do inventário — nada é escrito lá.
     const pipelineOfertas = await resolverPipelineOfertas()
 
+    // "Convênio (Código Workspace)" é NUMERICAL no WeSales: volta "1" pra um
+    // codigo_sistema "00001" — o índice normaliza os dois lados.
     const { data: conveniosData } = await admin.from('convenios').select('id, codigo_sistema').is('deleted_at', null)
-    const convenioPorCodigo = new Map<string, string>()
-    for (const conv of conveniosData || []) {
-      if (conv.codigo_sistema) convenioPorCodigo.set(conv.codigo_sistema, String(conv.id))
-    }
+    const convenioPorCodigo = indexarConveniosPorCodigo(conveniosData)
 
     // Código sequencial global (<arw_atual>-<numero>) — identifica a campanha
     // no Workspace e vira tag adicional no WeSales (campanha:<codigo>), junto
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
       const cpf = cpfField ? digits(customFieldValue(contato, cpfField.id)) || null : null
       const matricula = matriculaField ? customFieldValue(contato, matriculaField.id) : null
       const codigoConvenio = convenioField ? customFieldValue(contato, convenioField.id) : null
-      const convenioResolvido = convenioId || (codigoConvenio && convenioPorCodigo.get(digits(codigoConvenio) || codigoConvenio)) || null
+      const convenioResolvido = convenioId || (codigoConvenioChave(codigoConvenio) && convenioPorCodigo.get(codigoConvenioChave(codigoConvenio)!)) || null
 
       const margens = {
         novo: novoValorField ? parseMoneyField(customFieldValue(contato, novoValorField.id)) : null,
@@ -415,6 +415,8 @@ export async function POST(request: NextRequest) {
         ...(inseridos || []).flatMap((row: any) => [
           { operacao: 'remover_tag', contato_id: row.id, payload: { tag: TAG_DISPONIVEL } },
           { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: `parceiro:${arwCode}` } },
+          // Espelho legível da tag de dono no campo "Código de Parceiro BRS".
+          { operacao: 'atualizar_campo', contato_id: row.id, payload: { campo: WESALES_FIELD_KEYS.codigoParceiro, valor: arwCodeOriginal } },
           { operacao: 'aplicar_tag', contato_id: row.id, payload: { tag: tagCampanha(codigoCampanha) } },
           { operacao: 'mover_estagio', contato_id: row.id, payload: { estagio: 'carteira_de_leads' } },
         ]),

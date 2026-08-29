@@ -97,7 +97,17 @@ export function normalizeCpfDigits(cpf: string) {
 // ---------------------------------------------------------------------------
 
 export type CustomFieldModel = 'contact' | 'opportunity'
-type CustomFieldDef = { id: string; fieldKey?: string; name?: string; model?: string }
+export type CustomFieldDef = {
+  id: string
+  fieldKey?: string
+  name?: string
+  model?: string
+  /** TEXT | LARGE_TEXT | NUMERICAL | MONETORY | DATE | SINGLE_OPTIONS | MULTIPLE_OPTIONS | CHECKBOX | RADIO ... */
+  dataType?: string
+  /** Opções válidas (SINGLE_OPTIONS/RADIO/CHECKBOX/MULTIPLE_OPTIONS). */
+  picklistOptions?: string[]
+  parentId?: string
+}
 
 const customFieldsCache = new Map<CustomFieldModel, CustomFieldDef[]>()
 
@@ -121,16 +131,121 @@ export async function resolveCustomField(key: string, model: CustomFieldModel = 
   return fields.find((def) => fieldKeyMatches(def, key, model)) || null
 }
 
-/** Garante que o campo personalizado existe na location (cria se faltar). */
+/**
+ * Resolve o campo personalizado OBRIGATÓRIO — lança se não existir.
+ *
+ * Até 29/08/2026 esta função CRIAVA o campo (TEXT, sem pasta) quando faltava.
+ * Depois da reorganização feita pelo Bruno direto na UI do WeSales (pastas,
+ * tipos NUMERICAL/MONETORY/DATE/SINGLE_OPTIONS, fieldKeys novos), criar
+ * automaticamente passou a ser perigoso: qualquer chave antiga ainda no
+ * código ressuscitaria um campo TEXT solto fora das pastas. Campo novo agora
+ * nasce SÓ na UI do WeSales; o código apenas resolve por fieldKey. O `name`
+ * fica só pra mensagem de erro/documentação.
+ */
 export async function ensureCustomField(key: string, name: string, model: CustomFieldModel = 'contact'): Promise<CustomFieldDef> {
   const existing = await resolveCustomField(key, model)
   if (existing) return existing
-  const res = await http<{ customField?: CustomFieldDef } & CustomFieldDef>(`/locations/${locationId()}/customFields`, {
-    method: 'POST',
-    body: { name, dataType: 'TEXT', model, fieldKey: key },
-  })
-  customFieldsCache.delete(model)
-  return (res.customField || res) as CustomFieldDef
+  throw new Error(
+    `Campo personalizado "${name}" (fieldKey ${model}.${key}) não existe no WeSales — crie na tela Configurações › Campos Personalizados (o sistema não cria campos automaticamente desde 29/08/2026).`,
+  )
+}
+
+/** Normaliza texto pra comparar opções: minúsculas, sem acento, sem espaços extras. */
+function normalizarOpcao(s: string): string {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .toLowerCase()
+}
+
+/** "R$ 1.234,56" | "1234,56" | "1.234.567" | "1234.56" | 1234.56 → 1234.56 (null se não for número). */
+export function parseNumeroBr(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  let s = String(value).trim().replace(/[R$\s%]/gi, '')
+  if (!s) return null
+  const temVirgula = s.includes(',')
+  const temPonto = s.includes('.')
+  if (temVirgula && temPonto) {
+    // Formato BR completo "1.234,56": ponto = milhar, vírgula = decimal.
+    s = s.replace(/\./g, '').replace(',', '.')
+  } else if (temVirgula) {
+    s = s.replace(',', '.')
+  } else if (temPonto) {
+    // Só ponto: "1.234" (milhar BR) ou "1234.56" (decimal). Regra: ponto seguido
+    // de exatamente 3 dígitos e sem outro ponto = milhar; senão decimal.
+    if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '')
+  }
+  const n = Number.parseFloat(s)
+  return Number.isFinite(n) ? n : null
+}
+
+/** DD/MM/AAAA | AAAA-MM-DD | ISO datetime → AAAA-MM-DD (único formato que o WeSales aceita em DATE). */
+export function normalizarDataIso(value: unknown): string | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10)
+  const texto = String(value ?? '').trim()
+  if (!texto) return null
+  const br = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  return null
+}
+
+/**
+ * Converte um valor pro formato que o TIPO do campo exige — regras confirmadas
+ * ao vivo na API em 29/08/2026 (contato descartável):
+ *   - NUMERICAL/MONETORY: só aceita número; "1234,56" vira 123456 (vírgula é
+ *     descartada!) e texto não-numérico é ignorado em silêncio → mandamos número.
+ *   - DATE: só AAAA-MM-DD; "29/08/2026" devolve HTTP 400 e derruba o update
+ *     INTEIRO (todos os campos do payload) → normalizamos ou não mandamos.
+ *   - SINGLE_OPTIONS: a API NÃO valida ("Talvez"/"sim" entram) → casamos com a
+ *     lista de opções aqui, sem acento/caixa, e gravamos a opção exata.
+ *   - "" limpa o campo (qualquer tipo).
+ * Devolve null quando o valor não serve pro tipo (o chamador pula o campo).
+ */
+export function coerceCustomFieldValue(def: CustomFieldDef, value: unknown): string | number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'boolean') value = value ? 'Sim' : 'Não'
+  const texto = String(value).trim()
+  if (texto === '') return ''
+  const tipo = String(def.dataType || 'TEXT').toUpperCase()
+  switch (tipo) {
+    case 'NUMERICAL':
+    case 'MONETORY':
+    case 'MONETARY':
+      return parseNumeroBr(value)
+    case 'DATE':
+      return normalizarDataIso(value)
+    case 'SINGLE_OPTIONS':
+    case 'RADIO':
+    case 'CHECKBOX':
+    case 'MULTIPLE_OPTIONS': {
+      const opcoes = def.picklistOptions || []
+      if (!opcoes.length) return texto
+      const alvo = normalizarOpcao(texto)
+      return opcoes.find((o) => normalizarOpcao(o) === alvo) ?? null
+    }
+    default:
+      return texto
+  }
+}
+
+/**
+ * Monta a entrada de customFields já no formato do tipo do campo. Devolve
+ * null (e avisa no log) quando o valor não é compatível — nunca deixa um
+ * valor inválido derrubar o update inteiro.
+ */
+export function customFieldEntry(def: CustomFieldDef, value: unknown): { id: string; fieldValue: string | number } | null {
+  const coerced = coerceCustomFieldValue(def, value)
+  if (coerced === null) {
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      console.warn(`[wesales] valor "${String(value)}" incompatível com o campo ${def.fieldKey} (${def.dataType}) — ignorado`)
+    }
+    return null
+  }
+  return { id: def.id, fieldValue: coerced }
 }
 
 /** Remove a DEFINIÇÃO do campo (não só o valor) — usado na faxina de campos descontinuados. */
@@ -150,13 +265,20 @@ export type WesalesContact = {
   lastName?: string
   phone?: string
   tags?: string[]
-  customFields?: Array<{ id: string; value?: string }>
+  customFields?: Array<{ id: string; value?: unknown }>
   [key: string]: unknown
 }
 
+/**
+ * Valor do campo como TEXTO. Campos NUMERICAL/MONETORY voltam como número
+ * da API (ex. convênio "00001" gravado vira 1) — normalizamos pra string pra
+ * o resto do código continuar tratando tudo como texto.
+ */
 export function customFieldValue(contact: WesalesContact, fieldId: string): string | null {
   const found = (contact.customFields || []).find((f) => f.id === fieldId)
-  return found?.value ?? null
+  const raw = found?.value
+  if (raw === null || raw === undefined || raw === '') return null
+  return Array.isArray(raw) ? raw.map(String).join(', ') : String(raw)
 }
 
 export async function findContactByCpf(cpf: string): Promise<WesalesContact | null> {
@@ -185,7 +307,8 @@ export type ContactPayload = {
   dateOfBirth?: string
   tags?: string[]
   source?: string
-  customFields?: Array<{ id: string; fieldValue: string }>
+  /** Use `customFieldEntry(def, valor)` pra respeitar o tipo do campo (número/data/opção). */
+  customFields?: Array<{ id: string; fieldValue: string | number }>
 }
 
 /** Cria (chave = CPF, após findContactByCpf não achar). */

@@ -5,7 +5,7 @@
  * CRON_SECRET) é responsável por isso. Ver docs/SPEC-CRM-WESALES-CAMPANHAS.md.
  */
 
-import { TAG_DISPONIVEL } from './campos-sync'
+import { TAG_DISPONIVEL, WESALES_FIELD_KEYS } from './campos-sync'
 import { OFERTA_FIELD_KEYS, resolverPipelineOfertas } from './ofertas-wesales'
 import { findOpportunitiesByContact, opportunityFieldValue, resolveCustomField, updateOpportunityStatus } from '@/lib/wesales/client'
 
@@ -54,6 +54,8 @@ export async function reverterTagsDaCampanha(admin: AdminClient, campanhaId: str
 
   const filaOps = reinseridos.flatMap((c: any) => [
     { operacao: 'remover_tag', contato_id: c.id, payload: { tag: `parceiro:${arwCode}` } },
+    // Limpa o espelho da tag de dono ("Código de Parceiro BRS").
+    { operacao: 'atualizar_campo', contato_id: c.id, payload: { campo: WESALES_FIELD_KEYS.codigoParceiro, valor: '' } },
     { operacao: 'aplicar_tag', contato_id: c.id, payload: { tag: TAG_DISPONIVEL } },
   ])
   for (let i = 0; i < filaOps.length; i += 500) {

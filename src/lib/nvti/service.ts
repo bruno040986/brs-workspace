@@ -64,9 +64,9 @@ async function insertQueryRow(admin: SupabaseClient, row: LogRowInput): Promise<
  * TODA consulta bem-sucedida, veio do cache ou não, de qualquer origem
  * (manual, lote, service — Portal Parceiro incluso quando existir).
  */
-async function sincronizarComWesales(resultado: NvtiResultado, dataConsulta: Date): Promise<void> {
+async function sincronizarComWesales(resultado: NvtiResultado): Promise<void> {
   try {
-    await syncNvtiResultadoParaWesales(resultado, dataConsulta)
+    await syncNvtiResultadoParaWesales(resultado)
   } catch (error) {
     console.error('[nvti->wesales] falha ao gravar resultado no WeSales:', error)
   }
@@ -169,7 +169,7 @@ export async function higienizarCpf(input: HigienizacaoInput): Promise<Higieniza
         success: true,
         response: resultado,
       })
-      await sincronizarComWesales(resultado, new Date(cachedRow.created_at))
+      await sincronizarComWesales(resultado)
       return { status: 'ok', queryId: queryId || '', fromCache: true, unitCost: 0, resultado }
     }
   }
@@ -219,7 +219,7 @@ export async function higienizarCpf(input: HigienizacaoInput): Promise<Higieniza
       success: true,
       response: resultado,
     })
-    await sincronizarComWesales(resultado, new Date())
+    await sincronizarComWesales(resultado)
     return { status: 'ok', queryId: queryId || '', fromCache: false, unitCost: unit, resultado }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Falha ao consultar a NVTI.'

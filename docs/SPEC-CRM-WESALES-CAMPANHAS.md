@@ -236,7 +236,8 @@ manuais públicos do GHL):**
 **`convenios.codigo` virou "Código ARW"** (opcional — só usado pelo
 importador de comissionamento, que casa com planilhas vindas do ARW). A
 identidade do convênio usada na integração com o WeSales (campo
-`alvoconsig_convenio_codigo` no contato, filtro de campanha "todos do
-convênio") passou a ser **`codigo_sistema`** (sequencial, 5 dígitos, gerado
+"Convênio (Código Workspace)", fieldKey `convenio_codigo`, NUMERICAL — o
+WeSales guarda `1` pra "00001"; ver `codigoConvenioChave` em campos-sync.ts —
+no contato, filtro de campanha "todos do convênio") passou a ser **`codigo_sistema`** (sequencial, 5 dígitos, gerado
 pelo banco — sempre presente, nunca ambíguo). Ver migration
 `20260825140000_convenios_dados_fiscais_codigo_sistema.sql`.

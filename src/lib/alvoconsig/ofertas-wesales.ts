@@ -63,34 +63,31 @@ export const OFERTA_FIELD_LABELS: Record<keyof typeof OFERTA_FIELD_KEYS, string>
   seguroSimNao: 'AlvoConsig — Oferta: Tem Seguro',
 } as const
 
-/** Campos de CONTATO — foto rápida da margem (sem histórico; o histórico mora nas oportunidades). */
+/**
+ * Campos de CONTATO — foto rápida da margem (sem histórico; o histórico mora
+ * nas oportunidades). Pasta "Dados de Crédito", criados pelo Bruno na UI do
+ * WeSales em 29/08/2026: valor é MONETORY (mandar NÚMERO — "1234,56" vira
+ * 123456 na API) e data é DATE (só AAAA-MM-DD). Compartilhados entre convênio
+ * público e CLT (CLT só usa "Novo" — não tem cartão RMC/RCC). Convênio NÃO é
+ * por produto — é o campo único "Convênio (Código/Nome)" de campos-sync.ts.
+ */
 export const MARGEM_FIELD_KEYS = {
-  novoValor: 'alvoconsig_margem_novo_valor',
-  novoData: 'alvoconsig_margem_novo_data',
-  rmcValor: 'alvoconsig_margem_rmc_valor',
-  rmcData: 'alvoconsig_margem_rmc_data',
-  rccValor: 'alvoconsig_margem_rcc_valor',
-  rccData: 'alvoconsig_margem_rcc_data',
+  novoValor: 'novo_margem',
+  novoData: 'novo_margem_data',
+  rmcValor: 'cartao_rmc_margem',
+  rmcData: 'cartao_rmc_margem_data',
+  rccValor: 'cartao_rcc_margem',
+  rccData: 'cartao_rcc_margem_data',
 } as const
 
-/**
- * Nomes SEM prefixo "AlvoConsig —" de propósito (decisão 29/08/2026, junto
- * com o Bruno): margem por produto (Novo/RMC/RCC) é conceito COMPARTILHADO
- * entre convênio público e CLT (CLT só usa "Novo" — não tem cartão RMC/RCC).
- * O fieldKey continua `alvoconsig_margem_*` (não muda mais depois de criado —
- * renomear o "name" não afeta o fieldKey, confirmado direto na API), então
- * nada quebra; só o rótulo visível fica neutro, na pasta "Dados de Crédito".
- * Convênio NÃO é mais por produto (removido: novoConvenio/rmcConvenio/
- * rccConvenio) — é o campo único "Convênio (Código/Nome)" de campos-sync.ts,
- * porque uma pessoa só tem um convênio por vez, não um por produto.
- */
+/** Nome visível no WeSales — só pra mensagem de erro quando o campo não existir. */
 export const MARGEM_FIELD_LABELS: Record<keyof typeof MARGEM_FIELD_KEYS, string> = {
   novoValor: 'Novo Margem',
-  novoData: 'Novo Data',
-  rmcValor: 'RMC Margem',
-  rmcData: 'RMC Data',
-  rccValor: 'RCC Margem',
-  rccData: 'RCC Data',
+  novoData: 'Novo Margem Data',
+  rmcValor: 'Cartão RMC Margem',
+  rmcData: 'Cartão RMC Margem Data',
+  rccValor: 'Cartão RCC Margem',
+  rccData: 'Cartão RCC Margem Data',
 } as const
 
 export function nomeOportunidade(tipo: TipoOferta, instituicaoNome: string, tabelaNome: string | null): string {
