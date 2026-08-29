@@ -1,5 +1,23 @@
 # Pendência para o Fable — Configurações do Parceiro no AlvoConsig (26/08/2026)
 
+> **RESOLVIDO em 29/08/2026 (Fable 5).**
+> 1. **Credenciais**: cifra na aplicação, AES-256-GCM, chave `CRM_CREDENTIALS_KEY`
+>    (32 bytes base64) só na env do CRM na Vercel (produção + preview, já
+>    configurada). Tabela `crm_parceiro_credenciais` (migration
+>    `20260829150000_crm_campanhas_parceiro.sql`), SEM policy de leitura —
+>    só service role. Código: `brs-alvoconsig/apps/web/src/lib/crm/cofre.ts`
+>    (cifra/decifra), `credenciais.ts` (leitura, só servidor — de propósito
+>    fora de arquivo 'use server'), `credenciais-actions.ts` (UI só recebe
+>    rótulo/campos públicos/máscara). Entrada 100% pela tela, como o Bruno
+>    exigiu. Sessão Baileys/Z-API do WhatsApp usará o mesmo cofre quando o
+>    serviço existir.
+> 2. **Railway/isolamento**: mantido o hub-and-spoke do GRUPO.md — sem
+>    réplica em Railway. A fronteira continua sendo a camada de aplicação do
+>    CRM (service role + filtro obrigatório por parceiro) e RLS nas tabelas
+>    crm_*; um segundo banco só duplicaria dado e criaria dessincronia sem
+>    tirar o service role do CRM.
+> O texto abaixo é o levantamento original, mantido como histórico.
+
 > Levantado durante a construção da tela de "Configurações" do master no
 > AlvoConsig (Atendentes, Discadora Automática, IA de Voz/URA Reversa,
 > WhatsApp não oficial). Envolve armazenamento de credencial de terceiro e
