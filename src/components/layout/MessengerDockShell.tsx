@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, CircleChevronLeft, MessageSquareText, MessagesSquare, X } from 'lucide-react'
-import { GoogleChatComponent } from '@/app/(dashboard)/theme/GoogleChatComponent'
+import { ChevronRight, CircleChevronLeft, MessageSquareText, X } from 'lucide-react'
+import MessengerDockTabs from '@/components/conversas/MessengerDockTabs'
 import { useMessengerDock } from '@/components/layout/MessengerDockContext'
 
 const HEADER_HEIGHT = 64
@@ -173,7 +173,7 @@ export function MessengerDockShell() {
             <X size={18} />
           </button>
           <div className="brs-messenger-dock-content">
-            <GoogleChatComponent variant="dock" />
+            <MessengerDockTabs />
           </div>
         </div>
       </>
@@ -203,7 +203,7 @@ export function MessengerDockShell() {
             <ChevronRight size={18} />
           </button>
           <div className="brs-messenger-dock-content">
-            <GoogleChatComponent variant="dock" />
+            <MessengerDockTabs />
           </div>
         </div>
       )}
