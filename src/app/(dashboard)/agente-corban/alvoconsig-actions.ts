@@ -13,6 +13,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { requirePermission } from '@/lib/auth/server'
+import { provisionarContaChatDoParceiro } from '@/lib/central-conversas/provisionar-parceiro'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -100,6 +101,7 @@ export async function salvarAlvoconsigConfig(payload: {
     if (!payload.agenteParceiroId) return { success: false, error: 'Agente inválido.' }
 
     const maxAtendentes = Math.max(0, Math.min(500, Number.parseInt(String(payload.maxAtendentes), 10) || 0))
+    let avisoChat: string | null = null
 
     if (payload.habilitado) {
       // Master = login único do parceiro (aba Acesso). Valida e vincula.
@@ -162,6 +164,17 @@ export async function salvarAlvoconsigConfig(payload: {
           .eq('id', payload.agenteParceiroId)
           .is('auth_user_id', null)
       }
+
+      // Chat Integrado: a conta Chatwoot do parceiro nasce AQUI, na habilitação
+      // (decisão 29/08/2026) — o parceiro entra no CRM e só lê os QR Codes.
+      // Best-effort: se o Chatwoot estiver fora, habilita mesmo assim e avisa;
+      // o CRM cria a conta sozinho na primeira abertura, como fallback.
+      try {
+        await provisionarContaChatDoParceiro(payload.agenteParceiroId)
+      } catch (chatError) {
+        console.error('Chat Integrado: falha ao provisionar conta do parceiro na habilitação:', chatError)
+        avisoChat = 'Habilitado, mas a conta do Chat Integrado não pôde ser criada agora (Chatwoot indisponível). O CRM tenta de novo na primeira abertura.'
+      }
     }
 
     const { data: atual } = await supabaseAdmin
@@ -185,7 +198,7 @@ export async function salvarAlvoconsigConfig(payload: {
       .upsert(row, { onConflict: 'agente_parceiro_id' })
     if (error) throw error
 
-    return { success: true }
+    return { success: true, aviso: avisoChat || undefined }
   } catch (error: any) {
     console.error('Erro ao salvar config AlvoConsig:', error)
     return { success: false, error: error.message }
