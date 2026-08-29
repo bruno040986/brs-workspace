@@ -212,13 +212,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve os IDs dos campos personalizados usados (1x, não por contato).
-    const [cpfField, matriculaField, convenioField, novoValorField, rmcValorField, rccValorField] = await Promise.all([
+    const [cpfField, matriculaField, convenioField, novoValorField, rmcValorField, rccValorField, sexoField, vinculoField] = await Promise.all([
       resolveCustomField(WESALES_FIELD_KEYS.cpf),
       resolveCustomField(WESALES_FIELD_KEYS.matricula),
       resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo),
       resolveCustomField(MARGEM_FIELD_KEYS.novoValor),
       resolveCustomField(MARGEM_FIELD_KEYS.rmcValor),
       resolveCustomField(MARGEM_FIELD_KEYS.rccValor),
+      // Demografia (filtros de campanha do parceiro) — podem não existir ainda; ausência vira NULL.
+      resolveCustomField(WESALES_FIELD_KEYS.sexo),
+      resolveCustomField(WESALES_FIELD_KEYS.vinculo),
     ])
 
     // Campos de OPORTUNIDADE (ofertas — REFIN já existentes + Novo/Cartão a criar agora).
@@ -318,6 +321,13 @@ export async function POST(request: NextRequest) {
         telefone: digits(contato.phone) || null,
         convenio_id: convenioResolvido,
         matricula: matricula || null,
+        // Demografia pros filtros de campanha do parceiro (NULL = não informado).
+        nascimento: String(contato.dateOfBirth || '').slice(0, 10).match(/^\d{4}-\d{2}-\d{2}$/) ? String(contato.dateOfBirth).slice(0, 10) : null,
+        sexo: sexoField ? customFieldValue(contato, sexoField.id) || null : null,
+        vinculo: vinculoField ? customFieldValue(contato, vinculoField.id) || null : null,
+        cidade: String(contato.city || '').trim() || null,
+        uf: String(contato.state || '').trim().toUpperCase().slice(0, 2) || null,
+        email: String(contato.email || '').trim().toLowerCase() || null,
         margem_novo: margens.novo,
         margem_cartao_rmc: margens.cartao_rmc,
         margem_cartao_rcc: margens.cartao_rcc,

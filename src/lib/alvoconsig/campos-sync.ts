@@ -70,6 +70,13 @@ export const WESALES_FIELD_KEYS = {
   // do contato"), só a origem do valor muda (CLT: constante; AlvoConsig: o
   // nome_reduzido cadastrado no convênio, pra ficar padronizado).
   nomeConvenio: 'nome_convenio',
+  // Demografia copiada pra crm_contatos na alocação (filtros de campanha do
+  // parceiro). Vêm da higienização NVTI, que não é obrigatória — ausência
+  // vira NULL ("não informado"). Chaves a CONFIRMAR com o Bruno quando a
+  // reorganização de campos no WeSales terminar (29/08/2026): se a sessão
+  // dele usar outra fieldKey pra Sexo/Vínculo, é só trocar aqui.
+  sexo: 'nvti_sexo',
+  vinculo: 'vinculo',
 } as const
 
 /** Estágios em que a cópia local NÃO pode ser expurgada no fim da campanha. */

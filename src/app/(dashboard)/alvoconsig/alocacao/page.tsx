@@ -137,33 +137,33 @@ export default function AlocacaoPage() {
       })
       const json = await res.json()
       if (!res.ok) {
-        setMessage({ type: 'error', text: json.error || 'Erro ao criar a campanha.' })
+        setMessage({ type: 'error', text: json.error || 'Erro ao criar a alocação.' })
         return
       }
       setMessage({
         type: 'success',
-        text: `Campanha ${json.codigo} criada: ${Number(json.alocados).toLocaleString('pt-BR')} de ${Number(json.encontrados).toLocaleString('pt-BR')} contato(s) encontrados foram copiados e já entraram na fila de sincronização com o WeSales.`,
+        text: `Alocação ${json.codigo} criada: ${Number(json.alocados).toLocaleString('pt-BR')} de ${Number(json.encontrados).toLocaleString('pt-BR')} contato(s) encontrados foram copiados e já entraram na fila de sincronização com o WeSales.`,
       })
       setDescricao('')
       await Promise.all([loadData(), carregarBasesDoConvenio(convenioId)])
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao criar a campanha.' })
+      setMessage({ type: 'error', text: 'Erro ao criar a alocação.' })
     } finally {
       setCriando(false)
     }
   }
 
   async function handleEncerrar(campanha: Campanha) {
-    if (!window.confirm(`Encerrar a campanha ${campanha.codigo} (${campanha.descricao || campanha.base_tag}) agora? Leads não concretizados voltam para o pool no WeSales (tag "disponivel").`)) return
+    if (!window.confirm(`Encerrar a alocação ${campanha.codigo} (${campanha.descricao || campanha.base_tag}) agora? Leads não concretizados voltam para o pool no WeSales (tag "disponivel").`)) return
     setBusyId(campanha.id)
     setMessage(null)
     try {
       const res = await encerrarCampanhaAgora(campanha.id)
       if (res.success) {
-        setMessage({ type: 'success', text: `Campanha encerrada. ${res.expurgados || 0} cópia(s) expurgada(s), ${res.mantidos || 0} mantida(s) (negociação aberta/certificação pendente).` })
+        setMessage({ type: 'success', text: `Alocação encerrada. ${res.expurgados || 0} cópia(s) expurgada(s), ${res.mantidos || 0} mantida(s) (negociação aberta/certificação pendente).` })
         await loadData()
       } else {
-        setMessage({ type: 'error', text: res.error || 'Erro ao encerrar a campanha.' })
+        setMessage({ type: 'error', text: res.error || 'Erro ao encerrar a alocação.' })
       }
     } finally {
       setBusyId(null)
@@ -175,7 +175,7 @@ export default function AlocacaoPage() {
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Send size={18} />
-          Campanhas
+          Alocação de leads
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
           Aloca contatos do WeSales (tag da base + disponível) para um parceiro, com vigência. Os leads continuam no WeSales — aqui só copiamos o mínimo para atendimento rápido.
@@ -259,7 +259,7 @@ export default function AlocacaoPage() {
           <div style={{ marginLeft: 'auto' }}>
             <button type="submit" className="btn btn-primary" disabled={criando || !parceiroId || !convenioId || !vigenciaFim}>
               {criando ? <Loader2 size={16} className="spinner" /> : <Send size={16} />}
-              Criar campanha
+              Criar alocação
             </button>
           </div>
         </div>

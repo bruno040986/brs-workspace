@@ -181,6 +181,8 @@ export type ContactPayload = {
   city?: string
   state?: string
   postalCode?: string
+  /** Nativo do WeSales/GHL — formato YYYY-MM-DD. */
+  dateOfBirth?: string
   tags?: string[]
   source?: string
   customFields?: Array<{ id: string; fieldValue: string }>

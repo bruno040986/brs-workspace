@@ -27,7 +27,7 @@ export default function AlvoconsigSidebar() {
           </Link>
           <Link href="/alvoconsig/alocacao" className={linkClass('/alvoconsig/alocacao')}>
             <Send size={18} />
-            Campanhas
+            Alocação de leads
           </Link>
           <Link href="/alvoconsig/certificacao" className={linkClass('/alvoconsig/certificacao')}>
             <ShieldCheck size={18} />

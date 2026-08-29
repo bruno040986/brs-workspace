@@ -152,6 +152,17 @@ function vazio(value: unknown): boolean {
   return value === undefined || value === null || String(value).trim() === ''
 }
 
+/** NVTI manda a data como DD/MM/AAAA (às vezes já ISO); o WeSales quer AAAA-MM-DD. */
+function nascimentoIso(valor: string | null | undefined): string | null {
+  const texto = String(valor || '').trim()
+  if (!texto) return null
+  const br = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  return null
+}
+
 /**
  * `dataConsulta`: data REAL em que a NVTI verificou o CPF — não "agora".
  * Numa consulta vinda do cache (reaproveitamento de até 30 dias), "agora" é
@@ -222,6 +233,7 @@ export async function syncNvtiResultadoParaWesales(
     name: resultado.cadastro.nome || undefined,
     phone: celularE164(ordenados[0]) || undefined,
     email: resultado.emails[0] || undefined,
+    dateOfBirth: nascimentoIso(resultado.cadastro.nascimento) || undefined,
     address1: endereco ? [endereco.logradouro, endereco.numero].filter(Boolean).join(', ') || undefined : undefined,
     city: endereco?.cidade || undefined,
     state: endereco?.uf || undefined,
@@ -257,6 +269,8 @@ function buildEnrichment(
   const enrich: ContactPayload = {}
   if (vazio(existing.phone) && celularPrincipal) enrich.phone = celularE164(celularPrincipal)
   if (vazio(existing.email) && resultado.emails[0]) enrich.email = resultado.emails[0]
+  const nascimento = nascimentoIso(resultado.cadastro.nascimento)
+  if (vazio(existing.dateOfBirth) && nascimento) enrich.dateOfBirth = nascimento
   if (endereco) {
     if (vazio(existing.address1)) {
       const linha = [endereco.logradouro, endereco.numero].filter(Boolean).join(', ')
