@@ -226,6 +226,13 @@ export type PromotoraSystemEntry = {
   url: string
   observacoes: string
   is_active: boolean
+  /**
+   * Visibilidade no Portal Parceiro (só usada pelo cadastro de Instituições
+   * Financeiras — "Acessos das Instituições"). 'interno' = suporte da BRS
+   * apenas; 'externo' = aparece pro parceiro. Ausente/legado = 'interno'
+   * (seguro por padrão — só aparece pro parceiro quando marcado).
+   */
+  visibilidade?: 'interno' | 'externo'
 }
 
 export type PromotoraRecord = {
@@ -812,6 +819,7 @@ export function normalizeSystems(rows: any): PromotoraSystemEntry[] {
     url: normalizeText(row?.url),
     observacoes: normalizeText(row?.observacoes),
     is_active: row?.is_active !== false,
+    visibilidade: (row?.visibilidade === 'externo' ? 'externo' : 'interno') as 'interno' | 'externo',
   })).filter((row) =>
     Boolean(row.system_type_id || row.descricao || row.url || row.observacoes),
   )

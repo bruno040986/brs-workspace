@@ -625,6 +625,7 @@ export function emptySystemEntry(): PromotoraSystemEntry {
     url: '',
     observacoes: '',
     is_active: true,
+    visibilidade: 'interno',
   }
 }
 

@@ -1229,8 +1229,14 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
 
       {activeTab === 'sistemas' && (
         <div className="card" style={{ padding: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>Sistemas da Instituição</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+            <div>
+              <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>Sistemas da Instituição</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>
+                Marque cada sistema como <strong>Interno</strong> (uso do suporte da BRS — o parceiro não vê) ou{' '}
+                <strong>Externo</strong> (aparece pro parceiro no Portal, em &quot;Acessos das Instituições&quot;).
+              </div>
+            </div>
             {!isReadOnly && (
               <button type="button" className="btn btn-outline" onClick={() => updateItem(item ? { ...item, systems: [...item.systems, emptySystemEntry()] } : item)}>
                 <CirclePlus size={16} />
@@ -1244,6 +1250,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
                 <tr>
                   <th>URL</th>
                   <th>Tipo de Sistema</th>
+                  <th>Visibilidade</th>
                   <th>Descrição</th>
                   <th>Observações</th>
                   <th>Status</th>
@@ -1252,7 +1259,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
               </thead>
               <tbody>
                 {item.systems.length === 0 ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>Nenhuma linha cadastrada.</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>Nenhuma linha cadastrada.</td></tr>
                 ) : item.systems.map((row, index) => (
                   <tr key={row.id}>
                     <td>
@@ -1287,6 +1294,18 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
                       >
                         <option value="">Selecione</option>
                         {lookups?.systemTypes?.map((opt) => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        className="form-control"
+                        disabled={isReadOnly}
+                        value={row.visibilidade === 'externo' ? 'externo' : 'interno'}
+                        onChange={(e) => updateSystem(index, { ...row, visibilidade: e.target.value === 'externo' ? 'externo' : 'interno' })}
+                        title="Interno: só o suporte da BRS vê. Externo: aparece pro parceiro no Portal (Acessos das Instituições)."
+                      >
+                        <option value="interno">Interno</option>
+                        <option value="externo">Externo</option>
                       </select>
                     </td>
                     <td><input className="form-control" disabled={isReadOnly} value={row.descricao || ''} onChange={(e) => updateSystem(index, { ...row, descricao: e.target.value })} /></td>
