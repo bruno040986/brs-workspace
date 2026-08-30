@@ -66,6 +66,20 @@ export function maskPhone(value: string) {
   return v.replace(/^(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2')
 }
 
+/**
+ * Telefone de atendimento (SAC/Ouvidoria) — aceita número convencional
+ * ((00) 0000-0000 / (00) 90000-0000) OU número especial 0800/0300/0500/0900
+ * (formato "0800 000 0000"). Detecta pelo primeiro dígito: DDD nunca começa
+ * com 0, então "0..." é sempre um número especial.
+ */
+export function maskTelefoneComercial(value: string) {
+  const v = onlyDigits(value).slice(0, 11)
+  if (v.startsWith('0')) {
+    return [v.slice(0, 4), v.slice(4, 7), v.slice(7, 11)].filter(Boolean).join(' ')
+  }
+  return maskPhone(v)
+}
+
 export function maskEmailInput(value: string) {
   const raw = String(value || '').toLowerCase().replace(/\s+/g, '')
   return raw

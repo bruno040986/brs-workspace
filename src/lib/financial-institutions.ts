@@ -119,6 +119,15 @@ export type InstituicaoSocialMedia = {
   facebook: string
   tiktok: string
   discord: string
+  youtube: string
+  linkedin: string
+  github: string
+  x: string
+  kwai: string
+  canal_whatsapp: string
+  comunidade_whatsapp: string
+  pinterest: string
+  telegram: string
 }
 
 export type InstituicaoAtendimentoLine = {
@@ -317,7 +326,7 @@ export function createEmptyInstituicaoFinanceira(): InstituicaoFinanceiraRecord 
     general_data: createEmptyGeneralData(),
     contacts_commercial: [],
     contacts_operational: [],
-    social_media: { instagram: '', facebook: '', tiktok: '', discord: '' },
+    social_media: { instagram: '', facebook: '', tiktok: '', discord: '', youtube: '', linkedin: '', github: '', x: '', kwai: '', canal_whatsapp: '', comunidade_whatsapp: '', pinterest: '', telegram: '' },
     sac_ouvidoria: { sac: createEmptySacChannel(), ouvidoria: createEmptySacChannel() },
     fiscal_data: { configurations: [] },
     financial_data: { empresa_contratada_id: '', configurations: [] },
@@ -567,6 +576,15 @@ export function normalizeInstituicaoFinanceiraRecord(
       facebook: text(social.facebook, 200),
       tiktok: text(social.tiktok, 200),
       discord: text(social.discord, 200),
+      youtube: text(social.youtube, 200),
+      linkedin: text(social.linkedin, 200),
+      github: text(social.github, 200),
+      x: text(social.x, 200),
+      kwai: text(social.kwai, 200),
+      canal_whatsapp: text(social.canal_whatsapp, 200),
+      comunidade_whatsapp: text(social.comunidade_whatsapp, 200),
+      pinterest: text(social.pinterest, 200),
+      telegram: text(social.telegram, 200),
     },
     sac_ouvidoria: {
       sac: normalizeSacChannel(sacOuvidoria.sac),

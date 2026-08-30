@@ -30,6 +30,7 @@ import {
   maskCnpj,
   maskEmailInput,
   maskPhone,
+  maskTelefoneComercial,
   onlyDigits,
   formatBankLabel,
   type BankLookup,
@@ -273,9 +274,9 @@ function SacChannelCard({
         <div className="form-group" style={{ marginBottom: 0, gridColumn: 'span 4' }}>
           <label className="form-label">Telefone</label>
           {disabled ? (
-            <ReadOnlyField label="" value={maskPhone(channel.telefone || '')} kind="phone" />
+            <ReadOnlyField label="" value={maskTelefoneComercial(channel.telefone || '')} kind="phone" />
           ) : (
-            <input className="form-control" value={maskPhone(channel.telefone || '')} onChange={(e) => onChange({ ...channel, telefone: onlyDigits(e.target.value) })} placeholder="(00) 0000-0000" />
+            <input className="form-control" value={maskTelefoneComercial(channel.telefone || '')} onChange={(e) => onChange({ ...channel, telefone: onlyDigits(e.target.value) })} placeholder="(00) 0000-0000 ou 0800 000 0000" />
           )}
         </div>
         <div className="form-group" style={{ marginBottom: 0, gridColumn: 'span 4' }}>
@@ -1148,6 +1149,15 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
                   { key: 'facebook', label: 'Facebook', placeholder: 'https://facebook.com/...' },
                   { key: 'tiktok', label: 'TikTok', placeholder: 'https://tiktok.com/@...' },
                   { key: 'discord', label: 'Discord', placeholder: 'https://discord.gg/...' },
+                  { key: 'youtube', label: 'YouTube', placeholder: 'https://youtube.com/@...' },
+                  { key: 'linkedin', label: 'LinkedIn', placeholder: 'https://linkedin.com/company/...' },
+                  { key: 'github', label: 'GitHub', placeholder: 'https://github.com/...' },
+                  { key: 'x', label: 'X', placeholder: 'https://x.com/...' },
+                  { key: 'kwai', label: 'Kwai', placeholder: 'https://kwai.com/@...' },
+                  { key: 'canal_whatsapp', label: 'Canal WhatsApp', placeholder: 'https://whatsapp.com/channel/...' },
+                  { key: 'comunidade_whatsapp', label: 'Comunidade WhatsApp', placeholder: 'https://chat.whatsapp.com/...' },
+                  { key: 'pinterest', label: 'Pinterest', placeholder: 'https://pinterest.com/...' },
+                  { key: 'telegram', label: 'Telegram', placeholder: 'https://t.me/...' },
                 ] as const).map((social) => (
                   <div key={social.key} className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label">{social.label}</label>
