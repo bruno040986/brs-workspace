@@ -18,6 +18,7 @@ import {
   Link2,
   Loader2,
   Package,
+  Plug,
   Save,
   Share2,
   Upload,
@@ -43,6 +44,8 @@ import {
   createEmptyMarketingLink,
   createEmptyTarifaArquivo,
   normalizeLinksData,
+  normalizeApiConexao,
+  API_CONEXAO_CAMPOS,
   type InstituicaoAtendimentoLine,
   type InstituicaoFinanceiraRecord,
   type InstituicaoSacChannel,
@@ -71,7 +74,7 @@ import {
   setInstituicaoFinanceiraStatus,
 } from '../actions'
 
-type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas' | 'sac' | 'links' | 'negociacoes' | 'produtos'
+type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas' | 'sac' | 'links' | 'negociacoes' | 'produtos' | 'api'
 type ContactTab = 'comercial' | 'operacional' | 'redes'
 
 const UFS = [
@@ -452,6 +455,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
             contacts_operational: Array.isArray(raw.contacts_operational) ? raw.contacts_operational : [],
             systems: Array.isArray(raw.systems) ? raw.systems : [],
             links_data: normalizeLinksData(raw.links_data),
+            api_conexao: normalizeApiConexao(raw.api_conexao),
           })
         }
       } else {
@@ -779,6 +783,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
           { key: 'links', label: 'Links', icon: Link2 },
           { key: 'negociacoes', label: 'Negociações', icon: Handshake },
           { key: 'produtos', label: 'Produtos e Convênios', icon: Package },
+          { key: 'api', label: 'Conexão de API', icon: Plug },
         ].map((tab) => {
           const Icon = tab.icon
           return (
@@ -1188,6 +1193,38 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
           disabled={isReadOnly}
           onChange={(next) => updateItem(item ? { ...item, financial_data: next } : item)}
         />
+      )}
+
+      {activeTab === 'api' && item && (
+        <div className="card" style={{ padding: '1rem' }}>
+          <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', marginBottom: '0.25rem' }}>Conexão de API</div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--brs-gray-600)', marginBottom: '1rem' }}>
+            O que a instituição disponibiliza por API. Marque &quot;API Disponível&quot; para liberar os demais itens. Quando
+            &quot;Simulação&quot; ou &quot;Digitação&quot; estão marcadas, a instituição aparece pros parceiros no CRM AlvoConsig
+            (API Instituições Financeiras).
+          </p>
+          <div style={{ display: 'grid', gap: '0.6rem' }}>
+            {API_CONEXAO_CAMPOS.map(({ chave, rotulo }) => {
+              const principal = chave === 'disponivel'
+              const desabilitado = isReadOnly || (!principal && !item.api_conexao.disponivel)
+              return (
+                <label key={chave} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', opacity: desabilitado && !principal ? 0.55 : 1, fontWeight: principal ? 700 : 500 }}>
+                  <input
+                    type="checkbox"
+                    checked={item.api_conexao[chave]}
+                    disabled={desabilitado}
+                    onChange={(e) => {
+                      const marcado = e.target.checked
+                      const proximo = { ...item.api_conexao, [chave]: marcado }
+                      updateItem({ ...item, api_conexao: principal && !marcado ? normalizeApiConexao({ disponivel: false }) : proximo })
+                    }}
+                  />
+                  {rotulo}
+                </label>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {activeTab === 'sistemas' && (

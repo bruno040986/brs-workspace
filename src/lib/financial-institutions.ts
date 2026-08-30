@@ -203,6 +203,7 @@ export type InstituicaoFinanceiraRecord = {
   financial_data: InstituicaoFinancialData
   systems: PromotoraSystemEntry[]
   links_data: InstituicaoLinksData
+  api_conexao: InstituicaoApiConexao
   is_active?: boolean
   deleted_at?: string | null
   created_at?: string
@@ -322,6 +323,7 @@ export function createEmptyInstituicaoFinanceira(): InstituicaoFinanceiraRecord 
     financial_data: { empresa_contratada_id: '', configurations: [] },
     systems: [],
     links_data: { marketing_links: [], tabela_tarifas_url: '', tabela_tarifas_arquivos: [] },
+    api_conexao: createEmptyApiConexao(),
     is_active: true,
   }
 }
@@ -332,6 +334,43 @@ export function createEmptyMarketingLink(): InstituicaoMarketingLink {
 
 export function createEmptyTarifaArquivo(): InstituicaoTarifaArquivo {
   return { id: createId('fi-tarifa'), descricao: '', file_name: '', file_data_url: '' }
+}
+
+/** Conexão de API da instituição — só faz sentido quando `disponivel` é true. */
+export type InstituicaoApiConexao = {
+  disponivel: boolean
+  simulacao: boolean
+  digitacao: boolean
+  propostas: boolean
+  tabela_comissao: boolean
+  relatorio_comissao: boolean
+}
+
+export const API_CONEXAO_CAMPOS: Array<{ chave: keyof InstituicaoApiConexao; rotulo: string }> = [
+  { chave: 'disponivel', rotulo: 'API Disponível' },
+  { chave: 'simulacao', rotulo: 'Simulação via API' },
+  { chave: 'digitacao', rotulo: 'Digitação via API' },
+  { chave: 'propostas', rotulo: 'Propostas via API' },
+  { chave: 'tabela_comissao', rotulo: 'Tabela de Comissão via API' },
+  { chave: 'relatorio_comissao', rotulo: 'Relatório de Comissão Paga via API' },
+]
+
+export function createEmptyApiConexao(): InstituicaoApiConexao {
+  return { disponivel: false, simulacao: false, digitacao: false, propostas: false, tabela_comissao: false, relatorio_comissao: false }
+}
+
+export function normalizeApiConexao(raw: any): InstituicaoApiConexao {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const disponivel = r.disponivel === true
+  const flag = (k: string) => disponivel && r[k] === true
+  return {
+    disponivel,
+    simulacao: flag('simulacao'),
+    digitacao: flag('digitacao'),
+    propostas: flag('propostas'),
+    tabela_comissao: flag('tabela_comissao'),
+    relatorio_comissao: flag('relatorio_comissao'),
+  }
 }
 
 export function normalizeLinksData(raw: any): InstituicaoLinksData {
@@ -540,6 +579,7 @@ export function normalizeInstituicaoFinanceiraRecord(
     },
     systems: normalizeSystems(input.systems),
     links_data: normalizeLinksData(links),
+    api_conexao: normalizeApiConexao(input.api_conexao),
     is_active: input.is_active !== false,
     deleted_at: input.deleted_at ?? null,
     created_at: input.created_at,

@@ -230,6 +230,7 @@ export async function saveInstituicaoFinanceira(payload: InstituicaoFinanceiraRe
       financial_data: row.financial_data,
       systems: row.systems,
       links_data: row.links_data,
+      api_conexao: row.api_conexao,
       is_active: row.is_active !== false,
       deleted_at: row.is_active === false ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
