@@ -8,9 +8,15 @@ type UsuarioCrm = {
   id: string
   nome: string
   email: string
-  papel: 'master' | 'atendente'
+  papel: 'master' | 'operacional' | 'atendente'
   ativo: boolean
   created_at: string
+}
+
+const PERFIL_NOME: Record<string, string> = { master: 'Master', operacional: 'Operacional', atendente: 'Atendente' }
+
+function nomePerfil(papel: string) {
+  return PERFIL_NOME[papel] ?? papel
 }
 
 type ConfigCrm = {
@@ -35,7 +41,6 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
   const [busyUsuarioId, setBusyUsuarioId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
-    setCarregando(true)
     try {
       const res = await getAlvoconsigConfig(agenteParceiroId)
       if (res.success) {
@@ -103,7 +108,7 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
   }
 
   const master = usuarios.find((usuario) => usuario.papel === 'master') || null
-  const atendentes = usuarios.filter((usuario) => usuario.papel === 'atendente')
+  const demaisUsuarios = usuarios.filter((usuario) => usuario.papel !== 'master')
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
@@ -113,8 +118,8 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
       </div>
       <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.875rem', marginTop: '-0.5rem' }}>
         Habilitado, o card do CRM aparece no Portal Parceiro deste parceiro. O acesso master é o
-        próprio login do parceiro (aba Acesso — mesma credencial do ARW e do portal); os atendentes
-        são criados pelo master dentro do CRM.
+        próprio login do parceiro (aba Acesso — mesma credencial do ARW e do portal); os demais usuários
+        são criados pelo master dentro do CRM, com perfil Operacional ou Atendente (matriz em AlvoConsig › Perfis de Usuário).
       </div>
 
       {message && (
@@ -149,7 +154,7 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
           CRM habilitado para este parceiro
         </label>
         <div className="form-group" style={{ width: 180, margin: 0 }}>
-          <label className="form-label">Atendentes disponíveis</label>
+          <label className="form-label">Máx. de usuários</label>
           <input type="number" min={0} max={500} className="form-control" value={maxAtendentes} onChange={(e) => setMaxAtendentes(e.target.value)} />
         </div>
         <button type="button" className="btn btn-primary" onClick={handleSalvarConfig} disabled={salvandoConfig}>
@@ -168,6 +173,7 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
           <div style={{ fontWeight: 700, color: 'var(--brs-gray-800)', marginBottom: '0.5rem' }}>Acesso Master</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>{master.nome}</span>
+            <span className="badge badge-gray">{nomePerfil(master.papel)}</span>
             <span style={{ fontSize: '0.82rem', color: 'var(--brs-gray-500)' }}>
               usa o login do parceiro (código {arwCode ? arwCode.toUpperCase() : '-'})
             </span>
@@ -187,25 +193,27 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         </div>
       )}
 
-      {atendentes.length > 0 && (
+      {demaisUsuarios.length > 0 && (
         <div style={{ padding: '1rem', border: '1px solid var(--brs-gray-200)', borderRadius: 12 }}>
           <div style={{ fontWeight: 700, color: 'var(--brs-gray-800)', marginBottom: '0.75rem' }}>
-            Atendentes criados pelo master ({atendentes.length})
+            Usuários criados pelo master ({demaisUsuarios.length})
           </div>
           <table className="data-table">
             <thead>
               <tr>
                 <th>Nome</th>
                 <th>E-mail</th>
+                <th>Perfil</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {atendentes.map((usuario) => (
+              {demaisUsuarios.map((usuario) => (
                 <tr key={usuario.id}>
                   <td>{usuario.nome}</td>
                   <td>{usuario.email}</td>
+                  <td>{nomePerfil(usuario.papel)}</td>
                   <td>
                     <span className={`badge ${usuario.ativo ? 'badge-success' : 'badge-gray'}`}>
                       {usuario.ativo ? 'Ativo' : 'Inativo'}
