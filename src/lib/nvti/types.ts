@@ -5,8 +5,10 @@ export type NvtiMetodo = 'NVBOOK_CEL_OBG' | 'NvBookCelObWhats'
 export type NvtiPriceTier = {
   /** Limite superior da faixa (inclusive). null = faixa final, sem teto. */
   up_to: number | null
-  /** Valor unitário em BRL dentro da faixa. */
+  /** Valor unitário em BRL dentro da faixa (custo BRS na Nova Vida TI). */
   unit: number
+  /** Preço padrão cobrado dos parceiros (R$ por consulta) nessa faixa. Default 0.08. */
+  parceiro: number
 }
 
 export type NvtiConfigRow = {

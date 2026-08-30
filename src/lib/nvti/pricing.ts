@@ -1,11 +1,14 @@
 import type { NvtiPriceTier } from './types'
 
+/** Preço padrão por consulta cobrado dos parceiros quando a faixa não tem `parceiro`. */
+export const DEFAULT_PARCEIRO_UNIT = 0.08
+
 export const DEFAULT_PRICE_TIERS: NvtiPriceTier[] = [
-  { up_to: 10_000, unit: 0.06 },
-  { up_to: 100_000, unit: 0.05 },
-  { up_to: 500_000, unit: 0.04 },
-  { up_to: 1_000_000, unit: 0.03 },
-  { up_to: null, unit: 0.02 },
+  { up_to: 10_000, unit: 0.06, parceiro: DEFAULT_PARCEIRO_UNIT },
+  { up_to: 100_000, unit: 0.05, parceiro: DEFAULT_PARCEIRO_UNIT },
+  { up_to: 500_000, unit: 0.04, parceiro: DEFAULT_PARCEIRO_UNIT },
+  { up_to: 1_000_000, unit: 0.03, parceiro: DEFAULT_PARCEIRO_UNIT },
+  { up_to: null, unit: 0.02, parceiro: DEFAULT_PARCEIRO_UNIT },
 ]
 
 export function normalizeTiers(value: unknown): NvtiPriceTier[] {
@@ -18,7 +21,9 @@ export function normalizeTiers(value: unknown): NvtiPriceTier[] {
     if (!Number.isFinite(unitRaw) || unitRaw < 0) continue
     const upTo = upToRaw === null || upToRaw === undefined || upToRaw === '' ? null : Number(upToRaw)
     if (upTo !== null && (!Number.isFinite(upTo) || upTo <= 0)) continue
-    tiers.push({ up_to: upTo, unit: unitRaw })
+    const parceiroRaw = Number((raw as { parceiro?: unknown }).parceiro)
+    const parceiro = Number.isFinite(parceiroRaw) && parceiroRaw >= 0 ? parceiroRaw : DEFAULT_PARCEIRO_UNIT
+    tiers.push({ up_to: upTo, unit: unitRaw, parceiro })
   }
   if (!tiers.length) return DEFAULT_PRICE_TIERS
   tiers.sort((a, b) => {
@@ -27,7 +32,8 @@ export function normalizeTiers(value: unknown): NvtiPriceTier[] {
     return a.up_to - b.up_to
   })
   if (tiers[tiers.length - 1].up_to !== null) {
-    tiers.push({ up_to: null, unit: tiers[tiers.length - 1].unit })
+    const last = tiers[tiers.length - 1]
+    tiers.push({ up_to: null, unit: last.unit, parceiro: last.parceiro })
   }
   return tiers
 }
@@ -38,6 +44,14 @@ export function unitCostForPosition(tiers: NvtiPriceTier[], position: number): n
     if (tier.up_to === null || position <= tier.up_to) return tier.unit
   }
   return tiers[tiers.length - 1]?.unit ?? 0
+}
+
+/** Preço (R$) cobrado do parceiro pela consulta que ocupa a posição `position` (1-based). */
+export function parceiroPriceForPosition(tiers: NvtiPriceTier[], position: number): number {
+  for (const tier of tiers) {
+    if (tier.up_to === null || position <= tier.up_to) return tier.parceiro
+  }
+  return tiers[tiers.length - 1]?.parceiro ?? DEFAULT_PARCEIRO_UNIT
 }
 
 /**

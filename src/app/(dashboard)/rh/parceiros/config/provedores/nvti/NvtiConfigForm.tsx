@@ -29,6 +29,7 @@ export function NvtiConfigForm({ config }: { config: NvtiConfigView }) {
   const [cacheDays, setCacheDays] = useState(String(config.cache_days ?? 30))
   const [isActive, setIsActive] = useState(config.is_active)
   const [tiers, setTiers] = useState<NvtiPriceTier[]>(config.price_tiers)
+  const [parceiroTodos, setParceiroTodos] = useState('')
 
   const canEdit = config.can_edit !== false
   const hasSaved = Boolean(config.has_credentials)
@@ -77,6 +78,21 @@ export function NvtiConfigForm({ config }: { config: NvtiConfigView }) {
   function updateTierUnit(index: number, raw: string) {
     const unit = Number(raw.replace(',', '.'))
     setTiers((current) => current.map((tier, i) => (i === index ? { ...tier, unit: Number.isFinite(unit) ? unit : tier.unit } : tier)))
+  }
+
+  function updateTierParceiro(index: number, raw: string) {
+    const parceiro = Number(raw.replace(',', '.'))
+    setTiers((current) => current.map((tier, i) => (i === index ? { ...tier, parceiro: Number.isFinite(parceiro) ? parceiro : tier.parceiro } : tier)))
+  }
+
+  function aplicarParceiroATodas() {
+    const parceiro = Number(parceiroTodos.replace(',', '.'))
+    if (!Number.isFinite(parceiro) || parceiro < 0) {
+      setMessage({ type: 'error', text: 'Informe um preço válido para aplicar a todas as faixas.' })
+      return
+    }
+    setTiers((current) => current.map((tier) => ({ ...tier, parceiro })))
+    setParceiroTodos('')
   }
 
   return (
@@ -189,10 +205,15 @@ export function NvtiConfigForm({ config }: { config: NvtiConfigView }) {
           <div className="form-group" style={{ marginBottom: '1rem' }}>
             <label className="form-label">Tabela de preço (cascata mensal)</label>
             <div style={{ display: 'grid', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.75rem', color: 'var(--brs-gray-400)', fontWeight: 600, textTransform: 'uppercase' }}>
+                <div style={{ flex: 1 }}>Faixa</div>
+                <div style={{ width: 112 }}>Custo BRS</div>
+                <div style={{ width: 112 }}>Preço parceiro</div>
+              </div>
               {tiers.map((tier, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   <div style={{ flex: 1, fontSize: '0.85rem', color: 'var(--brs-gray-600)' }}>{tierLabel(tier, index, tiers)} consultas</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', width: 112 }}>
                     <span style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>R$</span>
                     <input
                       type="text"
@@ -202,10 +223,45 @@ export function NvtiConfigForm({ config }: { config: NvtiConfigView }) {
                       onChange={(e) => updateTierUnit(index, e.target.value)}
                       disabled={!canEdit}
                       inputMode="decimal"
+                      title="Custo unitário cobrado da BRS pela Nova Vida TI"
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', width: 112 }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>R$</span>
+                    <input
+                      type="text"
+                      className="form-control"
+                      style={{ width: 90 }}
+                      value={String(tier.parceiro)}
+                      onChange={(e) => updateTierParceiro(index, e.target.value)}
+                      disabled={!canEdit}
+                      inputMode="decimal"
+                      title="Preço de Consulta do Parceiro (padrão cobrado dos parceiros nessa faixa)"
                     />
                   </div>
                 </div>
               ))}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>Preço do parceiro em todas as faixas:</span>
+                <span style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>R$</span>
+                <input
+                  type="text"
+                  className="form-control"
+                  style={{ width: 90 }}
+                  value={parceiroTodos}
+                  onChange={(e) => setParceiroTodos(e.target.value)}
+                  disabled={!canEdit}
+                  inputMode="decimal"
+                  placeholder="0,08"
+                />
+                <button type="button" className="btn btn-outline btn-sm" onClick={aplicarParceiroATodas} disabled={!canEdit}>
+                  Aplicar a todas
+                </button>
+              </div>
+            </div>
+            <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', marginTop: '0.35rem' }}>
+              &quot;Preço parceiro&quot; é o valor padrão da consulta unitária cobrada dos parceiros (CRM AlvoConsig / portal);
+              acordos individuais são definidos na aba Consulta CPF do Agente Corban.
             </div>
             <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', marginTop: '0.35rem' }}>
               Os tetos de gasto (global e por usuário) são ajustados no card &quot;Consumo e limites de gasto&quot;,

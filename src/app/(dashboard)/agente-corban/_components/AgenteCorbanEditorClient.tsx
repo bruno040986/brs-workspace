@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import CopyableFieldShell from '@/components/forms/CopyableFieldShell'
 import AlvoconsigTab from './AlvoconsigTab'
+import ConsultaCpfTab from './ConsultaCpfTab'
 import { avaliarGarantia, type ProducaoMes } from '@/lib/agente-corban-garantia'
 import {
   AGENTE_CORBAN_BANK_ACCOUNT_TYPES,
@@ -114,6 +115,7 @@ type TabKey =
   | 'garantia'
   | 'documentos'
   | 'alvoconsig'
+  | 'consulta-cpf'
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'dados-principais', label: 'Dados Principais' },
@@ -126,6 +128,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'garantia', label: 'Garantia' },
   { key: 'documentos', label: 'Documentos' },
   { key: 'alvoconsig', label: 'AlvoConsig' },
+  { key: 'consulta-cpf', label: 'Consulta CPF' },
 ]
 
 const GENDER_OPTIONS = [
@@ -2412,6 +2415,16 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
             ) : (
               <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--brs-gray-500)', fontSize: '0.9rem' }}>
                 Salve o cadastro do agente antes de configurar o AlvoConsig.
+              </div>
+            )
+          )}
+
+          {activeTab === 'consulta-cpf' && (
+            recordId ? (
+              <ConsultaCpfTab agenteParceiroId={recordId} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--brs-gray-500)', fontSize: '0.9rem' }}>
+                Salve o cadastro do agente antes de configurar a consulta de CPF.
               </div>
             )
           )}

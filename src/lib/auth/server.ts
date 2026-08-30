@@ -1,5 +1,4 @@
 import { createAdminClient, createClient } from '@/lib/supabase/server'
-import type { User } from '@supabase/supabase-js'
 import {
   hasAnyPermission,
   hasPermission,
@@ -9,14 +8,40 @@ import {
 } from './permissions'
 import { getEffectivePermissionsForUserId } from './effectivePermissions'
 
-export async function getCurrentUser(): Promise<User | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error) throw error
-  return data.user
+// Identidade minima derivada do JWT ja validado (id/email/app_metadata),
+// suficiente pra tudo que o app usa hoje (so .id e .app_metadata). Ver
+// getCurrentUser() abaixo pra motivo de nao usar mais o User completo do
+// supabase-js.
+export type AuthenticatedUser = {
+  id: string
+  email?: string
+  app_metadata: Record<string, unknown>
+  user_metadata: Record<string, unknown>
 }
 
-export async function requireCurrentUser(): Promise<User> {
+// getClaims() valida o JWT localmente (assinatura + expiracao) em vez de
+// bater no Supabase Auth a cada chamada como getUser() fazia — corrige a
+// instabilidade em que qualquer blip do Auth derrubava todo mundo ja logado,
+// nao so logins novos. Enquanto o projeto ainda usa o Legacy JWT Secret
+// (simetrico), getClaims() cai de volta pra rede (mesmo custo de getUser());
+// o ganho fica automatico assim que o Bruno revogar o legado a favor das
+// novas JWT Signing Keys assimetricas no painel do Supabase.
+export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getClaims()
+  if (error) throw error
+  if (!data) return null
+
+  const { claims } = data
+  return {
+    id: claims.sub,
+    email: typeof claims.email === 'string' ? claims.email : undefined,
+    app_metadata: (claims.app_metadata as Record<string, unknown>) ?? {},
+    user_metadata: (claims.user_metadata as Record<string, unknown>) ?? {},
+  }
+}
+
+export async function requireCurrentUser(): Promise<AuthenticatedUser> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Usuario nao autenticado.')
   return user

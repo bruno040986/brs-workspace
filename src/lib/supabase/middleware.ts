@@ -96,7 +96,13 @@ const authCircuit: AuthCircuitState = { openUntil: 0, consecutiveFailures: 0 }
 const AUTH_CIRCUIT_FAILURE_THRESHOLD = 3
 const AUTH_CIRCUIT_OPEN_MS = 15000
 
-async function getUserWithTimeout(
+// getClaims() valida o JWT localmente (assinatura + expiracao) em vez de
+// bater no Supabase Auth a cada requisicao como getUser() fazia — enquanto o
+// projeto ainda usa o Legacy JWT Secret (simetrico), cai de volta pra rede
+// com o mesmo custo de getUser(); o ganho (zero rede na navegacao rotineira)
+// fica automatico assim que o Bruno revogar o legado a favor das JWT Signing
+// Keys assimetricas no painel do Supabase. Ver src/lib/auth/server.ts.
+async function getClaimsWithTimeout(
   supabase: ReturnType<typeof createServerClient>,
   timeoutMs = 4000,
 ) {
@@ -104,7 +110,7 @@ async function getUserWithTimeout(
 
   try {
     return await Promise.race([
-      supabase.auth.getUser(),
+      supabase.auth.getClaims(),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           reject(new Error(`Supabase auth timeout after ${timeoutMs}ms`))
@@ -159,6 +165,8 @@ export async function updateSession(request: NextRequest) {
     '/api/zapi/webhook',
     // Autentica por NVTI_SERVICE_TOKEN no handler (rota de serviço dos orquestradores).
     '/api/nvti/interno',
+    // Consulta CPF paga do CRM AlvoConsig (também NVTI_SERVICE_TOKEN no handler).
+    '/api/nvti/parceiro-consulta',
   ]
   const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {
@@ -232,8 +240,15 @@ export async function updateSession(request: NextRequest) {
   }
 
   try {
-    const authResult = await getUserWithTimeout(supabase)
-    user = authResult.data.user
+    const authResult = await getClaimsWithTimeout(supabase)
+    const claims = authResult.data?.claims ?? null
+    user = claims
+      ? {
+          id: claims.sub,
+          email: typeof claims.email === 'string' ? claims.email : undefined,
+          app_metadata: (claims.app_metadata as Record<string, unknown>) ?? {},
+        }
+      : null
     authCircuit.consecutiveFailures = 0
     authCircuit.openUntil = 0
   } catch (error) {
@@ -255,7 +270,7 @@ export async function updateSession(request: NextRequest) {
     return redirectParaLoginPorInstabilidade()
   }
 
-  // Cookie de sessão presente mas inválido: getUser() devolve user=null sem lançar.
+  // Cookie de sessão presente mas inválido: getClaims() devolve user=null sem lançar.
   // Sem este tratamento, a requisição atravessaria o proxy sem sessão e sem checagem de rota.
   if (!user && !isPublicRoute) {
     if (isApiRequest(pathname)) {
