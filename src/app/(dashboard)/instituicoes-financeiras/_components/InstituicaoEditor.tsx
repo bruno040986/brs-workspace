@@ -199,9 +199,20 @@ function AtendimentoLines({
     onChange(rows.map((item, i) => (i === index ? row : item)))
   }
 
+  function marcar24Horas() {
+    onChange(WEEK_DAYS.map((dia) => ({ enabled: true, dia_da_semana: dia as InstituicaoAtendimentoLine['dia_da_semana'], hora_inicial: '00:00', hora_final: '23:59' })))
+  }
+
   return (
     <div style={{ display: 'grid', gap: '0.55rem' }}>
-      <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', fontSize: '0.88rem' }}>Dias e Horários de Atendimento</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)', fontSize: '0.88rem' }}>Dias e Horários de Atendimento</div>
+        {!disabled && (
+          <button type="button" className="btn btn-outline btn-sm" onClick={marcar24Horas}>
+            Atendimento 24 horas
+          </button>
+        )}
+      </div>
       {rows.map((row, index) => (
         <div key={index} style={{ display: 'grid', gridTemplateColumns: '26px 1fr 88px 20px 88px', gap: '0.45rem', alignItems: 'center' }}>
           <input
