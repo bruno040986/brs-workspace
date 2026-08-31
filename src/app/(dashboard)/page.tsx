@@ -282,7 +282,7 @@ export default function HubPage() {
       color: 'tec',
       links: [
         { label: 'Central de Integrações', href: '/central-integracoes' },
-        { label: 'Central de Conversas', href: '/central-conversas' },
+        { label: 'Central de Atendimento', href: '/central-conversas' },
         { label: 'WeSales', href: 'https://app.wesales.com.br/', external: true },
         { label: 'CallFace', href: 'https://app.callface.ai/', external: true },
         { label: 'Vende.AI', href: 'https://ia.vendeaitecnologia.com.br/', external: true },

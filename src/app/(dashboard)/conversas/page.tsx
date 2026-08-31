@@ -39,7 +39,7 @@ export default async function ConversasPage() {
         />
         <div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--msn-header-text)', letterSpacing: '-0.01em', textShadow: '0 1px 0 var(--msn-inset-highlight)' }}>
-            Central de Conversas
+            Central de Atendimento
           </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--msn-muted)', marginTop: 1 }}>
             WhatsApp, Telegram, Instagram, Facebook e Chat do Site no mesmo lugar.

@@ -17,7 +17,7 @@ export default function CentralConversasSidebar() {
       <div style={{ height: '1.5rem' }} />
       <nav className="sidebar-nav">
         <div className="sidebar-nav-stack">
-          <div className="sidebar-section-label">Central de Conversas</div>
+          <div className="sidebar-section-label">Central de Atendimento</div>
           {LINKS.map(({ href, label, icon: Icon, exact }) => {
             const active = exact ? pathname === href : pathname.startsWith(href)
             return (

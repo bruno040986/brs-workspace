@@ -71,7 +71,7 @@ export default function CanaisClient({ view }: { view: View }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">Canais</h1>
-          <p className="page-subtitle">Outros canais que entram na mesma Central de Conversas, direto pelo Chatwoot.</p>
+          <p className="page-subtitle">Outros canais que entram na mesma Central de Atendimento, direto pelo Chatwoot.</p>
         </div>
       </div>
 

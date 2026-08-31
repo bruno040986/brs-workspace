@@ -30,11 +30,13 @@ async function plataforma<T>(path: string, body: unknown): Promise<T> {
   return (text ? JSON.parse(text) : {}) as T
 }
 
+export type RelatorioSincronizacaoAgentes = { criados: number; pulados: number; erros: string[] }
+
 /**
  * Garante que todo usuário ativo do Workspace com permissão `conversas` exista
- * como agente na conta BRS do Chatwoot. Retorna quantos foram criados.
+ * como agente na conta BRS do Chatwoot. Retorna o relatório do que aconteceu.
  */
-export async function sincronizarAgentesBrs(cli: ChatwootConta): Promise<number> {
+export async function sincronizarAgentesBrs(cli: ChatwootConta): Promise<RelatorioSincronizacaoAgentes> {
   const accountId = cli.accountId
   const admin = await createAdminClient()
   const [{ data: usuarios }, agentes] = await Promise.all([
@@ -43,9 +45,9 @@ export async function sincronizarAgentesBrs(cli: ChatwootConta): Promise<number>
   ])
   const emailsAgentes = new Set(agentes.map((a) => String(a.email || '').toLowerCase()))
   const faltantes = (usuarios || []).filter((u) => u.email && !emailsAgentes.has(String(u.email).toLowerCase()))
-  if (faltantes.length === 0) return 0
+  const relatorio: RelatorioSincronizacaoAgentes = { criados: 0, pulados: 0, erros: [] }
+  if (faltantes.length === 0) return relatorio
 
-  let criados = 0
   let inboxes: Array<{ id: number }> = []
   try {
     inboxes = await cli.listarInboxes()
@@ -55,7 +57,10 @@ export async function sincronizarAgentesBrs(cli: ChatwootConta): Promise<number>
 
   for (const u of faltantes) {
     try {
-      if (!(await hasPermissionForUser(String(u.id), 'conversas', 'can_view'))) continue
+      if (!(await hasPermissionForUser(String(u.id), 'conversas', 'can_view'))) {
+        relatorio.pulados++
+        continue
+      }
       const usuario = await plataforma<{ id: number }>('/users', {
         name: String(u.nome_exibicao || u.name || u.email),
         email: String(u.email),
@@ -70,10 +75,12 @@ export async function sincronizarAgentesBrs(cli: ChatwootConta): Promise<number>
           // membership é conveniência (auto-assign/visibilidade nativa) — não bloqueia
         }
       }
-      criados++
+      relatorio.criados++
     } catch (err) {
-      console.error('[conversas] falha ao provisionar agente Chatwoot', u.email, err)
+      const msg = `${u.email}: ${err instanceof Error ? err.message : String(err)}`
+      relatorio.erros.push(msg)
+      console.error('[conversas] falha ao provisionar agente Chatwoot', msg)
     }
   }
-  return criados
+  return relatorio
 }
