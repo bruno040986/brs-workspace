@@ -206,11 +206,11 @@ export default function ThreadConversa({
             <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--msn-meta-text)' }}>{conversa.meta.assignee ? `↳ ${conversa.meta.assignee.name}` : 'sem atendente'}</span>
           </div>
         </div>
-        <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ padding: 9, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
+        <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
           <Search size={18} />
         </button>
         <div style={{ position: 'relative' }}>
-          <button type="button" onClick={() => setPopoverTransferir((v) => !v)} title="Transferir" className="brs-messenger-toolbar-btn" style={{ padding: 9 }}>
+          <button type="button" onClick={() => setPopoverTransferir((v) => !v)} title="Transferir" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34 }}>
             <UserCog size={18} />
           </button>
           {popoverTransferir && (
@@ -236,7 +236,7 @@ export default function ThreadConversa({
           )}
         </div>
         <div style={{ position: 'relative' }}>
-          <button type="button" onClick={() => setPopoverEncerrar((v) => !v)} title="Encerrar" className="brs-messenger-toolbar-btn" style={{ padding: 9 }}>
+          <button type="button" onClick={() => setPopoverEncerrar((v) => !v)} title="Encerrar" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34 }}>
             <CheckCheck size={18} />
           </button>
           {popoverEncerrar && (
@@ -266,8 +266,8 @@ export default function ThreadConversa({
           )}
         </div>
         {onAbrirPainel && (
-          <button type="button" onClick={onAbrirPainel} title="Dados do contato" className="brs-messenger-toolbar-btn" style={{ padding: 9 }}>
-            <Info size={14} />
+          <button type="button" onClick={onAbrirPainel} title="Dados do contato" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34 }}>
+            <Info size={18} />
           </button>
         )}
       </div>

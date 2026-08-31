@@ -21,21 +21,22 @@ export default async function ConversasPage() {
           boxShadow: 'inset 0 1px 0 var(--msn-inset-highlight)',
         }}
       >
+        {/* Arquivo é 500x200; declarar o aspecto real evita o Next servir versão minúscula esticada (logo borrado). */}
         <Image
           src="/logotipos/logo-brs-messenger-fundo-claro.png"
           alt="BRS Messenger"
-          width={42}
-          height={42}
+          width={250}
+          height={100}
           className="brs-messenger-dock-rail-brand-logo-light"
-          style={{ height: 42, width: 'auto' }}
+          style={{ height: 46, width: 'auto' }}
         />
         <Image
           src="/logotipos/logo-brs-messenger-fundo-escuro.png"
           alt="BRS Messenger"
-          width={42}
-          height={42}
+          width={250}
+          height={100}
           className="brs-messenger-dock-rail-brand-logo-dark"
-          style={{ height: 42, width: 'auto' }}
+          style={{ height: 46, width: 'auto' }}
         />
         <div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--msn-header-text)', letterSpacing: '-0.01em', textShadow: '0 1px 0 var(--msn-inset-highlight)' }}>

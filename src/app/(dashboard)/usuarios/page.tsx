@@ -67,6 +67,8 @@ const SYSTEM_MODULES = [
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
   { id: 'central-integracoes', name: 'Central de Integrações', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'conversas', name: 'Central de Atendimento (BRS Messenger)', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'central-conversas', name: 'Configuração de Canais', parentId: 'conversas', level: 2 },
   { id: 'financeiro-conta-parceiros', name: 'Financeiro — Conta Virtual Parceiros', parentId: 'cat-subsistemas', level: 1 },
   { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-subsistemas', level: 1 },
   { id: 'alvoconsig-certificacao', name: 'Certificação de Clientes', parentId: 'alvoconsig-gestao', level: 2 },
