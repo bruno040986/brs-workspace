@@ -22,8 +22,8 @@ export default function MessengerDockTabs() {
   if (!podeAtender) return <GoogleChatComponent variant="dock" />
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--color-line)', flexShrink: 0 }}>
+    <div className="brs-messenger" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: 'var(--msn-shell-bg)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, padding: '6px 6px 0', background: 'var(--msn-header-bg)', borderBottom: '1px solid var(--msn-border)', flexShrink: 0 }}>
         {(
           [
             { id: 'interno', rotulo: 'Interno', Icone: MessagesSquare },
@@ -35,7 +35,21 @@ export default function MessengerDockTabs() {
             type="button"
             onClick={() => setAba(id)}
             data-brs-messenger-ignore-close="true"
-            style={{ background: 'none', border: 'none', borderBottom: `2px solid ${aba === id ? 'var(--color-primary)' : 'transparent'}`, color: aba === id ? 'var(--color-primary)' : 'var(--color-ink-subtle)', fontWeight: 700, fontSize: 12.5, padding: '8px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer' }}
+            style={{
+              background: aba === id ? 'var(--msn-tab-active-bg)' : 'var(--msn-tab-bg)',
+              border: '1px solid var(--msn-border)',
+              borderBottom: 'none',
+              borderRadius: '7px 7px 0 0',
+              color: aba === id ? 'var(--msn-tab-active-text)' : 'var(--msn-header-text)',
+              fontWeight: 700,
+              fontSize: 12.5,
+              padding: '7px 0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              cursor: 'pointer',
+            }}
           >
             <Icone size={14} /> {rotulo}
           </button>

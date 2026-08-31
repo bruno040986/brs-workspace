@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, Check, Copy, MailOpen, Plus, Search, X } from 'lucide-react'
 import {
   VINCULO_COR,
@@ -81,6 +81,12 @@ export default function PainelContato({
     setObservacoes(conversa.atendimentoMeta?.observacoes || '')
   }
 
+  // A função vem do hook e muda de identidade a cada render — se entrasse nas
+  // dependências, o próprio setBuscandoEntidade(true) invalidaria a busca em
+  // loop ("Buscando…" eterno). Ref estável resolve.
+  const buscarRef = useRef(buscarEntidades)
+  buscarRef.current = buscarEntidades
+
   useEffect(() => {
     const termo = buscaEntidade.trim()
     if (!termo) return
@@ -90,7 +96,7 @@ export default function PainelContato({
       // do efeito) — é o que mantém essa busca fora do alcance do lint
       // react-hooks/set-state-in-effect.
       setBuscandoEntidade(true)
-      void buscarEntidades(termo).then((r) => {
+      void buscarRef.current(termo).then((r) => {
         if (!vivo) return
         const chave = tipoBusca === 'parceiro' ? 'parceiros' : tipoBusca === 'instituicao' ? 'instituicoes' : 'promotoras'
         setResultados(r[chave])
@@ -101,7 +107,7 @@ export default function PainelContato({
       vivo = false
       clearTimeout(t)
     }
-  }, [buscaEntidade, tipoBusca, buscarEntidades])
+  }, [buscaEntidade, tipoBusca])
 
   const resultadosVisiveis = buscaEntidade.trim() ? resultados : []
 
