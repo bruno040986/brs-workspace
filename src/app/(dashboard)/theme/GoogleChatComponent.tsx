@@ -995,7 +995,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                               >
                                 <span style={{ fontSize: 16, lineHeight: 1 }}>⏰</span>
                                 <div>
-                                  <div style={{ fontSize: 12.5, color: '#5c4a00', whiteSpace: 'pre-wrap' }}>{m.text.slice(PREFIXO_LEMBRETE.length)}</div>
+                                  <div style={{ fontSize: 12.5, color: '#5c4a00', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{m.text.slice(PREFIXO_LEMBRETE.length)}</div>
                                   <Link href="/agenda" style={{ fontSize: 11, fontWeight: 700, color: '#8a6d00', textDecoration: 'underline' }}>
                                     Abrir agenda
                                   </Link>
@@ -1007,7 +1007,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                         return (
                           <div key={m.id} className={`flex min-w-0 ${mine ? 'justify-end' : 'justify-start'}`}>
                             <div className={`brs-messenger-message-bubble ${mine ? 'is-mine' : 'is-theirs'}`}>
-                              <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{m.text}</div>
                               {m.attachments.length > 0 && (
                                 <div className="mt-1 space-y-1">
                                   {m.attachments.map((a, idx) => (
@@ -1078,6 +1078,8 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                                   fontStyle: m.text_style?.italic ? 'italic' : 'normal',
                                   textDecoration: m.text_style?.underline ? 'underline' : 'none',
                                   whiteSpace: 'pre-wrap',
+                                  wordBreak: 'break-word',
+                                  overflowWrap: 'anywhere',
                                 }}
                               >
                                 {m.text}

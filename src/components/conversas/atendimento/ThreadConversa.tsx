@@ -295,7 +295,7 @@ export default function ThreadConversa({
           mensagensFiltradas.map((m) => {
             if (m.message_type === 2) {
               return (
-                <div key={m.id} style={{ alignSelf: 'center', fontSize: 11, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '3px 12px', margin: '4px 0' }}>
+                <div key={m.id} style={{ alignSelf: 'center', fontSize: 11, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 12, padding: '3px 12px', margin: '4px 0', maxWidth: '85%', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }}>
                   {m.content}
                 </div>
               )

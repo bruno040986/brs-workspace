@@ -46,7 +46,7 @@ export default function AtendimentoCompleto() {
           onNovaConversa={at.novaConversa}
         />
       </div>
-      <div style={{ minHeight: 0 }}>
+      <div style={{ minHeight: 0, minWidth: 0 }}>
         {at.selecionada ? (
           <ThreadConversa
             conversa={at.selecionada}
