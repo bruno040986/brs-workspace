@@ -35,6 +35,8 @@ export type RawOfertaRefin = {
   taxa: string | null
   tabelaCodigo: string | null
   instituicaoId: string | null
+  /** Nº do contrato refinanciado — parte da identidade (2+ contratos podem ter a mesma tabela/prazo). */
+  contrato: string | null
 }
 
 /** Oferta de REFIN já casada (quando possível) com a tabela de comissão cadastrada. */

@@ -53,6 +53,7 @@ type LinhaOferta = {
   margem: number | null
   parcela: number | null
   valor_liberado: number
+  contrato: string | null
   dados: Record<string, unknown>
 }
 
@@ -82,6 +83,7 @@ function montarLinhasOfertas(ofertas: OfertasContato): LinhaOferta[] {
         margem: calc.margem,
         parcela: null,
         valor_liberado: calc.valorLiberado,
+        contrato: null,
         dados: { origem: 'campanha' },
       })
     }
@@ -103,6 +105,7 @@ function montarLinhasOfertas(ofertas: OfertasContato): LinhaOferta[] {
       margem: null,
       parcela: refin.parcela,
       valor_liberado: refin.troco,
+      contrato: refin.contrato,
       // Oportunidade de origem no inventário ("Ofertas de Crédito") — só referência.
       dados: { origem: 'campanha', refin_opportunity_id: refin.opportunityId },
     })
@@ -110,9 +113,9 @@ function montarLinhasOfertas(ofertas: OfertasContato): LinhaOferta[] {
   return linhas
 }
 
-/** Mesma identidade natural do índice único crm_ofertas_identidade_uidx. */
-function chaveOferta(o: { contato_id: string; produto: string; tabela_comissao_id: string | null; codigo_tabela_banco: string | null; prazo: number | null }) {
-  return `${o.contato_id}|${o.produto}|${o.tabela_comissao_id ?? o.codigo_tabela_banco ?? ''}|${o.prazo ?? 0}`
+/** Mesma identidade natural do índice único crm_ofertas_identidade_uidx (inclui o contrato — REFIN é por contrato). */
+function chaveOferta(o: { contato_id: string; produto: string; tabela_comissao_id: string | null; codigo_tabela_banco: string | null; prazo: number | null; contrato?: string | null }) {
+  return `${o.contato_id}|${o.produto}|${o.tabela_comissao_id ?? o.codigo_tabela_banco ?? ''}|${o.prazo ?? 0}|${o.contrato ?? ''}`
 }
 
 export const dynamic = 'force-dynamic'
@@ -317,6 +320,7 @@ export async function POST(request: NextRequest) {
           taxa: fCampo('taxa') ? opportunityFieldValue(op, fCampo('taxa')!) : null,
           tabelaCodigo: fCampo('tabelaCodigo') ? opportunityFieldValue(op, fCampo('tabelaCodigo')!) : null,
           instituicaoId: fCampo('instituicaoId') ? opportunityFieldValue(op, fCampo('instituicaoId')!) : null,
+          contrato: fCampo('contrato') ? opportunityFieldValue(op, fCampo('contrato')!) : null,
         }))
       const refin = await resolverOfertasRefin(admin, rawOfertasRefin, convenioResolvido)
       // Resumo escalar (listas/filtros rápidos) = maior troco entre as ofertas; o
@@ -392,7 +396,7 @@ export async function POST(request: NextRequest) {
       const contatoIdsChunk = (inseridos || []).map((row: any) => String(row.id))
       const { data: ofertasExistentes } = await admin
         .from('crm_ofertas')
-        .select('id, contato_id, produto, tabela_comissao_id, codigo_tabela_banco, prazo')
+        .select('id, contato_id, produto, tabela_comissao_id, codigo_tabela_banco, prazo, contrato')
         .in('contato_id', contatoIdsChunk)
         .is('deleted_at', null)
       const idPorChave = new Map<string, string>()
@@ -404,16 +408,22 @@ export async function POST(request: NextRequest) {
             tabela_comissao_id: existente.tabela_comissao_id ? String(existente.tabela_comissao_id) : null,
             codigo_tabela_banco: existente.codigo_tabela_banco ? String(existente.codigo_tabela_banco) : null,
             prazo: typeof existente.prazo === 'number' ? existente.prazo : null,
+            contrato: existente.contrato ? String(existente.contrato) : null,
           }),
           String(existente.id),
         )
       }
 
+      // Dedup também DENTRO do lote: o INSERT é tudo-ou-nada — uma colisão na
+      // identidade derrubaria as 28 linhas de uma vez (bug real df3-3, 31/08).
+      const vistasNoLote = new Set<string>()
       const linhasNovas: Array<LinhaOferta & { contato_id: string; agente_parceiro_id: string; campanha_id: string }> = []
       for (const row of inseridos || []) {
         for (const linha of ofertasPorContato.get(String(row.wesales_contact_id)) || []) {
           const candidata = { ...linha, contato_id: String(row.id), agente_parceiro_id: agenteParceiroId, campanha_id: campanha.id }
-          if (idPorChave.has(chaveOferta(candidata))) continue
+          const chave = chaveOferta(candidata)
+          if (idPorChave.has(chave) || vistasNoLote.has(chave)) continue
+          vistasNoLote.add(chave)
           linhasNovas.push(candidata)
         }
       }

@@ -128,6 +128,7 @@ export async function GET(request: NextRequest) {
           taxa: fCampo('taxa') ? opportunityFieldValue(op, fCampo('taxa')!) : null,
           tabelaCodigo: fCampo('tabelaCodigo') ? opportunityFieldValue(op, fCampo('tabelaCodigo')!) : null,
           instituicaoId: fCampo('instituicaoId') ? opportunityFieldValue(op, fCampo('instituicaoId')!) : null,
+          contrato: fCampo('contrato') ? opportunityFieldValue(op, fCampo('contrato')!) : null,
         }))
       refinRemoto = await resolverOfertasRefin(admin, rawOfertas, convenioRemoto)
     }
