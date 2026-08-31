@@ -85,7 +85,9 @@ export default function PainelContato({
   // dependências, o próprio setBuscandoEntidade(true) invalidaria a busca em
   // loop ("Buscando…" eterno). Ref estável resolve.
   const buscarRef = useRef(buscarEntidades)
-  buscarRef.current = buscarEntidades
+  useEffect(() => {
+    buscarRef.current = buscarEntidades
+  })
 
   useEffect(() => {
     const termo = buscaEntidade.trim()
