@@ -215,9 +215,17 @@ export default function ListaConversas({
                     fontSize: 13,
                     flexShrink: 0,
                     border: '1px solid var(--msn-border)',
+                    overflow: 'hidden',
                   }}
                 >
-                  {grupo ? <UsersRound size={16} /> : iniciais(c.meta.sender?.name)}
+                  {c.meta.sender?.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.meta.sender.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : grupo ? (
+                    <UsersRound size={16} />
+                  ) : (
+                    iniciais(c.meta.sender?.name)
+                  )}
                 </span>
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>

@@ -155,9 +155,15 @@ export default function PainelContato({
             fontWeight: 800,
             fontSize: 24,
             border: '1px solid var(--msn-border)',
+            overflow: 'hidden',
           }}
         >
-          {iniciais(conversa.meta.sender?.name)}
+          {conversa.meta.sender?.thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={conversa.meta.sender.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            iniciais(conversa.meta.sender?.name)
+          )}
         </div>
         <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--msn-text)' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
         <div style={{ fontSize: 12, color: 'var(--msn-muted)', marginTop: 2 }}>{conversa.meta.sender?.phone_number || conversa.meta.channel || ''}</div>
@@ -178,9 +184,11 @@ export default function PainelContato({
         </div>
       </div>
 
-      {midias.length > 0 && (
-        <div style={{ padding: 12, borderBottom: '1px solid var(--msn-border)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Mídias e documentos</div>
+      <div style={{ padding: 12, borderBottom: '1px solid var(--msn-border)' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Mídias e documentos</div>
+        {midias.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: 'var(--msn-muted)' }}>Nenhum arquivo nesta conversa ainda.</div>
+        ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
             {midias.slice(0, 4).map((m, idx) => (
               <a
@@ -202,8 +210,8 @@ export default function PainelContato({
               </a>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--msn-border)' }}>
         {(['geral', 'membros'] as Aba[]).map((id) =>

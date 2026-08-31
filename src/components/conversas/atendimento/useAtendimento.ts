@@ -73,6 +73,13 @@ export function useAtendimento() {
       const lista = (r.conversas || []) as ConversaAtendimento[]
       setDisponivel(r.disponivel)
       setConversas(lista)
+      // Mantém a conversa aberta em dia com a lista (atendente, última mensagem):
+      // sem isso o select de Atendente ficava "Sem atendente" até reabrir a conversa.
+      setSelecionada((prev) => {
+        if (!prev) return prev
+        const fresca = lista.find((c) => c.id === prev.id)
+        return fresca ? { ...fresca, atendimentoMeta: fresca.atendimentoMeta ?? prev.atendimentoMeta } : prev
+      })
       const contagemFila = (r.meta as Record<string, number> | undefined)?.unassigned_count
       if (typeof contagemFila === 'number') setFilaCount(contagemFila)
       setErro(null)
@@ -244,6 +251,10 @@ export function useAtendimento() {
     if (!selecionada) return
     try {
       await transferirConversa(selecionada.id, agenteId)
+      const agente = agentes.find((a) => a.id === agenteId)
+      if (agente) {
+        setSelecionada((prev) => (prev ? { ...prev, meta: { ...prev.meta, assignee: { id: agente.id, name: agente.name } } } : prev))
+      }
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {

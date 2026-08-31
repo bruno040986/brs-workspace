@@ -649,5 +649,13 @@ export async function getAgentesChat() {
   await requirePermission('conversas', 'can_view')
   const cli = await clienteChatwootBrs()
   if (!cli) return []
+  // Espelha usuários do Workspace com permissão `conversas` como agentes da
+  // conta (só escreve quando aparece usuário novo); falha não bloqueia a lista.
+  try {
+    const { sincronizarAgentesBrs } = await import('./provisionar-agentes')
+    await sincronizarAgentesBrs(cli)
+  } catch (err) {
+    console.error('[conversas] sincronização de agentes falhou', err)
+  }
   return cli.agentes()
 }

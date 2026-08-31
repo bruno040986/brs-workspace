@@ -39,6 +39,11 @@ export class ChatwootConta {
     return this.req<{ payload: Array<{ id: number; name: string; channel_type: string; website_token?: string; phone_number?: string }> }>('/inboxes').then((r) => r.payload || [])
   }
 
+  /** Adiciona um agente como membro de uma inbox (aditivo, não substitui o conjunto). */
+  adicionarMembroInbox(inboxId: number, userId: number) {
+    return this.req('/inbox_members', { method: 'POST', body: { inbox_id: inboxId, user_ids: [userId] } })
+  }
+
   /** WhatsApp oficial via 360dialog (nativo do Chatwoot). */
   criarInbox360dialog(input: { nome: string; telefone: string; apiKey: string }) {
     return this.req<{ id: number }>('/inboxes', {

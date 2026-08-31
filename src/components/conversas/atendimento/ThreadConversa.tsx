@@ -184,8 +184,13 @@ export default function ThreadConversa({
             <ArrowLeft size={14} />
           </button>
         )}
-        <span style={{ width: 32, height: 32, borderRadius: grupo ? 9 : 99, background: 'var(--msn-avatar-bg)', color: 'var(--msn-avatar-text)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, flexShrink: 0, border: '1px solid var(--msn-border)' }}>
-          {iniciais(conversa.meta.sender?.name)}
+        <span style={{ width: 32, height: 32, borderRadius: grupo ? 9 : 99, background: 'var(--msn-avatar-bg)', color: 'var(--msn-avatar-text)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, flexShrink: 0, border: '1px solid var(--msn-border)', overflow: 'hidden' }}>
+          {conversa.meta.sender?.thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={conversa.meta.sender.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            iniciais(conversa.meta.sender?.name)
+          )}
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
@@ -201,12 +206,12 @@ export default function ThreadConversa({
             <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--msn-meta-text)' }}>{conversa.meta.assignee ? `↳ ${conversa.meta.assignee.name}` : 'sem atendente'}</span>
           </div>
         </div>
-        <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ padding: 6, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
-          <Search size={14} />
+        <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ padding: 9, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
+          <Search size={18} />
         </button>
         <div style={{ position: 'relative' }}>
-          <button type="button" onClick={() => setPopoverTransferir((v) => !v)} title="Transferir" className="brs-messenger-toolbar-btn" style={{ padding: 6 }}>
-            <UserCog size={14} />
+          <button type="button" onClick={() => setPopoverTransferir((v) => !v)} title="Transferir" className="brs-messenger-toolbar-btn" style={{ padding: 9 }}>
+            <UserCog size={18} />
           </button>
           {popoverTransferir && (
             <div className="brs-messenger" style={{ position: 'absolute', right: 0, top: '110%', borderRadius: 6, width: 200, zIndex: 60, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
@@ -231,8 +236,8 @@ export default function ThreadConversa({
           )}
         </div>
         <div style={{ position: 'relative' }}>
-          <button type="button" onClick={() => setPopoverEncerrar((v) => !v)} title="Encerrar" className="brs-messenger-toolbar-btn" style={{ padding: 6 }}>
-            <CheckCheck size={14} />
+          <button type="button" onClick={() => setPopoverEncerrar((v) => !v)} title="Encerrar" className="brs-messenger-toolbar-btn" style={{ padding: 9 }}>
+            <CheckCheck size={18} />
           </button>
           {popoverEncerrar && (
             <div className="brs-messenger" style={{ position: 'absolute', right: 0, top: '110%', borderRadius: 6, width: 220, zIndex: 60, padding: 10, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
@@ -261,7 +266,7 @@ export default function ThreadConversa({
           )}
         </div>
         {onAbrirPainel && (
-          <button type="button" onClick={onAbrirPainel} title="Dados do contato" className="brs-messenger-toolbar-btn" style={{ padding: 6 }}>
+          <button type="button" onClick={onAbrirPainel} title="Dados do contato" className="brs-messenger-toolbar-btn" style={{ padding: 9 }}>
             <Info size={14} />
           </button>
         )}
