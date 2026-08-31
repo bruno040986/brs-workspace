@@ -24,10 +24,17 @@
  *     `nvti_queries.created_at` no Workspace.
  *
  * Regras:
- *   - CPF já é contato → ENRIQUECE. Campos nativos (telefone/e-mail/
- *     endereço) e Número/Complemento/Bairro só são preenchidos se estiverem
- *     VAZIOS — nunca sobrescreve dado que o time já tem. Os demais campos da
- *     NVTI são sempre atualizados — são espaço só da NVTI.
+ *   - TELEFONE é o OBJETIVO da consulta (decisão do Bruno 31/08/2026): a
+ *     NVTI SOBRESCREVE — celular 1 (prioridade WhatsApp) vai pro `phone`
+ *     nativo mesmo que já exista número (ex. fixo importado da planilha);
+ *     Telefone 2/3 e as flags são sempre regravados (inclusive limpos
+ *     quando a NVTI devolver menos números que antes).
+ *   - CPF já é contato → ENRIQUECE o resto. E-mail/nascimento/endereço
+ *     nativos e Número/Complemento/Bairro só se estiverem VAZIOS; E-mail 2
+ *     recebe o 2º e-mail da NVTI; Vínculo Empresa (Razão Social/CNPJ) é
+ *     atualizado quando a NVTI traz empresa (sem limpar — campo
+ *     compartilhado com o fluxo CLT/Vende.AI). Campos nvti_* e os de
+ *     crédito são sempre atualizados — espaço da NVTI.
  *   - CPF não é contato ainda → CRIA um novo.
  *   - Valores passam por `customFieldEntry` (tipo do campo): número/data/opção
  *     no formato que a API exige; valor incompatível é pulado com aviso, nunca
@@ -59,6 +66,7 @@ export const NVTI_FIELD_KEYS = {
   whatsapp2: 'nvti_whatsapp_2',
   telefone3: 'nvti_telefone_3',
   whatsapp3: 'nvti_whatsapp_3',
+  email2: 'email_2',
   // Informações Gerais (endereço) — só quando vazio
   numero: 'nmero',
   complemento: 'complemento',
@@ -73,6 +81,9 @@ export const NVTI_FIELD_KEYS = {
   possuiVeiculo: 'nvti_possui_veiculo',
   possuiImovel: 'nvti_possui_imovel',
   bolsaFamilia: 'nvti_bolsa_familia',
+  // Vínculo empregatício (compartilhado com CLT/Vende.AI — só atualiza, não limpa)
+  empregadorRazao: 'empregador',
+  empregadorCnpj: 'cnpj_empregador',
   // Dados de Crédito (compartilhados — sem prefixo nvti_)
   score: 'score',
   faixaScore: 'faixa_de_score',
@@ -92,6 +103,7 @@ const NVTI_FIELD_LABELS: Record<CampoNvti, string> = {
   whatsapp2: 'Flag WhatsApp 2',
   telefone3: 'Telefone 3',
   whatsapp3: 'Flag WhatsApp 3',
+  email2: 'E-mail 2',
   numero: 'Número',
   complemento: 'Complemento',
   bairro: 'Bairro',
@@ -104,6 +116,8 @@ const NVTI_FIELD_LABELS: Record<CampoNvti, string> = {
   possuiVeiculo: 'Possui Veículo',
   possuiImovel: 'Possui Imóvel',
   bolsaFamilia: 'Bolsa Família',
+  empregadorRazao: 'Vínculo Empresa: Razão Social',
+  empregadorCnpj: 'Vínculo Empresa: CNPJ',
   score: 'Score',
   faixaScore: 'Faixa de Score',
   personaCredito: 'Persona de Crédito',
@@ -115,6 +129,15 @@ const NVTI_FIELD_LABELS: Record<CampoNvti, string> = {
 
 /** Campos de endereço: só preenche se o contato ainda não tiver valor. */
 const CAMPOS_SO_SE_VAZIO: ReadonlySet<CampoNvti> = new Set(['numero', 'complemento', 'bairro'])
+
+/**
+ * Campos que a NVTI é dona e SEMPRE regrava, inclusive com '' pra LIMPAR
+ * valor antigo (telefones/flags/e-mail 2): se a consulta de hoje trouxe
+ * menos números que a de ontem, o que sobrar estaria desatualizado.
+ */
+const CAMPOS_SEMPRE_GRAVA: ReadonlySet<CampoNvti> = new Set([
+  'telefone2', 'telefone3', 'whatsapp1', 'whatsapp2', 'whatsapp3', 'email2',
+])
 
 const TAG_HIGIENIZADO = 'nvti-higienizado'
 
@@ -163,10 +186,16 @@ function vazio(value: unknown): boolean {
   return value === undefined || value === null || String(value).trim() === ''
 }
 
-/** NVTI manda a data como DD/MM/AAAA (às vezes já ISO); o WeSales quer AAAA-MM-DD. */
+/**
+ * NVTI manda o nascimento como AAAAMMDD (8 dígitos colados — confirmado pelo
+ * formatNasc da tela de higienização); aceita também DD/MM/AAAA e ISO.
+ * O WeSales só grava AAAA-MM-DD.
+ */
 function nascimentoIso(valor: string | null | undefined): string | null {
   const texto = String(valor || '').trim()
   if (!texto) return null
+  const compacto = texto.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (compacto) return `${compacto[1]}-${compacto[2]}-${compacto[3]}`
   const br = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
   if (br) return `${br[3]}-${br[2]}-${br[1]}`
   const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
@@ -202,6 +231,9 @@ export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Pr
     whatsapp2: ordenados[1] ? boolLabel(ordenados[1].whatsapp) : '',
     telefone3: celularTexto(ordenados[2]),
     whatsapp3: ordenados[2] ? boolLabel(ordenados[2].whatsapp) : '',
+    email2: resultado.emails[1] || '',
+    empregadorRazao: empresa?.razao || '',
+    empregadorCnpj: empresa?.cnpj || '',
     numero: endereco?.numero || '',
     complemento: endereco?.complemento || '',
     bairro: endereco?.bairro || '',
@@ -227,7 +259,7 @@ export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Pr
   const montarCustomFields = (existente: WesalesContact | null): CustomFieldWrite[] => {
     const out: CustomFieldWrite[] = []
     for (const [campo, valor] of Object.entries(valores) as Array<[CampoNvti, string]>) {
-      if (!valor) continue
+      if (!valor && !CAMPOS_SEMPRE_GRAVA.has(campo)) continue
       const def = defs[NVTI_FIELD_KEYS[campo]]
       if (!def) continue
       if (CAMPOS_SO_SE_VAZIO.has(campo) && existente && !vazio(customFieldValue(existente, def.id))) continue
@@ -240,11 +272,12 @@ export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Pr
   const existing = await findContactByCpf(cpf)
 
   if (existing) {
-    const enrich = buildEnrichment(existing, resultado, endereco, ordenados[0])
+    const enrich = buildEnrichment(existing, resultado, endereco)
     await updateContact(existing.id, { ...enrich, customFields: montarCustomFields(existing) })
     // Tag por endpoint dedicado (aditivo) — updateContact via PUT não é
     // seguro pra tags (arriscaria substituir as que o contato já tinha).
     await addContactTags(existing.id, [TAG_HIGIENIZADO])
+    await sobrescreverTelefone(existing.id, existing.phone, ordenados[0])
     return
   }
 
@@ -274,7 +307,7 @@ export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Pr
   // pra que as próximas consultas o encontrem pelo caminho normal.
   if (!criado.contact && criado.duplicateOfId) {
     const duplicado = await getContact(criado.duplicateOfId)
-    const enrich = duplicado ? buildEnrichment(duplicado, resultado, endereco, ordenados[0]) : {}
+    const enrich = duplicado ? buildEnrichment(duplicado, resultado, endereco) : {}
     const customFieldsDup: CustomFieldWrite[] = [{ id: defs[CPF_FIELD_KEY].id, fieldValue: cpf }, ...montarCustomFields(duplicado)]
     await updateContact(criado.duplicateOfId, { ...enrich, customFields: customFieldsDup })
     await addContactTags(criado.duplicateOfId, [TAG_HIGIENIZADO])
@@ -282,18 +315,39 @@ export async function syncNvtiResultadoParaWesales(resultado: NvtiResultado): Pr
 }
 
 /**
- * Monta o enriquecimento de campos NATIVOS (telefone 1, e-mail, nascimento,
- * endereço) — só entra no payload o que estiver VAZIO no contato hoje. Nunca
- * sobrescreve dado que o time já tem.
+ * Telefone 1 nativo: a NVTI SOBRESCREVE (objetivo da consulta é atualizar
+ * telefone — decisão do Bruno 31/08/2026). Vai numa chamada separada porque a
+ * location deduplica contato por telefone: se o número já pertencer a OUTRO
+ * contato o WeSales recusa, e isso não pode derrubar o resto da gravação
+ * (que já aconteceu na chamada principal) — só loga.
+ */
+async function sobrescreverTelefone(
+  contactId: string,
+  telefoneAtual: unknown,
+  celularPrincipal: NvtiCelular | undefined,
+): Promise<void> {
+  if (!celularPrincipal) return
+  const novo = celularE164(celularPrincipal)
+  const atual = String(telefoneAtual || '').replace(/\D/g, '')
+  if (atual && atual === novo.replace(/\D/g, '')) return
+  try {
+    await updateContact(contactId, { phone: novo })
+  } catch (error) {
+    console.warn(`[nvti->wesales] não deu pra atualizar o telefone do contato ${contactId} pra ${novo} (provável duplicidade com outro contato):`, error)
+  }
+}
+
+/**
+ * Monta o enriquecimento de campos NATIVOS (e-mail, nascimento, endereço) —
+ * só entra no payload o que estiver VAZIO no contato hoje. Telefone NÃO passa
+ * por aqui: é sobrescrito à parte (ver sobrescreverTelefone).
  */
 function buildEnrichment(
   existing: WesalesContact,
   resultado: NvtiResultado,
   endereco: NvtiResultado['enderecos'][number] | undefined,
-  celularPrincipal: NvtiCelular | undefined,
 ): ContactPayload {
   const enrich: ContactPayload = {}
-  if (vazio(existing.phone) && celularPrincipal) enrich.phone = celularE164(celularPrincipal)
   if (vazio(existing.email) && resultado.emails[0]) enrich.email = resultado.emails[0]
   const nascimento = nascimentoIso(resultado.cadastro.nascimento)
   if (vazio(existing.dateOfBirth) && nascimento) enrich.dateOfBirth = nascimento
