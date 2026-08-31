@@ -2523,6 +2523,66 @@ table.data-table {
   background: var(--msn-bubble-theirs-bg) !important;
 }
 
+/* Nota interna do Atendimento (BRS Messenger) — vence is-mine/is-theirs por
+   vir depois no arquivo (mesma especificidade, ambas com !important). */
+.brs-messenger-message-bubble.is-nota {
+  border: 1px dashed #e6d590 !important;
+  background: #fff8dc !important;
+  color: #5c4a00 !important;
+}
+
+:root[data-theme="dark"] .brs-messenger-message-bubble.is-nota {
+  border: 1px dashed #6b5a1f !important;
+  background: #3a3115 !important;
+  color: #f0dfa0 !important;
+}
+
+/* Botão pequeno COM RÓTULO (Silenciar, Não lida, Cancelar, toggle de nota
+   interna...) — não reaproveita .brs-messenger-toolbar-btn porque aquela
+   classe é um quadrado 22x22 fixo só pra ícone. */
+.brs-messenger-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--msn-toolbar-btn-border);
+  background: var(--msn-toolbar-btn-bg);
+  color: var(--msn-text);
+}
+
+.brs-messenger-pill-btn:hover {
+  background: var(--msn-item-hover);
+  border-color: var(--msn-border);
+}
+
+/* Estado ativo (nota interna) do toggle acima — combinar com .brs-messenger-pill-btn. */
+.brs-messenger-pill-btn.is-active {
+  border-color: #e6d590;
+  background: #fff8dc;
+  color: #5c4a00;
+}
+
+:root[data-theme="dark"] .brs-messenger-pill-btn.is-active {
+  border-color: #6b5a1f;
+  background: #3a3115;
+  color: #f0dfa0;
+}
+
+.brs-messenger-composer-input.is-nota {
+  background: #fffdf3 !important;
+  border-color: #e6d590 !important;
+}
+
+:root[data-theme="dark"] .brs-messenger-composer-input.is-nota {
+  background: #2a2410 !important;
+  border-color: #6b5a1f !important;
+}
+
 .brs-messenger-message-meta {
   color: var(--msn-meta-text) !important;
   font-size: 10px;

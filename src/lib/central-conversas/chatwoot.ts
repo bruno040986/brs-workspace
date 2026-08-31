@@ -14,12 +14,21 @@ export class ChatwootConta {
     private readonly token: string,
   ) {}
 
-  async req<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+  async req<T>(path: string, init?: { method?: string; body?: unknown; form?: FormData; timeoutMs?: number }): Promise<T> {
+    const headers: Record<string, string> = { api_access_token: this.token }
+    let body: BodyInit | undefined
+    if (init?.form) {
+      // Multipart (anexos): o fetch do Node 20+ monta o boundary sozinho.
+      body = init.form
+    } else if (init?.body !== undefined) {
+      headers['Content-Type'] = 'application/json'
+      body = JSON.stringify(init.body)
+    }
     const res = await fetch(`${base()}/api/v1/accounts/${this.accountId}${path}`, {
       method: init?.method || 'GET',
-      headers: { api_access_token: this.token, 'Content-Type': 'application/json' },
-      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: AbortSignal.timeout(20_000),
+      headers,
+      body,
+      signal: AbortSignal.timeout(init?.timeoutMs ?? 20_000),
     })
     const text = await res.text()
     if (!res.ok) throw new Error(`Chatwoot HTTP ${res.status} em ${path}: ${text.slice(0, 200)}`)
@@ -54,12 +63,13 @@ export class ChatwootConta {
     })
   }
 
-  listarConversas(params: { status?: 'open' | 'resolved' | 'pending' | 'all'; assigneeType?: 'me' | 'unassigned' | 'all'; page?: number; q?: string }) {
+  listarConversas(params: { status?: 'open' | 'resolved' | 'pending' | 'all'; assigneeType?: 'me' | 'unassigned' | 'all'; page?: number; q?: string; inboxId?: number }) {
     const s = new URLSearchParams()
     s.set('status', params.status || 'open')
     s.set('assignee_type', params.assigneeType || 'all')
     s.set('page', String(params.page || 1))
     if (params.q) s.set('q', params.q)
+    if (params.inboxId) s.set('inbox_id', String(params.inboxId))
     return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => r.data)
   }
 
@@ -70,6 +80,51 @@ export class ChatwootConta {
 
   enviarMensagem(conversationId: number, content: string, privada = false) {
     return this.req<{ id: number }>(`/conversations/${conversationId}/messages`, { method: 'POST', body: { content, message_type: 'outgoing', private: privada } })
+  }
+
+  /**
+   * Mensagem outgoing com anexo (multipart `attachments[]`). `legenda` vira o
+   * `content` da mensagem (opcional). FormData/Blob nativos do Node 20+.
+   */
+  enviarMensagemComAnexo(conversationId: number, file: { nome: string; mime: string; bytes: Buffer }, legenda?: string) {
+    const form = new FormData()
+    if (legenda) form.set('content', legenda)
+    form.set('message_type', 'outgoing')
+    form.set('private', 'false')
+    form.append('attachments[]', new Blob([new Uint8Array(file.bytes)], { type: file.mime }), file.nome)
+    return this.req<{ id: number }>(`/conversations/${conversationId}/messages`, { method: 'POST', form, timeoutMs: 60_000 })
+  }
+
+  /** Nota interna (só o time vê; nunca vai pro WhatsApp). */
+  notaInterna(conversationId: number, texto: string) {
+    return this.enviarMensagem(conversationId, texto, true)
+  }
+
+  /** Labels cadastradas na conta (tags disponíveis). */
+  listarLabelsConta() {
+    return this.req<{ payload: Array<{ id: number; title: string; description: string | null; color: string | null }> }>('/labels').then((r) => r.payload || [])
+  }
+
+  labelsDaConversa(conversationId: number) {
+    return this.req<{ payload: string[] }>(`/conversations/${conversationId}/labels`).then((r) => r.payload || [])
+  }
+
+  /** Substitui o CONJUNTO de labels da conversa (comportamento do endpoint do Chatwoot). */
+  setLabelsDaConversa(conversationId: number, labels: string[]) {
+    return this.req<{ payload: string[] }>(`/conversations/${conversationId}/labels`, { method: 'POST', body: { labels } }).then((r) => r.payload || [])
+  }
+
+  silenciar(conversationId: number, silenciar: boolean) {
+    return this.req(`/conversations/${conversationId}/${silenciar ? 'mute' : 'unmute'}`, { method: 'POST', body: {} })
+  }
+
+  marcarNaoLida(conversationId: number) {
+    return this.req(`/conversations/${conversationId}/unread`, { method: 'POST', body: {} })
+  }
+
+  /** Respostas rápidas (canned responses) da conta. */
+  respostasRapidas() {
+    return this.req<Array<{ id: number; short_code: string; content: string }>>('/canned_responses')
   }
 
   atribuir(conversationId: number, assigneeId: number | null) {
@@ -95,6 +150,8 @@ export type ChatwootConversa = {
   status: string
   unread_count: number
   last_activity_at: number
+  labels?: string[]
+  muted?: boolean
   messages?: ChatwootMensagem[]
   meta: { sender?: { id: number; name: string; phone_number?: string | null; thumbnail?: string; identifier?: string }; assignee?: { id: number; name: string } | null; channel?: string }
   last_non_activity_message?: ChatwootMensagem | null

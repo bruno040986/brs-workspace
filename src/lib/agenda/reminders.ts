@@ -12,6 +12,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { enqueueJob } from '@/lib/scp-engine/queue'
 import type { EngineJob } from '@/lib/scp-engine/decisions'
 import { createWorkspaceNotifications } from '@/lib/notifications'
+import { entregarLembreteSelf } from '@/lib/interno-chat/data'
 
 const MEETING_REMINDER_MINUTES = 30
 
@@ -53,7 +54,7 @@ async function loadItemWithInvolved(itemId: string) {
     .select('user_id')
     .eq('item_id', itemId)
     .eq('role', 'envolvido')
-  return { admin, item, involvedIds: (participants || []).map((row: any) => String(row.user_id)) }
+  return { admin, item, involvedIds: (participants || []).map((row: { user_id: string }) => String(row.user_id)) }
 }
 
 async function handleMeetingReminder(job: EngineJob): Promise<void> {
@@ -86,6 +87,24 @@ async function handleMeetingReminder(job: EngineJob): Promise<void> {
       entity_id: itemId,
     })),
   )
+
+  // BRS Messenger (31/08/2026): o mesmo lembrete cai no canal "Você" de cada
+  // envolvido do compromisso. Caminho escolhido do contrato: ESTENDER este
+  // handler do process_jobs (não criar cron paralelo) — o job já roda no
+  // horário certo, se auto-invalida em remarcação e tem dedupe; a entrega no
+  // self é idempotente por (conversa, corpo), então retry não duplica.
+  await entregarLembretesNoSelf(involvedIds, `${item.title} — hoje às ${time}`)
+}
+
+async function entregarLembretesNoSelf(userIds: string[], corpo: string): Promise<void> {
+  for (const userId of userIds) {
+    try {
+      await entregarLembreteSelf(userId, corpo)
+    } catch (error) {
+      // Best-effort: o sino já notificou; falha no Messenger não derruba o job.
+      console.error('Falha ao entregar lembrete no canal "Você":', (error as Error)?.message)
+    }
+  }
 }
 
 async function handleTaskDue(job: EngineJob): Promise<void> {
@@ -111,6 +130,8 @@ async function handleTaskDue(job: EngineJob): Promise<void> {
       entity_id: itemId,
     })),
   )
+
+  await entregarLembretesNoSelf(involvedIds, `tarefa "${item.title}" vence hoje`)
 }
 
 export function registerAgendaHandlers(deps: {

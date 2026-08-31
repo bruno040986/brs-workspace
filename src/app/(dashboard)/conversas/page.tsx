@@ -1,5 +1,5 @@
 import { requirePermission } from '@/lib/auth/server'
-import CentralConversasPanel from '@/components/conversas/CentralConversasPanel'
+import AtendimentoCompleto from '@/components/conversas/atendimento/AtendimentoCompleto'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +14,7 @@ export default async function ConversasPage() {
         </div>
       </div>
       <div className="card" style={{ flex: 1, minHeight: 0, padding: 0, overflow: 'hidden' }}>
-        <CentralConversasPanel />
+        <AtendimentoCompleto />
       </div>
     </div>
   )

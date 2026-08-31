@@ -38,7 +38,8 @@ export const engine = {
   conectar: (instanciaId: string) => chamar<EngineConectarResposta>(`/instancias/${instanciaId}/conectar`, { method: 'POST', body: {} }),
   status: (instanciaId: string) => chamar<EngineStatusResposta>(`/instancias/${instanciaId}/status`),
   desconectar: (instanciaId: string, logout: boolean) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/desconectar`, { method: 'POST', body: { logout } }),
-  enviar: (instanciaId: string, destino: string, texto: string) => chamar<{ ok: boolean; id: string }>(`/instancias/${instanciaId}/enviar`, { method: 'POST', body: { destino, texto } }),
+  enviar: (instanciaId: string, destino: string, texto: string) =>
+    chamar<{ ok: boolean; id: string; messageId?: string; conversationId?: number | null }>(`/instancias/${instanciaId}/enviar`, { method: 'POST', body: { destino, texto } }),
   saude: async () => {
     try {
       const res = await fetch(`${base()}/health`, { signal: AbortSignal.timeout(6000) })

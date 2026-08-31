@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Headset, MessagesSquare } from 'lucide-react'
 import { GoogleChatComponent } from '@/app/(dashboard)/theme/GoogleChatComponent'
 import { podeAtenderConversas } from '@/lib/central-conversas/actions'
-import CentralConversasPanel from './CentralConversasPanel'
+import AtendimentoCompacto from './atendimento/AtendimentoCompacto'
 
 /**
  * O BRS Messenger vira a "lataria" da Central de Conversas: aba Interno
@@ -45,8 +45,8 @@ export default function MessengerDockTabs() {
         <GoogleChatComponent variant="dock" />
       </div>
       {aba === 'atendimento' && (
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <CentralConversasPanel compacto />
+        <div style={{ flex: 1, minHeight: 0 }} className="brs-messenger">
+          <AtendimentoCompacto />
         </div>
       )}
     </div>

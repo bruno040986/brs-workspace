@@ -21,7 +21,21 @@ export async function GET() {
 
     if (partErr) throw partErr
 
-    const conversationIds = (myParticipants || []).map((p) => p.conversation_id)
+    let conversationIds = (myParticipants || []).map((p) => p.conversation_id)
+    if (conversationIds.length === 0) return NextResponse.json([])
+
+    // Este endpoint alimenta o GoogleChatComponent, que só entende conversa
+    // 1-a-1: os kinds novos 'equipe' e 'self' (BRS Messenger, 31/08/2026)
+    // ficam de fora — a nova UI usa src/lib/interno-chat/actions.ts, que
+    // lista os três. Sem este filtro, o grupo Equipe BRS viraria N conversas
+    // "diretas" duplicadas aqui.
+    const { data: directConversations, error: kindErr } = await admin
+      .from('workspace_chat_conversations')
+      .select('id')
+      .eq('kind', 'direct')
+      .in('id', conversationIds)
+    if (kindErr) throw kindErr
+    conversationIds = (directConversations || []).map((c) => c.id)
     if (conversationIds.length === 0) return NextResponse.json([])
 
     const { data: allParticipants, error: othersErr } = await admin

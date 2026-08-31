@@ -1,9 +1,17 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { EllipsisVertical, MessageSquareText, MessagesSquare, Paperclip, Search, Send, Users } from 'lucide-react'
+import Link from 'next/link'
+import { EllipsisVertical, MessageSquareText, MessagesSquare, Paperclip, Search, Send, UsersRound, Users } from 'lucide-react'
 import { useMessengerDock } from '@/components/layout/MessengerDockContext'
 import { deriveChatStatus, normalizeManualStatus, type ChatStatus } from '@/lib/chat/presence'
+import { getMinhaAssinatura, setMinhaAssinatura } from '@/lib/central-conversas/actions'
+import { enviarMensagemInterno, getCanaisInterno, getMensagensInterno, type CanalInterno, type MensagemInterno } from '@/lib/interno-chat/actions'
+
+// Mesmo prefixo de src/lib/interno-chat/data.ts (PREFIXO_LEMBRETE) — duplicado
+// aqui de propósito: aquele módulo usa o admin client e não pode ser
+// importado num componente client.
+const PREFIXO_LEMBRETE = '⏰ Lembrete: '
 
 type PresenceMode = 'online' | 'busy'
 
@@ -121,6 +129,15 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     underline: false,
   })
   const [popupToasts, setPopupToasts] = useState<MessengerToast[]>([])
+  const [canaisFixos, setCanaisFixos] = useState<CanalInterno[]>([])
+  const [canalFixoAberto, setCanalFixoAberto] = useState<CanalInterno | null>(null)
+  const [mensagensFixo, setMensagensFixo] = useState<MensagemInterno[]>([])
+  const [carregandoFixo, setCarregandoFixo] = useState(false)
+  const [textoFixo, setTextoFixo] = useState('')
+  const [enviandoFixo, setEnviandoFixo] = useState(false)
+  const [assinatura, setAssinatura] = useState('')
+  const canaisFixosPollRef = useRef<number | null>(null)
+  const canalFixoPollRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const heartbeatRef = useRef<number | null>(null)
@@ -164,6 +181,8 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
       if (messagesPollRef.current) window.clearInterval(messagesPollRef.current)
       if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
+      if (canaisFixosPollRef.current) window.clearInterval(canaisFixosPollRef.current)
+      if (canalFixoPollRef.current) window.clearInterval(canalFixoPollRef.current)
     }
   }, [])
 
@@ -200,7 +219,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     updateStickiness()
     container.addEventListener('scroll', updateStickiness, { passive: true })
     return () => container.removeEventListener('scroll', updateStickiness)
-  }, [selectedConversation?.id, activeTab])
+  }, [selectedConversation?.id, canalFixoAberto?.id, activeTab])
 
   useEffect(() => {
     if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
@@ -233,6 +252,28 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       if (messagesPollRef.current) window.clearInterval(messagesPollRef.current)
     }
   }, [selectedConversation?.id])
+
+  // "Você" e "Equipe BRS" fixos no topo da lista (kinds 'self'/'equipe' —
+  // não aparecem em /api/chat/conversations, que só lista 'direct').
+  useEffect(() => {
+    if (canaisFixosPollRef.current) window.clearInterval(canaisFixosPollRef.current)
+    const interval = hasGlobalMessengerNotifier() ? 8000 : 6000
+    canaisFixosPollRef.current = window.setInterval(() => void fetchCanaisFixos(), interval)
+    return () => {
+      if (canaisFixosPollRef.current) window.clearInterval(canaisFixosPollRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (canalFixoPollRef.current) window.clearInterval(canalFixoPollRef.current)
+    if (!canalFixoAberto) return
+    canalFixoPollRef.current = window.setInterval(() => {
+      void loadMensagensFixo(canalFixoAberto.id, true)
+    }, 3000)
+    return () => {
+      if (canalFixoPollRef.current) window.clearInterval(canalFixoPollRef.current)
+    }
+  }, [canalFixoAberto?.id])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -268,7 +309,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
 
   async function bootstrap() {
     setIsLoading(true)
-    await Promise.all([fetchMyProfile(), fetchContacts(), fetchConversations()])
+    await Promise.all([fetchMyProfile(), fetchContacts(), fetchConversations(), fetchCanaisFixos(), fetchAssinatura()])
     await syncPresenceUpdate({ activityAt: new Date().toISOString(), force: true })
     heartbeatRef.current = window.setInterval(() => void syncPresenceUpdate(), 60000)
     setIsLoading(false)
@@ -284,6 +325,73 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     setEffectiveStatus((data.profile?.status || 'offline') as ChatStatus)
     presenceStateRef.current = data.profile
     setStatusMessage(data.profile?.status_message || '')
+  }
+
+  async function fetchAssinatura() {
+    try {
+      const r = await getMinhaAssinatura()
+      setAssinatura(r.nomeExibicao || '')
+    } catch {
+      // assinatura é opcional — segue sem ela se a leitura falhar
+    }
+  }
+
+  async function fetchCanaisFixos() {
+    try {
+      const canais = await getCanaisInterno()
+      setCanaisFixos(canais.filter((c) => c.kind !== 'direct'))
+    } catch {
+      // "Você"/"Equipe BRS" são um complemento — não derruba o resto do Messenger
+    }
+  }
+
+  async function loadMensagensFixo(conversationId: string, silent = false) {
+    if (!silent) setCarregandoFixo(true)
+    try {
+      const data = await getMensagensInterno(conversationId)
+      setMensagensFixo(data)
+    } finally {
+      if (!silent) setCarregandoFixo(false)
+    }
+    const shouldStickToBottom = !silent || stickToBottomRef.current
+    if (shouldStickToBottom) {
+      setTimeout(() => {
+        scrollMessagesToBottom('auto')
+      }, 50)
+    }
+    void fetchCanaisFixos()
+  }
+
+  async function abrirCanalFixo(canal: CanalInterno) {
+    messengerDock.setActiveConversation(null)
+    setCanalFixoAberto(canal)
+    setActiveTab(3)
+    stickToBottomRef.current = true
+    await loadMensagensFixo(canal.id)
+  }
+
+  async function enviarMensagemFixo() {
+    if (!canalFixoAberto || !textoFixo.trim()) return
+    const texto = textoFixo.trim()
+    setTextoFixo('')
+    setEnviandoFixo(true)
+    try {
+      await enviarMensagemInterno(canalFixoAberto.id, texto)
+      await loadMensagensFixo(canalFixoAberto.id, true)
+      stickToBottomRef.current = true
+      setTimeout(() => scrollMessagesToBottom('auto'), 50)
+    } catch {
+      setTextoFixo(texto)
+    } finally {
+      setEnviandoFixo(false)
+    }
+  }
+
+  function onComposerFixoKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (!enviandoFixo && textoFixo.trim()) void enviarMensagemFixo()
+    }
   }
 
   async function syncPresenceUpdate(options: { activityAt?: string; force?: boolean } = {}) {
@@ -423,19 +531,23 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   }
 
   async function saveProfile() {
-    await fetch('/api/chat/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nickname: nickname || null,
-        status,
-        status_message: statusMessage || null,
+    await Promise.all([
+      fetch('/api/chat/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nickname: nickname || null,
+          status,
+          status_message: statusMessage || null,
+        }),
       }),
-    })
-    await Promise.all([fetchMyProfile(), fetchContacts(), fetchConversations()])
+      setMinhaAssinatura(assinatura).catch(() => undefined),
+    ])
+    await Promise.all([fetchMyProfile(), fetchContacts(), fetchConversations(), fetchAssinatura()])
   }
 
   async function openConversation(contact: Contact) {
+    setCanalFixoAberto(null)
     let conversation = conversations.find((c) => c.participant.id === contact.id) || null
     if (!conversation) {
       const response = await fetch('/api/chat/conversations', {
@@ -609,7 +721,8 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     [conversations, search],
   )
 
-  const unreadTotal = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
+  const unreadTotal = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0) + canaisFixos.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
+  const canaisFixosFiltrados = canaisFixos.filter((c) => c.nome.toLowerCase().includes(search.toLowerCase()))
   const myNameDefault = formatName(myProfile.user?.name || myProfile.user?.email || '')
   const myNameDisplay = nickname || myNameDefault
 
@@ -661,7 +774,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
           <span>Conversas</span>
           {unreadTotal > 0 && <span className="ml-1 inline-flex min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] items-center justify-center">{unreadTotal}</span>}
         </button>
-        <button className={`brs-messenger-tab ${activeTab === 3 ? 'is-active' : ''}`} onClick={() => setActiveTab(3)} disabled={!selectedConversation}>
+        <button className={`brs-messenger-tab ${activeTab === 3 ? 'is-active' : ''}`} onClick={() => setActiveTab(3)} disabled={!selectedConversation && !canalFixoAberto}>
           <MessageSquareText size={12} />
           <span>Chat</span>
         </button>
@@ -695,6 +808,13 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                 value={statusMessage}
                 onChange={(e) => setStatusMessage(e.target.value.slice(0, 50))}
                 placeholder="Mensagem de status (max 50)"
+                className="brs-messenger-profile-input mt-2"
+              />
+              <input
+                value={assinatura}
+                onChange={(e) => setAssinatura(e.target.value.slice(0, 60))}
+                placeholder="Ex.: Michael - Suporte"
+                title="Assinatura no WhatsApp"
                 className="brs-messenger-profile-input mt-2"
               />
               <button onClick={saveProfile} className="brs-messenger-primary-button mt-2 w-full py-1">
@@ -750,6 +870,37 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
 
         {activeTab === 2 && (
           <div className="brs-messenger-tab-panel brs-messenger-conversation-panel">
+            {canaisFixosFiltrados.map((canal) => (
+              <div
+                key={canal.id}
+                onDoubleClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  void abrirCanalFixo(canal)
+                }}
+                className={`brs-messenger-conversation ${canalFixoAberto?.id === canal.id ? 'is-active' : ''}`}
+              >
+                <div className="flex items-start gap-2">
+                  <div
+                    className="brs-messenger-avatar"
+                    style={canal.kind === 'self' ? { background: '#f59e0b', color: '#fff' } : undefined}
+                  >
+                    {canal.kind === 'equipe' ? <UsersRound size={16} /> : 'V'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="brs-messenger-conversation-name">{canal.nome}</p>
+                    <p className="brs-messenger-conversation-preview">
+                      {canal.lastMessage
+                        ? canal.lastMessage.text.startsWith(PREFIXO_LEMBRETE)
+                          ? canal.lastMessage.text.slice(PREFIXO_LEMBRETE.length)
+                          : canal.lastMessage.text
+                        : 'Sem mensagens ainda.'}
+                    </p>
+                  </div>
+                  {canal.unreadCount > 0 ? <span className="bg-red-600 text-white text-[10px] rounded-full px-1.5 py-0.5">{canal.unreadCount}</span> : null}
+                </div>
+              </div>
+            ))}
             {filteredConversations.map((conv) => (
               <div
                 key={conv.id}
@@ -807,13 +958,93 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                 </div>
               </div>
             ))}
-            {filteredConversations.length === 0 && <div className="brs-messenger-empty-state">Nenhuma conversa.</div>}
+            {filteredConversations.length === 0 && canaisFixosFiltrados.length === 0 && <div className="brs-messenger-empty-state">Nenhuma conversa.</div>}
           </div>
         )}
 
         {activeTab === 3 && (
           <div className="h-full flex flex-col min-h-0 brs-messenger-chat-shell">
-            {!selectedConversation ? (
+            {canalFixoAberto ? (
+              <>
+                <div className="brs-messenger-chat-head text-sm font-semibold flex items-center gap-2">
+                  {canalFixoAberto.kind === 'equipe' ? <UsersRound size={14} /> : <MessageSquareText size={14} />}
+                  <span className="brs-messenger-chat-head-name">{canalFixoAberto.nome}</span>
+                </div>
+                <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-3 brs-messenger-chat-scroll">
+                  {carregandoFixo ? (
+                    <div className="text-xs text-gray-500">Carregando mensagens...</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {mensagensFixo.map((m) => {
+                        const mine = m.sender.id === myProfile.user?.id
+                        const lembrete = m.text.startsWith(PREFIXO_LEMBRETE)
+                        if (lembrete) {
+                          return (
+                            <div key={m.id} className="flex justify-start">
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  gap: 8,
+                                  alignItems: 'flex-start',
+                                  maxWidth: '86%',
+                                  background: '#fff8dc',
+                                  border: '1px solid #e6d590',
+                                  borderRadius: 8,
+                                  padding: '8px 10px',
+                                }}
+                              >
+                                <span style={{ fontSize: 16, lineHeight: 1 }}>⏰</span>
+                                <div>
+                                  <div style={{ fontSize: 12.5, color: '#5c4a00', whiteSpace: 'pre-wrap' }}>{m.text.slice(PREFIXO_LEMBRETE.length)}</div>
+                                  <Link href="/agenda" style={{ fontSize: 11, fontWeight: 700, color: '#8a6d00', textDecoration: 'underline' }}>
+                                    Abrir agenda
+                                  </Link>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div key={m.id} className={`flex min-w-0 ${mine ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`brs-messenger-message-bubble ${mine ? 'is-mine' : 'is-theirs'}`}>
+                              <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                              {m.attachments.length > 0 && (
+                                <div className="mt-1 space-y-1">
+                                  {m.attachments.map((a, idx) => (
+                                    <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] brs-messenger-attachment-link underline">
+                                      📎 {a.name || 'anexo'}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="brs-messenger-message-meta mt-1 text-gray-500">
+                                {new Date(m.timestamp).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                                {mine && canalFixoAberto.kind === 'equipe' ? <> · {m.sender.full_name || m.sender.email}</> : null}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  )}
+                </div>
+                <div className="border-t p-2 brs-messenger-editor">
+                  <div className="flex gap-2">
+                    <textarea
+                      value={textoFixo}
+                      onChange={(e) => setTextoFixo(e.target.value)}
+                      onKeyDown={onComposerFixoKeyDown}
+                      className="brs-messenger-composer-input"
+                      placeholder={canalFixoAberto.kind === 'self' ? 'Escreva uma nota pra você mesmo...' : 'Digite uma mensagem pra Equipe BRS...'}
+                    />
+                    <button onClick={enviarMensagemFixo} disabled={enviandoFixo || !textoFixo.trim()} className="brs-messenger-primary-button brs-messenger-send-button">
+                      <Send size={14} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : !selectedConversation ? (
               <div className="p-4 text-sm text-gray-500">Abra uma conversa pela aba de Contatos ou Conversas.</div>
             ) : (
               <>
