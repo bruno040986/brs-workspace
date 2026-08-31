@@ -35,6 +35,7 @@ export type RawOfertaRefin = {
   taxa: string | null
   tabelaCodigo: string | null
   instituicaoId: string | null
+  instituicaoNomeWesales: string | null
   /** Nº do contrato refinanciado — parte da identidade (2+ contratos podem ter a mesma tabela/prazo). */
   contrato: string | null
 }
@@ -54,10 +55,9 @@ export type OfertasContato = {
   calculado_em: string
 }
 
-function digitsOuTexto(value: string | null | undefined): string {
-  const texto = String(value || '').trim()
-  const digitos = texto.replace(/\D/g, '')
-  return digitos || texto
+function codigoTabelaChave(value: string | null | undefined): string {
+  const texto = String(value ?? '').trim()
+  return texto.match(/(\d{4,})/)?.[1] ?? texto
 }
 
 /**
@@ -69,7 +69,7 @@ export async function resolverOfertasRefin(admin: AdminClient, ofertas: RawOfert
   if (!ofertas.length) return []
   const instituicaoIds = [...new Set(ofertas.map((s) => s.instituicaoId).filter(Boolean))] as string[]
   if (!convenioId || !instituicaoIds.length) {
-    return ofertas.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
+    return ofertas.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: s.instituicaoNomeWesales ?? null }))
   }
 
   const { data: tabelas, error } = await admin
@@ -80,19 +80,19 @@ export async function resolverOfertasRefin(admin: AdminClient, ofertas: RawOfert
     .is('deleted_at', null)
   if (error) {
     console.error('Erro ao resolver tabelas de REFIN:', error)
-    return ofertas.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: null }))
+    return ofertas.map((s) => ({ ...s, tabelaComissaoId: null, tabelaNome: null, instituicaoNome: s.instituicaoNomeWesales ?? null }))
   }
 
   const porChave = new Map<string, { id: string; nome: string; instituicaoNome: string }>()
   for (const t of (tabelas || []) as any[]) {
     if (!t.codigo_tabela_banco) continue
-    porChave.set(`${t.institution_id}|${digitsOuTexto(t.codigo_tabela_banco)}`, { id: t.id, nome: t.nome, instituicaoNome: t.financial_institutions?.name || '' })
+    porChave.set(`${t.institution_id}|${codigoTabelaChave(t.codigo_tabela_banco)}`, { id: t.id, nome: t.nome, instituicaoNome: t.financial_institutions?.name || '' })
   }
 
   return ofertas.map((s) => {
-    const chave = s.instituicaoId && s.tabelaCodigo ? `${s.instituicaoId}|${digitsOuTexto(s.tabelaCodigo)}` : ''
+    const chave = s.instituicaoId && s.tabelaCodigo ? `${s.instituicaoId}|${codigoTabelaChave(s.tabelaCodigo)}` : ''
     const match = chave ? porChave.get(chave) : null
-    return { ...s, tabelaComissaoId: match?.id ?? null, tabelaNome: match?.nome ?? null, instituicaoNome: match?.instituicaoNome ?? null }
+    return { ...s, tabelaComissaoId: match?.id ?? null, tabelaNome: match?.nome ?? null, instituicaoNome: match?.instituicaoNome ?? s.instituicaoNomeWesales ?? null }
   })
 }
 

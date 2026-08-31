@@ -320,6 +320,7 @@ export async function POST(request: NextRequest) {
           taxa: fCampo('taxa') ? opportunityFieldValue(op, fCampo('taxa')!) : null,
           tabelaCodigo: fCampo('tabelaCodigo') ? opportunityFieldValue(op, fCampo('tabelaCodigo')!) : null,
           instituicaoId: fCampo('instituicaoId') ? opportunityFieldValue(op, fCampo('instituicaoId')!) : null,
+          instituicaoNomeWesales: fCampo('instituicao') ? opportunityFieldValue(op, fCampo('instituicao')!) : null,
           contrato: fCampo('contrato') ? opportunityFieldValue(op, fCampo('contrato')!) : null,
         }))
       const refin = await resolverOfertasRefin(admin, rawOfertasRefin, convenioResolvido)
