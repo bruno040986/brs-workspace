@@ -27,7 +27,8 @@ function isPublicAssetRequest(pathname: string) {
 function isAuthenticatedOpenApi(pathname: string) {
   // Rotas de API liberadas a qualquer usuário autenticado (sem permissão específica).
   // A validação real da sessão é feita no handler via getUser().
-  return pathname.startsWith('/api/comunicados') || pathname.startsWith('/api/cnpjws')
+  // /api/central-conversas valida a permissão `central-conversas` no próprio handler.
+  return pathname.startsWith('/api/comunicados') || pathname.startsWith('/api/cnpjws') || pathname.startsWith('/api/central-conversas')
 }
 
 function forbiddenResponse(request: NextRequest) {
