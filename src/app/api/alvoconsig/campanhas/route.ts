@@ -124,6 +124,21 @@ function digits(value: unknown) {
   return String(value ?? '').replace(/\D/g, '')
 }
 
+/**
+ * dateOfBirth do WeSales: o GET /contacts/:id devolve "AAAA-MM-DD", mas o
+ * /contacts/search devolve EPOCH em milissegundos (ex. 200188800000) —
+ * confirmado no lote de Salto em 31/08/2026. Normaliza os dois formatos.
+ */
+function nascimentoIsoDoWesales(valor: unknown): string | null {
+  if (valor === null || valor === undefined || valor === '') return null
+  if (typeof valor === 'number' || /^-?\d{6,}$/.test(String(valor))) {
+    const d = new Date(Number(valor))
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+  }
+  const texto = String(valor).slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(texto) ? texto : null
+}
+
 function parseMoneyField(value: string | null): number | null {
   if (!value) return null
   const parsed = Number.parseFloat(value)
@@ -322,7 +337,7 @@ export async function POST(request: NextRequest) {
         convenio_id: convenioResolvido,
         matricula: matricula || null,
         // Demografia pros filtros de campanha do parceiro (NULL = não informado).
-        nascimento: String(contato.dateOfBirth || '').slice(0, 10).match(/^\d{4}-\d{2}-\d{2}$/) ? String(contato.dateOfBirth).slice(0, 10) : null,
+        nascimento: nascimentoIsoDoWesales(contato.dateOfBirth),
         sexo: sexoField ? customFieldValue(contato, sexoField.id) || null : null,
         vinculo: vinculoField ? customFieldValue(contato, vinculoField.id) || null : null,
         cidade: String(contato.city || '').trim() || null,
