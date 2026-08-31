@@ -149,8 +149,10 @@ export function useAtendimento() {
   // Realtime: novo evento do engine → refresca lista/thread aberta.
   useEffect(() => {
     const supabase = createClient()
+    // Nome único por montagem: dock e /conversas montam este hook ao mesmo tempo,
+    // e o supabase-js reaproveita canal de mesmo nome (o 2º .on() após subscribe lança).
     const canal = supabase
-      .channel('chat-eventos-atendimento')
+      .channel(`chat-eventos-atendimento-${Math.random().toString(36).slice(2, 10)}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_eventos' }, (payload) => {
         const ev = payload.new as { payload?: { conversation_id?: number } }
         void carregarLista()
