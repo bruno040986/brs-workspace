@@ -33,6 +33,7 @@ export type RawOfertaRefin = {
   parcela: number | null
   prazo: number | null
   taxa: string | null
+  seguroSimNao: string | null
   tabelaCodigo: string | null
   instituicaoId: string | null
   instituicaoNomeWesales: string | null

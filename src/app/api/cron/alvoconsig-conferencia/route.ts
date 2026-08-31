@@ -126,6 +126,7 @@ export async function GET(request: NextRequest) {
           parcela: fCampo('parcela') ? parseMoneyField(opportunityFieldValue(op, fCampo('parcela')!)) : null,
           prazo: fCampo('prazo') ? Number.parseInt(opportunityFieldValue(op, fCampo('prazo')!) || '', 10) || null : null,
           taxa: fCampo('taxa') ? opportunityFieldValue(op, fCampo('taxa')!) : null,
+          seguroSimNao: fCampo('seguroSimNao') ? opportunityFieldValue(op, fCampo('seguroSimNao')!) : null,
           tabelaCodigo: fCampo('tabelaCodigo') ? opportunityFieldValue(op, fCampo('tabelaCodigo')!) : null,
           instituicaoId: fCampo('instituicaoId') ? opportunityFieldValue(op, fCampo('instituicaoId')!) : null,
           instituicaoNomeWesales: fCampo('instituicao') ? opportunityFieldValue(op, fCampo('instituicao')!) : null,
