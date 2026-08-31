@@ -353,6 +353,10 @@ export async function POST(request: NextRequest) {
         expira_em: `${vigenciaFim}T23:59:59-03:00`,
         ofertas,
         estado_local: 'ativo',
+        // Realocação de contato que já passou por campanha encerrada: o
+        // encerramento soft-deleta a linha (deleted_at) — sem limpar aqui, o
+        // contato fica invisível pro CRM inteiro (bug real: df3-3, 31/08).
+        deleted_at: null,
         sincronizado_em: agora,
         updated_at: agora,
       })
