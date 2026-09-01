@@ -18,11 +18,13 @@ type AdminClient = { from: (table: string) => any; rpc: (fn: string, args: Recor
  * como histórico da venda.
  */
 export async function reverterTagsDaCampanha(admin: AdminClient, campanhaId: string, agenteParceiroId: string) {
-  const { data: parceiro } = await admin.from('agentes_parceiros').select('arw_code').eq('id', agenteParceiroId).maybeSingle()
+  const { data: parceiro, error: parceiroError } = await admin.from('agentes_parceiros').select('arw_code').eq('id', agenteParceiroId).maybeSingle()
+  if (parceiroError) return { revertidos: 0, erro: `Falha ao ler o parceiro: ${parceiroError.message}` }
   const arwCode = String(parceiro?.arw_code || '').trim().toLowerCase()
-  if (!arwCode) return { revertidos: 0 }
+  if (!arwCode) return { revertidos: 0, erro: 'Parceiro sem código ARW — não foi possível reverter as tags no WeSales.' }
 
-  const { data: donos } = await admin.from('crm_dono_leads').select('id, wesales_contact_id').eq('campanha_id', campanhaId).is('revogado_em', null)
+  const { data: donos, error: donosError } = await admin.from('crm_dono_leads').select('id, wesales_contact_id').eq('campanha_id', campanhaId).is('revogado_em', null)
+  if (donosError) return { revertidos: 0, erro: `Falha ao listar os leads da campanha: ${donosError.message}` }
   if (!donos?.length) return { revertidos: 0 }
 
   const { data: certificados } = await admin.from('crm_clientes_parceiro').select('wesales_contact_id').eq('campanha_id', campanhaId)
@@ -49,7 +51,7 @@ export async function reverterTagsDaCampanha(admin: AdminClient, campanhaId: str
     .select('id, wesales_contact_id')
   if (reinsertError || !reinseridos) {
     console.error('Falha ao preparar reversão de tags:', reinsertError)
-    return { revertidos: 0 }
+    return { revertidos: 0, erro: `Falha ao preparar a reversão de tags: ${reinsertError?.message || 'erro desconhecido'}` }
   }
 
   const filaOps = reinseridos.flatMap((c: any) => [
@@ -60,7 +62,15 @@ export async function reverterTagsDaCampanha(admin: AdminClient, campanhaId: str
   ])
   for (let i = 0; i < filaOps.length; i += 500) {
     const { error } = await admin.from('crm_wesales_queue').insert(filaOps.slice(i, i + 500))
-    if (error) console.error('Falha ao enfileirar reversão de tags:', error)
+    if (error) {
+      console.error('Falha ao enfileirar reversão de tags:', error)
+      // Batch tudo-ou-nada: se um pedaço falhou, os leads dele NÃO caíram na
+      // fila — não dá pra fingir que "revertidos" inclui esse pedaço.
+      return {
+        revertidos: 0,
+        erro: `Falha ao enfileirar a reversão de tags no WeSales (nenhum lead foi liberado): ${error.message}`,
+      }
+    }
   }
 
   await admin

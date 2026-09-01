@@ -159,8 +159,11 @@ export default function AlocacaoPage() {
     setMessage(null)
     try {
       const res = await encerrarCampanhaAgora(campanha.id)
-      if (res.success) {
-        setMessage({ type: 'success', text: `Alocação encerrada. ${res.expurgados || 0} cópia(s) expurgada(s), ${res.mantidos || 0} mantida(s) (negociação aberta/certificação pendente).` })
+      if (res.success && res.avisoReversao) {
+        setMessage({ type: 'error', text: res.avisoReversao })
+        await loadData()
+      } else if (res.success) {
+        setMessage({ type: 'success', text: `Alocação encerrada. ${res.expurgados || 0} cópia(s) expurgada(s), ${res.mantidos || 0} mantida(s) (negociação aberta/certificação pendente)${res.revertidos ? `, ${res.revertidos} lead(s) liberado(s) no WeSales` : ''}.` })
         await loadData()
       } else {
         setMessage({ type: 'error', text: res.error || 'Erro ao encerrar a alocação.' })

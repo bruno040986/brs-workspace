@@ -265,11 +265,22 @@ export async function encerrarCampanhaAgora(campanhaId: string) {
       return { success: false, error: `Fila com ${payload.pendentes || 0} sincronização(ões) pendente(s) — aguarde a fila esvaziar e tente de novo.` }
     }
 
-    await reverterTagsDaCampanha(supabaseAdmin, campanhaId, campanha.agente_parceiro_id)
+    const reversao = await reverterTagsDaCampanha(supabaseAdmin, campanhaId, campanha.agente_parceiro_id)
     await marcarOfertasPerdidas(supabaseAdmin, campanhaId)
 
     revalidatePath('/alvoconsig/alocacao')
-    return { success: true, expurgados: payload.expurgados || 0, mantidos: payload.mantidos || 0 }
+    if (reversao.erro) {
+      // A campanha encerrou (leads apagados da cópia de trabalho), mas os
+      // leads podem não ter voltado pro pool no WeSales — sem isso, o
+      // parceiro via "0 disponíveis" na próxima alocação sem entender por quê.
+      return {
+        success: true,
+        expurgados: payload.expurgados || 0,
+        mantidos: payload.mantidos || 0,
+        avisoReversao: `Campanha encerrada, mas a liberação dos leads no WeSales falhou: ${reversao.erro} Avise o suporte — os leads podem continuar indisponíveis pra novas campanhas até isso ser corrigido.`,
+      }
+    }
+    return { success: true, expurgados: payload.expurgados || 0, mantidos: payload.mantidos || 0, revertidos: reversao.revertidos }
   } catch (error: any) {
     console.error('Erro ao encerrar campanha:', error)
     return { success: false, error: error.message || 'Erro ao encerrar a campanha.' }
