@@ -14,7 +14,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/server'
 import { higienizarCpf } from './service'
+import { gravarConvenioDoLoteSeVazio, type ConvenioDoLote } from './convenio-lote'
 import type { NvtiBatchRow } from './types'
+
+/** Convênio do lote (uma vez por lote — não por item). null = lote sem convênio (lotes antigos). */
+async function carregarConvenioDoLote(admin: SupabaseClient, convenioId: string | null): Promise<ConvenioDoLote | null> {
+  if (!convenioId) return null
+  const { data } = await admin.from('convenios').select('id, nome, nome_reduzido, codigo_sistema').eq('id', convenioId).maybeSingle()
+  if (!data) return null
+  return { id: String(data.id), nome: String(data.nome || ''), nomeReduzido: data.nome_reduzido ? String(data.nome_reduzido) : null, codigoSistema: data.codigo_sistema ? String(data.codigo_sistema) : null }
+}
 
 const LOCK_SECONDS = 90
 const RENEW_EVERY_ITEMS = 15
@@ -116,6 +125,7 @@ export async function runNvtiWorker(options: { budgetMs?: number; workerId?: str
     if (!batch) break
     summary.batchesTouched += 1
 
+    const convenioDoLote = await carregarConvenioDoLote(admin, batch.convenio_id)
     const counters = await recountBatch(admin, batch.id)
     let sinceFlush = 0
     let sinceRenew = 0
@@ -190,6 +200,7 @@ export async function runNvtiWorker(options: { budgetMs?: number; workerId?: str
         }
 
         if (outcome.status === 'ok') {
+          if (convenioDoLote) await gravarConvenioDoLoteSeVazio(item.cpf, convenioDoLote)
           await admin
             .from('nvti_batch_items')
             .update({ status: 'done', query_id: outcome.queryId || null, processed_at: new Date().toISOString() })

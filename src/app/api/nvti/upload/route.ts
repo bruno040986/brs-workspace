@@ -63,6 +63,15 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'Envie um arquivo CSV, XLSX ou TXT.' }, { status: 400 })
     }
+    // Convênio obrigatório no lote (decisão 02/09/2026): a API da NVTI não
+    // devolve convênio nativamente, e o lead precisa dessa informação pra
+    // ser trabalhável no CRM depois. Vinculado à tabela convenios — nunca
+    // texto livre.
+    const convenioId = String(formData.get('convenio_id') || '').trim()
+    if (!convenioId) return NextResponse.json({ error: 'Selecione o convênio dos leads deste lote.' }, { status: 400 })
+    const admin = await createAdminClient()
+    const { data: convenio } = await admin.from('convenios').select('id').eq('id', convenioId).eq('is_active', true).is('deleted_at', null).maybeSingle()
+    if (!convenio) return NextResponse.json({ error: 'Convênio inválido.' }, { status: 400 })
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: 'Arquivo acima de 20MB.' }, { status: 400 })
     }
@@ -88,7 +97,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const admin = await createAdminClient()
     const { data: batch, error: batchError } = await admin
       .from('nvti_batches')
       .insert({
@@ -96,6 +104,7 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         total: extraction.valid.length,
         created_by: user.id,
+        convenio_id: convenioId,
       })
       .select('id')
       .single()

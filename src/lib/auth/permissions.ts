@@ -151,6 +151,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/financeiro': any([view('financeiro-conta-parceiros')]),
   '/gestao-leads': any([view('alvoconsig-gestao'), view('central-integracoes')]),
   '/ia-workspace': any([view('sistema-config-ia')]),
+  '/api/ia/chat': any([view('workspace-ia')]),
 }
 
 const authenticatedOpenRoutes = new Set([
@@ -217,6 +218,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/financeiro', any([view('financeiro-conta-parceiros')])],
   ['/gestao-leads', any([view('alvoconsig-gestao'), view('central-integracoes')])],
   ['/ia-workspace', any([view('sistema-config-ia')])],
+  ['/api/ia', any([view('workspace-ia')])],
 ]
 
 function normalizePath(pathname: string) {

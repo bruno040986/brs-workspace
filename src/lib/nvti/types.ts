@@ -129,6 +129,7 @@ export type NvtiBatchRow = {
   cached: number
   errors: number
   created_by: string
+  convenio_id: string | null
   last_error: string | null
   finished_at: string | null
   created_at: string
