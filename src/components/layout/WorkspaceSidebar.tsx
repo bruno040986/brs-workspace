@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ChevronRight, Menu, X } from 'lucide-react'
+import { ChevronRight, House, Menu, X } from 'lucide-react'
 import {
   NAV_DIVISOES,
   divisaoDaRota,
@@ -139,7 +139,16 @@ export default function WorkspaceSidebar() {
       </button>
       {mobileOpen && <div className="ws-sidebar-backdrop" onClick={() => setMobileOpen(false)} />}
       <aside className={`workspace-sidebar${mobileOpen ? ' is-mobile-open' : ''}`}>
-        <nav className="ws-sidebar-nav">{visiveis.map(renderDivisao)}</nav>
+        <nav className="ws-sidebar-nav">
+          {/* Home fixo acima das divisões — visível em toda tela (e no trilho) */}
+          <Link href="/" className={`ws-home-link${pathname === '/' ? ' is-active' : ''}`} title="Home">
+            <span className="ws-group-icon">
+              <House size={18} />
+            </span>
+            <span className="ws-group-label">Home</span>
+          </Link>
+          {visiveis.map(renderDivisao)}
+        </nav>
       </aside>
     </>
   )

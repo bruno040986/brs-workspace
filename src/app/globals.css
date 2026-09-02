@@ -3078,3 +3078,14 @@ body.sidebar-recolhida:has(.workspace-body) .sidebar-collapse-btn { left: 52px; 
   padding: 0;
   text-decoration: underline;
 }
+
+/* botão Home fixo da sidebar (acima das divisões) */
+.ws-home-link {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.6rem; border-radius: 9px; margin-bottom: 0.35rem;
+  color: #c7d2e8; text-decoration: none; font-size: 0.83rem; font-weight: 700;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 0.75rem;
+}
+.ws-home-link:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+.ws-home-link.is-active { color: var(--brs-gold-light, #e8c96a); }
+body.sidebar-recolhida .workspace-sidebar .ws-home-link { justify-content: center; padding: 0.62rem 0 0.75rem; }

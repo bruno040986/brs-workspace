@@ -63,7 +63,8 @@ export type AgendaListParams = {
   // Para kind 'agenda' (grade dia/semana/mês):
   rangeStart?: string
   rangeEnd?: string
-  // Filtra pela agenda de uma pessoa específica (criador ou envolvida).
+  // Filtra pela agenda de uma pessoa específica (criador ou envolvida);
+  // 'todos' = agenda geral da equipe, sem filtro de pessoa.
   personId?: string
 }
 
@@ -161,9 +162,13 @@ export async function listAgendaItems(params: AgendaListParams): Promise<AgendaI
     const isMine = String(row.created_by) === user.id || involvedIds.has(user.id)
 
     if (params.kind === 'agenda') {
-      const personId = params.personId || user.id
-      const isOfPerson = String(row.created_by) === personId || involvedIds.has(personId)
-      if (!isOfPerson) continue
+      // 'todos' = visão geral da equipe (home): sem filtro de pessoa; a
+      // privacidade continua valendo (item privado chega mascarado abaixo).
+      if (params.personId !== 'todos') {
+        const personId = params.personId || user.id
+        const isOfPerson = String(row.created_by) === personId || involvedIds.has(personId)
+        if (!isOfPerson) continue
+      }
     } else if (params.scope === 'minhas' && !isMine) {
       continue
     }

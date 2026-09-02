@@ -14,13 +14,16 @@ import { getMyHubContext } from '@/lib/auth/actions'
 import HubBannerCarousel from './_components/HubBannerCarousel'
 import WeatherPill from './_components/WeatherPill'
 import PraiseBoard from './_components/PraiseBoard'
-import { AgendaComponent } from './theme/AgendaComponent'
+import AgendaClient from './agenda/_components/AgendaClient'
+import { getAgendaBootstrap, type AgendaBootstrap } from './agenda/actions'
 
 export default function HubPage() {
   const [userName, setUserName] = useState<string>('')
   const [greeting, setGreeting] = useState<string>('Bom dia')
   const [formattedDate, setFormattedDate] = useState<string>('')
   const [praiseParams, setPraiseParams] = useState<{ tab?: 'feed' | 'send' | 'received'; id?: string } | null>(null)
+  const [agendaBootstrap, setAgendaBootstrap] = useState<AgendaBootstrap | null>(null)
+  const [agendaIndisponivel, setAgendaIndisponivel] = useState(false)
 
   useEffect(() => {
     const hour = new Date().getHours()
@@ -51,6 +54,11 @@ export default function HubPage() {
         if (ctx.success) setUserName(ctx.userName || '')
       })
       .catch(() => {})
+
+    // Painel de Agenda & Tarefas = o módulo /agenda embutido (variante home).
+    getAgendaBootstrap()
+      .then(setAgendaBootstrap)
+      .catch(() => setAgendaIndisponivel(true))
   }, [])
 
   return (
@@ -77,7 +85,15 @@ export default function HubPage() {
         )}
 
         <div className="hub-agenda-panel">
-          <AgendaComponent />
+          {agendaBootstrap ? (
+            <AgendaClient bootstrap={agendaBootstrap} variant="home" />
+          ) : agendaIndisponivel ? (
+            <p style={{ color: 'var(--brs-gray-400)', textAlign: 'center', padding: '2rem 0' }}>
+              Agenda indisponível para o seu perfil (permissão workspace-agenda).
+            </p>
+          ) : (
+            <p style={{ color: 'var(--brs-gray-400)', textAlign: 'center', padding: '2rem 0' }}>Carregando agenda…</p>
+          )}
         </div>
       </div>
     </div>

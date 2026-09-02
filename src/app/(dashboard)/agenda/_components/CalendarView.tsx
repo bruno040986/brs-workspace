@@ -9,6 +9,8 @@ type CalendarViewProps = {
   bootstrap: AgendaBootstrap
   onOpenItem: (item: AgendaItem) => void
   reloadKey: number
+  /** pessoa inicial: um user id ou 'todos' (agenda geral da equipe) */
+  defaultPerson?: string
 }
 
 type ViewMode = 'mes' | 'semana' | 'dia'
@@ -49,10 +51,11 @@ function monthLabel(date: Date) {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
-export default function CalendarView({ bootstrap, onOpenItem, reloadKey }: CalendarViewProps) {
+export default function CalendarView({ bootstrap, onOpenItem, reloadKey, defaultPerson }: CalendarViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('semana')
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
-  const [personId, setPersonId] = useState(bootstrap.currentUserId)
+  const [personId, setPersonId] = useState(defaultPerson || bootstrap.currentUserId)
+  const visaoGeral = personId === 'todos'
   const [items, setItems] = useState<AgendaItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -126,6 +129,11 @@ export default function CalendarView({ bootstrap, onOpenItem, reloadKey }: Calen
     const time = item.start_at
       ? new Date(item.start_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       : ''
+    // Na visão "Toda a equipe" cada card identifica o dono: foto miniatura +
+    // primeiro nome (primeiro envolvido; sem envolvido, quem criou).
+    const dono = item.participants.find((p) => p.role === 'envolvido')
+    const donoNome = (dono?.name || item.created_by_name || '').split(' ')[0]
+    const donoAvatar = dono?.avatar_url || null
     return (
       <button
         type="button"
@@ -152,6 +160,19 @@ export default function CalendarView({ bootstrap, onOpenItem, reloadKey }: Calen
           whiteSpace: 'nowrap',
         }}
       >
+        {visaoGeral && donoNome && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginRight: 4, verticalAlign: '-2px' }}>
+            <span style={{ width: 14, height: 14, borderRadius: '50%', overflow: 'hidden', background: 'var(--brs-navy)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, flexShrink: 0 }}>
+              {donoAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={donoAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                donoNome.charAt(0).toUpperCase()
+              )}
+            </span>
+            <span style={{ fontWeight: 800, opacity: 0.75 }}>{donoNome}</span>
+          </span>
+        )}
         {item.masked && <Lock size={9} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 3 }} />}
         {showTime && time ? `${time} ` : ''}
         {item.title}
@@ -347,6 +368,7 @@ export default function CalendarView({ bootstrap, onOpenItem, reloadKey }: Calen
             onChange={(e) => setPersonId(e.target.value)}
             style={{ width: 'auto', fontSize: '0.82rem' }}
           >
+            <option value="todos">Toda a equipe</option>
             <option value={bootstrap.currentUserId}>Minha agenda</option>
             {bootstrap.users
               .filter((u) => u.id !== bootstrap.currentUserId)

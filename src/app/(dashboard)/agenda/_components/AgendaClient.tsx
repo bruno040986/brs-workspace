@@ -18,7 +18,23 @@ import ReportView from './ReportView'
 
 type AgendaClientProps = {
   bootstrap: AgendaBootstrap
+  /**
+   * 'home' = painel da home (layout 02/09/2026): as 4 abas viram estado
+   * interno (Minha Agenda / Agenda da Equipe / Minhas Tarefas / Tarefas da
+   * Equipe) e tudo opera na própria tela — mesmo calendário dia/semana/mês,
+   * mesmo kanban e o MESMO ItemEditorModal do painel completo.
+   */
+  variant?: 'pagina' | 'home'
 }
+
+type HomeTab = 'minha-agenda' | 'agenda-equipe' | 'tarefas' | 'tarefas-equipe'
+
+const HOME_TABS: Array<{ id: HomeTab; label: string }> = [
+  { id: 'minha-agenda', label: 'Minha Agenda' },
+  { id: 'agenda-equipe', label: 'Agenda da Equipe' },
+  { id: 'tarefas', label: 'Minhas Tarefas' },
+  { id: 'tarefas-equipe', label: 'Tarefas da Equipe' },
+]
 
 function priorityMeta(priority: string) {
   return AGENDA_PRIORITIES.find((p) => p.value === priority) || AGENDA_PRIORITIES[1]
@@ -101,18 +117,23 @@ function AvatarStack({ item }: { item: AgendaItem }) {
   )
 }
 
-export default function AgendaClient({ bootstrap }: AgendaClientProps) {
+export default function AgendaClient({ bootstrap, variant = 'pagina' }: AgendaClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [homeTab, setHomeTab] = useState<HomeTab>('minha-agenda')
   const viewParam = searchParams.get('view')
   const view =
-    viewParam === 'compromissos'
-      ? 'compromissos'
-      : viewParam === 'agenda'
+    variant === 'home'
+      ? homeTab === 'minha-agenda' || homeTab === 'agenda-equipe'
         ? 'agenda'
-        : viewParam === 'relatorio'
-          ? 'relatorio'
-          : 'tarefas'
+        : 'tarefas'
+      : viewParam === 'compromissos'
+        ? 'compromissos'
+        : viewParam === 'agenda'
+          ? 'agenda'
+          : viewParam === 'relatorio'
+            ? 'relatorio'
+            : 'tarefas'
   const openItemId = searchParams.get('item')
 
   const [items, setItems] = useState<AgendaItem[]>([])
@@ -126,6 +147,8 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
   const draggedIdRef = useRef<string | null>(null)
   const openedFromUrlRef = useRef(false)
 
+  const scopeEfetivo = variant === 'home' ? (homeTab === 'tarefas-equipe' ? 'todas' : 'minhas') : scope
+
   const reload = useCallback(async () => {
     if (view === 'agenda' || view === 'relatorio') {
       setReloadKey((key) => key + 1)
@@ -133,12 +156,12 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
     }
     setLoading(true)
     try {
-      const data = await listAgendaItems({ kind: view, scope })
+      const data = await listAgendaItems({ kind: view, scope: scopeEfetivo })
       setItems(data)
     } finally {
       setLoading(false)
     }
-  }, [view, scope])
+  }, [view, scopeEfetivo])
 
   useEffect(() => {
     reload()
@@ -171,7 +194,7 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
   function closeEditor() {
     setEditorOpen(false)
     setEditingItem(null)
-    if (openItemId) router.replace(view === 'tarefas' ? '/agenda' : `/agenda?view=${view}`)
+    if (openItemId) router.replace(variant === 'home' ? '/' : view === 'tarefas' ? '/agenda' : `/agenda?view=${view}`)
   }
 
   async function handleDrop(status: AgendaTaskStatus) {
@@ -278,9 +301,39 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
+      {variant === 'home' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', borderBottom: '1px solid var(--brs-gray-100)', paddingBottom: '0.15rem' }}>
+          {HOME_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setHomeTab(tab.id)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                padding: '0.5rem 0.85rem',
+                fontSize: '0.86rem',
+                fontWeight: 700,
+                color: homeTab === tab.id ? 'var(--brs-navy-light)' : 'var(--brs-gray-600)',
+                borderBottom: homeTab === tab.id ? '2px solid var(--brs-navy-light)' : '2px solid transparent',
+                marginBottom: -2,
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+          <a
+            href="/agenda"
+            style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 700, color: 'var(--brs-navy-light)', textDecoration: 'none', padding: '0.4rem 0.6rem' }}
+          >
+            Painel completo →
+          </a>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {(view === 'tarefas' || view === 'compromissos') && (
+          {variant === 'pagina' && (view === 'tarefas' || view === 'compromissos') && (
           <div style={{ display: 'flex', border: '1px solid var(--brs-gray-200)', borderRadius: 999, overflow: 'hidden' }}>
             {(['minhas', 'todas'] as const).map((value) => (
               <button
@@ -340,12 +393,19 @@ export default function AgendaClient({ bootstrap }: AgendaClientProps) {
             <Plus size={16} /> {view === 'tarefas' ? 'Nova tarefa' : 'Novo compromisso'}
           </button>
         )}
+        {variant === 'home' && !bootstrap.canInclude && <span />}
       </div>
 
       {view === 'relatorio' ? (
         <ReportView reloadKey={reloadKey} />
       ) : view === 'agenda' ? (
-        <CalendarView bootstrap={bootstrap} onOpenItem={openEditor} reloadKey={reloadKey} />
+        <CalendarView
+          key={variant === 'home' ? homeTab : 'pagina'}
+          bootstrap={bootstrap}
+          onOpenItem={openEditor}
+          reloadKey={reloadKey}
+          defaultPerson={variant === 'home' && homeTab === 'agenda-equipe' ? 'todos' : undefined}
+        />
       ) : loading ? (
         <div style={{ color: 'var(--brs-gray-400)', padding: '2rem 0', textAlign: 'center' }}>Carregando…</div>
       ) : view === 'compromissos' ? (
