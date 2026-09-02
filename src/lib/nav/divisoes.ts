@@ -17,7 +17,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { EffectivePermission, PermissionRequirement } from '@/lib/auth/permissions'
-import { hasAnyPermission } from '@/lib/auth/permissions'
+import { hasAnyPermission, systemConfigRouteOptions } from '@/lib/auth/permissions'
 
 export type NavSubItem = {
   label: string
@@ -84,24 +84,18 @@ export const NAV_DIVISOES: NavDivisao[] = [
       {
         label: 'Agente Corban',
         href: '/agente-corban',
-        perms: [view('agente-corban')],
+        perms: [view('agente-corban'), view('scp-crm')],
         children: [
           { label: 'Cadastros Recebidos', href: '/agente-corban/cadastros-recebidos', perms: [view('agente-corban-cadastros-recebidos')] },
           { label: 'Nível de Acesso', href: '/agente-corban/niveis-acesso', perms: [view('agente-corban-niveis-acesso')] },
           { label: 'Tipo de Agente', href: '/agente-corban/tipos-agente', perms: [view('agente-corban-tipos-agente')] },
           { label: 'Regra de Físico', href: '/agente-corban/regras-fisico', perms: [view('agente-corban-regras-fisico')] },
-        ],
-      },
-      {
-        label: 'SCP (legado)',
-        href: '/rh/parceiros',
-        perms: [view('scp-crm')],
-        children: [
-          { label: 'Construtor de Processo', href: '/rh/parceiros/config/processos', perms: [view('scp-processos')] },
-          { label: 'Construtor de Formulário', href: '/rh/parceiros/config/formularios', perms: [view('scp-construtor')] },
-          { label: 'Modelos de Documentos', href: '/rh/parceiros/config/documentos', perms: [view('scp-documentos')] },
-          { label: 'Modelos de E-mails', href: '/rh/parceiros/config/emails', perms: [view('scp-emails')] },
-          { label: 'Modelos de WhatsApp', href: '/rh/parceiros/config/whatsapp', perms: [view('scp-whatsapp')] },
+          { label: 'SCP (legado)', href: '/rh/parceiros', perms: [view('scp-crm')] },
+          { label: 'SCP · Construtor de Processo', href: '/rh/parceiros/config/processos', perms: [view('scp-processos')] },
+          { label: 'SCP · Construtor de Formulário', href: '/rh/parceiros/config/formularios', perms: [view('scp-construtor')] },
+          { label: 'SCP · Modelos de Documentos', href: '/rh/parceiros/config/documentos', perms: [view('scp-documentos')] },
+          { label: 'SCP · Modelos de E-mails', href: '/rh/parceiros/config/emails', perms: [view('scp-emails')] },
+          { label: 'SCP · Modelos de WhatsApp', href: '/rh/parceiros/config/whatsapp', perms: [view('scp-whatsapp')] },
         ],
       },
       { label: 'Instituições Financeiras', href: '/instituicoes-financeiras', perms: [view('sistema-config-instituicoes')] },
@@ -109,7 +103,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
       { label: 'Promotoras', href: '/promotoras', perms: [view('promotoras')] },
       { label: 'Averbadoras', href: '#averbadoras', soon: true, perms: [view('sistema-config-instituicoes')] },
       {
-        label: 'Cadastros Comerciais',
+        label: 'Comerciais',
         href: '/rh/parceiros/config/comercial',
         perms: [view('comercial-agentes'), view('comercial-estrutura')],
         children: [
@@ -127,15 +121,6 @@ export const NAV_DIVISOES: NavDivisao[] = [
     itens: [
       { label: 'Higienização de CPF', href: '/higienizacao-nvti', perms: [view('operacional-nvti')] },
       { label: 'Coeficientes Financeiros', href: '/coeficientes', perms: [view('sistema-config-credito')] },
-      {
-        label: 'Disparo de WhatsApp',
-        href: '/disparo-whatsapp',
-        perms: [view('comercial-disparo-whatsapp')],
-        children: [
-          { label: 'Nova Campanha', href: '/disparo-whatsapp/nova' },
-          { label: 'Opt-outs', href: '/disparo-whatsapp/optouts' },
-        ],
-      },
       {
         label: 'Comissionamento',
         href: '/comissionamento',
@@ -179,7 +164,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
     icon: Cpu,
     itens: [
       {
-        label: 'Central de Integrações',
+        label: 'Integrações',
         href: '/central-integracoes',
         perms: [view('central-integracoes')],
         children: [
@@ -196,19 +181,58 @@ export const NAV_DIVISOES: NavDivisao[] = [
     icon: Settings2,
     itens: [
       {
-        label: 'Central de Atendimento',
+        label: 'Comunicação',
         href: '/central-conversas',
-        perms: [view('central-conversas')],
+        perms: [view('central-conversas'), view('comercial-disparo-whatsapp'), view('sistema-comunicados')],
         children: [
-          { label: 'Canais', href: '/central-conversas/canais' },
-          { label: 'Grupos Internos', href: '/central-conversas/grupos' },
+          { label: 'Canais', href: '/central-conversas/canais', perms: [view('central-conversas')] },
+          { label: 'Grupos Internos', href: '/central-conversas/grupos', perms: [view('central-conversas')] },
           { label: 'Atendimento (tela cheia)', href: '/conversas', perms: [view('conversas')] },
+          { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp', perms: [view('comercial-disparo-whatsapp')] },
+          { label: 'Disparo · Nova Campanha', href: '/disparo-whatsapp/nova', perms: [view('comercial-disparo-whatsapp')] },
+          { label: 'Disparo · Opt-outs', href: '/disparo-whatsapp/optouts', perms: [view('comercial-disparo-whatsapp')] },
           { label: 'Comunicados', href: '/comunicados', perms: [view('sistema-comunicados')] },
           { label: 'Banners da Home', href: '/rh/parceiros/config/provedores/banners', perms: [view('sistema-config-banners')] },
         ],
       },
-      { label: 'Usuários e Permissões', href: '/usuarios', perms: [view('sistema-usuarios-cadastro'), view('sistema-usuarios-root')] },
-      { label: 'Provedores e APIs', href: '/rh/parceiros/config/provedores/empresas', perms: [view('sistema-config-empresa')] },
+      {
+        label: 'Usuários e Permissões',
+        href: '/usuarios',
+        perms: [view('sistema-usuarios-cadastro'), view('sistema-usuarios-root'), view('sistema-usuarios-perfis')],
+        children: [
+          { label: 'Usuários', href: '/usuarios' },
+          { label: 'Perfis de Acesso', href: '/usuarios?tab=perfis', perms: [view('sistema-usuarios-perfis'), view('sistema-usuarios-root')] },
+        ],
+      },
+      {
+        // Antigo subsistema "Configurações": o menu completo dos provedores.
+        label: 'Provedores e APIs',
+        href: '/rh/parceiros/config/provedores/empresas',
+        perms: [...systemConfigRouteOptions],
+        children: [
+          { label: 'Cadastro da Empresa', href: '/rh/parceiros/config/provedores/empresas', perms: [view('sistema-config-empresa')] },
+          { label: 'Tipos de Comercial', href: '/rh/parceiros/config/provedores/tipos-comercial', perms: [view('sistema-config-comercial-tipos')] },
+          { label: 'Setores', href: '/rh/parceiros/config/provedores/setores', perms: [view('sistema-config-setores')] },
+          { label: 'Banners da Home', href: '/rh/parceiros/config/provedores/banners', perms: [view('sistema-config-banners')] },
+          { label: 'Forma de Recebimento', href: '/rh/parceiros/config/provedores/formas-recebimento', perms: [view('sistema-config-formas-recebimento')] },
+          { label: 'Tipos de Sistemas', href: '/rh/parceiros/config/provedores/tipos-sistemas', perms: [view('sistema-config-tipos-sistemas')] },
+          { label: 'Tipos de Remuneração', href: '/rh/parceiros/config/provedores/tipos-remuneracao', perms: [view('sistema-config-tipos-remuneracao')] },
+          { label: 'API E-mail', href: '/rh/parceiros/config/provedores/email', perms: [view('sistema-config-email')] },
+          { label: 'API WhatsApp', href: '/rh/parceiros/config/provedores/whatsapp', perms: [view('sistema-config-whatsapp')] },
+          { label: 'API Assinatura Eletrônica', href: '/rh/parceiros/config/provedores/assinatura', perms: [view('sistema-config-assinatura')] },
+          { label: 'Google', href: '/rh/parceiros/config/provedores/google', perms: [view('sistema-config-google')] },
+          { label: 'API CPF', href: '/rh/parceiros/config/provedores/cpf', perms: [view('sistema-config-cpf')] },
+          { label: 'API Nova Vida TI', href: '/rh/parceiros/config/provedores/nvti', perms: [view('sistema-config-nvti')] },
+          { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', perms: [view('sistema-config-gateways')] },
+          { label: 'CNAE', href: '/rh/parceiros/config/provedores/cnae', perms: [view('sistema-config-cnae')] },
+          { label: 'CTN', href: '/rh/parceiros/config/provedores/ctn', perms: [view('sistema-config-ctn')] },
+          { label: 'NBS', href: '/rh/parceiros/config/provedores/nbs', perms: [view('sistema-config-nbs')] },
+          { label: 'Tipo de Emissão de NFSe', href: '/rh/parceiros/config/provedores/tipos-emissao-nfse', perms: [view('sistema-config-nfse-emissao')] },
+          { label: 'Regimes Tributários', href: '/rh/parceiros/config/provedores/regimes-tributarios' },
+          { label: 'Recálculo Tributário', href: '/rh/parceiros/config/provedores/recalculo-tributario' },
+        ],
+      },
+      { label: 'Links', href: '/links', perms: [view('sistema-links')] },
       { label: 'IA do Workspace', href: '/ia-workspace', perms: [view('sistema-config-ia')] },
     ],
   },

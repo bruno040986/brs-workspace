@@ -111,11 +111,18 @@ const SYSTEM_MODULES = [
 
 export default function UsuariosPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'profiles'>('users')
+  // Filtro de status: padrão só ATIVOS (decisão 02/09/2026)
+  const [statusFilter, setStatusFilter] = useState<'ativos' | 'inativos' | 'todos'>('ativos')
   const [users, setUsers] = useState<UserProfile[]>([])
   const [profiles, setProfiles] = useState<any[]>([])
   const [commercialEntities, setCommercialEntities] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    if (tab === 'perfis') setActiveTab('profiles')
+  }, [])
 
   const formatCPF = (value: string) => {
     const digits = value.replace(/\D/g, '')
@@ -452,6 +459,19 @@ export default function UsuariosPage() {
         >
           <ShieldCheck size={18} /> Perfis de Acesso
         </button>
+        {activeTab === 'users' && (
+          <select
+            className="form-control"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'ativos' | 'inativos' | 'todos')}
+            style={{ marginLeft: 'auto', width: 'auto', minWidth: 160 }}
+            title="Filtrar por status"
+          >
+            <option value="ativos">Somente ativos</option>
+            <option value="inativos">Somente inativos</option>
+            <option value="todos">Ativos e inativos</option>
+          </select>
+        )}
       </div>
 
       {activeTab === 'users' ? (
@@ -470,10 +490,12 @@ export default function UsuariosPage() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" /></td></tr>
-                ) : users.length === 0 ? (
+                ) : users.filter((u: any) => statusFilter === 'todos' || (statusFilter === 'ativos' ? u.active !== false : u.active === false)).length === 0 ? (
                   <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--brs-gray-400)' }}>Nenhum usuário encontrado</td></tr>
                 ) : (
-                  users.map((user: any) => (
+                  users
+                    .filter((u: any) => statusFilter === 'todos' || (statusFilter === 'ativos' ? u.active !== false : u.active === false))
+                    .map((user: any) => (
                     <tr key={user.id}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

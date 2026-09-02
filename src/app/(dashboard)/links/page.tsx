@@ -15,6 +15,7 @@ const SECTORS = [
   { id: 'mkt', name: 'Marketing' },
   { id: 'com', name: 'Comercial' },
   { id: 'acc', name: 'Acessos' },
+  { id: 'tec', name: 'Tecnologia' },
 ]
 
 export default function LinksPage() {

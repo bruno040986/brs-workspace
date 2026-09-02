@@ -31,25 +31,52 @@ function iconeDoCodigo(code: number): { icone: string; rotulo: string } {
 
 type Clima = { temperatura: number; icone: string; rotulo: string; cidade: string }
 
+/**
+ * Nome da cidade via reverse-geocode do BigDataCloud (gratuito, sem chave,
+ * feito para chamada direta do navegador). Roda em paralelo com o clima e
+ * DEPOIS da pintura — não adiciona nada ao carregamento da home; se falhar,
+ * fica o rótulo genérico.
+ */
+async function nomeDaCidade(lat: number, lon: number): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=pt`,
+      { cache: 'force-cache' },
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    const cidade = String(data?.city || data?.locality || '').trim()
+    const uf = String(data?.principalSubdivisionCode || '').split('-')[1] || ''
+    if (!cidade) return null
+    return uf ? `${cidade}/${uf}` : cidade
+  } catch {
+    return null
+  }
+}
+
 export default function WeatherPill() {
   const [clima, setClima] = useState<Clima | null>(null)
 
   useEffect(() => {
     let cancelado = false
 
-    async function buscar(lat: number, lon: number, cidade: string) {
+    async function buscar(lat: number, lon: number, cidadePadrao: string) {
       try {
-        const res = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`,
-          { cache: 'no-store' },
-        )
+        // clima e nome da cidade em paralelo — o nome real substitui o rótulo
+        const [res, cidadeReal] = await Promise.all([
+          fetch(
+            `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`,
+            { cache: 'no-store' },
+          ),
+          nomeDaCidade(lat, lon),
+        ])
         if (!res.ok) return
         const data = await res.json()
         const temperatura = Math.round(Number(data?.current?.temperature_2m))
         const code = Number(data?.current?.weather_code)
         if (!Number.isFinite(temperatura)) return
         const { icone, rotulo } = iconeDoCodigo(Number.isFinite(code) ? code : -1)
-        if (!cancelado) setClima({ temperatura, icone, rotulo, cidade })
+        if (!cancelado) setClima({ temperatura, icone, rotulo, cidade: cidadeReal || cidadePadrao })
       } catch {
         // sem clima, sem drama
       }
@@ -60,7 +87,7 @@ export default function WeatherPill() {
     const iniciar = () => {
       if (typeof navigator !== 'undefined' && navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-          (pos) => buscar(pos.coords.latitude, pos.coords.longitude, 'sua região'),
+          (pos) => buscar(pos.coords.latitude, pos.coords.longitude, 'sua região'),  // nomeDaCidade troca o rótulo
           () => buscar(FALLBACK.lat, FALLBACK.lon, FALLBACK.cidade),
           { timeout: 4000, maximumAge: 30 * 60 * 1000 },
         )

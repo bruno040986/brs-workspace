@@ -61,8 +61,8 @@ export async function getPraiseFeed(params?: { limit?: number }) {
           created_at,
           to_all,
           status,
-          from_user:from_user_id ( id, name, avatar_url ),
-          to_user:to_user_id ( id, name, avatar_url )
+          from_user:from_user_id ( id, name, avatar_url, active ),
+          to_user:to_user_id ( id, name, avatar_url, active )
         `,
       )
       .eq('status', 'accepted')
@@ -71,7 +71,14 @@ export async function getPraiseFeed(params?: { limit?: number }) {
 
     if (error) throw error
 
-    const items = (messages || []) as any[]
+    // Usuário inativo some do mural: elogios enviados por ele ou dirigidos a
+    // ele não aparecem; os "para todos" ficam, desde que o remetente esteja
+    // ativo (decisão 02/09/2026).
+    const items = ((messages || []) as any[]).filter((m) => {
+      if (m.from_user && m.from_user.active === false) return false
+      if (!m.to_all && m.to_user && m.to_user.active === false) return false
+      return true
+    })
     const praiseIds = items.map((m) => String(m.id)).filter(Boolean)
 
     const reactionsByPraise = new Map<string, Array<{ emoji: string; user_id: string }>>()

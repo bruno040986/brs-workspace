@@ -29,6 +29,7 @@ export async function getMyHubContext() {
       supabase
         .from('users')
         .select('name, birth_date, avatar_url')
+        .eq('active', true)
         .not('birth_date', 'is', null),
     ])
 

@@ -21,6 +21,7 @@ export async function GET() {
       .from('users')
       .select('id, email, name')
       .neq('id', user.id)
+      .eq('active', true)
       .order('name', { ascending: true })
 
     if (error) throw error
