@@ -8,6 +8,7 @@ import { MessengerDockShell } from '@/components/layout/MessengerDockShell'
 import type { UserProfile } from '@/types'
 import ThemeInit from '@/components/theme/ThemeInit'
 import SidebarCollapseToggle from '@/components/layout/SidebarCollapseToggle'
+import WorkspaceSidebar from '@/components/layout/WorkspaceSidebar'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,7 +54,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <MessengerNotificationBridge />
         <MessengerDockShell />
         <SidebarCollapseToggle />
-        <main className="main-content">{children}</main>
+        <div className="workspace-body">
+          <WorkspaceSidebar />
+          <main className="main-content">{children}</main>
+        </div>
       </div>
     </MessengerDockProvider>
   )

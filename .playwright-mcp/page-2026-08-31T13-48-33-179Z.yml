@@ -1,0 +1,64 @@
+- generic [ref=f483e1]:
+  - generic [ref=f483e2]:
+    - banner [ref=f483e3]:
+      - link [ref=f483e5] [cursor=pointer]:
+        - /url: /
+        - img "BRS Workspace" [ref=f483e6]
+      - generic "Em breve a BIA vai estar aqui para te ajudar..." [ref=f483e8]:
+        - img "BIA" [ref=f483e9]
+      - generic [ref=f483e12]:
+        - button "6" [ref=f483e81] [cursor=pointer]
+        - button [ref=f483e19] [cursor=pointer]
+        - button [ref=f483e23] [cursor=pointer]:
+          - img "Bruno Rodrigues da Silva" [ref=f483e25]
+    - complementary "BRS Messenger":
+      - generic [ref=f483e83]:
+        - button "Recolher BRS Messenger" [ref=f483e84] [cursor=pointer]
+        - generic [ref=f483e218]:
+          - generic [ref=f483e219]:
+            - button "Interno" [ref=f483e220] [cursor=pointer]
+            - button "Atendimento" [ref=f483e224] [cursor=pointer]
+          - text: ▼ ▼
+          - generic [ref=f483e293]:
+            - generic [ref=f483e295]:
+              - generic [ref=f483e296]:
+                - textbox "Pesquisar por nome ou número…" [ref=f483e301]
+                - generic [ref=f483e302]:
+                  - button "Meus" [ref=f483e303] [cursor=pointer]
+                  - button "Fila 2" [ref=f483e306] [cursor=pointer]:
+                    - text: Fila
+                    - generic [ref=f483e310]: "2"
+                  - button "Geral" [ref=f483e311] [cursor=pointer]
+                - generic [ref=f483e317]:
+                  - button "Todos" [ref=f483e318] [cursor=pointer]
+                  - button "(61) 3199-1641" [ref=f483e319] [cursor=pointer]
+              - generic [ref=f483e320]: Não existem conversas abertas
+              - generic [ref=f483e322]:
+                - button "Nova conversa" [ref=f483e323] [cursor=pointer]
+                - button "Criar grupo" [disabled] [ref=f483e325]
+            - link "Abrir em tela cheia" [active] [ref=f483e330] [cursor=pointer]:
+              - /url: /conversas
+    - main [ref=f483e30]:
+      - generic [ref=f483e336]:
+        - generic [ref=f483e338]:
+          - heading "Central de Conversas" [level=1] [ref=f483e339]
+          - paragraph [ref=f483e340]: WhatsApp, oficial, site e demais canais da BRS, num lugar só.
+        - generic [ref=f483e342]:
+          - generic [ref=f483e344]:
+            - generic [ref=f483e345]:
+              - textbox "Pesquisar por nome ou número…" [ref=f483e350]
+              - generic [ref=f483e351]:
+                - button "Meus" [ref=f483e352] [cursor=pointer]
+                - button "Fila 2" [ref=f483e355] [cursor=pointer]:
+                  - text: Fila
+                  - generic [ref=f483e359]: "2"
+                - button "Geral" [ref=f483e360] [cursor=pointer]
+              - generic [ref=f483e366]:
+                - button "Todos" [ref=f483e367] [cursor=pointer]
+                - button "(61) 3199-1641" [ref=f483e368] [cursor=pointer]
+            - generic [ref=f483e369]: Não existem conversas abertas
+            - generic [ref=f483e371]:
+              - button "Nova conversa" [ref=f483e372] [cursor=pointer]
+              - button "Criar grupo" [disabled] [ref=f483e374]
+          - generic [ref=f483e379]: Selecione uma conversa
+  - alert [ref=f483e80]

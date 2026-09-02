@@ -1,0 +1,272 @@
+- generic [ref=f483e1]:
+  - generic [ref=f483e2]:
+    - banner [ref=f483e3]:
+      - link [ref=f483e5] [cursor=pointer]:
+        - /url: /
+        - img "BRS Workspace" [ref=f483e6]
+      - generic "Em breve a BIA vai estar aqui para te ajudar..." [ref=f483e8]:
+        - img "BIA" [ref=f483e9]
+      - generic [ref=f483e12]:
+        - button "6" [ref=f483e81] [cursor=pointer]
+        - button [ref=f483e19] [cursor=pointer]
+        - button [ref=f483e23] [cursor=pointer]:
+          - img "Bruno Rodrigues da Silva" [ref=f483e25]
+    - complementary "BRS Messenger":
+      - generic [ref=f483e83]:
+        - button "Recolher BRS Messenger" [ref=f483e84] [cursor=pointer]
+        - generic [ref=f483e218]:
+          - generic [ref=f483e219]:
+            - button "Interno" [ref=f483e220] [cursor=pointer]
+            - button "Atendimento" [active] [ref=f483e224] [cursor=pointer]
+          - text: ▼ ▼
+          - generic [ref=f483e293]:
+            - generic [ref=f483e295]:
+              - generic [ref=f483e296]:
+                - textbox "Pesquisar por nome ou número…" [ref=f483e301]
+                - generic [ref=f483e302]:
+                  - button "Meus" [ref=f483e303] [cursor=pointer]
+                  - button "Fila 2" [ref=f483e306] [cursor=pointer]:
+                    - text: Fila
+                    - generic [ref=f483e310]: "2"
+                  - button "Geral" [ref=f483e311] [cursor=pointer]
+                - generic [ref=f483e317]:
+                  - button "Todos" [ref=f483e318] [cursor=pointer]
+                  - button "(61) 3199-1641" [ref=f483e319] [cursor=pointer]
+              - generic [ref=f483e320]: Não existem conversas abertas
+              - generic [ref=f483e322]:
+                - button "Nova conversa" [ref=f483e323] [cursor=pointer]
+                - button "Criar grupo" [disabled] [ref=f483e325]
+            - link "Abrir em tela cheia" [ref=f483e330] [cursor=pointer]:
+              - /url: /conversas
+    - main [ref=f483e30]:
+      - generic [ref=f483e32]:
+        - generic [ref=f483e33]:
+          - generic [ref=f483e34]:
+            - generic [ref=f483e35]:
+              - heading "Bom dia, Bruno!" [level=1] [ref=f483e89]
+              - paragraph [ref=f483e37]: Segunda-Feira, 31 de Agosto de 2026
+            - iframe [ref=f483e38]:
+              - generic [ref=f484e4]:
+                - generic [ref=f484e5]: Valparaiso de Goias
+                - generic [ref=f484e6]:
+                  - generic [ref=f484e7]: 31°C
+                  - generic [ref=f484e30]: Limpo
+                - generic [ref=f484e31]:
+                  - generic [ref=f484e32]: 4.6 m/s
+                  - generic [ref=f484e37]: 26%
+                  - generic [ref=f484e42]: 762 mmHg
+                - generic [ref=f484e51]:
+                  - generic [ref=f484e53]:
+                    - generic [ref=f484e54]:
+                      - generic [ref=f484e55]: 10:00
+                      - generic [ref=f484e77]: 31°C
+                    - generic [ref=f484e78]:
+                      - generic [ref=f484e79]: 11:00
+                      - generic [ref=f484e101]: 32°C
+                    - generic [ref=f484e102]:
+                      - generic [ref=f484e103]: 12:00
+                      - generic [ref=f484e125]: 34°C
+                    - generic [ref=f484e126]:
+                      - generic [ref=f484e127]: 13:00
+                      - generic [ref=f484e157]: 34°C
+                    - generic [ref=f484e158]:
+                      - generic [ref=f484e159]: 14:00
+                      - generic [ref=f484e189]: 34°C
+                    - generic [ref=f484e190]:
+                      - generic [ref=f484e191]: 15:00
+                      - generic [ref=f484e221]: 34°C
+                    - generic [ref=f484e222]:
+                      - generic [ref=f484e223]: 16:00
+                      - generic [ref=f484e253]: 33°C
+                    - generic [ref=f484e254]:
+                      - generic [ref=f484e255]: 17:00
+                      - generic [ref=f484e285]: 33°C
+                    - generic [ref=f484e286]:
+                      - generic [ref=f484e287]: 18:00
+                      - generic [ref=f484e317]: 31°C
+                    - generic [ref=f484e318]:
+                      - generic [ref=f484e319]: 19:00
+                      - generic [ref=f484e335]: 31°C
+                    - generic [ref=f484e336]:
+                      - generic [ref=f484e337]: 20:00
+                      - generic [ref=f484e349]: 29°C
+                    - generic [ref=f484e350]:
+                      - generic [ref=f484e351]: 21:00
+                      - generic [ref=f484e363]: 28°C
+                    - generic [ref=f484e364]:
+                      - generic [ref=f484e365]: 22:00
+                      - generic [ref=f484e377]: 27°C
+                    - generic [ref=f484e378]:
+                      - generic [ref=f484e379]: 23:00
+                      - generic [ref=f484e391]: 27°C
+                    - generic [ref=f484e392]:
+                      - generic [ref=f484e393]: 00:00
+                      - generic [ref=f484e405]: 26°C
+                    - generic [ref=f484e406]:
+                      - generic [ref=f484e407]: 01:00
+                      - generic [ref=f484e423]: 25°C
+                    - generic [ref=f484e424]:
+                      - generic [ref=f484e425]: 02:00
+                      - generic [ref=f484e437]: 25°C
+                    - generic [ref=f484e438]:
+                      - generic [ref=f484e439]: 03:00
+                      - generic [ref=f484e451]: 25°C
+                    - generic [ref=f484e452]:
+                      - generic [ref=f484e453]: 04:00
+                      - generic [ref=f484e465]: 24°C
+                    - generic [ref=f484e466]:
+                      - generic [ref=f484e467]: 05:00
+                      - generic [ref=f484e479]: 24°C
+                    - generic [ref=f484e480]:
+                      - generic [ref=f484e481]: 06:00
+                      - generic [ref=f484e497]: 24°C
+                    - generic [ref=f484e498]:
+                      - generic [ref=f484e499]: 07:00
+                      - generic [ref=f484e521]: 25°C
+                    - generic [ref=f484e522]:
+                      - generic [ref=f484e523]: 08:00
+                      - generic [ref=f484e545]: 28°C
+                    - generic [ref=f484e546]:
+                      - generic [ref=f484e547]: 09:00
+                      - generic [ref=f484e569]: 30°C
+                    - generic [ref=f484e570]:
+                      - generic [ref=f484e571]: 10:00
+                      - generic [ref=f484e593]: 32°C
+                    - generic [ref=f484e594]:
+                      - generic [ref=f484e595]: 11:00
+                      - generic [ref=f484e617]: 33°C
+                    - generic [ref=f484e618]:
+                      - generic [ref=f484e619]: 12:00
+                      - generic [ref=f484e641]: 34°C
+                    - generic [ref=f484e642]:
+                      - generic [ref=f484e643]: 13:00
+                      - generic [ref=f484e673]: 35°C
+                    - generic [ref=f484e674]:
+                      - generic [ref=f484e675]: 14:00
+                      - generic [ref=f484e705]: 34°C
+                    - generic [ref=f484e706]:
+                      - generic [ref=f484e707]: 15:00
+                      - generic [ref=f484e737]: 34°C
+                    - generic [ref=f484e738]:
+                      - generic [ref=f484e739]: 16:00
+                      - generic [ref=f484e769]: 33°C
+                    - generic [ref=f484e770]:
+                      - generic [ref=f484e771]: 17:00
+                      - generic [ref=f484e801]: 33°C
+                    - generic [ref=f484e802]:
+                      - generic [ref=f484e803]: 18:00
+                      - generic [ref=f484e825]: 32°C
+                    - generic [ref=f484e826]:
+                      - generic [ref=f484e827]: 19:00
+                      - generic [ref=f484e843]: 30°C
+                    - generic [ref=f484e844]:
+                      - generic [ref=f484e845]: 20:00
+                      - generic [ref=f484e861]: 30°C
+                    - generic [ref=f484e862]:
+                      - generic [ref=f484e863]: 21:00
+                      - generic [ref=f484e879]: 29°C
+                    - generic [ref=f484e880]:
+                      - generic [ref=f484e881]: 22:00
+                      - generic [ref=f484e897]: 28°C
+                    - generic [ref=f484e898]:
+                      - generic [ref=f484e899]: 23:00
+                      - generic [ref=f484e915]: 25°C
+                  - generic [ref=f484e916] [cursor=pointer]: ‹
+                  - generic [ref=f484e917] [cursor=pointer]: ›
+          - generic "Banner principal do Workspace" [ref=f483e39]:
+            - img "Novo Banner"
+          - generic [ref=f483e40]:
+            - heading "Google Agenda" [level=3] [ref=f483e42]
+            - generic [ref=f483e46]:
+              - generic [ref=f483e47]:
+                - button "Minha Agenda" [ref=f483e48]
+                - button "Agenda da Empresa" [ref=f483e49]
+                - button "Minhas Tarefas" [ref=f483e50]
+                - link "Tarefas da equipe →" [ref=f483e51] [cursor=pointer]:
+                  - /url: /agenda
+              - generic [ref=f483e90]:
+                - generic [ref=f483e91]:
+                  - heading "Seus compromissos" [level=3] [ref=f483e92]
+                  - button "Novo Compromisso" [ref=f483e93]
+                - generic [ref=f483e94]:
+                  - generic [ref=f483e95]:
+                    - paragraph [ref=f483e96]: Home Office
+                    - paragraph [ref=f483e97]: 09:00 - 12:00
+                  - generic [ref=f483e98]:
+                    - paragraph [ref=f483e99]: Almoço
+                    - paragraph [ref=f483e100]: 12:00 - 14:00
+                  - generic [ref=f483e101]:
+                    - paragraph [ref=f483e102]: Aula Gravada - Faculdade RocketSeat
+                    - paragraph [ref=f483e103]: 19:00 - 21:00
+          - generic [ref=f483e104]:
+            - generic [ref=f483e105] [cursor=pointer]:
+              - heading "Administrativo" [level=3] [ref=f483e111]
+              - generic [ref=f483e112]: Acessar Portal
+            - generic [ref=f483e115] [cursor=pointer]:
+              - heading "Financeiro" [level=3] [ref=f483e120]
+              - generic [ref=f483e121]: Acessar Portal
+            - generic [ref=f483e124] [cursor=pointer]:
+              - heading "RH" [level=3] [ref=f483e131]
+              - generic [ref=f483e132]: Acessar Portal
+            - generic [ref=f483e135] [cursor=pointer]:
+              - heading "Operacional" [level=3] [ref=f483e139]
+              - generic [ref=f483e140]: Acessar Portal
+            - generic [ref=f483e143] [cursor=pointer]:
+              - heading "Marketing" [level=3] [ref=f483e148]
+              - generic [ref=f483e149]: Acessar Portal
+            - generic [ref=f483e152] [cursor=pointer]:
+              - heading "Comercial" [level=3] [ref=f483e157]
+              - generic [ref=f483e158]: Acessar Portal
+            - generic [ref=f483e161] [cursor=pointer]:
+              - heading "Tecnologia" [level=3] [ref=f483e166]
+              - generic [ref=f483e167]: Acessar Portal
+            - generic [ref=f483e170] [cursor=pointer]:
+              - heading "Acessos" [level=3] [ref=f483e176]
+              - generic [ref=f483e177]: Acessar Portal
+        - generic [ref=f483e55]:
+          - generic [ref=f483e56]:
+            - heading "Comunicados" [level=3] [ref=f483e58]
+            - paragraph [ref=f483e61]: Nenhum comunicado no momento.
+          - generic [ref=f483e62]:
+            - heading "Mural de Elogios" [level=3] [ref=f483e64]
+            - generic [ref=f483e66]:
+              - generic [ref=f483e67] [cursor=pointer]: Feed de Elogios
+              - generic [ref=f483e68] [cursor=pointer]: Enviar Elogios
+              - generic [ref=f483e69] [cursor=pointer]: Elogios Recebidos
+            - generic [ref=f483e71]:
+              - generic [ref=f483e180]:
+                - generic [ref=f483e182]:
+                  - generic "Isabelly Caroline de Sousa Rodrigues" [ref=f483e184]:
+                    - img "Isabelly Caroline de Sousa Rodrigues" [ref=f483e185]
+                  - generic [ref=f483e186]:
+                    - generic [ref=f483e187]: Para todos
+                    - generic [ref=f483e188]: 03/06, 18:55
+                - 'generic "Parabéns pessoal! Nada vence um trabalho bem feito e uma equipe unida! #RumoAos9Milhoes 🎉🔥" [ref=f483e189]'
+                - generic [ref=f483e190]:
+                  - button "👏" [ref=f483e191] [cursor=pointer]
+                  - button "❤️ 3" [ref=f483e192] [cursor=pointer]
+                  - button "🎉" [ref=f483e193] [cursor=pointer]
+                  - button "😂" [ref=f483e194] [cursor=pointer]
+                  - button "👍" [ref=f483e195] [cursor=pointer]
+              - generic [ref=f483e196]:
+                - generic [ref=f483e198]:
+                  - generic "Bruno Rodrigues da Silva" [ref=f483e200]:
+                    - img "Bruno Rodrigues da Silva" [ref=f483e201]
+                  - generic [ref=f483e202]:
+                    - generic [ref=f483e203]: Para todos
+                    - generic [ref=f483e204]: 03/06, 17:31
+                - generic "Parabéns a todos pela Meta de Produção alcançada em Maio/2026! Pra cima! 🚀✨" [ref=f483e205]
+                - generic [ref=f483e206]:
+                  - button "👏" [ref=f483e207] [cursor=pointer]
+                  - button "❤️ 3" [ref=f483e208] [cursor=pointer]
+                  - button "🎉" [ref=f483e209] [cursor=pointer]
+                  - button "😂" [ref=f483e210] [cursor=pointer]
+                  - button "👍" [ref=f483e211] [cursor=pointer]
+          - generic [ref=f483e72]:
+            - heading "Próximos Aniversariantes" [level=3] [ref=f483e74]
+            - generic [ref=f483e212]:
+              - img "Bruno Rodrigues da Silva" [ref=f483e214]
+              - generic [ref=f483e215]:
+                - generic [ref=f483e216]: Bruno
+                - generic [ref=f483e217]: 4 de Setembro
+  - alert [ref=f483e80]

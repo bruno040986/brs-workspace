@@ -1,10 +1,8 @@
-import DisparoWhatsappSidebar from './_components/DisparoWhatsappSidebar'
-
+/**
+ * O menu contextual deste subsistema agora vive na sidebar global por
+ * divisões (src/lib/nav/divisoes.ts) — este layout só preserva o padding
+ * de conteúdo (.rh-content).
+ */
 export default function DisparoWhatsappLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rh-layout-container">
-      <DisparoWhatsappSidebar />
-      <div className="rh-content">{children}</div>
-    </div>
-  )
+  return <div className="rh-content">{children}</div>
 }

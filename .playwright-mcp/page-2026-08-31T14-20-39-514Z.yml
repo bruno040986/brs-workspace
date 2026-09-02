@@ -1,0 +1,51 @@
+- generic [active] [ref=f487e1]:
+  - generic [ref=f487e2]:
+    - banner [ref=f487e3]:
+      - link [ref=f487e5] [cursor=pointer]:
+        - /url: /
+        - img "BRS Workspace" [ref=f487e6]
+      - generic "Em breve a BIA vai estar aqui para te ajudar..." [ref=f487e8]:
+        - img "BIA" [ref=f487e9]
+      - generic [ref=f487e12]:
+        - button "6" [ref=f487e81] [cursor=pointer]
+        - button [ref=f487e19] [cursor=pointer]
+        - button [ref=f487e23] [cursor=pointer]:
+          - img "Bruno Rodrigues da Silva" [ref=f487e25]
+    - complementary "BRS Messenger":
+      - button "Abrir BRS Messenger" [ref=f487e26] [cursor=pointer]:
+        - img "BRS Messenger" [ref=f487e29]
+    - main [ref=f487e30]:
+      - generic [ref=f487e31]:
+        - generic [ref=f487e32]:
+          - img "BRS Messenger" [ref=f487e33]
+          - generic [ref=f487e34]:
+            - generic [ref=f487e35]: Central de Conversas
+            - generic [ref=f487e36]: WhatsApp, Telegram, Instagram, Facebook e Chat do Site no mesmo lugar.
+        - generic [ref=f487e38]:
+          - generic [ref=f487e40]:
+            - generic [ref=f487e41]:
+              - textbox "Pesquisar por nome ou número…" [ref=f487e46]
+              - generic [ref=f487e47]:
+                - button "Meus" [ref=f487e48] [cursor=pointer]
+                - button "Fila 1" [ref=f487e83] [cursor=pointer]:
+                  - text: Fila
+                  - generic [ref=f487e84]: "1"
+                - button "Geral" [ref=f487e55] [cursor=pointer]
+              - generic [ref=f487e85]:
+                - button "Todos" [ref=f487e86] [cursor=pointer]
+                - button "(61) 3199-1641" [ref=f487e87] [cursor=pointer]
+            - button "B Bruno Rodrigues 11:00 *Bruno - Administrativo:* oi 2 (61) 3199-1641" [ref=f487e88] [cursor=pointer]:
+              - generic [ref=f487e89]: B
+              - generic [ref=f487e90]:
+                - generic [ref=f487e91]:
+                  - strong [ref=f487e92]: Bruno Rodrigues
+                  - generic [ref=f487e93]: 11:00
+                - generic [ref=f487e94]:
+                  - generic [ref=f487e95]: "*Bruno - Administrativo:* oi"
+                  - generic [ref=f487e96]: "2"
+                - generic [ref=f487e97]: (61) 3199-1641
+            - generic [ref=f487e65]:
+              - button "Nova conversa" [ref=f487e66] [cursor=pointer]
+              - button "Criar grupo" [disabled] [ref=f487e68]
+          - generic [ref=f487e73]: Selecione uma conversa
+  - alert [ref=f487e80]

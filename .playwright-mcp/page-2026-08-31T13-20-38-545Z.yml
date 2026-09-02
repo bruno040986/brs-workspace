@@ -1,0 +1,17 @@
+- generic [active] [ref=f480e1]:
+  - generic [ref=f480e3]:
+    - generic [ref=f480e4]:
+      - img "BRS Workspace" [ref=f480e5]
+      - paragraph [ref=f480e7]: Acesse todas as ferramentas em um só lugar.
+    - generic [ref=f480e8]:
+      - generic [ref=f480e9]:
+        - generic [ref=f480e10]: E-mail
+        - textbox "seu@brspromotora.com.br" [ref=f480e11]
+      - generic [ref=f480e12]:
+        - generic [ref=f480e13]: Senha
+        - generic [ref=f480e14]:
+          - textbox "••••••••" [ref=f480e15]
+          - button [ref=f480e16] [cursor=pointer]
+      - button "Entrar" [ref=f480e20] [cursor=pointer]
+    - paragraph [ref=f480e24]: Uso interno exclusivoBRS Promotora de Vendas Ltda - CNPJ 54.303.453/0001-16
+  - alert [ref=f480e25]

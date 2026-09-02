@@ -149,6 +149,8 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/api/alvoconsig/upload': any([include('alvoconsig-gestao')]),
   '/api/alvoconsig/campanhas': any([include('alvoconsig-gestao')]),
   '/financeiro': any([view('financeiro-conta-parceiros')]),
+  '/gestao-leads': any([view('alvoconsig-gestao'), view('central-integracoes')]),
+  '/ia-workspace': any([view('sistema-config-ia')]),
 }
 
 const authenticatedOpenRoutes = new Set([
@@ -213,6 +215,8 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/coeficientes', any([view('sistema-config-credito')])],
   ['/alvoconsig', any([view('alvoconsig-gestao')])],
   ['/financeiro', any([view('financeiro-conta-parceiros')])],
+  ['/gestao-leads', any([view('alvoconsig-gestao'), view('central-integracoes')])],
+  ['/ia-workspace', any([view('sistema-config-ia')])],
 ]
 
 function normalizePath(pathname: string) {

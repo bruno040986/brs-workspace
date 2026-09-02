@@ -19,7 +19,7 @@ export const NOME_CANAL_EQUIPE = 'Equipe BRS'
 export const NOME_CANAL_SELF = 'Você'
 export const PREFIXO_LEMBRETE = '⏰ Lembrete: '
 
-export type CanalInternoKind = 'self' | 'equipe' | 'direct'
+export type CanalInternoKind = 'self' | 'equipe' | 'grupo' | 'direct'
 
 export type CanalInterno = {
   id: string
@@ -81,11 +81,13 @@ export async function listarCanais(userId: string): Promise<CanalInterno[]> {
   if (!conversationIds.length) return []
   const lastReadPorConversa = new Map((meus || []).map((p) => [String(p.conversation_id), p.last_read_at as string | null]))
 
-  const { data: conversas, error: errConv } = await admin
+  const { data: conversasRaw, error: errConv } = await admin
     .from('workspace_chat_conversations')
-    .select('id, kind, created_by')
+    .select('id, kind, created_by, name, deleted_at')
     .in('id', conversationIds)
   if (errConv) throw errConv
+  // Grupo desativado some da lista de todo mundo (histórico preservado no banco).
+  const conversas = (conversasRaw || []).filter((c) => !c.deleted_at)
 
   const diretas = (conversas || []).filter((c) => c.kind === 'direct').map((c) => String(c.id))
 
@@ -137,7 +139,7 @@ export async function listarCanais(userId: string): Promise<CanalInterno[]> {
   const canais: CanalInterno[] = []
   for (const conv of conversas || []) {
     const id = String(conv.id)
-    const kind = (conv.kind === 'equipe' || conv.kind === 'self' ? conv.kind : 'direct') as CanalInternoKind
+    const kind = (conv.kind === 'equipe' || conv.kind === 'self' || conv.kind === 'grupo' ? conv.kind : 'direct') as CanalInternoKind
     const msgs = porConversa.get(id) || []
     const ultima = msgs[0]
     const lastReadAt = lastReadPorConversa.get(id)
@@ -155,6 +157,10 @@ export async function listarCanais(userId: string): Promise<CanalInterno[]> {
     }
     if (kind === 'equipe') {
       canais.push({ id, kind, nome: NOME_CANAL_EQUIPE, avatarUrl: null, participante: null, lastMessage: ultima ? { id: ultima.id, text: ultima.body, timestamp: ultima.created_at, senderId: ultima.sender_id } : null, unreadCount: naoLidas })
+      continue
+    }
+    if (kind === 'grupo') {
+      canais.push({ id, kind, nome: String(conv.name || 'Grupo'), avatarUrl: null, participante: null, lastMessage: ultima ? { id: ultima.id, text: ultima.body, timestamp: ultima.created_at, senderId: ultima.sender_id } : null, unreadCount: naoLidas })
       continue
     }
 
@@ -180,7 +186,7 @@ export async function listarCanais(userId: string): Promise<CanalInterno[]> {
     })
   }
 
-  const peso = (c: CanalInterno) => (c.kind === 'self' ? 2 : c.kind === 'equipe' ? 1 : 0)
+  const peso = (c: CanalInterno) => (c.kind === 'self' ? 2 : c.kind === 'equipe' || c.kind === 'grupo' ? 1 : 0)
   const atividade = (c: CanalInterno) => (c.lastMessage ? new Date(c.lastMessage.timestamp).getTime() : 0)
   canais.sort((a, b) => peso(b) - peso(a) || atividade(b) - atividade(a) || a.nome.localeCompare(b.nome))
   return canais
@@ -194,8 +200,9 @@ async function conferirParticipacao(admin: Admin, userId: string, conversationId
     .eq('user_id', userId)
     .maybeSingle()
   if (!participacao) throw new Error('Você não participa desta conversa.')
-  const { data: conv } = await admin.from('workspace_chat_conversations').select('kind').eq('id', conversationId).maybeSingle()
-  const kind = conv?.kind === 'equipe' || conv?.kind === 'self' ? conv.kind : 'direct'
+  const { data: conv } = await admin.from('workspace_chat_conversations').select('kind, deleted_at').eq('id', conversationId).maybeSingle()
+  if (conv?.deleted_at) throw new Error('Este grupo foi desativado.')
+  const kind = conv?.kind === 'equipe' || conv?.kind === 'self' || conv?.kind === 'grupo' ? conv.kind : 'direct'
   return { kind: kind as CanalInternoKind }
 }
 

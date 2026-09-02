@@ -1,0 +1,57 @@
+- generic [active] [ref=f495e1]:
+  - banner [ref=f495e2]:
+    - generic [ref=f495e3]:
+      - img "AlvoConsig" [ref=f495e4]
+      - img "BRS Promotora" [ref=f495e5]
+  - main [ref=f495e6]:
+    - region [ref=f495e7]:
+      - generic [ref=f495e8]:
+        - generic [ref=f495e9]:
+          - img "AlvoConsig" [ref=f495e10]
+          - paragraph [ref=f495e11]: CRM AlvoConsig · Acesso do Atendente
+          - heading "Tudo o que você precisa para transformar lead em cliente" [level=1] [ref=f495e12]
+          - paragraph [ref=f495e13]: CRM integrado com seus canais de comunicação num lugar só. Todas as informações do lead na sua tela, para atender com acertividade e agilidade.
+          - list [ref=f495e14]:
+            - listitem [ref=f495e15]:
+              - generic [ref=f495e19]: WhatsApp, ligação e chat integrados ao atendimento
+            - listitem [ref=f495e20]:
+              - generic [ref=f495e24]: Ofertas, margens e histórico do lead sempre à mão
+            - listitem [ref=f495e25]:
+              - generic [ref=f495e29]: "Fila organizada: você atende, o sistema registra"
+        - generic [ref=f495e30]:
+          - img "Equipe de atendimento AlvoConsig" [ref=f495e32]
+          - generic [ref=f495e33]:
+            - heading "Entrar no CRM" [level=2] [ref=f495e34]
+            - generic [ref=f495e35]:
+              - generic [ref=f495e36]: E-mail
+              - textbox "E-mail" [ref=f495e38]:
+                - /placeholder: seu@email.com
+            - generic [ref=f495e39]:
+              - generic [ref=f495e40]:
+                - generic [ref=f495e41]: Senha
+                - link "Esqueci a senha" [ref=f495e42] [cursor=pointer]:
+                  - /url: "#"
+              - textbox "Senha" [ref=f495e43]:
+                - /placeholder: ••••••••
+            - button "Entrar" [ref=f495e44] [cursor=pointer]
+            - paragraph [ref=f495e45]: Acesso exclusivo para atendentes autorizados pelo parceiro.
+  - contentinfo [ref=f495e46]:
+    - generic [ref=f495e47]:
+      - generic [ref=f495e48]:
+        - generic [ref=f495e49]:
+          - img "BRS Promotora" [ref=f495e50]
+          - paragraph [ref=f495e51]: BRS Promotora de Vendas Ltda / CNPJ 54.303.453/0001-16
+          - generic [ref=f495e52]: "Quadra 07 Bloco B Sala 105, Edifício Comercial Tropical, Valparaíso I - Etapa A, Valparaíso de Goiás/GO — CEP: 72.876-021"
+        - generic [ref=f495e53]:
+          - heading "Atendimento" [level=2] [ref=f495e54]
+          - paragraph [ref=f495e55]: Suporte ao Parceiro — (61) 99955-1641
+          - paragraph [ref=f495e56]: Comercial e Atendimento — (61) 3199-1641
+          - link "Site Institucional" [ref=f495e57] [cursor=pointer]:
+            - /url: "#"
+        - generic [ref=f495e58]:
+          - heading "Redes sociais" [level=2] [ref=f495e59]
+          - paragraph [ref=f495e65]: "@brspromotora em todas as redes"
+      - generic [ref=f495e66]:
+        - paragraph [ref=f495e67]: © BRS Promotora de Vendas Ltda.
+        - link "Termos e documentos" [ref=f495e68] [cursor=pointer]:
+          - /url: "#"

@@ -1,0 +1,51 @@
+- generic [active] [ref=f498e1]:
+  - banner [ref=f498e2]:
+    - generic [ref=f498e3]:
+      - generic [ref=f498e4]:
+        - img "AlvoConsig" [ref=f498e5]
+        - img "BRS Promotora" [ref=f498e6]
+      - generic [ref=f498e7]:
+        - textbox "E-mail" [ref=f498e8]:
+          - /placeholder: seu@email.com
+        - textbox "Senha" [ref=f498e9]:
+          - /placeholder: ••••••••
+        - button "Entrar" [ref=f498e10] [cursor=pointer]
+        - link "Esqueci a senha" [ref=f498e11] [cursor=pointer]:
+          - /url: "#"
+  - main [ref=f498e12]:
+    - region [ref=f498e13]:
+      - generic [ref=f498e14]:
+        - generic [ref=f498e15]:
+          - img "AlvoConsig" [ref=f498e16]
+          - paragraph [ref=f498e17]: CRM AlvoConsig · Acesso do Atendente
+          - heading "Tudo o que você precisa para transformar lead em cliente" [level=1] [ref=f498e18]
+          - paragraph [ref=f498e19]: CRM integrado com seus canais de comunicação num lugar só. Todas as informações do lead na sua tela, para atender com acertividade e agilidade.
+          - list [ref=f498e20]:
+            - listitem [ref=f498e21]:
+              - generic [ref=f498e25]: WhatsApp, ligação e chat integrados ao atendimento
+            - listitem [ref=f498e26]:
+              - generic [ref=f498e30]: Ofertas, margens e histórico do lead sempre à mão
+            - listitem [ref=f498e31]:
+              - generic [ref=f498e35]: "Fila organizada: você atende, o sistema registra"
+          - paragraph [ref=f498e36]: Acesso exclusivo para atendentes autorizados pelo parceiro.
+        - img "Equipe de atendimento AlvoConsig" [ref=f498e39]
+  - contentinfo [ref=f498e40]:
+    - generic [ref=f498e41]:
+      - generic [ref=f498e42]:
+        - generic [ref=f498e43]:
+          - img "BRS Promotora" [ref=f498e44]
+          - paragraph [ref=f498e45]: BRS Promotora de Vendas Ltda / CNPJ 54.303.453/0001-16
+          - generic [ref=f498e46]: "Quadra 07 Bloco B Sala 105, Edifício Comercial Tropical, Valparaíso I - Etapa A, Valparaíso de Goiás/GO — CEP: 72.876-021"
+        - generic [ref=f498e47]:
+          - heading "Atendimento" [level=2] [ref=f498e48]
+          - paragraph [ref=f498e49]: Suporte ao Parceiro — (61) 99955-1641
+          - paragraph [ref=f498e50]: Comercial e Atendimento — (61) 3199-1641
+          - link "Site Institucional" [ref=f498e51] [cursor=pointer]:
+            - /url: "#"
+        - generic [ref=f498e52]:
+          - heading "Redes sociais" [level=2] [ref=f498e53]
+          - paragraph [ref=f498e59]: "@brspromotora em todas as redes"
+      - generic [ref=f498e60]:
+        - paragraph [ref=f498e61]: © BRS Promotora de Vendas Ltda.
+        - link "Termos e documentos" [ref=f498e62] [cursor=pointer]:
+          - /url: "#"

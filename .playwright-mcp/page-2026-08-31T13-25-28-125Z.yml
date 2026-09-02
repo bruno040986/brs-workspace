@@ -1,0 +1,95 @@
+- generic [active] [ref=f482e1]:
+  - generic [ref=f482e2]:
+    - banner [ref=f482e3]:
+      - link [ref=f482e5] [cursor=pointer]:
+        - /url: /
+        - img "BRS Workspace" [ref=f482e6]
+      - generic "Em breve a BIA vai estar aqui para te ajudar..." [ref=f482e8]:
+        - img "BIA" [ref=f482e9]
+      - generic [ref=f482e12]:
+        - button "6" [ref=f482e80] [cursor=pointer]
+        - button [ref=f482e19] [cursor=pointer]
+        - button [ref=f482e23] [cursor=pointer]:
+          - img "Bruno Rodrigues da Silva" [ref=f482e25]
+    - complementary "BRS Messenger":
+      - generic [ref=f482e87]:
+        - button "Recolher BRS Messenger" [ref=f482e88] [cursor=pointer]
+        - generic [ref=f482e93]:
+          - generic [ref=f482e94]:
+            - button "Interno" [ref=f482e95] [cursor=pointer]
+            - button "Atendimento" [ref=f482e99] [cursor=pointer]
+          - generic [ref=f482e104]:
+            - generic [ref=f482e105]:
+              - generic [ref=f482e106]: BRS Messenger
+              - generic [ref=f482e107]: 🟢
+            - textbox "Localizar contato..." [ref=f482e113]
+            - generic [ref=f482e114]:
+              - button "Perfil e Contatos" [ref=f482e115]
+              - button "Conversas 2" [ref=f482e122]:
+                - generic [ref=f482e126]: Conversas
+                - generic [ref=f482e127]: "2"
+              - button "Chat" [disabled] [ref=f482e128]
+            - generic [ref=f482e133]:
+              - generic [ref=f482e134]:
+                - generic [ref=f482e135]:
+                  - img "Bruno" [ref=f482e137]
+                  - generic [ref=f482e138]:
+                    - generic [ref=f482e139]: Bruno
+                    - textbox "Nickname do Messenger" [ref=f482e140]: Bruno
+                - combobox [ref=f482e142]:
+                  - option "Automático" [selected]
+                  - option "Ocupado"
+                - textbox "Mensagem de status (max 50)" [ref=f482e143]: Não me ligue! 📵
+                - textbox "Assinatura no WhatsApp" [ref=f482e144]:
+                  - /placeholder: "Ex.: Michael - Suporte"
+                  - text: Bruno - Administrativo
+                - button "Salvar Perfil" [ref=f482e145]
+              - generic [ref=f482e146]:
+                - generic [ref=f482e147]: ▼ Ativos (3)
+                - generic [ref=f482e148]:
+                  - button "🚫 Isa, dos usuários 🚫 - 🚀 Nada a perder, tudo a viver." [ref=f482e149]:
+                    - generic [ref=f482e150]: 🚫
+                    - generic [ref=f482e151]: Isa, dos usuários
+                    - text: 🚫
+                    - generic [ref=f482e152]: "- 🚀 Nada a perder, tudo a viver."
+                  - button "🚫 Maria 🚫" [ref=f482e153]:
+                    - generic [ref=f482e154]: 🚫
+                    - generic [ref=f482e155]: Maria
+                    - text: 🚫
+                  - button "🚫 Winston 🚫" [ref=f482e156]:
+                    - generic [ref=f482e157]: 🚫
+                    - generic [ref=f482e158]: Winston
+                    - text: 🚫
+              - generic [ref=f482e159]:
+                - generic [ref=f482e160]: ▼ Offline (2)
+                - generic [ref=f482e161]:
+                  - button "⚪ Michael" [ref=f482e162]:
+                    - generic [ref=f482e163]: ⚪
+                    - generic [ref=f482e164]: Michael
+                  - button "⚪ Tonys" [ref=f482e165]:
+                    - generic [ref=f482e166]: ⚪
+                    - generic [ref=f482e167]: Tonys
+    - main [ref=f482e30]:
+      - generic [ref=f482e31]:
+        - generic [ref=f482e33]:
+          - heading "Central de Conversas" [level=1] [ref=f482e34]
+          - paragraph [ref=f482e35]: WhatsApp, oficial, site e demais canais da BRS, num lugar só.
+        - generic [ref=f482e37]:
+          - generic [ref=f482e39]:
+            - generic [ref=f482e40]:
+              - textbox "Pesquisar por nome ou número…" [ref=f482e45]
+              - generic [ref=f482e46]:
+                - button "Meus" [ref=f482e47] [cursor=pointer]
+                - button "Fila 1" [ref=f482e82] [cursor=pointer]:
+                  - text: Fila
+                  - generic [ref=f482e83]: "1"
+                - button "Geral" [ref=f482e54] [cursor=pointer]
+              - generic [ref=f482e84]:
+                - button "Todos" [ref=f482e85] [cursor=pointer]
+                - button "(61) 3199-1641" [ref=f482e86] [cursor=pointer]
+            - generic [ref=f482e60]: Não existem conversas abertas
+            - generic [ref=f482e64]:
+              - button "Nova conversa" [ref=f482e65] [cursor=pointer]
+              - button "Criar grupo" [disabled] [ref=f482e67]
+          - generic [ref=f482e72]: Selecione uma conversa
+  - alert [ref=f482e79]

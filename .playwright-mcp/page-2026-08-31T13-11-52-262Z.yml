@@ -1,0 +1,12 @@
+- generic [ref=f145e3]:
+  - generic [ref=f145e5]:
+    - generic [ref=f145e6]:
+      - textbox "Pesquisar por nome ou número…" [ref=f145e11]
+      - generic [ref=f145e12]:
+        - button "Meus" [ref=f145e13] [cursor=pointer]
+        - button "Fila" [ref=f145e16] [cursor=pointer]
+        - button "Geral" [ref=f145e20] [cursor=pointer]
+    - generic [ref=f145e30]:
+      - button "Nova conversa" [ref=f145e31] [cursor=pointer]
+      - button "Criar grupo" [disabled] [ref=f145e33]
+  - generic [ref=f145e38]: Selecione uma conversa

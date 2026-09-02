@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { EllipsisVertical, MessageSquareText, MessagesSquare, Paperclip, Search, Send, UsersRound, Users } from 'lucide-react'
+import { EllipsisVertical, MessageSquareText, MessagesSquare, Mic, Paperclip, Search, Send, Smile, Square, Sticker, UsersRound, Users } from 'lucide-react'
 import { useMessengerDock } from '@/components/layout/MessengerDockContext'
 import { deriveChatStatus, normalizeManualStatus, type ChatStatus } from '@/lib/chat/presence'
 import { getMinhaAssinatura, setMinhaAssinatura } from '@/lib/central-conversas/actions'
 import { enviarMensagemInterno, getCanaisInterno, getMensagensInterno, type CanalInterno, type MensagemInterno } from '@/lib/interno-chat/actions'
+import { getIaIdentidade } from '@/lib/ia/actions'
 
 // Mesmo prefixo de src/lib/interno-chat/data.ts (PREFIXO_LEMBRETE) — duplicado
 // aqui de propósito: aquele módulo usa o admin client e não pode ser
@@ -134,6 +135,12 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   const [mensagensFixo, setMensagensFixo] = useState<MensagemInterno[]>([])
   const [carregandoFixo, setCarregandoFixo] = useState(false)
   const [textoFixo, setTextoFixo] = useState('')
+  const [jarvis, setJarvis] = useState<{ nome: string; statusFrase: string } | null>(null)
+  const [emojiAberto, setEmojiAberto] = useState<null | 'direct' | 'fixo'>(null)
+  const [stickerAberto, setStickerAberto] = useState<null | 'direct' | 'fixo'>(null)
+  const [gravando, setGravando] = useState<null | 'direct' | 'fixo'>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
   const [enviandoFixo, setEnviandoFixo] = useState(false)
   const [assinatura, setAssinatura] = useState('')
   const canaisFixosPollRef = useRef<number | null>(null)
@@ -189,6 +196,19 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   useEffect(() => {
     activeTabRef.current = activeTab
   }, [activeTab])
+
+  useEffect(() => {
+    // Jarvis como colega de equipe no roster (só pra quem tem workspace-ia).
+    let ativo = true
+    getIaIdentidade()
+      .then((idn) => {
+        if (ativo) setJarvis({ nome: idn.nome || 'Jarvis', statusFrase: idn.statusFrase || 'IA do Workspace' })
+      })
+      .catch(() => {})
+    return () => {
+      ativo = false
+    }
+  }, [])
 
   useEffect(() => {
     selectedConversationIdRef.current = messengerDock.activeConversation?.id || null
@@ -392,6 +412,99 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       e.preventDefault()
       if (!enviandoFixo && textoFixo.trim()) void enviarMensagemFixo()
     }
+  }
+
+  // ---- emojis, figurinhas e áudio (aprovado 02/09/2026) ----
+  const EMOJIS = ['😀','😂','😅','😍','😉','😎','🤝','👏','🙏','👍','👎','💪','🔥','🎉','❤️','😢','😱','🤔','😴','☕','🚀','✅','⚠️','📌']
+  const FIGURINHAS = ['🥳','🚀','☕','💰','👊','🏆','😴','🤯','🫡','🙌','🤣','💤']
+
+  // Mensagem só de emoji vira "figurinha": renderizada grande, sem exigir
+  // schema novo — padrão WhatsApp.
+  function ehFigurinha(texto: string): boolean {
+    const t = texto.trim()
+    if (!t || t.length > 16) return false
+    try {
+      return /^(?:\p{Extended_Pictographic}[\u{FE0F}\u{200D}\p{Extended_Pictographic}]*\s*){1,3}$/u.test(t)
+    } catch {
+      return false
+    }
+  }
+
+  function inserirEmoji(alvo: 'direct' | 'fixo', emoji: string) {
+    if (alvo === 'direct') setText((v) => v + emoji)
+    else setTextoFixo((v) => v + emoji)
+    setEmojiAberto(null)
+  }
+
+  async function enviarFigurinha(alvo: 'direct' | 'fixo', emoji: string) {
+    setStickerAberto(null)
+    if (alvo === 'fixo') {
+      if (!canalFixoAberto) return
+      try {
+        await enviarMensagemInterno(canalFixoAberto.id, emoji)
+        await loadMensagensFixo(canalFixoAberto.id, true)
+        setTimeout(() => scrollMessagesToBottom('auto'), 50)
+      } catch { /* silencioso */ }
+      return
+    }
+    if (!selectedConversation) return
+    await fetch('/api/chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: selectedConversation.id, text: emoji, textStyle: null, attachments: [] }),
+    })
+    await loadMessages(selectedConversation.id, true)
+  }
+
+  async function toggleGravacao(alvo: 'direct' | 'fixo') {
+    if (gravando) {
+      mediaRecorderRef.current?.stop()
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+      const recorder = new MediaRecorder(stream, { mimeType: mime })
+      audioChunksRef.current = []
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        setGravando(null)
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        if (blob.size < 800) return // gravação vazia/acidental
+        const file = new File([blob], `audio-${Date.now()}.webm`, { type: 'audio/webm' })
+        const form = new FormData()
+        form.append('file', file)
+        const response = await fetch('/api/chat/upload', { method: 'POST', body: form })
+        const uploaded = await response.json()
+        if (!response.ok) return
+        if (alvo === 'fixo' && canalFixoAberto) {
+          try {
+            await enviarMensagemInterno(canalFixoAberto.id, '🎙️ Mensagem de voz', { attachments: [uploaded] })
+            await loadMensagensFixo(canalFixoAberto.id, true)
+            setTimeout(() => scrollMessagesToBottom('auto'), 50)
+          } catch { /* silencioso */ }
+        } else if (alvo === 'direct' && selectedConversation) {
+          await fetch('/api/chat/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conversationId: selectedConversation.id, text: '🎙️ Mensagem de voz', textStyle: null, attachments: [uploaded] }),
+          })
+          await loadMessages(selectedConversation.id, true)
+        }
+      }
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setGravando(alvo)
+    } catch {
+      alert('Não consegui acessar o microfone. Verifique a permissão do navegador.')
+    }
+  }
+
+  function ehAnexoAudio(a: { type?: string; name?: string }): boolean {
+    return String(a.type || '').startsWith('audio/') || /\.(webm|ogg|mp3|m4a|wav)$/i.test(String(a.name || ''))
   }
 
   async function syncPresenceUpdate(options: { activityAt?: string; force?: boolean } = {}) {
@@ -870,6 +983,27 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
 
         {activeTab === 2 && (
           <div className="brs-messenger-tab-panel brs-messenger-conversation-panel">
+            {jarvis && (
+              <div
+                onDoubleClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  window.dispatchEvent(new CustomEvent('brs-jarvis-abrir'))
+                }}
+                className="brs-messenger-conversation"
+                title={`Conversar com ${jarvis.nome} (IA do Workspace) — clique duplo abre o chat`}
+              >
+                <div className="flex items-start gap-2">
+                  <div className="brs-messenger-avatar" style={{ background: 'linear-gradient(180deg, #4f07ad 0%, #2012be 100%)', color: '#fff' }}>
+                    🤖
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="brs-messenger-conversation-name">🟢 {jarvis.nome}</p>
+                    <p className="brs-messenger-conversation-preview">{jarvis.statusFrase}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             {canaisFixosFiltrados.map((canal) => (
               <div
                 key={canal.id}
@@ -885,7 +1019,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                     className="brs-messenger-avatar"
                     style={canal.kind === 'self' ? { background: '#f59e0b', color: '#fff' } : undefined}
                   >
-                    {canal.kind === 'equipe' ? <UsersRound size={16} /> : 'V'}
+                    {canal.kind === 'equipe' || canal.kind === 'grupo' ? <UsersRound size={16} /> : 'V'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="brs-messenger-conversation-name">{canal.nome}</p>
@@ -967,7 +1101,7 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
             {canalFixoAberto ? (
               <>
                 <div className="brs-messenger-chat-head text-sm font-semibold flex items-center gap-2">
-                  {canalFixoAberto.kind === 'equipe' ? <UsersRound size={14} /> : <MessageSquareText size={14} />}
+                  {canalFixoAberto.kind === 'equipe' || canalFixoAberto.kind === 'grupo' ? <UsersRound size={14} /> : <MessageSquareText size={14} />}
                   <span className="brs-messenger-chat-head-name">{canalFixoAberto.nome}</span>
                 </div>
                 <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-3 brs-messenger-chat-scroll">
@@ -1004,22 +1138,35 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                             </div>
                           )
                         }
+                        const emGrupo = canalFixoAberto.kind === 'equipe' || canalFixoAberto.kind === 'grupo'
+                        const figurinha = ehFigurinha(m.text)
                         return (
                           <div key={m.id} className={`flex min-w-0 ${mine ? 'justify-end' : 'justify-start'}`}>
                             <div className={`brs-messenger-message-bubble ${mine ? 'is-mine' : 'is-theirs'}`}>
-                              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{m.text}</div>
+                              {emGrupo && !mine && (
+                                <div className="brs-messenger-group-sender">{m.sender.full_name || m.sender.email}</div>
+                              )}
+                              <div style={figurinha
+                                ? { fontSize: '2.2rem', lineHeight: 1.15 }
+                                : { whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                                {m.text}
+                              </div>
                               {m.attachments.length > 0 && (
                                 <div className="mt-1 space-y-1">
-                                  {m.attachments.map((a, idx) => (
-                                    <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] brs-messenger-attachment-link underline">
-                                      📎 {a.name || 'anexo'}
-                                    </a>
-                                  ))}
+                                  {m.attachments.map((a, idx) =>
+                                    ehAnexoAudio(a) && a.url ? (
+                                      <audio key={`${m.id}-att-${idx}`} controls src={a.url} style={{ maxWidth: 230, height: 34 }} preload="none" />
+                                    ) : (
+                                      <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] brs-messenger-attachment-link underline">
+                                        📎 {a.name || 'anexo'}
+                                      </a>
+                                    ),
+                                  )}
                                 </div>
                               )}
                               <div className="brs-messenger-message-meta mt-1 text-gray-500">
                                 {new Date(m.timestamp).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
-                                {mine && canalFixoAberto.kind === 'equipe' ? <> · {m.sender.full_name || m.sender.email}</> : null}
+                                {mine && emGrupo ? <> · {m.sender.full_name || m.sender.email}</> : null}
                               </div>
                             </div>
                           </div>
@@ -1029,14 +1176,45 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                     </div>
                   )}
                 </div>
-                <div className="border-t p-2 brs-messenger-editor">
+                <div className="border-t p-2 brs-messenger-editor" style={{ position: 'relative' }}>
+                  {emojiAberto === 'fixo' && (
+                    <div className="brs-messenger-picker">
+                      {EMOJIS.map((e) => (
+                        <button key={e} type="button" onClick={() => inserirEmoji('fixo', e)}>{e}</button>
+                      ))}
+                    </div>
+                  )}
+                  {stickerAberto === 'fixo' && (
+                    <div className="brs-messenger-picker is-stickers">
+                      {FIGURINHAS.map((e) => (
+                        <button key={e} type="button" onClick={() => void enviarFigurinha('fixo', e)}>{e}</button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-1 mb-1">
+                    <button type="button" className="brs-messenger-toolbar-btn" title="Emojis" onClick={() => { setStickerAberto(null); setEmojiAberto((v) => (v === 'fixo' ? null : 'fixo')) }}>
+                      <Smile size={13} />
+                    </button>
+                    <button type="button" className="brs-messenger-toolbar-btn" title="Figurinhas" onClick={() => { setEmojiAberto(null); setStickerAberto((v) => (v === 'fixo' ? null : 'fixo')) }}>
+                      <Sticker size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`brs-messenger-toolbar-btn ${gravando === 'fixo' ? 'is-recording' : ''}`}
+                      title={gravando === 'fixo' ? 'Parar e enviar áudio' : 'Gravar áudio'}
+                      onClick={() => void toggleGravacao('fixo')}
+                    >
+                      {gravando === 'fixo' ? <Square size={13} /> : <Mic size={13} />}
+                    </button>
+                    {gravando === 'fixo' && <span className="brs-messenger-recording-hint">gravando… clique em ⏹ para enviar</span>}
+                  </div>
                   <div className="flex gap-2">
                     <textarea
                       value={textoFixo}
                       onChange={(e) => setTextoFixo(e.target.value)}
                       onKeyDown={onComposerFixoKeyDown}
                       className="brs-messenger-composer-input"
-                      placeholder={canalFixoAberto.kind === 'self' ? 'Escreva uma nota pra você mesmo...' : 'Digite uma mensagem pra Equipe BRS...'}
+                      placeholder={canalFixoAberto.kind === 'self' ? 'Escreva uma nota pra você mesmo...' : `Digite uma mensagem pra ${canalFixoAberto.nome}...`}
                     />
                     <button onClick={enviarMensagemFixo} disabled={enviandoFixo || !textoFixo.trim()} className="brs-messenger-primary-button brs-messenger-send-button">
                       <Send size={14} />
@@ -1073,24 +1251,30 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                           <div key={m.id} className={`flex min-w-0 ${mine ? 'justify-end' : 'justify-start'}`}>
                             <div className={`brs-messenger-message-bubble ${mine ? 'is-mine' : 'is-theirs'}`}>
                               <div
-                                style={{
-                                  fontWeight: m.text_style?.bold ? 700 : 400,
-                                  fontStyle: m.text_style?.italic ? 'italic' : 'normal',
-                                  textDecoration: m.text_style?.underline ? 'underline' : 'none',
-                                  whiteSpace: 'pre-wrap',
-                                  wordBreak: 'break-word',
-                                  overflowWrap: 'anywhere',
-                                }}
+                                style={ehFigurinha(m.text)
+                                  ? { fontSize: '2.2rem', lineHeight: 1.15 }
+                                  : {
+                                      fontWeight: m.text_style?.bold ? 700 : 400,
+                                      fontStyle: m.text_style?.italic ? 'italic' : 'normal',
+                                      textDecoration: m.text_style?.underline ? 'underline' : 'none',
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word',
+                                      overflowWrap: 'anywhere',
+                                    }}
                               >
                                 {m.text}
                               </div>
                               {Array.isArray(m.attachments) && m.attachments.length > 0 && (
                                 <div className="mt-1 space-y-1">
-                                  {m.attachments.map((a, idx) => (
-                                    <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] brs-messenger-attachment-link underline">
-                                      📎 {a.name || 'anexo'}
-                                    </a>
-                                  ))}
+                                  {m.attachments.map((a, idx) =>
+                                    ehAnexoAudio(a) && a.url ? (
+                                      <audio key={`${m.id}-att-${idx}`} controls src={a.url} style={{ maxWidth: 230, height: 34 }} preload="none" />
+                                    ) : (
+                                      <a key={`${m.id}-att-${idx}`} href={a.url || '#'} target="_blank" className="block text-[11px] brs-messenger-attachment-link underline">
+                                        📎 {a.name || 'anexo'}
+                                      </a>
+                                    ),
+                                  )}
                                 </div>
                               )}
                               <div className="brs-messenger-message-meta mt-1 text-gray-500">
@@ -1129,7 +1313,36 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                       <Paperclip size={12} />
                       <input type="file" className="hidden" onChange={(e) => void onPickFile(e.target.files)} />
                     </label>
+                    <button type="button" className="brs-messenger-toolbar-btn" title="Emojis" onClick={() => { setStickerAberto(null); setEmojiAberto((v) => (v === 'direct' ? null : 'direct')) }}>
+                      <Smile size={12} />
+                    </button>
+                    <button type="button" className="brs-messenger-toolbar-btn" title="Figurinhas" onClick={() => { setEmojiAberto(null); setStickerAberto((v) => (v === 'direct' ? null : 'direct')) }}>
+                      <Sticker size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`brs-messenger-toolbar-btn ${gravando === 'direct' ? 'is-recording' : ''}`}
+                      title={gravando === 'direct' ? 'Parar e enviar áudio' : 'Gravar áudio'}
+                      onClick={() => void toggleGravacao('direct')}
+                    >
+                      {gravando === 'direct' ? <Square size={12} /> : <Mic size={12} />}
+                    </button>
+                    {gravando === 'direct' && <span className="brs-messenger-recording-hint">gravando…</span>}
                   </div>
+                  {emojiAberto === 'direct' && (
+                    <div className="brs-messenger-picker">
+                      {EMOJIS.map((e) => (
+                        <button key={e} type="button" onClick={() => inserirEmoji('direct', e)}>{e}</button>
+                      ))}
+                    </div>
+                  )}
+                  {stickerAberto === 'direct' && (
+                    <div className="brs-messenger-picker is-stickers">
+                      {FIGURINHAS.map((e) => (
+                        <button key={e} type="button" onClick={() => void enviarFigurinha('direct', e)}>{e}</button>
+                      ))}
+                    </div>
+                  )}
                   {attachedFiles.length > 0 && (
                     <div className="text-[11px] text-gray-600">
                       {attachedFiles.map((f, i) => (

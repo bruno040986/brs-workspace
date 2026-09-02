@@ -27,6 +27,8 @@ import {
 } from '@/app/(dashboard)/notificacoes/actions'
 import { setMyThemePreference } from '@/app/(dashboard)/theme/actions'
 import { applyResolvedTheme, readStoredThemePreference, resolveTheme, storeThemePreference } from '@/components/theme/theme'
+import LinksDropdown from '@/components/layout/LinksDropdown'
+import JarvisLauncher from '@/components/layout/JarvisLauncher'
 
 interface HubHeaderProps {
   user: UserProfile
@@ -310,16 +312,6 @@ export default function HubHeader({ user }: HubHeaderProps) {
   ]
 
 
-  const sectorApps = [
-    { label: 'Adm', icon: UserCircle2, href: '/?sector=adm', color: '#7c3aed', id: 'workspace-adm' },
-    { label: 'Financeiro', icon: Banknote, href: '/?sector=fin', color: '#16a34a', id: 'workspace-fin' },
-    { label: 'RH', icon: Users, href: '/?sector=rh', color: '#2563eb', id: 'workspace-rh' },
-    { label: 'Operacional', icon: Monitor, href: '/?sector=ops', color: '#ea580c', id: 'workspace-ops' },
-    { label: 'Marketing', icon: Megaphone, href: '/?sector=mkt', color: '#db2777', id: 'workspace-mkt' },
-    { label: 'Comercial', icon: Briefcase, href: '/?sector=com', color: '#ca8a04', id: 'workspace-com' },
-    { label: 'Tecnologia', icon: Cpu, href: '/?sector=tec', color: '#0891b2', id: 'workspace-tec' },
-    { label: 'Acessos', icon: Key, href: '/?sector=acc', color: '#475569', id: 'workspace-acc' },
-  ]
 
   const filteredSystemApps = systemApps.filter(app => {
     if (app.id === 'home') return true
@@ -339,9 +331,7 @@ export default function HubHeader({ user }: HubHeaderProps) {
     return canView(app.id)
   })
 
-  const filteredSectorApps = sectorApps.filter(app => {
-    return canView(app.id)
-  })
+
 
   async function handleLogout() {
     try {
@@ -377,16 +367,11 @@ export default function HubHeader({ user }: HubHeaderProps) {
         </Link>
       </div>
 
-      <div className="hub-header-center">
-        <div className="bia-bar-hub" title="Em breve a BIA vai estar aqui para te ajudar...">
-          <Image className="bia-bar-hub-icon" src="/bia.png" alt="BIA" width={42} height={42} priority />
-          <div className="bia-bar-hub-box">
-            <span className="bia-bar-hub-label">Em breve a BIA vai estar aqui para te ajudar...</span>
-          </div>
-        </div>
-      </div>
+      <div className="hub-header-center" />
 
       <div className="hub-header-right">
+        <JarvisLauncher />
+        <LinksDropdown />
         {toast && (
           <div
             style={{
@@ -584,36 +569,7 @@ export default function HubHeader({ user }: HubHeaderProps) {
                 </div>
               )}
 
-              {/* Divisor */}
-              {filteredSystemApps.length > 0 && filteredSectorApps.length > 0 && (
-                <div style={{ height: '1px', background: 'var(--brs-gray-50)', margin: '0.5rem 1rem' }} />
-              )}
-
-              {/* Bloco Ferramentas */}
-              {filteredSectorApps.length > 0 && (
-                <div style={{ padding: '0.5rem 1rem 1rem' }}>
-                  <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--brs-gray-400)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-                    Ferramentas
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                    {filteredSectorApps.map((app) => (
-                      <Link 
-                        key={app.label} 
-                        href={app.href}
-                        className="app-item"
-                        onClick={() => setShowApps(false)}
-                        style={{ padding: '0.75rem 0.25rem' }}
-                      >
-                        <div className="app-icon" style={{ color: app.color, marginBottom: '4px' }}>
-                          <app.icon size={22} />
                         </div>
-                        <span className="app-label" style={{ fontSize: '0.75rem', fontWeight: 500 }}>{app.label}</span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
           )}
         </div>
 

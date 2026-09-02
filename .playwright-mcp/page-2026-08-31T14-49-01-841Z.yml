@@ -1,0 +1,138 @@
+- generic [ref=f492e1]:
+  - generic [ref=f492e2]:
+    - banner [ref=f492e3]:
+      - link [ref=f492e5] [cursor=pointer]:
+        - /url: /
+        - img "BRS Workspace" [ref=f492e6]
+      - generic "Em breve a BIA vai estar aqui para te ajudar..." [ref=f492e8]:
+        - img "BIA" [ref=f492e9]
+      - generic [ref=f492e12]:
+        - button "6" [ref=f492e81] [cursor=pointer]
+        - button [ref=f492e19] [cursor=pointer]
+        - button [ref=f492e23] [cursor=pointer]:
+          - img "Bruno Rodrigues da Silva" [ref=f492e25]
+    - complementary "BRS Messenger":
+      - button "Abrir BRS Messenger" [ref=f492e26] [cursor=pointer]:
+        - img "BRS Messenger" [ref=f492e29]
+    - main [ref=f492e30]:
+      - generic [ref=f492e31]:
+        - generic [ref=f492e32]:
+          - img "BRS Messenger" [ref=f492e33]
+          - generic [ref=f492e34]:
+            - generic [ref=f492e35]: Central de Atendimento
+            - generic [ref=f492e36]: WhatsApp, Telegram, Instagram, Facebook e Chat do Site no mesmo lugar.
+        - generic [ref=f492e38]:
+          - generic [ref=f492e40]:
+            - generic [ref=f492e41]:
+              - textbox "Pesquisar por nome ou número…" [ref=f492e46]
+              - generic [ref=f492e47]:
+                - button "Meus" [ref=f492e48] [cursor=pointer]
+                - button "Fila 1" [ref=f492e83] [cursor=pointer]:
+                  - text: Fila
+                  - generic [ref=f492e84]: "1"
+                - button "Geral" [ref=f492e55] [cursor=pointer]
+              - generic [ref=f492e85]:
+                - button "Todos" [ref=f492e86] [cursor=pointer]
+                - button "(61) 3199-1641" [ref=f492e87] [cursor=pointer]
+            - button "B Bruno Rodrigues 11:00 *Bruno - Administrativo:* oi 2 (61) 3199-1641" [active] [ref=f492e88] [cursor=pointer]:
+              - generic [ref=f492e89]: B
+              - generic [ref=f492e90]:
+                - generic [ref=f492e91]:
+                  - strong [ref=f492e92]: Bruno Rodrigues
+                  - generic [ref=f492e93]: 11:00
+                - generic [ref=f492e94]:
+                  - generic [ref=f492e95]: "*Bruno - Administrativo:* oi"
+                  - generic [ref=f492e96]: "2"
+                - generic [ref=f492e97]: (61) 3199-1641
+            - generic [ref=f492e65]:
+              - button "Nova conversa" [ref=f492e66] [cursor=pointer]
+              - button "Criar grupo" [disabled] [ref=f492e68]
+          - generic [ref=f492e99]:
+            - generic [ref=f492e100]:
+              - generic [ref=f492e101]: B
+              - generic [ref=f492e102]:
+                - generic [ref=f492e103]: Bruno Rodrigues
+                - generic [ref=f492e104]:
+                  - generic [ref=f492e105]: (61) 3199-1641
+                  - generic [ref=f492e106]: ↳ Bruno Rodrigues
+              - button "Buscar na conversa" [ref=f492e107]
+              - button "Transferir" [ref=f492e112]
+              - button "Encerrar" [ref=f492e126]
+            - generic [ref=f492e130]:
+              - generic [ref=f492e132]:
+                - generic [ref=f492e133]: Oi
+                - generic [ref=f492e134]: 21:44
+              - generic [ref=f492e136]:
+                - generic [ref=f492e137]: Oi!
+                - generic [ref=f492e138]: 21:45
+              - generic [ref=f492e140]:
+                - generic [ref=f492e141]: teste 123
+                - generic [ref=f492e142]: 21:45
+              - generic [ref=f492e144]:
+                - generic [ref=f492e145]: "*Bruno Rodrigues da Silva:* oi"
+                - generic [ref=f492e146]: 01:07
+              - generic [ref=f492e148]:
+                - generic [ref=f492e149]: "*Bruno - Administrativo:* Oi!"
+                - generic [ref=f492e150]: 01:09
+              - generic [ref=f492e152]:
+                - generic [ref=f492e153]: Oi
+                - generic [ref=f492e154]: 01:12
+              - generic [ref=f492e156]:
+                - generic [ref=f492e157]: "*Bruno - Administrativo:* oi"
+                - generic [ref=f492e158]: 09:28
+              - generic [ref=f492e159]: Bruno Rodrigues atribuiu a si mesmo essa conversa
+              - generic [ref=f492e160]: Bruno Rodrigues adicionou teste-fable
+            - generic [ref=f492e161]:
+              - generic [ref=f492e162]:
+                - button "Emoji" [ref=f492e164]
+                - generic "Enviar arquivo" [ref=f492e168]
+                - button "Gravar áudio" [ref=f492e171]
+                - button "Mensagem" [ref=f492e175] [cursor=pointer]
+              - generic [ref=f492e179]:
+                - textbox "Digite uma mensagem…" [ref=f492e180]
+                - button [disabled] [ref=f492e181]
+          - generic [ref=f492e185]:
+            - generic [ref=f492e186]:
+              - generic [ref=f492e187]: B
+              - generic [ref=f492e188]: Bruno Rodrigues
+              - generic [ref=f492e189]: Channel::Api
+              - generic [ref=f492e190]:
+                - button "Silenciar" [ref=f492e191] [cursor=pointer]
+                - button "Não lida" [ref=f492e195] [cursor=pointer]
+            - generic [ref=f492e199]:
+              - generic [ref=f492e200]: Mídias e documentos
+              - generic [ref=f492e201]: Nenhum arquivo nesta conversa ainda.
+            - button "Geral" [ref=f492e203] [cursor=pointer]
+            - generic [ref=f492e204]:
+              - generic [ref=f492e205]:
+                - generic [ref=f492e206]: Vincular a
+                - generic [ref=f492e207]:
+                  - button "Parceiro" [ref=f492e208] [cursor=pointer]
+                  - button "Instituição" [ref=f492e209] [cursor=pointer]
+                  - button "Promotora" [ref=f492e210] [cursor=pointer]
+                - textbox "Buscar parceiro…" [ref=f492e215]
+              - generic [ref=f492e216]:
+                - generic [ref=f492e217]: Tags
+                - generic [ref=f492e218]: Nenhuma tag.
+                - generic [ref=f492e220]:
+                  - combobox "Adicionar tag…" [ref=f492e221]
+                  - button [ref=f492e222]
+              - generic [ref=f492e224]:
+                - generic [ref=f492e225]: Protocolo
+                - generic [ref=f492e226]:
+                  - code [ref=f492e227]: "2026083100001"
+                  - button "Copiar" [ref=f492e228]
+              - generic [ref=f492e232]:
+                - generic [ref=f492e233]: Departamento
+                - generic [ref=f492e234]: (61) 3199-1641
+              - generic [ref=f492e235]:
+                - generic [ref=f492e236]: Atendente
+                - combobox [ref=f492e237]:
+                  - option "Sem atendente"
+                  - option "Bruno Rodrigues" [selected]
+                  - option "Tonys Eduardo de Sousa Carlos"
+                  - option "Winston Mariano Valverde"
+              - generic [ref=f492e238]:
+                - generic [ref=f492e239]: Observações
+                - textbox "Anotações internas sobre este contato…" [ref=f492e240]
+  - alert [ref=f492e80]

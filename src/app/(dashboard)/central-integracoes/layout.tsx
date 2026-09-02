@@ -1,10 +1,8 @@
-import CentralSidebar from './_components/CentralSidebar'
-
+/**
+ * O menu contextual deste subsistema agora vive na sidebar global por
+ * divisões (src/lib/nav/divisoes.ts) — este layout só preserva o padding
+ * de conteúdo (.rh-content).
+ */
 export default function CentralIntegracoesLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rh-layout-container">
-      <CentralSidebar />
-      <div className="rh-content">{children}</div>
-    </div>
-  )
+  return <div className="rh-content">{children}</div>
 }

@@ -1,0 +1,22 @@
+[   63082ms] Error: cannot add `postgres_changes` callbacks for realtime:chat-eventos-atendimento after `subscribe()`.
+    at eE.on (https://workspace.brspromotora.com.br/_next/static/chunks/0068oym.ewj6f.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:6:36892)
+    at https://workspace.brspromotora.com.br/_next/static/chunks/17e7o3rg1~w.l.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:5956
+    at iv (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:102999)
+    at up (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:127038)
+    at ud (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:126700)
+    at up (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:127083)
+    at ud (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:126700)
+    at up (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:127083)
+    at ud (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:126700)
+    at up (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:127018)
+[   69941ms] Error: Minified React error #310; visit https://react.dev/errors/310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at aP (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:65160)
+    at Object.ol [as useMemo] (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:72627)
+    at r.useMemo (https://workspace.brspromotora.com.br/_next/static/chunks/0xldd1t7cs2g7.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:9994)
+    at L (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:217194)
+    at ay (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:63875)
+    at oJ (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:84132)
+    at iu (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:95734)
+    at sd (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:138974)
+    at https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:138819
+    at sf (https://workspace.brspromotora.com.br/_next/static/chunks/0aqpm5mabssqz.js?dpl=dpl_24SS3Fz72PgysRibxeQiiLqgme5u:1:138827)

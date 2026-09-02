@@ -1,0 +1,2 @@
+[     154ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://workspace.brspromotora.com.br/api/central-conversas/agentes-sync:0
+[     384ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://workspace.brspromotora.com.br/favicon.ico:0

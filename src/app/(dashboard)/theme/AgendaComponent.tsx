@@ -1,5 +1,12 @@
 'use client'
 
+/**
+ * Painel de Agenda & Tarefas da home (layout aprovado 02/09/2026): o widget
+ * pequeno virou o centro da página, com as 4 abas — Minha Agenda, Agenda da
+ * Equipe, Minhas Tarefas e Tarefas da Equipe. É o MESMO módulo /agenda
+ * (listAgendaItems etc.), sem duplicação; /agenda segue existindo para o
+ * painel completo (Kanban, relatórios).
+ */
 import { useState, useEffect } from 'react'
 import type { CalendarEvent } from '@/lib/google/calendar'
 import { CreateEventModal } from './CreateEventModal'
@@ -11,9 +18,21 @@ type ConnectionState = {
   reason?: string
 }
 
+type Aba = 'minha' | 'equipe' | 'tarefas' | 'tarefas-equipe'
+
+const ABAS: Array<{ id: Aba; label: string }> = [
+  { id: 'minha', label: 'Minha Agenda' },
+  { id: 'equipe', label: 'Agenda da Equipe' },
+  { id: 'tarefas', label: 'Minhas Tarefas' },
+  { id: 'tarefas-equipe', label: 'Tarefas da Equipe' },
+]
+
+const LIMITE_TAREFAS = 12
+
 export function AgendaComponent() {
-  const [activeTab, setActiveTab] = useState<'minha' | 'empresa' | 'tarefas'>('minha')
+  const [activeTab, setActiveTab] = useState<Aba>('minha')
   const [myTasks, setMyTasks] = useState<AgendaItem[]>([])
+  const [teamTasks, setTeamTasks] = useState<AgendaItem[]>([])
   const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [connection, setConnection] = useState<ConnectionState>({ connected: false })
   const [isLoading, setIsLoading] = useState(true)
@@ -117,13 +136,14 @@ export function AgendaComponent() {
   }, [activeTab, connection.connected])
 
   useEffect(() => {
-    if (activeTab === 'empresa' && selectedUser) fetchUserEvents(selectedUser)
+    if (activeTab === 'equipe' && selectedUser) fetchUserEvents(selectedUser)
   }, [selectedUser, activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'tarefas') return
+    if (activeTab !== 'tarefas' && activeTab !== 'tarefas-equipe') return
+    const escopo = activeTab === 'tarefas' ? 'minhas' : 'todas'
     setIsLoadingTasks(true)
-    listAgendaItems({ kind: 'tarefas', scope: 'minhas' })
+    listAgendaItems({ kind: 'tarefas', scope: escopo })
       .then((items) => {
         const pending = items
           .filter((item) => item.status !== 'feito')
@@ -132,9 +152,11 @@ export function AgendaComponent() {
             if (byPriority !== 0) return byPriority
             return (a.due_date || '9999').localeCompare(b.due_date || '9999')
           })
-        setMyTasks(pending.slice(0, 6))
+          .slice(0, LIMITE_TAREFAS)
+        if (escopo === 'minhas') setMyTasks(pending)
+        else setTeamTasks(pending)
       })
-      .catch(() => setMyTasks([]))
+      .catch(() => (escopo === 'minhas' ? setMyTasks([]) : setTeamTasks([])))
       .finally(() => setIsLoadingTasks(false))
   }, [activeTab])
 
@@ -143,45 +165,90 @@ export function AgendaComponent() {
       ? 'Conexao expirada. Reconecte sua conta Google.'
       : 'Conecte sua conta Google para visualizar sua agenda.'
 
+  const cardStyle = {
+    borderColor: isDarkTheme ? '#334155' : '#e5e7eb',
+    background: isDarkTheme ? '#0b1220' : '#ffffff',
+  }
+
+  function renderEventos() {
+    if (isLoadingEvents) {
+      return <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Carregando eventos...</p>
+    }
+    if (events.length === 0) {
+      return <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Nenhum compromisso para hoje.</p>
+    }
+    return (
+      <div className="space-y-2">
+        {events.map((event) => (
+          <div key={event.id} className="border rounded-lg p-3" style={cardStyle}>
+            <p className="font-medium">{event.title}</p>
+            <p className="text-sm" style={{ color: isDarkTheme ? '#cbd5e1' : '#4b5563' }}>
+              {new Date(event.start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              {' - '}
+              {new Date(event.end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  function renderTarefas(tarefas: AgendaItem[], mostrarPessoa: boolean) {
+    if (isLoadingTasks) {
+      return <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Carregando tarefas…</p>
+    }
+    if (tarefas.length === 0) {
+      return <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Nenhuma tarefa pendente. 🎉</p>
+    }
+    return (
+      <div className="space-y-2">
+        {tarefas.map((task) => {
+          const priority = AGENDA_PRIORITIES.find((p) => p.value === task.priority) || AGENDA_PRIORITIES[1]
+          const pessoa = task.participants.find((p) => p.role === 'envolvido')?.name || task.created_by_name
+          return (
+            <a
+              key={task.id}
+              href={`/agenda?item=${task.id}`}
+              className="border rounded-lg p-3 flex items-center justify-between gap-3"
+              style={{ ...cardStyle, borderLeft: `3px solid ${priority.color}` }}
+            >
+              <span className="font-medium truncate">
+                {mostrarPessoa && pessoa ? <span style={{ color: isDarkTheme ? '#93c5fd' : '#1d4ed8' }}>{pessoa.split(' ')[0]}: </span> : null}
+                {task.title}
+              </span>
+              <span className="text-xs whitespace-nowrap" style={{ color: isDarkTheme ? '#94a3b8' : '#6b7280' }}>
+                {task.due_date
+                  ? new Date(`${task.due_date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                  : priority.label}
+              </span>
+            </a>
+          )
+        })}
+        <a href="/agenda" className="block text-center text-sm font-semibold pt-2" style={{ color: isDarkTheme ? '#93c5fd' : '#1d4ed8' }}>
+          Abrir painel completo →
+        </a>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full space-y-4">
-      <div className="flex border-b items-center">
-        <button
-          onClick={() => setActiveTab('minha')}
-          className={`px-4 py-2 font-medium ${
-            activeTab === 'minha'
-              ? 'border-b-2 border-blue-600 text-blue-600'
-              : isDarkTheme
-                ? 'text-slate-300 hover:text-white'
-                : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Minha Agenda
-        </button>
-        <button
-          onClick={() => setActiveTab('empresa')}
-          className={`px-4 py-2 font-medium ${
-            activeTab === 'empresa'
-              ? 'border-b-2 border-blue-600 text-blue-600'
-              : isDarkTheme
-                ? 'text-slate-300 hover:text-white'
-                : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Agenda da Empresa
-        </button>
-        <button
-          onClick={() => setActiveTab('tarefas')}
-          className={`px-4 py-2 font-medium ${
-            activeTab === 'tarefas'
-              ? 'border-b-2 border-blue-600 text-blue-600'
-              : isDarkTheme
-                ? 'text-slate-300 hover:text-white'
-                : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          Minhas Tarefas
-        </button>
+      <div className="flex border-b items-center flex-wrap">
+        {ABAS.map((aba) => (
+          <button
+            key={aba.id}
+            onClick={() => setActiveTab(aba.id)}
+            className={`px-4 py-2 font-medium ${
+              activeTab === aba.id
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : isDarkTheme
+                  ? 'text-slate-300 hover:text-white'
+                  : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            {aba.label}
+          </button>
+        ))}
         <a
           href="/agenda"
           className="ml-auto px-3 py-1 rounded-lg text-sm font-semibold"
@@ -191,7 +258,7 @@ export function AgendaComponent() {
             border: `1px solid ${isDarkTheme ? '#31507c' : '#bfdbfe'}`,
           }}
         >
-          Tarefas da equipe →
+          Painel completo →
         </a>
       </div>
 
@@ -227,80 +294,13 @@ export function AgendaComponent() {
                     Novo Compromisso
                   </button>
                 </div>
-
-                {isLoadingEvents ? (
-                <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Carregando eventos...</p>
-              ) : events.length === 0 ? (
-                <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Nenhum compromisso para hoje.</p>
-              ) : (
-                <div className="space-y-2">
-                  {events.map((event) => (
-                    <div
-                      key={event.id}
-                      className="border rounded-lg p-3"
-                      style={{
-                        borderColor: isDarkTheme ? '#334155' : '#e5e7eb',
-                        background: isDarkTheme ? '#0b1220' : '#ffffff',
-                      }}
-                    >
-                      <p className="font-medium">{event.title}</p>
-                      <p className="text-sm" style={{ color: isDarkTheme ? '#cbd5e1' : '#4b5563' }}>
-                        {new Date(event.start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        {' - '}
-                        {new Date(event.end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {renderEventos()}
               </div>
             )}
           </div>
         )}
 
-        {activeTab === 'tarefas' && (
-          <div className="space-y-2">
-            {isLoadingTasks ? (
-              <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>Carregando tarefas…</p>
-            ) : myTasks.length === 0 ? (
-              <p className="text-center py-8" style={{ color: isDarkTheme ? '#cbd5e1' : '#6b7280' }}>
-                Nenhuma tarefa pendente. 🎉
-              </p>
-            ) : (
-              myTasks.map((task) => {
-                const priority = AGENDA_PRIORITIES.find((p) => p.value === task.priority) || AGENDA_PRIORITIES[1]
-                return (
-                  <a
-                    key={task.id}
-                    href={`/agenda?item=${task.id}`}
-                    className="border rounded-lg p-3 flex items-center justify-between gap-3"
-                    style={{
-                      borderColor: isDarkTheme ? '#334155' : '#e5e7eb',
-                      background: isDarkTheme ? '#0b1220' : '#ffffff',
-                      borderLeft: `3px solid ${priority.color}`,
-                    }}
-                  >
-                    <span className="font-medium truncate">{task.title}</span>
-                    <span className="text-xs whitespace-nowrap" style={{ color: isDarkTheme ? '#94a3b8' : '#6b7280' }}>
-                      {task.due_date
-                        ? new Date(`${task.due_date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-                        : priority.label}
-                    </span>
-                  </a>
-                )
-              })
-            )}
-            <a
-              href="/agenda"
-              className="block text-center text-sm font-semibold pt-2"
-              style={{ color: isDarkTheme ? '#93c5fd' : '#1d4ed8' }}
-            >
-              Abrir painel completo →
-            </a>
-          </div>
-        )}
-
-        {activeTab === 'empresa' && (
+        {activeTab === 'equipe' && (
           <div className="space-y-4">
             {!connection.connected ? (
               <div
@@ -315,13 +315,13 @@ export function AgendaComponent() {
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Selecione um usuario:</label>
+                  <label className="block text-sm font-medium mb-2">Agenda de:</label>
                   <select
                     value={selectedUser}
                     onChange={(e) => setSelectedUser(e.target.value)}
                     className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">-- Escolha um usuario --</option>
+                    <option value="">-- Escolha uma pessoa --</option>
                     {users.map((user) => (
                       <option key={user.id} value={user.email}>
                         {user.full_name || user.email}
@@ -329,10 +329,14 @@ export function AgendaComponent() {
                     ))}
                   </select>
                 </div>
+                {selectedUser ? renderEventos() : null}
               </div>
             )}
           </div>
         )}
+
+        {activeTab === 'tarefas' && renderTarefas(myTasks, false)}
+        {activeTab === 'tarefas-equipe' && renderTarefas(teamTasks, true)}
       </div>
 
       <CreateEventModal
