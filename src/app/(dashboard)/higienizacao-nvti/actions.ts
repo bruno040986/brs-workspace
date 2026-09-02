@@ -39,6 +39,14 @@ export async function getNvtiPanorama(): Promise<NvtiPanorama> {
   }
 }
 
+/** Convênios ativos, pra escolher o do lote (seletor vinculado — nunca texto livre). */
+export async function getConveniosParaLoteNvti(): Promise<Array<{ id: string; nome: string }>> {
+  await requirePermission('operacional-nvti', 'can_include')
+  const admin = await createAdminClient()
+  const { data } = await admin.from('convenios').select('id, nome').eq('is_active', true).is('deleted_at', null).order('nome')
+  return (data || []).map((c) => ({ id: String(c.id), nome: String(c.nome) }))
+}
+
 function monthStartIso(reference = new Date()): string {
   return new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1)).toISOString()
 }

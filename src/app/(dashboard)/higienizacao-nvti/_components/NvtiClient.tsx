@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import type { HigienizacaoOutcome, NvtiResultado } from '@/lib/nvti/types'
 import {
-  cancelNvtiBatch, consultarCpfNvti, getNvtiPanorama, listNvtiBatches,
+  cancelNvtiBatch, consultarCpfNvti, getConveniosParaLoteNvti, getNvtiPanorama, listNvtiBatches,
   type NvtiBatchListItem, type NvtiPanorama,
 } from '../actions'
 
@@ -179,6 +179,8 @@ export default function NvtiClient({
   const [resultado, setResultado] = useState<{ resultado: NvtiResultado; fromCache: boolean; unitCost: number } | null>(null)
 
   // --- Lotes ---
+  const [convenios, setConvenios] = useState<Array<{ id: string; nome: string }>>([])
+  const [convenioLoteId, setConvenioLoteId] = useState('')
   const [uploading, setUploading] = useState(false)
   const [loteFeedback, setLoteFeedback] = useState<Feedback | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -196,6 +198,10 @@ export default function NvtiClient({
     } catch {
       // silencioso — próximo polling tenta de novo
     }
+  }, [])
+
+  useEffect(() => {
+    void getConveniosParaLoteNvti().then(setConvenios)
   }, [])
 
   useEffect(() => {
@@ -234,6 +240,7 @@ export default function NvtiClient({
     try {
       const formData = new FormData()
       formData.set('file', file)
+      formData.set('convenio_id', convenioLoteId)
       const res = await fetch('/api/nvti/upload', { method: 'POST', body: formData })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(String(body?.error || 'Falha ao importar o arquivo.'))
@@ -340,11 +347,30 @@ export default function NvtiClient({
                 dígito e deduplicação. Máximo de 100.000 CPFs por lote.
               </div>
             </div>
+            <div className="form-group" style={{ minWidth: 240, marginBottom: 0 }}>
+              <label className="form-label">Convênio dos leads deste lote</label>
+              <select
+                className="form-control"
+                value={convenioLoteId}
+                onChange={(e) => setConvenioLoteId(e.target.value)}
+                required
+              >
+                <option value="">Selecione…</option>
+                {convenios.map((convenio) => (
+                  <option key={convenio.id} value={convenio.id}>{convenio.nome}</option>
+                ))}
+              </select>
+              {!convenioLoteId ? (
+                <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                  Selecione o convênio antes de enviar o arquivo.
+                </div>
+              ) : null}
+            </div>
             <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" style={{ display: 'none' }} onChange={handleUpload} />
             <button
               type="button"
               className="btn btn-primary"
-              disabled={uploading || !panorama.canImport || notConfigured}
+              disabled={uploading || !panorama.canImport || notConfigured || !convenioLoteId}
               onClick={() => fileInputRef.current?.click()}
               style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
             >
