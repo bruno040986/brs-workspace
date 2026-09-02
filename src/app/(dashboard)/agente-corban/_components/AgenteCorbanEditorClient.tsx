@@ -56,7 +56,7 @@ import {
   type AgenteCorbanStatus,
   type BankLookup,
 } from '@/lib/agente-corban'
-import { getFieldByPath } from '@/lib/agente-corban-fields'
+import { getFieldByPath, getValueAtPath, setValueAtPath } from '@/lib/agente-corban-fields'
 import {
   getDivergenciasReceita,
   getFieldProvenance,
@@ -994,6 +994,11 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
   /** Patch de um campo escalar da seção Garantia. */
   function patchGarantia(key: string, value: any) {
     setDraft((current) => ({ ...current, garantia: { ...(current.garantia || {}), [key]: value } }))
+  }
+
+  /** Patch de um campo dentro de `corban_data` pelo dot-path canônico (ex.: `documents.social_contract_url`). */
+  function patchCorbanDataField(path: string, value: any) {
+    setDraft((current) => ({ ...current, corban_data: setValueAtPath(current.corban_data || {}, path, value) }))
   }
 
   /** Atualiza a lista de produção mensal (manual) da seção Garantia. */
@@ -2347,10 +2352,21 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 </div>
                 <div style={{ gridColumn: 'span 6' }}>
                   <TextField
-                    label="Contrato Social, Requerimento de Empresário, Estatuto Social ou CCMEI"
+                    label="PDF do Contrato (gerado via Assinafy)"
                     value={draft.contract_pdf_url || ''}
                     onChange={(next) => patchDraft({ contract_pdf_url: next })}
                     copyValue={draft.contract_pdf_url || ''}
+                    type="url"
+                    placeholder="https://..."
+                    helperText="Contrato de prestação de serviços assinado — não o documento societário do parceiro."
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 6' }}>
+                  <TextField
+                    label="Contrato Social, Requerimento de Empresário, Estatuto Social ou CCMEI (enviado pelo parceiro)"
+                    value={getValueAtPath(draft.corban_data, 'documents.social_contract_url') || ''}
+                    onChange={(next) => patchCorbanDataField('documents.social_contract_url', next)}
+                    copyValue={getValueAtPath(draft.corban_data, 'documents.social_contract_url') || ''}
                     type="url"
                     placeholder="https://..."
                   />
@@ -2377,6 +2393,16 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 </div>
                 <div style={{ gridColumn: 'span 6' }}>
                   <TextField
+                    label="Comprovante de Endereço do Sócio Principal"
+                    value={getValueAtPath(draft.corban_data, 'documents.primary_socio_address_proof_url') || ''}
+                    onChange={(next) => patchCorbanDataField('documents.primary_socio_address_proof_url', next)}
+                    copyValue={getValueAtPath(draft.corban_data, 'documents.primary_socio_address_proof_url') || ''}
+                    type="url"
+                    placeholder="https://..."
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 6' }}>
+                  <TextField
                     label="Documento de Identificação Oficial com foto do Sócio Secundário"
                     value={draft.secondary_socio_document_url || ''}
                     onChange={(next) => patchDraft({ secondary_socio_document_url: next })}
@@ -2387,10 +2413,40 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                 </div>
                 <div style={{ gridColumn: 'span 6' }}>
                   <TextField
+                    label="Comprovante de Endereço do Sócio Secundário"
+                    value={getValueAtPath(draft.corban_data, 'documents.secondary_socio_address_proof_url') || ''}
+                    onChange={(next) => patchCorbanDataField('documents.secondary_socio_address_proof_url', next)}
+                    copyValue={getValueAtPath(draft.corban_data, 'documents.secondary_socio_address_proof_url') || ''}
+                    type="url"
+                    placeholder="https://..."
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 6' }}>
+                  <TextField
+                    label="Documento da Testemunha"
+                    value={getValueAtPath(draft.corban_data, 'documents.witness_document_url') || ''}
+                    onChange={(next) => patchCorbanDataField('documents.witness_document_url', next)}
+                    copyValue={getValueAtPath(draft.corban_data, 'documents.witness_document_url') || ''}
+                    type="url"
+                    placeholder="https://..."
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 6' }}>
+                  <TextField
                     label="Foto da Fachada"
                     value={draft.front_photo_url || ''}
                     onChange={(next) => patchDraft({ front_photo_url: next })}
                     copyValue={draft.front_photo_url || ''}
+                    type="url"
+                    placeholder="https://..."
+                  />
+                </div>
+                <div style={{ gridColumn: 'span 6' }}>
+                  <TextField
+                    label="Foto Externa com Número do Endereço"
+                    value={getValueAtPath(draft.corban_data, 'documents.external_number_photo_url') || ''}
+                    onChange={(next) => patchCorbanDataField('documents.external_number_photo_url', next)}
+                    copyValue={getValueAtPath(draft.corban_data, 'documents.external_number_photo_url') || ''}
                     type="url"
                     placeholder="https://..."
                   />

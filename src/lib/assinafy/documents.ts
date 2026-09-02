@@ -132,6 +132,52 @@ export async function updateAssinafyDocumentStatus(
  * atualiza o status do documento. Idempotente — reprocessar o mesmo evento não
  * causa efeito duplicado.
  */
+/**
+ * Cadastros Recebidos (fase D): quando um documento vinculado a um processo
+ * de onboarding fica assinado ('certificated'), marca contrato/termo no
+ * processo e registra o evento — o operador vê a etapa liberada na tela.
+ */
+async function atualizarOnboardingPorDocumento(supabase: any, documentId: string, status: string) {
+  if (status !== 'certificated') return
+  try {
+    const { data: porContrato } = await supabase
+      .from('corban_onboarding_processos')
+      .select('id, contrato_status')
+      .eq('contrato_assinafy_document_id', documentId)
+      .maybeSingle()
+    if (porContrato && porContrato.contrato_status !== 'assinado') {
+      await supabase
+        .from('corban_onboarding_processos')
+        .update({ contrato_status: 'assinado', updated_at: new Date().toISOString() })
+        .eq('id', porContrato.id)
+      await supabase.from('corban_onboarding_eventos').insert({
+        processo_id: porContrato.id,
+        tipo: 'contrato_assinado',
+        detalhe: { document_id: documentId, origem: 'webhook' },
+      })
+      return
+    }
+    const { data: porTermo } = await supabase
+      .from('corban_onboarding_processos')
+      .select('id, termo_status')
+      .eq('termo_assinafy_document_id', documentId)
+      .maybeSingle()
+    if (porTermo && porTermo.termo_status !== 'assinado') {
+      await supabase
+        .from('corban_onboarding_processos')
+        .update({ termo_status: 'assinado', updated_at: new Date().toISOString() })
+        .eq('id', porTermo.id)
+      await supabase.from('corban_onboarding_eventos').insert({
+        processo_id: porTermo.id,
+        tipo: 'termo_assinado',
+        detalhe: { document_id: documentId, origem: 'webhook' },
+      })
+    }
+  } catch (err) {
+    console.error('Erro ao refletir assinatura no onboarding:', err)
+  }
+}
+
 export async function processAssinafyWebhook(envelope: any): Promise<{ ok: boolean; deduped?: boolean; documentId?: string; status?: string | null }> {
   const interpreted = interpretWebhook(envelope)
   try {
@@ -157,6 +203,7 @@ export async function processAssinafyWebhook(envelope: any): Promise<{ ok: boole
 
     if (interpreted.documentId && interpreted.status) {
       await updateAssinafyDocumentStatus(interpreted.documentId, interpreted.status, interpreted.event)
+      await atualizarOnboardingPorDocumento(supabase, interpreted.documentId, interpreted.status)
     }
 
     if (interpreted.externalId) {
