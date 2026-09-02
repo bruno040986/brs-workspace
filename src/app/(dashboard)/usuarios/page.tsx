@@ -93,6 +93,8 @@ const SYSTEM_MODULES = [
   { id: 'cat-div-tecnologia', name: 'Divisão: Tecnologia', isHeader: true, level: 0 },
   { id: 'workspace-tec', name: 'Tecnologia (divisão + links do setor)', parentId: 'cat-div-tecnologia', level: 1 },
   { id: 'central-integracoes', name: 'Integrações', parentId: 'cat-div-tecnologia', level: 1 },
+  { id: 'helpdesk-abrir', name: 'HelpDesk (abrir e acompanhar tickets)', parentId: 'cat-div-tecnologia', level: 1 },
+  { id: 'helpdesk-aprovar', name: 'Aprovar/rejeitar planos', parentId: 'helpdesk-abrir', level: 2 },
 
   // Divisão: Configurações
   { id: 'cat-div-configuracoes', name: 'Divisão: Configurações', isHeader: true, level: 0 },

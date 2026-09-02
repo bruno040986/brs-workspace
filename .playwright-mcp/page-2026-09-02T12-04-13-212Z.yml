@@ -1,0 +1,42 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - link [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img "BRS Workspace" [ref=e6]
+    - generic [ref=e7]:
+      - button "Links" [ref=e9] [cursor=pointer]
+      - button [ref=e14] [cursor=pointer]
+      - button [ref=e19] [cursor=pointer]
+      - button [ref=e23] [cursor=pointer]:
+        - img "Bruno Rodrigues da Silva" [ref=e25]
+  - complementary "BRS Messenger":
+    - button "Abrir BRS Messenger" [ref=e26] [cursor=pointer]:
+      - img "BRS Messenger" [ref=e28]
+  - button "Recolher menu lateral" [ref=e29] [cursor=pointer]
+  - generic [ref=e32]:
+    - complementary [ref=e33]:
+      - navigation [ref=e34]
+    - main [ref=e35]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: Cadastro de Leads
+          - generic [ref=e43]: Só CADASTRA — CPF que já existe no WeSales é ignorado, nunca atualizado ou sobrescrito. Para atualizar margem, REFIN ou elegibilidade de quem já é lead, use Importações; para atualizar dados pessoais em lote, use a Higienização NVTI.
+        - generic [ref=e45]:
+          - generic [ref=e46]:
+            - generic [ref=e47]: Convênio *
+            - combobox [ref=e48]:
+              - option "Selecione..." [selected]
+          - generic [ref=e49]:
+            - generic [ref=e50]: Arquivo (CSV/XLSX, até 20MB, até 2.000 linhas)
+            - button "Choose File" [ref=e51]
+        - table [ref=e54]:
+          - rowgroup [ref=e55]:
+            - row [ref=e56]:
+              - columnheader "Arquivo" [ref=e57]
+              - columnheader "Convênio" [ref=e58]
+              - columnheader "Cadastrados / Total" [ref=e59]
+              - columnheader "Ignorados/Descartados" [ref=e60]
+              - columnheader "Status" [ref=e61]
+          - rowgroup [ref=e62]:
+            - row [ref=e63]:
+              - cell [ref=e64]

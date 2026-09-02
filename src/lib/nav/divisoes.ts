@@ -164,6 +164,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
     label: 'Tecnologia',
     icon: Cpu,
     itens: [
+      { label: 'HelpDesk', href: '/helpdesk', perms: [view('helpdesk-abrir')] },
       {
         label: 'Integrações',
         href: '/central-integracoes',
