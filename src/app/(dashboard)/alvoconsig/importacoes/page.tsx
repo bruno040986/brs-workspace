@@ -45,7 +45,6 @@ export default function ImportacoesPage() {
   const [tipo, setTipo] = useState<'' | 'refin' | 'margem'>('')
   const [convenioId, setConvenioId] = useState('')
   const [instituicaoId, setInstituicaoId] = useState('')
-  const [baseTag, setBaseTag] = useState('')
   const [analise, setAnalise] = useState<Analise | null>(null)
   const [mapeamento, setMapeamento] = useState<Record<string, number | ''>>({})
   const [processando, setProcessando] = useState(false)
@@ -117,10 +116,6 @@ export default function ImportacoesPage() {
       setMessage({ type: 'error', text: 'Selecione o convênio.' })
       return
     }
-    if (!baseTag.trim()) {
-      setMessage({ type: 'error', text: 'Informe a base (tag) que os leads vão receber no WeSales.' })
-      return
-    }
     if (tipo === 'refin' && !instituicaoId) {
       setMessage({ type: 'error', text: 'Importação de REFIN exige a Instituição Financeira — a planilha é sempre de um banco só.' })
       return
@@ -137,7 +132,6 @@ export default function ImportacoesPage() {
       formData.append('fase', 'importar')
       formData.append('tipo', tipo)
       formData.append('mapeamento', JSON.stringify(mapeamentoFinal))
-      formData.append('base_tag', baseTag)
       if (convenioId) formData.append('convenio_id', convenioId)
       if (tipo === 'refin' && instituicaoId) formData.append('instituicao_id', instituicaoId)
       const res = await fetch('/api/alvoconsig/upload', { method: 'POST', body: formData })
@@ -151,7 +145,6 @@ export default function ImportacoesPage() {
         text: `Importação concluída direto no WeSales: ${Number(json.importadas).toLocaleString('pt-BR')} contato(s) com a tag "${json.baseTag}", ${Number(json.descartadas).toLocaleString('pt-BR')} linha(s) descartada(s). Agora é só criar a campanha em Campanhas.`,
       })
       resetWizard()
-      setBaseTag('')
       setInstituicaoId('')
       await loadData()
     } catch {
@@ -166,10 +159,10 @@ export default function ImportacoesPage() {
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Upload size={18} />
-          Importar Mailing
+          Importações
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-          Grava direto no WeSales (nunca se descarta lead) — até 2.000 linhas por vez. Para volume maior, use o CSV nativo na interface do WeSales. REFIN pré-calculado (só troco &gt; 0) ou margens (Novo / Cartão RMC / Cartão RCC).
+          Grava direto no WeSales (nunca se descarta lead) — até 2.000 linhas por vez. Para volume maior, use o CSV nativo na interface do WeSales. REFIN pré-calculado (só troco &gt; 0), margens (Novo / Cartão RMC / Cartão RCC) ou elegibilidade de crédito (sem margem/oferta calculada). A tag do WeSales é sempre gerada automaticamente.
         </div>
       </div>
 
@@ -191,7 +184,7 @@ export default function ImportacoesPage() {
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ minWidth: 220 }}>
-            <label className="form-label">Tipo de mailing <span className="required">*</span></label>
+            <label className="form-label">Tipo de Importação <span className="required">*</span></label>
             <select className="form-control" required value={tipo} onChange={(e) => handleTipoChange(e.target.value as '' | 'refin' | 'margem')}>
               <option value="">Selecione...</option>
               <option value="margem">Margens (calcular por coeficiente)</option>
@@ -221,10 +214,6 @@ export default function ImportacoesPage() {
               </div>
             </div>
           )}
-          <div className="form-group" style={{ minWidth: 220 }}>
-            <label className="form-label">Base (tag no WeSales) <span className="required">*</span></label>
-            <input type="text" className="form-control" required placeholder="Ex.: mesquita-refin-2026-08" value={baseTag} onChange={(e) => setBaseTag(e.target.value)} />
-          </div>
           <div className="form-group">
             <label className="form-label">Arquivo (CSV/XLSX, até 20MB, até 2.000 linhas)</label>
             <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="form-control" onChange={handleFile} disabled={!tipo} />
@@ -257,7 +246,7 @@ export default function ImportacoesPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !convenioId || !baseTag.trim() || (tipo === 'refin' && !instituicaoId)}>
+              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !convenioId || (tipo === 'refin' && !instituicaoId)}>
                 {processando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
                 Confirmar importação
               </button>

@@ -25,6 +25,7 @@ import {
   addContactTags,
   createContact,
   createOpportunity,
+  customFieldValue,
   ensureCustomField,
   findContactByCpf,
   findOpportunitiesByContactDetalhadas,
@@ -77,6 +78,16 @@ function lerPlanilha(buffer: Buffer): Workbook {
 function celula(row: unknown[], idx: number | undefined) {
   if (idx === undefined || idx === null || idx < 0) return null
   return row[idx] ?? null
+}
+
+/** Um segmento de tag: minúsculo, sem acento, sem espaço — pra compor tags automáticas. */
+function slugSegmento(s: string): string {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'x'
 }
 
 /** Telefone BR de planilha (10-11 dígitos) → E.164 (+55...). */
@@ -175,13 +186,9 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Mapeamento de colunas inválido.' }, { status: 400 })
     }
-    const baseTagSlug = String(formData.get('base_tag') || '').trim()
     const convenioIdPadrao = String(formData.get('convenio_id') || '').trim() || null
     const instituicaoId = String(formData.get('instituicao_id') || '').trim() || null
 
-    if (!baseTagSlug) {
-      return NextResponse.json({ error: 'Informe a base (tag) que os leads vão receber no WeSales.' }, { status: 400 })
-    }
     if (!convenioIdPadrao) {
       return NextResponse.json({ error: 'Selecione o convênio — obrigatório para margem e REFIN.' }, { status: 400 })
     }
@@ -224,6 +231,26 @@ export async function POST(request: NextRequest) {
       const { data: inst } = await admin.from('financial_institutions').select('name').eq('id', instituicaoId).maybeSingle()
       instituicaoNome = inst?.name || ''
     }
+
+    // Tag do WeSales SEMPRE gerada automaticamente (decisão 02/09/2026 —
+    // deixou de ser texto livre digitado na tela): margem-<convênio>-<data>-
+    // <numerador> ou refin-<convênio>-<instituição>-<data>-<numerador>. O
+    // numerador desempata múltiplas importações do mesmo tipo/convênio no
+    // mesmo dia — não precisa ser globalmente único, só legível nos relatórios.
+    const hojeBr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+    const inicioDoDiaIso = new Date(`${hojeBr}T00:00:00-03:00`).toISOString()
+    const { count: importsHoje } = await admin
+      .from('crm_imports')
+      .select('id', { count: 'exact', head: true })
+      .eq('tipo', tipo)
+      .eq('convenio_id', convenioIdPadrao)
+      .gte('created_at', inicioDoDiaIso)
+    const numerador = (importsHoje || 0) + 1
+    const dataTag = hojeBr.replace(/-/g, '')
+    const convenioSlug = slugSegmento(convenioSelecionado.nome_reduzido || convenioSelecionado.nome)
+    const baseTagSlug = tipo === 'refin'
+      ? `refin-${convenioSlug}-${slugSegmento(instituicaoNome)}-${dataTag}-${numerador}`
+      : `margem-${convenioSlug}-${dataTag}-${numerador}`
 
     const { data: importRow, error: importError } = await admin
       .from('crm_imports')
@@ -307,7 +334,11 @@ export async function POST(request: NextRequest) {
       customFields.unshift({ id: fieldDefs[WESALES_FIELD_KEYS.cpf].id, fieldValue: normalizeCpfDigits(cpf) })
       if (temMatricula) {
         const valor = String(celula(row, mapeamento.matricula) ?? '').trim()
-        if (valor) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
+        // Preenche, mas NUNCA sobrescreve matrícula já registrada (decisão
+        // 02/09/2026: importação de margem/REFIN é oportunidade, não cadastro
+        // — quem manda no dado do lead é o Cadastro/a Atualização NVTI).
+        const matriculaAtual = existente ? customFieldValue(existente, fieldDefs[WESALES_FIELD_KEYS.matricula].id) : null
+        if (valor && !String(matriculaAtual || '').trim()) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
       }
       if (temConvenio) {
         const codigo = codigoConvenioDaLinha(row)
