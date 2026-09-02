@@ -147,6 +147,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
         perms: [view('alvoconsig-gestao'), view('central-integracoes')],
         children: [
           { label: 'AlvoConsig — Visão Geral', href: '/alvoconsig', perms: [view('alvoconsig-gestao')] },
+          { label: 'Cadastro de Leads', href: '/alvoconsig/cadastro-leads', perms: [view('alvoconsig-gestao')] },
           { label: 'Importações', href: '/alvoconsig/importacoes', perms: [view('alvoconsig-gestao')] },
           { label: 'Alocação de Leads', href: '/alvoconsig/alocacao', perms: [view('alvoconsig-gestao')] },
           { label: 'Certificação', href: '/alvoconsig/certificacao', perms: [view('alvoconsig-certificacao')] },

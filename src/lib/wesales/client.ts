@@ -297,6 +297,9 @@ export async function findContactByCpf(cpf: string): Promise<WesalesContact | nu
 
 export type ContactPayload = {
   name?: string
+  /** Nome/sobrenome separados — a API do WeSales/GHL aceita os dois lados (o combinado `name` também funciona; use um OU outro). */
+  firstName?: string
+  lastName?: string
   phone?: string | null
   email?: string
   address1?: string

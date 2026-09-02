@@ -6,7 +6,7 @@
  * parte técnica: saúde, eventos e erros das integrações).
  */
 import Link from 'next/link'
-import { Database, Megaphone, Rocket, UserCog, Users, FileSpreadsheet, GraduationCap } from 'lucide-react'
+import { Database, Megaphone, Rocket, UserCog, Users, FileSpreadsheet, GraduationCap, UserPlus } from 'lucide-react'
 import { requireAnyPermission, getCurrentUserEffectivePermissions } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
 import { redirect } from 'next/navigation'
@@ -40,9 +40,15 @@ export default async function GestaoLeadsPage() {
       Icone: Megaphone,
     },
     veAlvo && {
+      href: '/alvoconsig/cadastro-leads',
+      titulo: 'Cadastro de Leads',
+      desc: 'Cadastro em lote — só cria; CPF que já existe é ignorado, nunca atualizado.',
+      Icone: UserPlus,
+    },
+    veAlvo && {
       href: '/alvoconsig/importacoes',
       titulo: 'Importações',
-      desc: 'Importação de margens, REFIN e demais bases do AlvoConsig.',
+      desc: 'Margens, REFIN e Elegibilidade — nunca cadastra ou atualiza lead, só oportunidade/margem.',
       Icone: FileSpreadsheet,
     },
     veCentral && {
