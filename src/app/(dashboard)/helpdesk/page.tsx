@@ -10,16 +10,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Check, ExternalLink, LifeBuoy, Loader2, Plus, X } from 'lucide-react'
 import {
-  HELPDESK_SISTEMAS,
   abrirHelpdeskTicket,
   decidirHelpdeskPlano,
   getMeuIdHelpdesk,
   listarHelpdeskTickets,
   rejeitarHelpdeskTicket,
-  type HelpdeskSistema,
-  type HelpdeskStatus,
-  type HelpdeskTicket,
 } from '@/lib/helpdesk/actions'
+import { HELPDESK_SISTEMAS, type HelpdeskSistema, type HelpdeskStatus, type HelpdeskTicket } from '@/lib/helpdesk/tipos'
 
 const COLUNAS: Array<{ id: HelpdeskStatus; label: string; cor: string }> = [
   { id: 'aberto', label: 'Abertos', cor: '#0284c7' },
