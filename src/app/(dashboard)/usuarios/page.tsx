@@ -22,35 +22,30 @@ const DEFAULT_SCHEDULES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'S�
 
 // Definição dos módulos do sistema para a matriz hierárquica
 const SYSTEM_MODULES = [
-  // Workspace Category
-  { id: 'cat-workspace', name: 'Workspace', isHeader: true, level: 0 },
-  { id: 'workspace-adm', name: 'Administrativo', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-fin', name: 'Financeiro', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-rh', name: 'RH', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-ops', name: 'Operacional', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-mkt', name: 'Marketing', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-com', name: 'Comercial', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-acc', name: 'Acessos', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-agenda', name: 'Agenda & Tarefas', parentId: 'cat-workspace', level: 1 },
-  { id: 'workspace-tec', name: 'Tecnologia', parentId: 'cat-workspace', level: 1 },
+  // ==========================================================================
+  // Árvore de permissões — ESPELHO do arranjo de divisões da sidebar
+  // (src/lib/nav/divisoes.ts). REGRA (GRUPO.md): todo menu/subsistema novo ou
+  // movido atualiza esta árvore na mesma entrega. Os ids NUNCA mudam (são as
+  // chaves gravadas em profile_permissions/user_permissions) — só nome,
+  // agrupamento e nível.
+  // ==========================================================================
 
-  // Subsistemas Category
-  { id: 'cat-subsistemas', name: 'Subsistemas', isHeader: true, level: 0 },
-  { id: 'scp', name: 'Sistema de Cadastro de Parceiros (SCP)', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'scp-crm', name: 'CRM Parceiros', parentId: 'scp', level: 2 },
-  { id: 'scp-processos', name: 'Construtor de Processo', parentId: 'scp', level: 2 },
-  { id: 'scp-construtor', name: 'Construtor de Formulário', parentId: 'scp', level: 2 },
-  { id: 'scp-documentos', name: 'Modelos de Documentos', parentId: 'scp', level: 2 },
-  { id: 'scp-emails', name: 'Modelos de E-mails', parentId: 'scp', level: 2 },
-  { id: 'scp-whatsapp', name: 'Modelos de WhatsApp', parentId: 'scp', level: 2 },
-  { id: 'promotoras', name: 'Promotoras', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'agente-corban', name: 'Agente Corban', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'agente-corban-cadastros-recebidos', name: 'Cadastros Recebidos', parentId: 'agente-corban', level: 2 },
-  { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },
-  { id: 'agente-corban-tipos-agente', name: 'Tipo de Agente', parentId: 'agente-corban', level: 2 },
-  { id: 'agente-corban-regras-fisico', name: 'Regra de Físico', parentId: 'agente-corban', level: 2 },
+  // Geral do Workspace
+  { id: 'cat-workspace', name: 'Workspace (geral)', isHeader: true, level: 0 },
+  { id: 'workspace-agenda', name: 'Agenda & Tarefas (home)', parentId: 'cat-workspace', level: 1 },
+  { id: 'workspace-ia', name: 'Jarvis — IA do Workspace (usar o chat)', parentId: 'cat-workspace', level: 1 },
+  { id: 'sistema-mural-elogios', name: 'Mural de Elogios', parentId: 'cat-workspace', level: 1 },
+  { id: 'sistema-ajuda', name: 'Ajuda', parentId: 'cat-workspace', level: 1 },
 
-  { id: 'rh-painel', name: 'Painel de Controle RH', parentId: 'cat-subsistemas', level: 1 },
+  // Divisão: Financeiro
+  { id: 'cat-div-financeiro', name: 'Divisão: Financeiro', isHeader: true, level: 0 },
+  { id: 'workspace-fin', name: 'Financeiro (divisão + links do setor)', parentId: 'cat-div-financeiro', level: 1 },
+  { id: 'financeiro-conta-parceiros', name: 'Conta Virtual Parceiros', parentId: 'cat-div-financeiro', level: 1 },
+
+  // Divisão: RH
+  { id: 'cat-div-rh', name: 'Divisão: RH', isHeader: true, level: 0 },
+  { id: 'workspace-rh', name: 'RH (divisão + links do setor)', parentId: 'cat-div-rh', level: 1 },
+  { id: 'rh-painel', name: 'Painel de Controle RH', parentId: 'cat-div-rh', level: 1 },
   { id: 'rh-colaboradores', name: 'Colaboradores', parentId: 'rh-painel', level: 2 },
   { id: 'rh-importacoes', name: 'Importações', parentId: 'rh-painel', level: 2 },
   { id: 'rh-vale-transporte', name: 'Vale-Transporte', parentId: 'rh-painel', level: 2 },
@@ -60,25 +55,64 @@ const SYSTEM_MODULES = [
   { id: 'rh-relatorios', name: 'Relatórios', parentId: 'rh-painel', level: 2 },
   { id: 'rh-auditoria', name: 'Auditoria', parentId: 'rh-painel', level: 2 },
 
-  { id: 'comercial-estrutura', name: 'Estrutura Comercial', parentId: 'cat-subsistemas', level: 1 },
+  // Divisão: Cadastros
+  { id: 'cat-div-cadastros', name: 'Divisão: Cadastros', isHeader: true, level: 0 },
+  { id: 'agente-corban', name: 'Agente Corban', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'agente-corban-cadastros-recebidos', name: 'Cadastros Recebidos', parentId: 'agente-corban', level: 2 },
+  { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },
+  { id: 'agente-corban-tipos-agente', name: 'Tipo de Agente', parentId: 'agente-corban', level: 2 },
+  { id: 'agente-corban-regras-fisico', name: 'Regra de Físico', parentId: 'agente-corban', level: 2 },
+  { id: 'scp', name: 'SCP (legado — dentro do Agente Corban)', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'scp-crm', name: 'CRM Parceiros', parentId: 'scp', level: 2 },
+  { id: 'scp-processos', name: 'Construtor de Processo', parentId: 'scp', level: 2 },
+  { id: 'scp-construtor', name: 'Construtor de Formulário', parentId: 'scp', level: 2 },
+  { id: 'scp-documentos', name: 'Modelos de Documentos', parentId: 'scp', level: 2 },
+  { id: 'scp-emails', name: 'Modelos de E-mails', parentId: 'scp', level: 2 },
+  { id: 'scp-whatsapp', name: 'Modelos de WhatsApp', parentId: 'scp', level: 2 },
+  { id: 'sistema-config-instituicoes', name: 'Instituições Financeiras', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'workspace-convenios', name: 'Convênios', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'promotoras', name: 'Promotoras', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'comercial-estrutura', name: 'Comerciais (Estrutura Comercial)', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-agentes', name: 'Agentes Comerciais', parentId: 'comercial-estrutura', level: 2 },
-  { id: 'comercial-disparo-whatsapp', name: 'Disparo de WhatsApp', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'operacional-nvti', name: 'Higienização de CPF (NVTI)', parentId: 'cat-subsistemas', level: 1 },
+
+  // Divisão: Operacional
+  { id: 'cat-div-operacional', name: 'Divisão: Operacional', isHeader: true, level: 0 },
+  { id: 'workspace-ops', name: 'Operacional (divisão + links do setor)', parentId: 'cat-div-operacional', level: 1 },
+  { id: 'operacional-nvti', name: 'Higienização de CPF (NVTI)', parentId: 'cat-div-operacional', level: 1 },
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
-  { id: 'central-integracoes', name: 'Central de Integrações', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'conversas', name: 'Central de Atendimento (BRS Messenger)', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'central-conversas', name: 'Configuração de Canais', parentId: 'conversas', level: 2 },
-  { id: 'financeiro-conta-parceiros', name: 'Financeiro — Conta Virtual Parceiros', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-subsistemas', level: 1 },
+  { id: 'sistema-config-credito', name: 'Comissionamento e Coeficientes (ARW)', parentId: 'cat-div-operacional', level: 1 },
+
+  // Divisão: Comercial (Gestão de Leads)
+  { id: 'cat-div-comercial', name: 'Divisão: Comercial — Gestão de Leads', isHeader: true, level: 0 },
+  { id: 'workspace-com', name: 'Comercial (divisão + links do setor)', parentId: 'cat-div-comercial', level: 1 },
+  { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-div-comercial', level: 1 },
   { id: 'alvoconsig-certificacao', name: 'Certificação de Clientes', parentId: 'alvoconsig-gestao', level: 2 },
 
-  // Sistema Category
-  { id: 'cat-sistema', name: 'Sistema', isHeader: true, level: 0 },
-  { id: 'sistema-usuarios-root', name: 'Usuários', parentId: 'cat-sistema', level: 1 },
+  // Divisão: Tecnologia
+  { id: 'cat-div-tecnologia', name: 'Divisão: Tecnologia', isHeader: true, level: 0 },
+  { id: 'workspace-tec', name: 'Tecnologia (divisão + links do setor)', parentId: 'cat-div-tecnologia', level: 1 },
+  { id: 'central-integracoes', name: 'Integrações', parentId: 'cat-div-tecnologia', level: 1 },
+
+  // Divisão: Configurações
+  { id: 'cat-div-configuracoes', name: 'Divisão: Configurações', isHeader: true, level: 0 },
+  { id: 'conversas', name: 'Comunicação — Atendimento (BRS Messenger)', parentId: 'cat-div-configuracoes', level: 1 },
+  { id: 'central-conversas', name: 'Comunicação — Canais, Instâncias e Grupos Internos', parentId: 'conversas', level: 2 },
+  { id: 'comercial-disparo-whatsapp', name: 'Disparo de WhatsApp', parentId: 'cat-div-configuracoes', level: 1 },
+  { id: 'sistema-comunicados', name: 'Comunicados (Editor)', parentId: 'cat-div-configuracoes', level: 1 },
+  { id: 'sistema-usuarios-root', name: 'Usuários e Permissões', parentId: 'cat-div-configuracoes', level: 1 },
   { id: 'sistema-usuarios-cadastro', name: 'Cadastro de Usuários', parentId: 'sistema-usuarios-root', level: 2 },
   { id: 'sistema-usuarios-perfis', name: 'Perfis de Acesso', parentId: 'sistema-usuarios-root', level: 2 },
-  { id: 'sistema-config-root', name: 'Configurações', parentId: 'cat-sistema', level: 1 },
+  { id: 'sistema-config-ia', name: 'IA do Workspace (configurar o Jarvis)', parentId: 'cat-div-configuracoes', level: 1 },
+  { id: 'sistema-links', name: 'Links (gerenciar o menu da topbar)', parentId: 'cat-div-configuracoes', level: 1 },
+  { id: 'sistema-config-root', name: 'Provedores e APIs', parentId: 'cat-div-configuracoes', level: 1 },
+  { id: 'sistema-config-empresa', name: 'Cadastro da Empresa', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-comercial-tipos', name: 'Tipos de Comercial', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-setores', name: 'Setores', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-banners', name: 'Banners da Home', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-formas-recebimento', name: 'Formas de Recebimento', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-tipos-sistemas', name: 'Tipos de Sistemas', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-tipos-remuneracao', name: 'Tipos de Remuneração', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-email', name: 'API E-mail', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-whatsapp', name: 'API WhatsApp', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-assinatura', name: 'API Assinatura Eletrônica', parentId: 'sistema-config-root', level: 2 },
@@ -86,27 +120,22 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-cpf', name: 'API CPF', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-nvti', name: 'API Nova Vida TI', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-gateways', name: 'Gateways de Pagamento', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-cnae', name: 'CNAE', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-ctn', name: 'CTN', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-nbs', name: 'NBS', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-quarkrh', name: 'API QuarkRH', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-contaazul', name: 'API Conta Azul', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-arw', name: 'API ARW', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-instituicoes', name: 'Instituições Financeiras', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-credito', name: 'Comissionamento e Coeficientes (ARW)', parentId: 'sistema-config-root', level: 2 },
-  { id: 'workspace-convenios', name: 'Convênios', parentId: 'cat-subsistemas', level: 1 },
-  { id: 'sistema-config-crm', name: 'API CRM', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-nfse-emissao', name: 'Tipo de Emissão de NFSe', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-regimes-tributarios', name: 'Regimes Tributários', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-recalculo-tributario', name: 'Recálculo Tributário', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-comercial-tipos', name: 'Tipos de Comercial', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-setores', name: 'Setores', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-nfse-emissao', name: 'Tipo de Emissão de NFSe', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-formas-recebimento', name: 'Formas de Recebimento', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-tipos-remuneracao', name: 'Tipos de Remuneração', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-tipos-sistemas', name: 'Tipos de Sistemas', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-empresa', name: 'Cadastro da Empresa', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-comunicados', name: 'Comunicados (Editor)', parentId: 'cat-sistema', level: 1 },
-  { id: 'sistema-mural-elogios', name: 'Mural de Elogios', parentId: 'cat-sistema', level: 1 },
-  { id: 'sistema-links', name: 'Links', parentId: 'cat-sistema', level: 1 },
-  { id: 'sistema-ajuda', name: 'Ajuda', parentId: 'cat-sistema', level: 1 },
+  { id: 'sistema-config-quarkrh', name: 'API QuarkRH (em breve)', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-contaazul', name: 'API Conta Azul (em breve)', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-arw', name: 'API ARW (em breve)', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-crm', name: 'API CRM (em breve)', parentId: 'sistema-config-root', level: 2 },
+
+  // Setores dos Links da topbar (sem subsistema próprio no menu)
+  { id: 'cat-links-setores', name: 'Links da Topbar — setores restantes', isHeader: true, level: 0 },
+  { id: 'workspace-adm', name: 'Administrativo (links do setor)', parentId: 'cat-links-setores', level: 1 },
+  { id: 'workspace-mkt', name: 'Marketing (links do setor)', parentId: 'cat-links-setores', level: 1 },
+  { id: 'workspace-acc', name: 'Acessos (links do setor)', parentId: 'cat-links-setores', level: 1 },
 ]
 
 export default function UsuariosPage() {
