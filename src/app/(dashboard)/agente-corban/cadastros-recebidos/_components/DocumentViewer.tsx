@@ -17,6 +17,21 @@ function isPdfFile(file: DocumentViewerFile) {
   return /\.pdf(\?|$)/i.test(file.url) || /\.pdf$/i.test(file.fileName || '')
 }
 
+/**
+ * Segurança (XSS): URLs de documento vêm de dados enviados pelo parceiro —
+ * só renderizamos schemes http(s). Qualquer outra coisa (javascript:, data:)
+ * vira string vazia e o viewer mostra o aviso de documento indisponível.
+ */
+function safeHttpUrl(url: string | null | undefined): string {
+  const raw = String(url || '').trim()
+  if (!raw) return ''
+  try {
+    const parsed = new URL(raw, window.location.origin)
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.href
+  } catch { /* inválida */ }
+  return ''
+}
+
 function ImageZoomModal({ file, onClose }: { file: DocumentViewerFile; onClose: () => void }) {
   const [zoom, setZoom] = useState(1)
 
@@ -68,7 +83,7 @@ function ImageZoomModal({ file, onClose }: { file: DocumentViewerFile; onClose: 
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={file.url}
+          src={safeHttpUrl(file.url)}
           alt={file.fileName || 'Documento'}
           onClick={() => setZoom((z) => (z === ZOOM_MIN ? ZOOM_MIN + 1 : ZOOM_MIN))}
           style={{
@@ -135,7 +150,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={current.url}
+              src={safeHttpUrl(current.url)}
               alt={current.fileName || 'Documento'}
               onClick={() => setZoomOpen(true)}
               style={{ width: '100%', height: 640, objectFit: 'contain', display: 'block', cursor: 'zoom-in' }}
@@ -152,7 +167,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
             </button>
           </>
         ) : isPdfFile(current) ? (
-          <iframe src={current.url} title={current.fileName || 'Documento'} style={{ width: '100%', height: 640, border: 'none' }} />
+          <iframe src={safeHttpUrl(current.url)} title={current.fileName || 'Documento'} style={{ width: '100%', height: 640, border: 'none' }} />
         ) : (
           <div
             style={{
@@ -172,7 +187,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
       </div>
 
       <a
-        href={current.url}
+        href={safeHttpUrl(current.url)}
         download={current.fileName || undefined}
         target="_blank"
         rel="noopener noreferrer"

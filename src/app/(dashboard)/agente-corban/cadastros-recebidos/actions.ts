@@ -731,7 +731,10 @@ export async function uploadDocAnalise(
       throw new Error('Tipo de documento inválido.')
     }
 
-    const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
+    // Segurança (path traversal): a extensão vem do NOME do arquivo enviado —
+    // só letras/números curtos entram no path do storage; o resto vira 'bin'.
+    const extBruta = (file.name.split('.').pop() || '').toLowerCase()
+    const ext = /^[a-z0-9]{1,8}$/.test(extBruta) ? extBruta : 'bin'
     const path = `${processoId}/${tipoDocumento}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
     const bytes = await file.arrayBuffer()
 

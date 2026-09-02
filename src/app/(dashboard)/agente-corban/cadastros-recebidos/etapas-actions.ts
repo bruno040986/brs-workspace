@@ -90,9 +90,12 @@ export async function salvarNuvidioLink(processoId: string, link: string): Promi
   try {
     const { user } = await requirePermission(RESOURCE, 'can_edit')
     const admin = await createAdminClient()
+    // Segurança: o link vai pra dentro de e-mail/WhatsApp — só http(s) entra.
+    const limpo = String(link || '').trim()
+    if (limpo && !/^https?:\/\//i.test(limpo)) throw new Error('O link da Nuvidio precisa começar com http(s)://')
     const { error } = await admin
       .from('corban_onboarding_processos')
-      .update({ nuvidio_link: String(link || '').trim() || null, updated_at: new Date().toISOString() })
+      .update({ nuvidio_link: limpo || null, updated_at: new Date().toISOString() })
       .eq('id', processoId)
     if (error) throw error
     await registrarEvento(admin, processoId, 'nuvidio_link_salvo', {}, user.id)
