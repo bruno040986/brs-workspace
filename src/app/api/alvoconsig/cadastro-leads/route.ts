@@ -73,14 +73,15 @@ async function comConcorrenciaLimitada<T>(tarefas: Array<() => Promise<T>>, limi
   return resultados
 }
 
-const CAMPOS_CADASTRO = [
+type CampoCadastro = { key: string; label: string; obrigatorio?: boolean }
+const CAMPOS_CADASTRO: CampoCadastro[] = [
   { key: 'cpf', label: 'CPF', obrigatorio: true },
   { key: 'nome', label: 'Nome', obrigatorio: true },
   { key: 'sobrenome', label: 'Sobrenome', obrigatorio: true },
   { key: 'telefone', label: 'Telefone', obrigatorio: true },
   { key: 'email', label: 'E-mail' },
   { key: 'matricula', label: 'Matrícula' },
-] as const
+]
 
 function sugerirMapeamentoCadastro(headers: string[]): Record<string, number> {
   const ALIASES: Record<string, string[]> = {
