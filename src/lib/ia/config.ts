@@ -42,11 +42,15 @@ export const IA_PERSONALIDADE_PADRAO: IaPersonalidade = {
   status_frase: '— resolvendo consignado desde 2026',
 }
 
+// Os slugs :free do OpenRouter fazem RODÍZIO — modelo gratuito sai do ar e o
+// slug passa a dar 404 (foi o que derrubou a 1ª configuração em 02/09/2026).
+// Estes eram válidos em 02/09/2026; confira a lista viva em
+// https://openrouter.ai/api/v1/models (filtre por ':free') antes de trocar.
 export const IA_MODELOS_SUGERIDOS = [
-  'deepseek/deepseek-chat-v3-0324:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'google/gemini-2.0-flash-exp:free',
-  'qwen/qwen3-32b:free',
+  'z-ai/glm-5.2:free',
+  'minimax/minimax-m3:free',
+  'google/gemma-4-31b-it:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
 ]
 
 type IaConfigRow = {

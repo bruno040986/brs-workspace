@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, FileSpreadsheet, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { getConveniosAtivos, getImports, getInstituicoesAtivas } from '../actions'
 
 type ImportItem = {
@@ -32,6 +32,11 @@ type Analise = {
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
+type TipoImportacao = '' | 'refin' | 'margem' | 'elegibilidade'
+
+type GrupoElegibilidade = { instituicaoId: string; colElegibilidade: number | ''; colTipoConsulta: number | '' }
+const GRUPO_VAZIO: GrupoElegibilidade = { instituicaoId: '', colElegibilidade: '', colTipoConsulta: '' }
+
 export default function ImportacoesPage() {
   const [items, setItems] = useState<ImportItem[]>([])
   const [convenios, setConvenios] = useState<Convenio[]>([])
@@ -42,9 +47,10 @@ export default function ImportacoesPage() {
   // wizard
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [arquivo, setArquivo] = useState<File | null>(null)
-  const [tipo, setTipo] = useState<'' | 'refin' | 'margem'>('')
+  const [tipo, setTipo] = useState<TipoImportacao>('')
   const [convenioId, setConvenioId] = useState('')
   const [instituicaoId, setInstituicaoId] = useState('')
+  const [gruposElegibilidade, setGruposElegibilidade] = useState<GrupoElegibilidade[]>([{ ...GRUPO_VAZIO }])
   const [analise, setAnalise] = useState<Analise | null>(null)
   const [mapeamento, setMapeamento] = useState<Record<string, number | ''>>({})
   const [processando, setProcessando] = useState(false)
@@ -69,10 +75,11 @@ export default function ImportacoesPage() {
     setArquivo(null)
     setAnalise(null)
     setMapeamento({})
+    setGruposElegibilidade([{ ...GRUPO_VAZIO }])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  async function analisar(file: File, tipoSelecionado: 'refin' | 'margem') {
+  async function analisar(file: File, tipoSelecionado: 'refin' | 'margem' | 'elegibilidade') {
     setProcessando(true)
     setMessage(null)
     try {
@@ -104,11 +111,13 @@ export default function ImportacoesPage() {
     if (file && tipo) analisar(file, tipo)
   }
 
-  function handleTipoChange(novoTipo: '' | 'refin' | 'margem') {
+  function handleTipoChange(novoTipo: TipoImportacao) {
     setTipo(novoTipo)
     setAnalise(null)
     if (arquivo && novoTipo) analisar(arquivo, novoTipo)
   }
+
+  const gruposCompletos = gruposElegibilidade.every((g) => g.instituicaoId && g.colElegibilidade !== '' && g.colTipoConsulta !== '')
 
   async function importar() {
     if (!arquivo || !analise || !tipo) return
@@ -118,6 +127,10 @@ export default function ImportacoesPage() {
     }
     if (tipo === 'refin' && !instituicaoId) {
       setMessage({ type: 'error', text: 'Importação de REFIN exige a Instituição Financeira — a planilha é sempre de um banco só.' })
+      return
+    }
+    if (tipo === 'elegibilidade' && !gruposCompletos) {
+      setMessage({ type: 'error', text: 'Mapeie a instituição, a coluna de elegibilidade e a coluna de tipo de consulta para cada instituição da lista.' })
       return
     }
     setProcessando(true)
@@ -134,6 +147,19 @@ export default function ImportacoesPage() {
       formData.append('mapeamento', JSON.stringify(mapeamentoFinal))
       if (convenioId) formData.append('convenio_id', convenioId)
       if (tipo === 'refin' && instituicaoId) formData.append('instituicao_id', instituicaoId)
+      if (tipo === 'elegibilidade') {
+        formData.append(
+          'instituicoes',
+          JSON.stringify(
+            gruposElegibilidade.map((g) => ({
+              instituicaoId: g.instituicaoId,
+              instituicaoNome: instituicoes.find((i) => i.id === g.instituicaoId)?.name || '',
+              colElegibilidade: Number(g.colElegibilidade),
+              colTipoConsulta: Number(g.colTipoConsulta),
+            })),
+          ),
+        )
+      }
       const res = await fetch('/api/alvoconsig/upload', { method: 'POST', body: formData })
       const json = await res.json()
       if (!res.ok) {
@@ -185,10 +211,11 @@ export default function ImportacoesPage() {
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ minWidth: 220 }}>
             <label className="form-label">Tipo de Importação <span className="required">*</span></label>
-            <select className="form-control" required value={tipo} onChange={(e) => handleTipoChange(e.target.value as '' | 'refin' | 'margem')}>
+            <select className="form-control" required value={tipo} onChange={(e) => handleTipoChange(e.target.value as TipoImportacao)}>
               <option value="">Selecione...</option>
               <option value="margem">Margens (calcular por coeficiente)</option>
               <option value="refin">REFIN pré-calculado</option>
+              <option value="elegibilidade">Elegibilidade (confirmação de crédito, sem margem)</option>
             </select>
           </div>
           <div className="form-group" style={{ minWidth: 220 }}>
@@ -245,8 +272,75 @@ export default function ImportacoesPage() {
                 </div>
               ))}
             </div>
+
+            {tipo === 'elegibilidade' && (
+              <div style={{ marginTop: '1rem' }}>
+                <div style={{ fontWeight: 700, color: 'var(--brs-gray-800)', marginBottom: '0.5rem' }}>
+                  Instituições financeiras desta importação
+                </div>
+                {gruposElegibilidade.map((grupo, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '0.75rem' }}>
+                    <div className="form-group" style={{ minWidth: 220, marginBottom: 0 }}>
+                      <label className="form-label">Instituição Financeira <span className="required">*</span></label>
+                      <select
+                        className="form-control"
+                        value={grupo.instituicaoId}
+                        onChange={(e) => setGruposElegibilidade((prev) => prev.map((g, i) => (i === idx ? { ...g, instituicaoId: e.target.value } : g)))}
+                      >
+                        <option value="">Selecione...</option>
+                        {instituicoes.map((inst) => (
+                          <option key={inst.id} value={inst.id}>{inst.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ minWidth: 200, marginBottom: 0 }}>
+                      <label className="form-label">Coluna Elegibilidade <span className="required">*</span></label>
+                      <select
+                        className="form-control"
+                        value={grupo.colElegibilidade}
+                        onChange={(e) => setGruposElegibilidade((prev) => prev.map((g, i) => (i === idx ? { ...g, colElegibilidade: e.target.value === '' ? '' : Number(e.target.value) } : g)))}
+                      >
+                        <option value="">— selecione a coluna —</option>
+                        {analise.headers.map((header, hIdx) => (
+                          <option key={hIdx} value={hIdx}>{header || `(coluna ${hIdx + 1})`}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ minWidth: 200, marginBottom: 0 }}>
+                      <label className="form-label">Coluna Tipo de Consulta <span className="required">*</span></label>
+                      <select
+                        className="form-control"
+                        value={grupo.colTipoConsulta}
+                        onChange={(e) => setGruposElegibilidade((prev) => prev.map((g, i) => (i === idx ? { ...g, colTipoConsulta: e.target.value === '' ? '' : Number(e.target.value) } : g)))}
+                      >
+                        <option value="">— selecione a coluna —</option>
+                        {analise.headers.map((header, hIdx) => (
+                          <option key={hIdx} value={hIdx}>{header || `(coluna ${hIdx + 1})`}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={() => setGruposElegibilidade((prev) => prev.filter((_, i) => i !== idx))}
+                      disabled={gruposElegibilidade.length <= 1}
+                      title="Remover instituição"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => setGruposElegibilidade((prev) => [...prev, { ...GRUPO_VAZIO }])}>
+                  <Plus size={14} /> Adicionar instituição
+                </button>
+                <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', marginTop: '0.4rem' }}>
+                  Elegível só conta quando a coluna de elegibilidade diz &ldquo;Elegível&rdquo; E a coluna de tipo de consulta diz &ldquo;Online&rdquo; — elegibilidade offline nunca sozinha.
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !convenioId || (tipo === 'refin' && !instituicaoId)}>
+              <button type="button" className="btn btn-primary" onClick={importar} disabled={processando || !convenioId || (tipo === 'refin' && !instituicaoId) || (tipo === 'elegibilidade' && !gruposCompletos)}>
                 {processando ? <Loader2 size={16} className="spinner" /> : <Upload size={16} />}
                 Confirmar importação
               </button>
@@ -289,7 +383,7 @@ export default function ImportacoesPage() {
                 items.map((imp) => (
                   <tr key={imp.id}>
                     <td style={{ fontWeight: 600 }}>{imp.arquivo_nome}</td>
-                    <td>{imp.tipo === 'refin' ? 'REFIN' : 'Margem'}</td>
+                    <td>{imp.tipo === 'refin' ? 'REFIN' : imp.tipo === 'elegibilidade' ? 'Elegibilidade' : 'Margem'}</td>
                     <td>{imp.convenios?.nome || '-'}</td>
                     <td>{imp.importadas.toLocaleString('pt-BR')} / {imp.total_linhas.toLocaleString('pt-BR')}</td>
                     <td>{imp.descartadas.toLocaleString('pt-BR')}</td>

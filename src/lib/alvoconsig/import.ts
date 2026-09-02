@@ -12,7 +12,7 @@
  * confirmar.
  */
 
-export type TipoImport = 'refin' | 'margem'
+export type TipoImport = 'refin' | 'margem' | 'elegibilidade'
 
 export type CampoImport = {
   key: string
@@ -27,7 +27,7 @@ export const CAMPOS_IMPORT: CampoImport[] = [
     key: 'cpf',
     label: 'CPF',
     obrigatorio: true,
-    tipos: ['refin', 'margem'],
+    tipos: ['refin', 'margem', 'elegibilidade'],
     aliases: ['cpf', 'documento', 'doc', 'cpf_cliente'],
   },
   {

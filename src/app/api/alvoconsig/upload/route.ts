@@ -139,8 +139,8 @@ export async function POST(request: NextRequest) {
     const fase = String(formData.get('fase') || 'analisar')
     const tipo = String(formData.get('tipo') || '') as TipoImport
 
-    if (tipo !== 'refin' && tipo !== 'margem') {
-      return NextResponse.json({ error: 'Selecione o tipo de mailing.' }, { status: 400 })
+    if (tipo !== 'refin' && tipo !== 'margem' && tipo !== 'elegibilidade') {
+      return NextResponse.json({ error: 'Selecione o tipo de importação.' }, { status: 400 })
     }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'Envie um arquivo CSV ou XLSX.' }, { status: 400 })
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
     const instituicaoId = String(formData.get('instituicao_id') || '').trim() || null
 
     if (!convenioIdPadrao) {
-      return NextResponse.json({ error: 'Selecione o convênio — obrigatório para margem e REFIN.' }, { status: 400 })
+      return NextResponse.json({ error: 'Selecione o convênio — obrigatório em qualquer tipo de importação.' }, { status: 400 })
     }
     if (mapeamento.cpf === undefined) {
       return NextResponse.json({ error: 'Mapeie a coluna de CPF.' }, { status: 400 })
@@ -204,6 +204,22 @@ export async function POST(request: NextRequest) {
     const margensMapeadas = (['margem_novo', 'margem_cartao_rmc', 'margem_cartao_rcc'] as const).filter((key) => mapeamento[key] !== undefined)
     if (tipo === 'margem' && margensMapeadas.length === 0) {
       return NextResponse.json({ error: 'Mapeie ao menos uma coluna de margem.' }, { status: 400 })
+    }
+
+    // Elegibilidade: grupos dinâmicos {instituição, coluna elegibilidade,
+    // coluna tipo de consulta} — não passa pelo mapeamento genérico (só CPF
+    // passa por ali) porque a quantidade de instituições varia por arquivo.
+    type GrupoInstituicaoElegibilidade = { instituicaoId: string; instituicaoNome: string; colElegibilidade: number; colTipoConsulta: number }
+    let gruposElegibilidade: GrupoInstituicaoElegibilidade[] = []
+    if (tipo === 'elegibilidade') {
+      try {
+        gruposElegibilidade = JSON.parse(String(formData.get('instituicoes') || '[]'))
+      } catch {
+        gruposElegibilidade = []
+      }
+      if (!Array.isArray(gruposElegibilidade) || !gruposElegibilidade.length) {
+        return NextResponse.json({ error: 'Mapeie ao menos uma instituição financeira (elegibilidade + tipo de consulta).' }, { status: 400 })
+      }
     }
 
     const admin = await createAdminClient()
@@ -250,7 +266,9 @@ export async function POST(request: NextRequest) {
     const convenioSlug = slugSegmento(convenioSelecionado.nome_reduzido || convenioSelecionado.nome)
     const baseTagSlug = tipo === 'refin'
       ? `refin-${convenioSlug}-${slugSegmento(instituicaoNome)}-${dataTag}-${numerador}`
-      : `margem-${convenioSlug}-${dataTag}-${numerador}`
+      : tipo === 'elegibilidade'
+        ? `${convenioSlug}-elegivel-${dataTag}-${numerador}`
+        : `margem-${convenioSlug}-${dataTag}-${numerador}`
 
     const { data: importRow, error: importError } = await admin
       .from('crm_imports')
@@ -302,7 +320,7 @@ export async function POST(request: NextRequest) {
       const resolved = await Promise.all(fieldsContatoAGarantir.map(([key, name]) => ensureCustomField(key, name, 'contact')))
       fieldDefs = Object.fromEntries(fieldsContatoAGarantir.map(([key], i) => [key, resolved[i]]))
 
-      if (tipo === 'refin') {
+      if (tipo === 'refin' || tipo === 'elegibilidade') {
         const entradasOferta = Object.entries(OFERTA_FIELD_KEYS) as Array<[keyof typeof OFERTA_FIELD_KEYS, string]>
         const resolvedOferta = await Promise.all(entradasOferta.map(([campo, key]) => ensureCustomField(key, OFERTA_FIELD_LABELS[campo], 'opportunity')))
         ofertaFieldDefs = Object.fromEntries(entradasOferta.map(([, key], i) => [key, resolvedOferta[i]]))
@@ -426,7 +444,7 @@ export async function POST(request: NextRequest) {
         }),
         CONCORRENCIA,
       )
-    } else {
+    } else if (tipo === 'refin') {
       // REFIN: agrupa por CPF (cada linha = uma oferta = uma Oportunidade).
       // Reimportar a MESMA oferta (mesma instituição+tabela) atualiza a
       // Oportunidade existente sem mexer na etapa (preserva o progresso do
@@ -534,6 +552,66 @@ export async function POST(request: NextRequest) {
                 })
                 existentesNoPipeline.push(nova)
                 usadosNestaImportacao.add(nova.id)
+              }
+              importadas += 1
+            }
+          } catch (error: any) {
+            erros.push(`CPF ${cpf}: ${error?.message || error}`)
+          }
+        }),
+        CONCORRENCIA,
+      )
+    } else {
+      // Elegibilidade: mesmo formato de arquivo do motor de crédito, mas o
+      // operador mapeia manualmente qual coluna é qual instituição — genérico
+      // pra qualquer convênio, não só CLT. Nunca grava margem/nome/telefone
+      // (gravarContato([]) só toca CPF/matrícula/convênio); cria uma
+      // Oportunidade SEM monetaryValue por instituição elegível, dedup pelo
+      // mesmo padrão do REFIN (tipoOferta+instituicaoId). Regra validada em
+      // 29/08/2026 (CLT — Oportunidade por banco elegível): só conta elegível
+      // com tipo de consulta ONLINE — elegibilidade offline nunca sozinha.
+      const semAcento = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+      const vistos = new Set<string>()
+      const pipelineId = pipelineOfertas!.pipeline.id
+      const stageDisponivelId = pipelineOfertas!.stages[ETAPA_DISPONIVEL]?.id
+      const fCampo = (campo: keyof typeof OFERTA_FIELD_KEYS) => ofertaFieldDefs[OFERTA_FIELD_KEYS[campo]].id
+
+      await comConcorrenciaLimitada(
+        planilha.rows.map((row) => async () => {
+          if (!Array.isArray(row)) return
+          const cpf = normalizeCpfCell(celula(row, mapeamento.cpf))
+          if (!cpf || vistos.has(cpf)) {
+            descartadas += 1
+            return
+          }
+          vistos.add(cpf)
+
+          const elegiveis = gruposElegibilidade.filter((g) => {
+            return semAcento(celula(row, g.colElegibilidade)) === 'elegivel' && semAcento(celula(row, g.colTipoConsulta)) === 'online'
+          })
+          if (!elegiveis.length) {
+            descartadas += 1
+            return
+          }
+
+          try {
+            const existente = await findContactByCpf(cpf)
+            const contactId = await gravarContato(cpf, row, [], existente)
+            contactIdsTocados.push(contactId)
+
+            const existentesNoPipeline = await findOpportunitiesByContactDetalhadas(contactId, pipelineId)
+            for (const g of elegiveis) {
+              const alvo = existentesNoPipeline.find((op) => opportunityFieldValue(op, fCampo('tipoOferta')) === 'novo' && opportunityFieldValue(op, fCampo('instituicaoId')) === g.instituicaoId)
+              const customFields = [
+                { id: fCampo('tipoOferta'), fieldValue: 'novo' },
+                { id: fCampo('instituicaoId'), fieldValue: g.instituicaoId },
+                { id: fCampo('instituicao'), fieldValue: g.instituicaoNome },
+              ]
+              if (alvo) {
+                await updateOpportunity(alvo.id, { customFields })
+              } else {
+                const nova = await createOpportunity({ contactId, pipelineId, pipelineStageId: stageDisponivelId, name: nomeOportunidade('novo', g.instituicaoNome, null), customFields })
+                existentesNoPipeline.push(nova)
               }
               importadas += 1
             }
