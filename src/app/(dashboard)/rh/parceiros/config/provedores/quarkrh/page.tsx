@@ -25,7 +25,7 @@ export default function QuarkProvedorPage() {
 
   const [temToken, setTemToken] = useState(false)
   const [authToken, setAuthToken] = useState('')
-  const [baseUrl, setBaseUrl] = useState('https://api.quark.tec.br/v1')
+  const [baseUrl, setBaseUrl] = useState('https://api.quark.tec.br/rh/ext')
   const [isActive, setIsActive] = useState(true)
   const [sonda, setSonda] = useState<SondaResultado[]>([])
 

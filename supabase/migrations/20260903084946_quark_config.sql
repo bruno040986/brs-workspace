@@ -6,7 +6,7 @@
 create table if not exists public.quark_config (
   id integer primary key default 1 check (id = 1),
   auth_token_enc text,
-  base_url text not null default 'https://api.quark.tec.br/v1',
+  base_url text not null default 'https://api.quark.tec.br/rh/ext',
   is_active boolean not null default true,
   updated_at timestamptz not null default now(),
   updated_by uuid references public.users (id)

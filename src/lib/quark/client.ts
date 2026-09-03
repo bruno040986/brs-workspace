@@ -1,5 +1,5 @@
 /**
- * Cliente da API QuarkRH (https://api.quark.tec.br/v1).
+ * Cliente da API QuarkRH (base https://api.quark.tec.br/rh/ext, paths /v1/*).
  *
  * Auth: header `Auth-token: <token>` (o Bruno gera no próprio acesso Quark).
  * Credencial cifrada em `quark_config` (cofre AES, CRM_CREDENTIALS_KEY) —
@@ -7,7 +7,7 @@
  *
  * Fase 1 (03/09/2026): SÓ LEITURA + mapeamento. A função `explorarEndpoints`
  * sonda caminhos candidatos e devolve status + amostra do corpo, para
- * descobrir os shapes reais (não há Swagger público). Escrita de volta no
+ * confirmar os endpoints do Swagger (api-docs em /v3/api-docs). Escrita de volta no
  * Quark é fase posterior, com o inventário em mãos.
  */
 import { createAdminClient } from '@/lib/supabase/server'
@@ -42,7 +42,7 @@ export async function lerQuarkConfigPublica(): Promise<QuarkConfigPublica> {
   const row = await lerQuarkConfigRow()
   return {
     temToken: Boolean(row?.auth_token_enc),
-    baseUrl: row?.base_url || 'https://api.quark.tec.br/v1',
+    baseUrl: row?.base_url || 'https://api.quark.tec.br/rh/ext',
     isActive: row?.is_active !== false,
     atualizadoEm: row?.updated_at || null,
   }
@@ -60,7 +60,7 @@ export async function salvarQuarkConfig(input: {
     {
       id: 1,
       auth_token_enc: input.authToken?.trim() ? cifrarTexto(input.authToken.trim()) : atual?.auth_token_enc || null,
-      base_url: (input.baseUrl ?? atual?.base_url ?? 'https://api.quark.tec.br/v1').trim(),
+      base_url: (input.baseUrl ?? atual?.base_url ?? 'https://api.quark.tec.br/rh/ext').trim(),
       is_active: input.isActive,
       updated_at: new Date().toISOString(),
       updated_by: input.updatedBy,
@@ -73,7 +73,7 @@ export async function salvarQuarkConfig(input: {
 async function tokenEBase(): Promise<{ token: string; base: string }> {
   const row = await lerQuarkConfigRow()
   if (!row?.auth_token_enc) throw new Error('Token do QuarkRH não configurado (Provedores e APIs › QuarkRH).')
-  return { token: decifrarTexto(row.auth_token_enc), base: row.base_url || 'https://api.quark.tec.br/v1' }
+  return { token: decifrarTexto(row.auth_token_enc), base: row.base_url || 'https://api.quark.tec.br/rh/ext' }
 }
 
 /** GET autenticado, devolvendo status + corpo (json ou texto). */
@@ -96,26 +96,17 @@ export async function quarkGet(path: string): Promise<{ status: number; ok: bool
 // Caminhos candidatos do mapeamento (Fase 1). A ordem cobre o essencial de
 // folha: empresa → colaboradores → estrutura → rubricas/eventos → folha.
 export const QUARK_ENDPOINTS_SONDA = [
-  '/empresa',
-  '/empresas',
-  '/colaboradores',
-  '/colaborador',
-  '/funcionarios',
-  '/departamentos',
-  '/cargos',
-  '/rubricas',
-  '/eventos',
-  '/proventos',
-  '/descontos',
-  '/holerite',
-  '/holerites',
-  '/folha',
-  '/folha-pagamento',
-  '/competencias',
-  '/ponto',
-  '/afastamentos',
-  '/ferias',
-  '/beneficios',
+  '/v1/unidades',
+  '/v1/colaboradores/',
+  '/v1/cadastros-unidade/cargos',
+  '/v1/beneficios/beneficio-colaborador',
+  '/v1/beneficios/transporte',
+  '/v1/beneficios/alimentacao',
+  '/v1/ferias/calendario-ferias',
+  '/v1/ausencias/',
+  '/v1/saude-ocupacional/atestado-medico',
+  '/v1/frequencias/carga-horaria',
+  '/v1/solicitacoes-gerais/tipos',
 ]
 
 export type SondaResultado = { path: string; status: number; amostra: string }
@@ -141,12 +132,12 @@ export async function explorarEndpoints(): Promise<SondaResultado[]> {
 
 export async function testarConexaoQuark(): Promise<{ ok: boolean; detalhe: string }> {
   try {
-    // /empresa é o mais provável de existir e ser leve; qualquer 2xx/4xx que
-    // NÃO seja 401 já prova que o token foi aceito.
-    const r = await quarkGet('/empresa')
+    // /v1/unidades sempre existe e é leve; qualquer resposta que NÃO seja
+    // 401 já prova que o token foi aceito.
+    const r = await quarkGet('/v1/unidades')
     if (r.status === 401) return { ok: false, detalhe: 'Token recusado (401). Confira o Auth-token no acesso Quark.' }
     if (r.status === 0) return { ok: false, detalhe: 'Sem resposta da API.' }
-    return { ok: true, detalhe: `Token aceito — /empresa respondeu ${r.status}.` }
+    return { ok: true, detalhe: `Token aceito — /v1/unidades respondeu ${r.status}.` }
   } catch (err) {
     return { ok: false, detalhe: err instanceof Error ? err.message : 'Falha na conexão.' }
   }
