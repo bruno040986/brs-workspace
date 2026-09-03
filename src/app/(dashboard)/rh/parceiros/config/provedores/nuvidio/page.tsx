@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { KeyRound, Loader2, PlugZap, Save, Video } from 'lucide-react'
 import { getNuvidioConfig, saveNuvidioConfig, testNuvidioConnection } from '@/lib/nuvidio/config-actions'
+import NuvidioLogo from '../../../../../nuvidio/_components/NuvidioLogo'
 
 export default function NuvidioProvedorPage() {
   const [carregando, setCarregando] = useState(true)
@@ -95,7 +96,7 @@ export default function NuvidioProvedorPage() {
   return (
     <div style={{ maxWidth: 760 }}>
       <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Video size={24} /> API Nuvidio
+        <NuvidioLogo sufixo="— API" altura={30} />
       </h1>
       <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.88rem', margin: '0 0 1.25rem' }}>
         Credenciais da conta Nuvidio (painel deles → API) — cifradas no cofre, usadas só pelo servidor. Alimentam o

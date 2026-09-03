@@ -56,7 +56,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <SidebarCollapseToggle />
         <div className="workspace-body">
           <WorkspaceSidebar />
-          <main className="main-content">{children}</main>
+          {/* page-shell = padrão ÚNICO de espaçamento de conteúdo do Workspace
+              (03/09/2026): os paddings locais (.rh-content/.hub-container)
+              foram zerados — o respiro vem só daqui. */}
+          <main className="main-content">
+            <div className="page-shell">{children}</div>
+          </main>
         </div>
       </div>
     </MessengerDockProvider>

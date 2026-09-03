@@ -62,7 +62,7 @@ body {
 .hub-container {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 0; /* o respiro agora vem do .page-shell (padrão único) */
 }
 
 /* ─── Cards ─── */
@@ -1112,9 +1112,8 @@ table.data-table {
 
 .rh-content {
   flex: 1;
-  padding: 2rem;
+  padding: 0; /* o respiro agora vem do .page-shell (padrão único) */
   background: var(--brs-gray-50);
-  overflow-y: auto;
 }
 
 :root[data-theme="dark"] .rh-layout-container,
@@ -3089,3 +3088,15 @@ body.sidebar-recolhida:has(.workspace-body) .sidebar-collapse-btn { left: 52px; 
 .ws-home-link:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
 .ws-home-link.is-active { color: var(--brs-gold-light, #e8c96a); }
 body.sidebar-recolhida .workspace-sidebar .ws-home-link { justify-content: center; padding: 0.62rem 0 0.75rem; }
+
+
+/* ===== PADRÃO ÚNICO DE ESPAÇAMENTO DE CONTEÚDO (03/09/2026) =====
+   Toda tela do Workspace respira pelo .page-shell do layout global —
+   nenhuma página/subsistema define o próprio padding externo. */
+.page-shell {
+  padding: 1.6rem 2.2rem 2.5rem 2.2rem;
+  min-height: calc(100dvh - 64px);
+}
+@media (max-width: 900px) {
+  .page-shell { padding: 1rem 1rem 4.5rem; }
+}

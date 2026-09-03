@@ -9,6 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Ban, Check, Copy, Link2, Loader2, Mail, MessageSquare, RefreshCw, Video, X } from 'lucide-react'
+import NuvidioLogo from './NuvidioLogo'
 import {
   cancelarNuvidioConvite,
   enviarNuvidioConvite,
@@ -122,7 +123,7 @@ export default function LinksCriadosClient({ origem, titulo }: { origem?: 'propo
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.9rem', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Video size={22} /> {titulo}
+          <NuvidioLogo sufixo={titulo.replace(/^Nuvidio\s*/, '')} />
         </h1>
         <input className="form-control" style={{ width: 260 }} value={busca} onChange={(e) => setBusca(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && carregar()} placeholder="Buscar cliente, CPF, proposta, parceiro…" />
         <select className="form-control" style={{ width: 'auto' }} value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)}>

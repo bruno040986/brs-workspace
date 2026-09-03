@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Copy, Link2, Loader2 } from 'lucide-react'
 import { criarNuvidioConvite, getNuvidioLookups, type NuvidioLookups } from '@/lib/nuvidio/convites-actions'
+import NuvidioLogo from '../_components/NuvidioLogo'
 
 const rotulo: React.CSSProperties = { fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.3rem' }
 
@@ -105,7 +106,7 @@ export default function CriarLinkNuvidioPage() {
   return (
     <div style={{ maxWidth: 860 }}>
       <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Link2 size={22} /> Criar Link Nuvidio
+        <NuvidioLogo sufixo="— Criar Link" />
       </h1>
       <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.88rem', margin: '0 0 1.25rem' }}>
         Cria o convite de videochamada direto na Nuvidio — sem entrar no sistema deles. O envio ao parceiro/cliente é

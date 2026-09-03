@@ -21,6 +21,7 @@ import {
   tabularNuvidioConvite,
   type NuvidioConviteRow,
 } from '@/lib/nuvidio/convites-actions'
+import NuvidioLogo from '../_components/NuvidioLogo'
 
 export default function AtendimentoNuvidioPage() {
   const [ssoUrl, setSsoUrl] = useState<string | null>(null)
@@ -88,7 +89,7 @@ export default function AtendimentoNuvidioPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 130px)', gap: '0.8rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Headset size={22} /> Nuvidio — Atendimento
+          <NuvidioLogo sufixo="— Atendimento" />
         </h1>
         {!somLiberado && (
           <button className="btn btn-outline btn-sm" onClick={liberarSom} title="O navegador exige um clique antes de permitir som">

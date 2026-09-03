@@ -14,6 +14,7 @@ import {
   salvarNuvidioTemplate,
   type NuvidioTemplateRow,
 } from '@/lib/nuvidio/convites-actions'
+import NuvidioLogo from '../_components/NuvidioLogo'
 
 const VAZIO: Partial<NuvidioTemplateRow> & { nome: string; canal: 'whatsapp' | 'email'; destino: 'parceiro' | 'cliente'; corpo: string } = {
   nome: '',
@@ -72,7 +73,7 @@ export default function NuvidioTemplatesPage() {
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FileText size={22} /> Nuvidio — Templates
+          <NuvidioLogo sufixo="— Templates" />
         </h1>
         <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setEditando({ ...VAZIO })}>
           <Plus size={15} /> Novo Template
