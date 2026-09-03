@@ -22,6 +22,10 @@ function nomePerfil(papel: string) {
 type ConfigCrm = {
   habilitado: boolean
   max_atendentes: number
+  max_instancias_receptivas: number
+  max_instancias_disparo: number
+  disparo_min_instancias: number
+  disparo_min_templates_por_instancia: number
   habilitado_em: string | null
 } | null
 
@@ -37,6 +41,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
 
   const [habilitado, setHabilitado] = useState(false)
   const [maxAtendentes, setMaxAtendentes] = useState('10')
+  const [maxReceptivas, setMaxReceptivas] = useState('2')
+  const [maxDisparo, setMaxDisparo] = useState('10')
+  const [minInstancias, setMinInstancias] = useState('3')
+  const [minTemplates, setMinTemplates] = useState('3')
   const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [busyUsuarioId, setBusyUsuarioId] = useState<string | null>(null)
 
@@ -50,6 +58,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         setLoginProvisionado(res.loginProvisionado === true)
         setHabilitado(res.config?.habilitado === true)
         setMaxAtendentes(String(res.config?.max_atendentes ?? 10))
+        setMaxReceptivas(String(res.config?.max_instancias_receptivas ?? 2))
+        setMaxDisparo(String(res.config?.max_instancias_disparo ?? 10))
+        setMinInstancias(String(res.config?.disparo_min_instancias ?? 3))
+        setMinTemplates(String(res.config?.disparo_min_templates_por_instancia ?? 3))
       } else {
         setMessage({ type: 'error', text: res.error || 'Erro ao carregar a configuração.' })
       }
@@ -70,6 +82,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         agenteParceiroId,
         habilitado,
         maxAtendentes: Number.parseInt(maxAtendentes, 10) || 0,
+        maxInstanciasReceptivas: Number.parseInt(maxReceptivas, 10),
+        maxInstanciasDisparo: Number.parseInt(maxDisparo, 10),
+        disparoMinInstancias: Number.parseInt(minInstancias, 10),
+        disparoMinTemplatesPorInstancia: Number.parseInt(minTemplates, 10),
       })
       if (res.success) {
         setMessage({
@@ -153,9 +169,25 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
           <input type="checkbox" checked={habilitado} onChange={(e) => setHabilitado(e.target.checked)} />
           CRM habilitado para este parceiro
         </label>
-        <div className="form-group" style={{ width: 180, margin: 0 }}>
+        <div className="form-group" style={{ width: 150, margin: 0 }}>
           <label className="form-label">Máx. de usuários</label>
           <input type="number" min={0} max={500} className="form-control" value={maxAtendentes} onChange={(e) => setMaxAtendentes(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ width: 160, margin: 0 }}>
+          <label className="form-label">Máx. números receptivos</label>
+          <input type="number" min={0} max={20} className="form-control" value={maxReceptivas} onChange={(e) => setMaxReceptivas(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ width: 160, margin: 0 }}>
+          <label className="form-label">Máx. números de disparo</label>
+          <input type="number" min={0} max={50} className="form-control" value={maxDisparo} onChange={(e) => setMaxDisparo(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ width: 180, margin: 0 }}>
+          <label className="form-label">Mín. números p/ habilitar disparo</label>
+          <input type="number" min={1} max={50} className="form-control" value={minInstancias} onChange={(e) => setMinInstancias(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ width: 160, margin: 0 }}>
+          <label className="form-label">Mín. templates por número</label>
+          <input type="number" min={1} max={20} className="form-control" value={minTemplates} onChange={(e) => setMinTemplates(e.target.value)} />
         </div>
         <button type="button" className="btn btn-primary" onClick={handleSalvarConfig} disabled={salvandoConfig}>
           {salvandoConfig ? <Loader2 size={16} className="spinner" /> : null}
@@ -166,6 +198,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
             Habilitado em {new Date(config.habilitado_em).toLocaleDateString('pt-BR')}
           </span>
         )}
+        <p style={{ width: '100%', margin: '0.2rem 0 0', fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
+          Mín. números e mín. templates definem quando o parceiro pode criar campanha de Disparo de WhatsApp Não Oficial.
+          Ex.: 3 e 3 = precisa de 3 números conectados e 9 templates.
+        </p>
       </div>
 
       {master && (

@@ -53,7 +53,7 @@ export async function getAlvoconsigConfig(agenteParceiroId: string) {
     const [configRes, usuariosRes, agenteRes] = await Promise.all([
       supabaseAdmin
         .from('crm_parceiro_config')
-        .select('agente_parceiro_id, habilitado, max_atendentes, habilitado_em')
+        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em')
         .eq('agente_parceiro_id', agenteParceiroId)
         .maybeSingle(),
       supabaseAdmin
@@ -95,12 +95,24 @@ export async function salvarAlvoconsigConfig(payload: {
   agenteParceiroId: string
   habilitado: boolean
   maxAtendentes: number
+  maxInstanciasReceptivas?: number
+  maxInstanciasDisparo?: number
+  disparoMinInstancias?: number
+  disparoMinTemplatesPorInstancia?: number
 }) {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
     if (!payload.agenteParceiroId) return { success: false, error: 'Agente inválido.' }
 
     const maxAtendentes = Math.max(0, Math.min(500, Number.parseInt(String(payload.maxAtendentes), 10) || 0))
+    const clamp = (v: unknown, min: number, max: number, def: number) => {
+      const n = Number.parseInt(String(v), 10)
+      return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : def
+    }
+    const maxInstanciasReceptivas = clamp(payload.maxInstanciasReceptivas, 0, 20, 2)
+    const maxInstanciasDisparo = clamp(payload.maxInstanciasDisparo, 0, 50, 10)
+    const disparoMinInstancias = clamp(payload.disparoMinInstancias, 1, 50, 3)
+    const disparoMinTemplatesPorInstancia = clamp(payload.disparoMinTemplatesPorInstancia, 1, 20, 3)
     let avisoChat: string | null = null
 
     if (payload.habilitado) {
@@ -187,6 +199,10 @@ export async function salvarAlvoconsigConfig(payload: {
       agente_parceiro_id: payload.agenteParceiroId,
       habilitado: payload.habilitado === true,
       max_atendentes: maxAtendentes,
+      max_instancias_receptivas: maxInstanciasReceptivas,
+      max_instancias_disparo: maxInstanciasDisparo,
+      disparo_min_instancias: disparoMinInstancias,
+      disparo_min_templates_por_instancia: disparoMinTemplatesPorInstancia,
     }
     if (payload.habilitado && !atual?.habilitado) {
       row.habilitado_por = user.id
