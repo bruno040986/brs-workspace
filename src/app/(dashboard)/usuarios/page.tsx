@@ -54,6 +54,8 @@ const SYSTEM_MODULES = [
   { id: 'rh-unidades', name: 'Unidades', parentId: 'rh-painel', level: 2 },
   { id: 'rh-relatorios', name: 'Relatórios', parentId: 'rh-painel', level: 2 },
   { id: 'rh-auditoria', name: 'Auditoria', parentId: 'rh-painel', level: 2 },
+  { id: 'rh-quark-sync', name: 'Sincronização QuarkRH', parentId: 'cat-div-rh', level: 1 },
+  { id: 'rh-folha', name: 'Folha de Pagamento', parentId: 'cat-div-rh', level: 1 },
 
   // Divisão: Cadastros
   { id: 'cat-div-cadastros', name: 'Divisão: Cadastros', isHeader: true, level: 0 },
@@ -72,7 +74,6 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-instituicoes', name: 'Instituições Financeiras', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'workspace-convenios', name: 'Convênios', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'promotoras', name: 'Promotoras', parentId: 'cat-div-cadastros', level: 1 },
-  { id: 'marketing-biblioteca-artes', name: 'Biblioteca de Artes de Marketing', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-estrutura', name: 'Comerciais (Estrutura Comercial)', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-agentes', name: 'Agentes Comerciais', parentId: 'comercial-estrutura', level: 2 },
 
@@ -89,6 +90,7 @@ const SYSTEM_MODULES = [
   // Divisão: Comercial (Gestão de Leads)
   { id: 'cat-div-comercial', name: 'Divisão: Comercial — Gestão de Leads', isHeader: true, level: 0 },
   { id: 'workspace-com', name: 'Comercial (divisão + links do setor)', parentId: 'cat-div-comercial', level: 1 },
+  { id: 'marketing-biblioteca-artes', name: 'Biblioteca de Artes de Marketing', parentId: 'cat-div-comercial', level: 1 },
   { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-div-comercial', level: 1 },
   { id: 'alvoconsig-certificacao', name: 'Certificação de Clientes', parentId: 'alvoconsig-gestao', level: 2 },
 

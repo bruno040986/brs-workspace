@@ -74,6 +74,15 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Auditoria', href: '/rh/auditoria', perms: [view('rh-auditoria')] },
         ],
       },
+      { label: 'Sincronização QuarkRH', href: '/rh/quark-sync', perms: [view('rh-quark-sync')] },
+      {
+        label: 'Folha de Pagamento',
+        href: '/rh/folha',
+        perms: [view('rh-folha')],
+        children: [
+          { label: 'Configurações da Folha', href: '/rh/folha/configuracoes', perms: [view('rh-folha')] },
+        ],
+      },
     ],
   },
   {
@@ -103,7 +112,6 @@ export const NAV_DIVISOES: NavDivisao[] = [
       { label: 'Convênios', href: '/convenios', perms: [view('workspace-convenios')] },
       { label: 'Promotoras', href: '/promotoras', perms: [view('promotoras')] },
       { label: 'Averbadoras', href: '#averbadoras', soon: true, perms: [view('sistema-config-instituicoes')] },
-      { label: 'Biblioteca de Artes', href: '/marketing/artes', perms: [view('marketing-biblioteca-artes')] },
       {
         label: 'Comerciais',
         href: '/rh/parceiros/config/comercial',
@@ -154,6 +162,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
     label: 'Comercial',
     icon: TrendingUp,
     itens: [
+      { label: 'Biblioteca de Artes', href: '/marketing/artes', perms: [view('marketing-biblioteca-artes')] },
       {
         label: 'Gestão de Leads',
         href: '/gestao-leads',

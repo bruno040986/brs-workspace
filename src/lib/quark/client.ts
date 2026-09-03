@@ -142,3 +142,62 @@ export async function testarConexaoQuark(): Promise<{ ok: boolean; detalhe: stri
     return { ok: false, detalhe: err instanceof Error ? err.message : 'Falha na conexão.' }
   }
 }
+
+// ===========================================================================
+// Colaboradores (Etapa 1 da folha — sincronização)
+// ===========================================================================
+
+export type QuarkColaborador = {
+  id: string
+  nome: string
+  cpf: string
+  pis: string
+  cargo: string
+  vinculo: string
+  setor: string
+  admissao: string // dd/mm/aaaa ou aaaa-mm-dd (formato do Quark)
+  esocial: string
+}
+
+function parseDataQuark(s: string): string | null {
+  const t = String(s || '').trim()
+  if (!t) return null
+  // dd/mm/aaaa
+  const br = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  // aaaa-mm-dd já ok
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10)
+  return null
+}
+
+/** Lista todos os colaboradores da unidade (paginado se a API paginar). */
+export async function listarColaboradoresQuark(): Promise<QuarkColaborador[]> {
+  const data = await quarkGet('/v1/colaboradores/')
+  const lista = Array.isArray(data)
+    ? data
+    : Array.isArray((data as any)?.colaboradores)
+      ? (data as any).colaboradores
+      : Array.isArray((data as any)?.content)
+        ? (data as any).content
+        : Array.isArray((data as any)?.data)
+          ? (data as any).data
+          : []
+  return lista.map((c: any) => ({
+    id: String(c.id ?? ''),
+    nome: String(c.nome ?? ''),
+    cpf: String(c.pessoaCpfFormatado ?? c.cpf ?? '').replace(/\D/g, ''),
+    pis: String(c.pisPessoa ?? c.pis ?? ''),
+    cargo: String(c.cargoNivelSubNivelFormatado ?? c.cargoDenominacao ?? ''),
+    vinculo: String(c.cargoVinculoDenominacao ?? ''),
+    setor: String(c.setorDenominacao ?? ''),
+    admissao: parseDataQuark(c.dataAdmissaoFormatada ?? c.dataAdmissao ?? '') ?? '',
+    esocial: String(c.eletronicoSocial ?? c.esocial ?? ''),
+  }))
+}
+
+/** Amostra crua do colaborador (debug/mapeamento). */
+export async function amostraColaboradorQuark(): Promise<{ status: number; amostra: string }> {
+  const r = await quarkGet('/v1/colaboradores/')
+  const bruto = typeof r.body === 'string' ? r.body : JSON.stringify(r.body)
+  return { status: r.status, amostra: bruto.slice(0, 800) }
+}
