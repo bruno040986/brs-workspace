@@ -238,6 +238,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'API CPF', href: '/rh/parceiros/config/provedores/cpf', perms: [view('sistema-config-cpf')] },
           { label: 'API Nova Vida TI', href: '/rh/parceiros/config/provedores/nvti', perms: [view('sistema-config-nvti')] },
           { label: 'API Nuvidio', href: '/rh/parceiros/config/provedores/nuvidio', perms: [view('sistema-config-nuvidio')] },
+          { label: 'API QuarkRH', href: '/rh/parceiros/config/provedores/quarkrh', perms: [view('sistema-config-quarkrh')] },
           { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', perms: [view('sistema-config-gateways')] },
           { label: 'CNAE', href: '/rh/parceiros/config/provedores/cnae', perms: [view('sistema-config-cnae')] },
           { label: 'CTN', href: '/rh/parceiros/config/provedores/ctn', perms: [view('sistema-config-ctn')] },

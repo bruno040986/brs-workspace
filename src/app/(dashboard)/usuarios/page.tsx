@@ -131,7 +131,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-nfse-emissao', name: 'Tipo de Emissão de NFSe', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-regimes-tributarios', name: 'Regimes Tributários', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-recalculo-tributario', name: 'Recálculo Tributário', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-quarkrh', name: 'API QuarkRH (em breve)', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-quarkrh', name: 'API QuarkRH', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-contaazul', name: 'API Conta Azul (em breve)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-arw', name: 'API ARW (em breve)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-crm', name: 'API CRM (em breve)', parentId: 'sistema-config-root', level: 2 },

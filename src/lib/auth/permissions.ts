@@ -156,6 +156,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/nuvidio': any([view('operacional-nuvidio-links')]),
   '/nuvidio/atendimento': any([view('operacional-nuvidio-atendimento')]),
   '/rh/parceiros/config/provedores/nuvidio': any([view('sistema-config-nuvidio')]),
+  '/rh/parceiros/config/provedores/quarkrh': any([view('sistema-config-quarkrh')]),
   '/agente-corban/cadastros-recebidos/nuvidio': any([view('agente-corban-cadastros-recebidos')]),
 }
 
@@ -228,6 +229,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/nuvidio/atendimento', any([view('operacional-nuvidio-atendimento')])],
   ['/nuvidio', any([view('operacional-nuvidio-links')])],
   ['/rh/parceiros/config/provedores/nuvidio', any([view('sistema-config-nuvidio')])],
+  ['/rh/parceiros/config/provedores/quarkrh', any([view('sistema-config-quarkrh')])],
 ]
 
 function normalizePath(pathname: string) {
