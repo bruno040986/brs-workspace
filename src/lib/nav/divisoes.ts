@@ -103,6 +103,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
       { label: 'Convênios', href: '/convenios', perms: [view('workspace-convenios')] },
       { label: 'Promotoras', href: '/promotoras', perms: [view('promotoras')] },
       { label: 'Averbadoras', href: '#averbadoras', soon: true, perms: [view('sistema-config-instituicoes')] },
+      { label: 'Biblioteca de Artes', href: '/marketing/artes', perms: [view('marketing-biblioteca-artes')] },
       {
         label: 'Comerciais',
         href: '/rh/parceiros/config/comercial',

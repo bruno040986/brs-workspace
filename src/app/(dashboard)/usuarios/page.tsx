@@ -72,6 +72,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-instituicoes', name: 'Instituições Financeiras', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'workspace-convenios', name: 'Convênios', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'promotoras', name: 'Promotoras', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'marketing-biblioteca-artes', name: 'Biblioteca de Artes de Marketing', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-estrutura', name: 'Comerciais (Estrutura Comercial)', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-agentes', name: 'Agentes Comerciais', parentId: 'comercial-estrutura', level: 2 },
 
