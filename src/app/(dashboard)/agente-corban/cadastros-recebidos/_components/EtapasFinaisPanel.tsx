@@ -10,6 +10,7 @@ import { useRef, useState } from 'react'
 import { Check, Copy, Loader2, Mail, MessageSquare, Send, Upload, Video } from 'lucide-react'
 import {
   aprovarBoasVindas,
+  gerarConviteNuvidioOnboarding,
   concluirEtapaArw,
   concluirEtapaContrato,
   concluirEtapaNuvidio,
@@ -225,7 +226,20 @@ function EtapaNuvidio({
         chamada, suba o vídeo — ele conclui a etapa.
       </p>
       <div>
-        <label style={rotulo}>Link da sala Nuvidio</label>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy !== null}
+          onClick={() => rodar('gerar', () => gerarConviteNuvidioOnboarding(processo.id))}
+        >
+          {busy === 'gerar' ? <Loader2 size={14} className="spinner" /> : <Video size={14} />} Gerar convite na Nuvidio
+        </button>
+        <span style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', marginLeft: 8 }}>
+          Cria o link via API com os dados do sócio (acompanhamento em Cadastros Recebidos › Nuvidio — Acompanhamento).
+        </span>
+      </div>
+      <div>
+        <label style={rotulo}>Link da sala Nuvidio (gerado ou colado manualmente)</label>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <input className="form-control" style={{ flex: 1, minWidth: 260 }} value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://atendimento.nuvidio.com/…" />
           <button type="button" className="btn btn-outline btn-sm" disabled={busy !== null} onClick={() => rodar('salvar-link', () => salvarNuvidioLink(processo.id, link))}>

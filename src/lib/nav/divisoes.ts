@@ -87,6 +87,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
         perms: [view('agente-corban'), view('scp-crm')],
         children: [
           { label: 'Cadastros Recebidos', href: '/agente-corban/cadastros-recebidos', perms: [view('agente-corban-cadastros-recebidos')] },
+          { label: 'Nuvidio — Acompanhamento', href: '/agente-corban/cadastros-recebidos/nuvidio', perms: [view('agente-corban-cadastros-recebidos')] },
           { label: 'Nível de Acesso', href: '/agente-corban/niveis-acesso', perms: [view('agente-corban-niveis-acesso')] },
           { label: 'Tipo de Agente', href: '/agente-corban/tipos-agente', perms: [view('agente-corban-tipos-agente')] },
           { label: 'Regra de Físico', href: '/agente-corban/regras-fisico', perms: [view('agente-corban-regras-fisico')] },
@@ -120,6 +121,17 @@ export const NAV_DIVISOES: NavDivisao[] = [
     icon: BriefcaseBusiness,
     itens: [
       { label: 'Higienização de CPF', href: '/higienizacao-nvti', perms: [view('operacional-nvti')] },
+      {
+        label: 'Nuvidio',
+        href: '/nuvidio',
+        perms: [view('operacional-nuvidio-links'), view('operacional-nuvidio-atendimento')],
+        children: [
+          { label: 'Criar Link', href: '/nuvidio/criar', perms: [view('operacional-nuvidio-links')] },
+          { label: 'Links Criados', href: '/nuvidio', perms: [view('operacional-nuvidio-links')] },
+          { label: 'Templates', href: '/nuvidio/templates', perms: [view('operacional-nuvidio-links')] },
+          { label: 'Atendimento', href: '/nuvidio/atendimento', perms: [view('operacional-nuvidio-atendimento')] },
+        ],
+      },
       { label: 'Coeficientes Financeiros', href: '/coeficientes', perms: [view('sistema-config-credito')] },
       {
         label: 'Comissionamento',
@@ -225,6 +237,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Google', href: '/rh/parceiros/config/provedores/google', perms: [view('sistema-config-google')] },
           { label: 'API CPF', href: '/rh/parceiros/config/provedores/cpf', perms: [view('sistema-config-cpf')] },
           { label: 'API Nova Vida TI', href: '/rh/parceiros/config/provedores/nvti', perms: [view('sistema-config-nvti')] },
+          { label: 'API Nuvidio', href: '/rh/parceiros/config/provedores/nuvidio', perms: [view('sistema-config-nuvidio')] },
           { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', perms: [view('sistema-config-gateways')] },
           { label: 'CNAE', href: '/rh/parceiros/config/provedores/cnae', perms: [view('sistema-config-cnae')] },
           { label: 'CTN', href: '/rh/parceiros/config/provedores/ctn', perms: [view('sistema-config-ctn')] },

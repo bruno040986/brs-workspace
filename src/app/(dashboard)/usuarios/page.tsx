@@ -82,6 +82,8 @@ const SYSTEM_MODULES = [
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
   { id: 'sistema-config-credito', name: 'Comissionamento e Coeficientes (ARW)', parentId: 'cat-div-operacional', level: 1 },
+  { id: 'operacional-nuvidio-links', name: 'Nuvidio (criar e acompanhar links)', parentId: 'cat-div-operacional', level: 1 },
+  { id: 'operacional-nuvidio-atendimento', name: 'Nuvidio — Atendimento', parentId: 'operacional-nuvidio-links', level: 2 },
 
   // Divisão: Comercial (Gestão de Leads)
   { id: 'cat-div-comercial', name: 'Divisão: Comercial — Gestão de Leads', isHeader: true, level: 0 },
@@ -121,6 +123,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-google', name: 'Google', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-cpf', name: 'API CPF', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-nvti', name: 'API Nova Vida TI', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-nuvidio', name: 'API Nuvidio', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-gateways', name: 'Gateways de Pagamento', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-cnae', name: 'CNAE', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-ctn', name: 'CTN', parentId: 'sistema-config-root', level: 2 },

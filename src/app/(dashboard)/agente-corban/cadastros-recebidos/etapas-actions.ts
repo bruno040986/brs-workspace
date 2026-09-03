@@ -20,6 +20,7 @@ import {
   templateCorrecao,
   templateNuvidio,
 } from '@/lib/onboarding-comunicacao'
+import { criarInvite, lerNuvidioConfigRow } from '@/lib/nuvidio/client'
 
 const RESOURCE = 'agente-corban-cadastros-recebidos'
 const BUCKET = 'partner-analise'
@@ -101,6 +102,59 @@ export async function salvarNuvidioLink(processoId: string, link: string): Promi
     await registrarEvento(admin, processoId, 'nuvidio_link_salvo', {}, user.id)
     revalidar(processoId)
     return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * Gera o convite na Nuvidio direto da etapa 3 (origem 'onboarding', engine
+ * única em nuvidio_convites) — o acompanhamento/atendimento fica na tela
+ * "Nuvidio — Acompanhamento", fora do processo.
+ */
+export async function gerarConviteNuvidioOnboarding(processoId: string): Promise<{ success: true; link: string } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const { processo, agente } = await carregarProcessoAgente(admin, processoId)
+    if (processo.etapa_atual !== 'nuvidio') throw new Error('O processo não está na etapa Nuvidio.')
+
+    const config = await lerNuvidioConfigRow()
+    if (!config?.api_key_enc) throw new Error('API da Nuvidio não configurada (Provedores e APIs › Nuvidio).')
+    if (!config.department_padrao_id) throw new Error('Defina o departamento padrão no card da Nuvidio.')
+
+    const contato = resolverContatoParceiro(agente.corban_data || {}, agente.name)
+    const customerData: Array<{ value: string; label: string }> = [{ value: contato.nome, label: 'name' }]
+    if (contato.telefone) customerData.push({ value: contato.telefone, label: 'tel' })
+    if (contato.email) customerData.push({ value: contato.email, label: 'email' })
+    customerData.push({ value: String(agente.cpf_cnpj || ''), label: 'documento' })
+
+    const expirationDate = new Date(Date.now() + 72 * 3600 * 1000).toISOString()
+    const invite = await criarInvite({ departmentId: config.department_padrao_id, expirationDate, customerData })
+
+    await admin.from('nuvidio_convites').insert({
+      origem: 'onboarding',
+      processo_id: processoId,
+      invite_id: invite.inviteId,
+      link: invite.link,
+      department_id: config.department_padrao_id,
+      department_nome: config.department_padrao_nome || '',
+      expiration_at: expirationDate,
+      cpf: String(agente.cpf_cnpj || '').replace(/\D/g, ''),
+      nome_cliente: contato.nome,
+      telefone_cliente: contato.telefone || '',
+      email_cliente: contato.email || '',
+      agente_parceiro_id: agente.id,
+      created_by: user.id,
+    })
+
+    await admin
+      .from('corban_onboarding_processos')
+      .update({ nuvidio_link: invite.link, updated_at: new Date().toISOString() })
+      .eq('id', processoId)
+    await registrarEvento(admin, processoId, 'nuvidio_convite_gerado', { invite_id: invite.inviteId }, user.id)
+    revalidar(processoId)
+    return { success: true, link: invite.link }
   } catch (err: any) {
     return { success: false, error: err.message }
   }

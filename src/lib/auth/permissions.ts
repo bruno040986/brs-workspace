@@ -153,6 +153,10 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/ia-workspace': any([view('sistema-config-ia')]),
   '/api/ia/chat': any([view('workspace-ia')]),
   '/helpdesk': any([view('helpdesk-abrir')]),
+  '/nuvidio': any([view('operacional-nuvidio-links')]),
+  '/nuvidio/atendimento': any([view('operacional-nuvidio-atendimento')]),
+  '/rh/parceiros/config/provedores/nuvidio': any([view('sistema-config-nuvidio')]),
+  '/agente-corban/cadastros-recebidos/nuvidio': any([view('agente-corban-cadastros-recebidos')]),
 }
 
 const authenticatedOpenRoutes = new Set([
@@ -221,6 +225,9 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/ia-workspace', any([view('sistema-config-ia')])],
   ['/api/ia', any([view('workspace-ia')])],
   ['/helpdesk', any([view('helpdesk-abrir')])],
+  ['/nuvidio/atendimento', any([view('operacional-nuvidio-atendimento')])],
+  ['/nuvidio', any([view('operacional-nuvidio-links')])],
+  ['/rh/parceiros/config/provedores/nuvidio', any([view('sistema-config-nuvidio')])],
 ]
 
 function normalizePath(pathname: string) {
