@@ -11,7 +11,9 @@
 import { useEffect, useState } from 'react'
 import { Video } from 'lucide-react'
 
-export default function NuvidioLogo({ sufixo, altura = 26 }: { sufixo?: string; altura?: number }) {
+export default function NuvidioLogo({ sufixo, altura = 52 }: { sufixo?: string; altura?: number }) {
+  // sufixo sem travessão (pedido do Bruno): o logotipo já separa visualmente
+  const sufixoLimpo = (sufixo || '').replace(/^[—–-]\s*/, '')
   const [semLogo, setSemLogo] = useState(false)
   const [temaEscuro, setTemaEscuro] = useState(false)
 
@@ -45,7 +47,7 @@ export default function NuvidioLogo({ sufixo, altura = 26 }: { sufixo?: string; 
           onLoad={() => setSemLogo(false)}
         />
       )}
-      {sufixo && <span>{sufixo}</span>}
+      {sufixoLimpo && <span>{sufixoLimpo}</span>}
     </span>
   )
 }
