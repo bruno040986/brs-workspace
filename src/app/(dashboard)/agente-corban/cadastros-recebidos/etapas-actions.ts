@@ -417,13 +417,20 @@ export async function solicitarCorrecao(
     const admin = await createAdminClient()
     const { agente } = await carregarProcessoAgente(admin, processoId)
 
+    // Contrato com o portal (commit 5e0d47c): a página /correcao/[token] só
+    // exibe itens de VALIDAÇÃO — item de análise (Serasa, conferências) é
+    // interno e nunca vai pro parceiro corrigir. Mandar um item de análise
+    // pra correção criaria um beco sem saída.
     const { data: reprovados, error: rErr } = await admin
       .from('corban_onboarding_itens')
       .select('id,rotulo,instrucoes_correcao')
       .eq('processo_id', processoId)
+      .eq('etapa', 'validacao')
       .eq('status', 'reprovado')
     if (rErr) throw rErr
-    if (!reprovados || reprovados.length === 0) throw new Error('Nenhum item reprovado para corrigir.')
+    if (!reprovados || reprovados.length === 0) {
+      throw new Error('Nenhum item de validação reprovado para corrigir (itens de análise são internos e não vão ao parceiro).')
+    }
 
     const { data: rpc, error: rpcErr } = await admin.rpc('corban_onboarding_criar_correcao', {
       p_processo_id: processoId,
