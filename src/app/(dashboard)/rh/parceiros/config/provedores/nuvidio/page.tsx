@@ -96,7 +96,7 @@ export default function NuvidioProvedorPage() {
   return (
     <div style={{ maxWidth: 760 }}>
       <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <NuvidioLogo sufixo="API" altura={56} />
+        <NuvidioLogo sufixo="API" altura={60} />
       </h1>
       <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.88rem', margin: '0 0 1.25rem' }}>
         Credenciais da conta Nuvidio (painel deles → API) — cifradas no cofre, usadas só pelo servidor. Alimentam o
