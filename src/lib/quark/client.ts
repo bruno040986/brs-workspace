@@ -190,10 +190,21 @@ export async function listarColaboradoresQuark(): Promise<QuarkColaborador[]> {
   let pagina = 0
   for (let i = 0; i < 200; i++) {
     const sep = '/v1/colaboradores/'.includes('?') ? '&' : '?'
-    const env: any = (await quarkGet(`/v1/colaboradores/${sep}pagina=${pagina}`)) as any
-    if (env?.error) throw new Error(`Quark: ${env.error}`)
+    // quarkGet devolve { status, ok, body } — o ENVELOPE é o body.
+    const resp = await quarkGet(`/v1/colaboradores/${sep}pagina=${pagina}`)
+    const env: any = resp.body
+    if (resp.status === 401) throw new Error('Quark: token recusado (401).')
+    if (resp.status >= 400) throw new Error(`Quark: HTTP ${resp.status}${env?.message ? ` — ${env.message}` : ''}`)
+    if (env?.error) throw new Error(`Quark: ${env.error}${env?.message ? ` — ${env.message}` : ''}`)
     const lote = extrairDados(env)
-    if (lote.length === 0) break
+    if (lote.length === 0) {
+      // 1ª página 200 mas sem lista reconhecida → diagnostica o shape real.
+      if (i === 0 && acumulado.length === 0 && env && typeof env === 'object') {
+        const chaves = Object.keys(env).join(', ')
+        throw new Error(`Quark: resposta ${resp.status} sem lista em "dados". Chaves do envelope: [${chaves || 'vazio'}].`)
+      }
+      break
+    }
     acumulado.push(...lote)
     // sem sinal de próxima página → para (evita loop)
     const proxima = Number(env?.pagina)
