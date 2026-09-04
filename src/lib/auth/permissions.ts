@@ -159,6 +159,10 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/rh/parceiros/config/provedores/quarkrh': any([view('sistema-config-quarkrh')]),
   '/agente-corban/cadastros-recebidos/nuvidio': any([view('agente-corban-cadastros-recebidos')]),
   '/marketing/artes': any([view('marketing-biblioteca-artes')]),
+  '/marketing/grupos': any([view('marketing-biblioteca-artes')]),
+  '/marketing/categorias': any([view('marketing-biblioteca-artes')]),
+  '/marketing/formatos': any([view('marketing-biblioteca-artes')]),
+  '/marketing/associacoes': any([view('marketing-biblioteca-artes')]),
   '/rh/quark-sync': any([view('rh-quark-sync')]),
   '/rh/folha': any([view('rh-folha')]),
 }
@@ -234,6 +238,10 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/rh/parceiros/config/provedores/nuvidio', any([view('sistema-config-nuvidio')])],
   ['/rh/parceiros/config/provedores/quarkrh', any([view('sistema-config-quarkrh')])],
   ['/marketing/artes', any([view('marketing-biblioteca-artes')])],
+  ['/marketing/grupos', any([view('marketing-biblioteca-artes')])],
+  ['/marketing/categorias', any([view('marketing-biblioteca-artes')])],
+  ['/marketing/formatos', any([view('marketing-biblioteca-artes')])],
+  ['/marketing/associacoes', any([view('marketing-biblioteca-artes')])],
   ['/rh/quark-sync', any([view('rh-quark-sync')])],
   ['/rh/folha', any([view('rh-folha')])],
 ]

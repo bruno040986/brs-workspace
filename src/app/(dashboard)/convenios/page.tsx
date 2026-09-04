@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
-import { CONVENIO_ESFERAS, esferaLabel } from '@/lib/cadastros-credito'
 import { maskCep, maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
 import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
 import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
+import { getTiposAtivos, type TipoConvenio } from './cadastros-actions'
 
 type ConvenioItem = {
   id: string
@@ -14,12 +14,18 @@ type ConvenioItem = {
   codigo: string | null
   codigo_sistema: string
   esfera: string
+  tipo_convenio_id: string | null
+  tipo_convenio_nome?: string
   cnpj: string | null
   razao_social: string | null
   cidade: string | null
   uf: string | null
   cep: string | null
   is_active: boolean
+}
+
+function capitalizar(s: string) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
 }
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
@@ -31,6 +37,7 @@ export default function ConveniosPage() {
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [esferaFilter, setEsferaFilter] = useState('all')
+  const [tipos, setTipos] = useState<TipoConvenio[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<Partial<ConvenioRecord> | null>(null)
   const [saving, setSaving] = useState(false)
@@ -51,7 +58,13 @@ export default function ConveniosPage() {
 
   useEffect(() => {
     loadData()
+    getTiposAtivos().then(setTipos).catch(() => setTipos([]))
   }, [])
+
+  // Esferas distintas disponíveis (a partir dos tipos ativos) para o filtro.
+  const esferasDisponiveis = useMemo(() => {
+    return [...new Set(tipos.map((t) => (t.esfera_nome || '').toLowerCase()).filter(Boolean))].sort()
+  }, [tipos])
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -60,13 +73,19 @@ export default function ConveniosPage() {
         !query ||
         String(item.nome || '').toLowerCase().includes(query) ||
         String(item.codigo || '').toLowerCase().includes(query)
-      const matchesEsfera = esferaFilter === 'all' || item.esfera === esferaFilter
+      const matchesEsfera = esferaFilter === 'all' || (item.esfera || '').toLowerCase() === esferaFilter
       return matchesSearch && matchesEsfera
     })
   }, [items, searchQuery, esferaFilter])
 
+  // Esfera derivada do tipo selecionado no formulário (read-only).
+  const esferaDoTipo = useMemo(() => {
+    const t = tipos.find((x) => x.id === editing?.tipo_convenio_id)
+    return t?.esfera_nome || ''
+  }, [tipos, editing?.tipo_convenio_id])
+
   function openNew() {
-    setEditing({ nome: '', nome_reduzido: '', codigo: '', esfera: 'municipal', cnpj: '', razao_social: '', cidade: '', uf: '', cep: '' })
+    setEditing({ nome: '', nome_reduzido: '', codigo: '', tipo_convenio_id: '', cnpj: '', razao_social: '', cidade: '', uf: '', cep: '' })
     setIsModalOpen(true)
   }
 
@@ -77,7 +96,7 @@ export default function ConveniosPage() {
       nome_reduzido: item.nome_reduzido || '',
       codigo: item.codigo || '',
       codigo_sistema: item.codigo_sistema,
-      esfera: item.esfera,
+      tipo_convenio_id: item.tipo_convenio_id || '',
       cnpj: item.cnpj || '',
       razao_social: item.razao_social || '',
       cidade: item.cidade || '',
@@ -122,6 +141,10 @@ export default function ConveniosPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!editing?.nome?.trim() || !editing?.nome_reduzido?.trim()) return
+    if (!editing?.tipo_convenio_id) {
+      setMessage({ type: 'error', text: 'Selecione o tipo de convênio.' })
+      return
+    }
     setSaving(true)
     setMessage(null)
     try {
@@ -130,7 +153,7 @@ export default function ConveniosPage() {
         nome: String(editing.nome || ''),
         nome_reduzido: String(editing.nome_reduzido || ''),
         codigo: String(editing.codigo || ''),
-        esfera: String(editing.esfera || 'outro'),
+        tipo_convenio_id: String(editing.tipo_convenio_id || ''),
         cnpj: String(editing.cnpj || ''),
         razao_social: String(editing.razao_social || ''),
         cidade: String(editing.cidade || ''),
@@ -225,8 +248,8 @@ export default function ConveniosPage() {
         </div>
         <select className="form-control" style={{ width: '180px' }} value={esferaFilter} onChange={(e) => setEsferaFilter(e.target.value)}>
           <option value="all">Todas as esferas</option>
-          {CONVENIO_ESFERAS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          {esferasDisponiveis.map((esf) => (
+            <option key={esf} value={esf}>{capitalizar(esf)}</option>
           ))}
         </select>
       </div>
@@ -240,6 +263,7 @@ export default function ConveniosPage() {
                 <th>Nome Reduzido</th>
                 <th>Cód. Sistema</th>
                 <th>Cód. ARW</th>
+                <th>Tipo</th>
                 <th>Esfera</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
@@ -248,13 +272,13 @@ export default function ConveniosPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}>
                     <span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} />
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}>
                     <div className="empty-state">
                       <Landmark size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
                       <h3>Nenhum convênio encontrado</h3>
@@ -269,7 +293,8 @@ export default function ConveniosPage() {
                     <td>{item.nome_reduzido || '-'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_sistema}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo || '-'}</td>
-                    <td>{esferaLabel(item.esfera)}</td>
+                    <td>{item.tipo_convenio_nome || '-'}</td>
+                    <td>{capitalizar(item.esfera) || '-'}</td>
                     <td>
                       <span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>
                         {item.is_active ? 'Ativo' : 'Inativo'}
@@ -354,18 +379,35 @@ export default function ConveniosPage() {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Esfera <span className="required">*</span></label>
+                    <label className="form-label">Tipo de Convênio <span className="required">*</span></label>
                     <select
                       className="form-control"
-                      value={editing?.esfera || 'outro'}
-                      onChange={(e) => setEditing({ ...editing, esfera: e.target.value })}
+                      required
+                      value={editing?.tipo_convenio_id || ''}
+                      onChange={(e) => setEditing({ ...editing, tipo_convenio_id: e.target.value })}
                     >
-                      {CONVENIO_ESFERAS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <option value="">Selecione…</option>
+                      {tipos.map((t) => (
+                        <option key={t.id} value={t.id}>{t.nome}</option>
                       ))}
                     </select>
                   </div>
+                  <div className="form-group">
+                    <label className="form-label">Esfera</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      disabled
+                      value={capitalizar(esferaDoTipo) || '—'}
+                      title="A esfera vem do tipo de convênio."
+                    />
+                  </div>
                 </div>
+                {tipos.length === 0 && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
+                    Nenhum tipo de convênio cadastrado ainda. Crie em <strong>Convênios › Tipos de Convênio</strong>.
+                  </div>
+                )}
 
                 <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
                   <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brs-gray-500)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>

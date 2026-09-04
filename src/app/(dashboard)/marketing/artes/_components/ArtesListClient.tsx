@@ -36,9 +36,13 @@ export default function ArtesListClient() {
     await carregar()
   }
 
-  const filtradas = artes.filter((a) =>
-    !busca.trim() || `${a.nome} ${a.categoria} ${a.convenio_nome} ${a.grupo_nome || ''}`.toLowerCase().includes(busca.toLowerCase()),
-  )
+  const filtradas = artes.filter((a) => {
+    if (!busca.trim()) return true
+    const destinosTxt = (a.destinos || []).map((d) => `${d.grupo} ${d.categoria} ${d.formato}`).join(' ')
+    return `${a.nome} ${a.convenio_nome || ''} ${a.tipo_convenio_nome || ''} ${a.formato_rotulo || ''} ${destinosTxt}`
+      .toLowerCase()
+      .includes(busca.toLowerCase())
+  })
 
   return (
     <div>
@@ -75,7 +79,7 @@ export default function ArtesListClient() {
               <div style={{ padding: '0.7rem' }}>
                 <div style={{ fontWeight: 700, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome}</div>
                 <div style={{ fontSize: '0.68rem', color: 'var(--brs-gray-400)', marginTop: 2 }}>
-                  {[a.categoria, a.convenio_nome, `${a.elementos.length} elem.`].filter(Boolean).join(' · ')}
+                  {[a.formato_rotulo, (a.destinos && a.destinos.length ? `${a.destinos.length} destino(s)` : ''), a.convenio_nome, `${a.elementos.length} elem.`].filter(Boolean).join(' · ')}
                 </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: '0.5rem' }}>
                   <Link href={`/marketing/artes/${a.id}`} className="btn btn-outline btn-sm" style={{ flex: 1, justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 4 }}>

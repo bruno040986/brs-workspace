@@ -170,19 +170,37 @@ function parseDataQuark(s: string): string | null {
   return null
 }
 
-/** Lista todos os colaboradores da unidade (paginado se a API paginar). */
+/**
+ * A API do Quark envelopa TODA resposta num ExtratorResponse:
+ * { pagina, cliente, dados: [...], status, error, message }. A lista real
+ * vem no campo `dados`. Este helper desembrulha e pagina (campo `pagina`).
+ */
+function extrairDados(env: any): any[] {
+  if (Array.isArray(env)) return env
+  if (Array.isArray(env?.dados)) return env.dados
+  // fallbacks defensivos
+  if (Array.isArray(env?.colaboradores)) return env.colaboradores
+  if (Array.isArray(env?.content)) return env.content
+  return []
+}
+
+/** Lista todos os colaboradores da unidade, seguindo a paginação do Quark. */
 export async function listarColaboradoresQuark(): Promise<QuarkColaborador[]> {
-  const data = await quarkGet('/v1/colaboradores/')
-  const lista = Array.isArray(data)
-    ? data
-    : Array.isArray((data as any)?.colaboradores)
-      ? (data as any).colaboradores
-      : Array.isArray((data as any)?.content)
-        ? (data as any).content
-        : Array.isArray((data as any)?.data)
-          ? (data as any).data
-          : []
-  return lista.map((c: any) => ({
+  const acumulado: any[] = []
+  let pagina = 0
+  for (let i = 0; i < 200; i++) {
+    const sep = '/v1/colaboradores/'.includes('?') ? '&' : '?'
+    const env: any = (await quarkGet(`/v1/colaboradores/${sep}pagina=${pagina}`)) as any
+    if (env?.error) throw new Error(`Quark: ${env.error}`)
+    const lote = extrairDados(env)
+    if (lote.length === 0) break
+    acumulado.push(...lote)
+    // sem sinal de próxima página → para (evita loop)
+    const proxima = Number(env?.pagina)
+    if (!Number.isFinite(proxima) || lote.length < 50) break
+    pagina = proxima + 1
+  }
+  return acumulado.map((c: any) => ({
     id: String(c.id ?? ''),
     nome: String(c.nome ?? ''),
     cpf: String(c.pessoaCpfFormatado ?? c.cpf ?? '').replace(/\D/g, ''),
@@ -197,7 +215,7 @@ export async function listarColaboradoresQuark(): Promise<QuarkColaborador[]> {
 
 /** Amostra crua do colaborador (debug/mapeamento). */
 export async function amostraColaboradorQuark(): Promise<{ status: number; amostra: string }> {
-  const r = await quarkGet('/v1/colaboradores/')
+  const r = await quarkGet('/v1/colaboradores/?pagina=0')
   const bruto = typeof r.body === 'string' ? r.body : JSON.stringify(r.body)
-  return { status: r.status, amostra: bruto.slice(0, 800) }
+  return { status: r.status, amostra: bruto.slice(0, 1200) }
 }

@@ -9,7 +9,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { CONVENIO_ESFERAS } from '@/lib/cadastros-credito'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,7 +29,8 @@ export type ConvenioRecord = {
   nome_reduzido: string
   codigo?: string | null // Código ARW — opcional, só usado pelo importador de comissionamento
   codigo_sistema?: string // gerado pelo banco, não editável
-  esfera: string
+  tipo_convenio_id?: string | null // obrigatório; a esfera deriva dele
+  esfera?: string // derivado do tipo — não é mais digitado
   cnpj?: string | null
   razao_social?: string | null
   cidade?: string | null
@@ -44,12 +44,18 @@ export async function getConvenios() {
     await requirePermission(PERMISSION_RESOURCE)
     const { data, error } = await supabaseAdmin
       .from('convenios')
-      .select('id, nome, nome_reduzido, codigo, codigo_sistema, esfera, cnpj, razao_social, cidade, uf, cep, is_active, created_at')
+      .select('id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome))')
       .is('deleted_at', null)
       .order('is_active', { ascending: false })
       .order('nome', { ascending: true })
     if (error) throw error
-    return { success: true, items: data || [] }
+    const items = (data || []).map((r: any) => ({
+      ...r,
+      tipo_convenio_nome: r.tipo?.nome || '',
+      // esfera efetiva: deriva do tipo; cai no texto legado se ainda sem tipo
+      esfera: r.tipo?.esfera?.nome || r.esfera || '',
+    }))
+    return { success: true, items }
   } catch (error: any) {
     console.error('Erro ao buscar convênios:', error)
     return { success: false, error: error.message }
@@ -71,14 +77,24 @@ export async function saveConvenio(payload: ConvenioRecord) {
     const nomeReduzido = String(payload.nome_reduzido || '').trim()
     if (!nomeReduzido) return { success: false, error: 'O nome reduzido é obrigatório.' }
 
-    const esfera = CONVENIO_ESFERAS.some((item) => item.value === payload.esfera)
-      ? payload.esfera
-      : 'outro'
+    const tipoConvenioId = String(payload.tipo_convenio_id || '').trim()
+    if (!tipoConvenioId) return { success: false, error: 'O tipo de convênio é obrigatório.' }
+
+    // Esfera deriva do tipo (guardada também no texto legado para retrocompat).
+    const { data: tipoRow, error: tipoErr } = await supabaseAdmin
+      .from('convenio_tipos')
+      .select('id, esfera:esfera_id(nome)')
+      .eq('id', tipoConvenioId)
+      .maybeSingle()
+    if (tipoErr) throw tipoErr
+    if (!tipoRow) return { success: false, error: 'Tipo de convênio inválido.' }
+    const esfera = String((tipoRow as any).esfera?.nome || '').toLowerCase()
 
     const row = {
       nome,
       nome_reduzido: nomeReduzido,
       codigo: String(payload.codigo || '').trim() || null,
+      tipo_convenio_id: tipoConvenioId,
       esfera,
       cnpj: onlyDigitsOrNull(payload.cnpj),
       razao_social: String(payload.razao_social || '').trim() || null,

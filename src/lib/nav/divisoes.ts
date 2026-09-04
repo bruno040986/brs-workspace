@@ -109,7 +109,15 @@ export const NAV_DIVISOES: NavDivisao[] = [
         ],
       },
       { label: 'Instituições Financeiras', href: '/instituicoes-financeiras', perms: [view('sistema-config-instituicoes')] },
-      { label: 'Convênios', href: '/convenios', perms: [view('workspace-convenios')] },
+      {
+        label: 'Convênios',
+        href: '/convenios',
+        perms: [view('workspace-convenios')],
+        children: [
+          { label: 'Esferas', href: '/convenios/esferas', perms: [view('workspace-convenios')] },
+          { label: 'Tipos de Convênio', href: '/convenios/tipos', perms: [view('workspace-convenios')] },
+        ],
+      },
       { label: 'Promotoras', href: '/promotoras', perms: [view('promotoras')] },
       { label: 'Averbadoras', href: '#averbadoras', soon: true, perms: [view('sistema-config-instituicoes')] },
       {
@@ -162,7 +170,17 @@ export const NAV_DIVISOES: NavDivisao[] = [
     label: 'Comercial',
     icon: TrendingUp,
     itens: [
-      { label: 'Biblioteca de Artes', href: '/marketing/artes', perms: [view('marketing-biblioteca-artes')] },
+      {
+        label: 'Biblioteca de Artes',
+        href: '/marketing/artes',
+        perms: [view('marketing-biblioteca-artes')],
+        children: [
+          { label: 'Grupos', href: '/marketing/grupos', perms: [view('marketing-biblioteca-artes')] },
+          { label: 'Categorias', href: '/marketing/categorias', perms: [view('marketing-biblioteca-artes')] },
+          { label: 'Formatos', href: '/marketing/formatos', perms: [view('marketing-biblioteca-artes')] },
+          { label: 'Associações', href: '/marketing/associacoes', perms: [view('marketing-biblioteca-artes')] },
+        ],
+      },
       {
         label: 'Gestão de Leads',
         href: '/gestao-leads',

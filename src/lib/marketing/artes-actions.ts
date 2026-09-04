@@ -39,6 +39,13 @@ export type MarketingArte = {
   altura_px: number
   convenio_id: string | null
   convenio_nome?: string
+  formato_id: string | null
+  formato_rotulo?: string
+  tipo_convenio_id: string | null
+  tipo_convenio_nome?: string
+  associacao_ids: string[]
+  destinos?: Array<{ grupo: string; categoria: string; formato: string }>
+  // legados (retrocompat — não usar como fonte da verdade)
   categoria: string
   formato: string
   grupo_nome: string | null
@@ -59,7 +66,10 @@ export async function listarArtes(): Promise<{ success: boolean; data?: Marketin
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('marketing_artes')
-      .select('*, convenio:convenio_id(nome_reduzido)')
+      .select(`*, convenio:convenio_id(nome_reduzido), formato:formato_id(rotulo),
+        tipo:tipo_convenio_id(nome),
+        assocs:marketing_arte_associacoes(associacao_id,
+          associacao:associacao_id(grupo:grupo_id(nome), categoria:categoria_id(nome), formato:formato_id(rotulo)))`)
       .order('created_at', { ascending: false })
       .limit(300)
     if (error) throw error
@@ -67,6 +77,14 @@ export async function listarArtes(): Promise<{ success: boolean; data?: Marketin
       (data || []).map(async (r: any) => ({
         ...r,
         convenio_nome: r.convenio?.nome_reduzido || '',
+        formato_rotulo: r.formato?.rotulo || '',
+        tipo_convenio_nome: r.tipo?.nome || '',
+        associacao_ids: (r.assocs || []).map((a: any) => a.associacao_id),
+        destinos: (r.assocs || []).map((a: any) => ({
+          grupo: a.associacao?.grupo?.nome || '',
+          categoria: a.associacao?.categoria?.nome || '',
+          formato: a.associacao?.formato?.rotulo || '',
+        })),
         imagem_signed_url: await signImagem(admin, r.imagem_url),
         elementos: Array.isArray(r.elementos) ? r.elementos : [],
       })),
@@ -83,18 +101,30 @@ export async function getArte(id: string): Promise<{ success: boolean; data?: Ma
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('marketing_artes')
-      .select('*, convenio:convenio_id(nome_reduzido)')
+      .select(`*, convenio:convenio_id(nome_reduzido), formato:formato_id(rotulo),
+        tipo:tipo_convenio_id(nome),
+        assocs:marketing_arte_associacoes(associacao_id,
+          associacao:associacao_id(grupo:grupo_id(nome), categoria:categoria_id(nome), formato:formato_id(rotulo)))`)
       .eq('id', id)
       .maybeSingle()
     if (error) throw error
     if (!data) throw new Error('Arte não encontrada.')
+    const r = data as any
     return {
       success: true,
       data: {
-        ...(data as any),
-        convenio_nome: (data as any).convenio?.nome_reduzido || '',
-        imagem_signed_url: await signImagem(admin, (data as any).imagem_url),
-        elementos: Array.isArray((data as any).elementos) ? (data as any).elementos : [],
+        ...r,
+        convenio_nome: r.convenio?.nome_reduzido || '',
+        formato_rotulo: r.formato?.rotulo || '',
+        tipo_convenio_nome: r.tipo?.nome || '',
+        associacao_ids: (r.assocs || []).map((a: any) => a.associacao_id),
+        destinos: (r.assocs || []).map((a: any) => ({
+          grupo: a.associacao?.grupo?.nome || '',
+          categoria: a.associacao?.categoria?.nome || '',
+          formato: a.associacao?.formato?.rotulo || '',
+        })),
+        imagem_signed_url: await signImagem(admin, r.imagem_url),
+        elementos: Array.isArray(r.elementos) ? r.elementos : [],
       } as MarketingArte,
     }
   } catch (err: any) {
@@ -102,19 +132,54 @@ export async function getArte(id: string): Promise<{ success: boolean; data?: Ma
   }
 }
 
-export async function getArteLookups(): Promise<{ convenios: Array<{ id: string; nome: string }> }> {
+export type ArteLookups = {
+  convenios: Array<{ id: string; nome: string; tipo_convenio_id: string | null }>
+  tipos: Array<{ id: string; nome: string; esfera_nome: string }>
+  formatos: Array<{ id: string; rotulo: string; largura_px: number; altura_px: number }>
+  associacoes: Array<{
+    id: string
+    grupo_id: string
+    categoria_id: string
+    formato_id: string
+    grupo_nome: string
+    categoria_nome: string
+    formato_rotulo: string
+    largura_px: number
+    altura_px: number
+  }>
+}
+
+export async function getArteLookups(): Promise<ArteLookups> {
   try {
     await requirePermission(RESOURCE)
     const admin = await createAdminClient()
-    const { data } = await admin
-      .from('convenios')
-      .select('id, nome_reduzido')
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .order('nome_reduzido')
-    return { convenios: (data || []).map((c: any) => ({ id: String(c.id), nome: String(c.nome_reduzido || '') })) }
+    const [{ data: conv }, { data: tipos }, { data: fmts }, { data: assocs }] = await Promise.all([
+      admin.from('convenios').select('id, nome_reduzido, tipo_convenio_id').eq('is_active', true).is('deleted_at', null).order('nome_reduzido'),
+      admin.from('convenio_tipos').select('id, nome, esfera:esfera_id(nome)').eq('is_active', true).order('nome'),
+      admin.from('marketing_formatos').select('id, rotulo, largura_px, altura_px').eq('is_active', true).order('rotulo'),
+      admin
+        .from('marketing_associacoes')
+        .select('id, grupo_id, categoria_id, formato_id, grupo:grupo_id(nome), categoria:categoria_id(nome), formato:formato_id(rotulo, largura_px, altura_px)')
+        .eq('is_active', true),
+    ])
+    return {
+      convenios: (conv || []).map((c: any) => ({ id: String(c.id), nome: String(c.nome_reduzido || ''), tipo_convenio_id: c.tipo_convenio_id || null })),
+      tipos: (tipos || []).map((t: any) => ({ id: String(t.id), nome: String(t.nome || ''), esfera_nome: t.esfera?.nome || '' })),
+      formatos: (fmts || []).map((f: any) => ({ id: String(f.id), rotulo: String(f.rotulo || ''), largura_px: Number(f.largura_px), altura_px: Number(f.altura_px) })),
+      associacoes: (assocs || []).map((a: any) => ({
+        id: String(a.id),
+        grupo_id: a.grupo_id,
+        categoria_id: a.categoria_id,
+        formato_id: a.formato_id,
+        grupo_nome: a.grupo?.nome || '',
+        categoria_nome: a.categoria?.nome || '',
+        formato_rotulo: a.formato?.rotulo || '',
+        largura_px: Number(a.formato?.largura_px) || 0,
+        altura_px: Number(a.formato?.altura_px) || 0,
+      })),
+    }
   } catch {
-    return { convenios: [] }
+    return { convenios: [], tipos: [], formatos: [], associacoes: [] }
   }
 }
 
@@ -160,9 +225,9 @@ export async function salvarArte(input: {
   largura_px: number
   altura_px: number
   convenio_id?: string | null
-  categoria?: string
-  formato?: string
-  grupo_nome?: string | null
+  formato_id?: string | null
+  tipo_convenio_id?: string | null
+  associacao_ids?: string[]
   elementos: ArteElemento[]
   is_active?: boolean
 }): Promise<{ success: true; id: string } | { success: false; error: string }> {
@@ -172,6 +237,26 @@ export async function salvarArte(input: {
     if (!input.imagem_url) throw new Error('Envie a imagem-base.')
     if (!input.largura_px || !input.altura_px) throw new Error('Dimensões da imagem inválidas.')
     const admin = await createAdminClient()
+
+    const associacaoIds = [...new Set((input.associacao_ids || []).filter(Boolean))]
+    let formatoId = input.formato_id || null
+
+    // Coerência: os destinos escolhidos têm de ser todos do mesmo formato, e
+    // esse formato deve bater com o formato_id (a dimensão da arte).
+    if (associacaoIds.length > 0) {
+      const { data: assocs, error: assocErr } = await admin
+        .from('marketing_associacoes')
+        .select('id, formato_id')
+        .in('id', associacaoIds)
+      if (assocErr) throw assocErr
+      const formatosDistintos = [...new Set((assocs || []).map((a: any) => a.formato_id))]
+      if (formatosDistintos.length > 1) throw new Error('Os destinos escolhidos têm formatos diferentes. Selecione destinos de um único formato (a dimensão da arte).')
+      if (formatosDistintos.length === 1) {
+        if (formatoId && formatoId !== formatosDistintos[0]) throw new Error('O formato da arte não bate com os destinos escolhidos.')
+        formatoId = formatosDistintos[0] as string
+      }
+    }
+
     const row = {
       nome: input.nome.trim(),
       descricao: String(input.descricao || '').trim(),
@@ -179,23 +264,34 @@ export async function salvarArte(input: {
       largura_px: Math.round(input.largura_px),
       altura_px: Math.round(input.altura_px),
       convenio_id: input.convenio_id || null,
-      categoria: String(input.categoria || '').trim(),
-      formato: String(input.formato || '').trim(),
-      grupo_nome: input.grupo_nome?.trim() || null,
+      formato_id: formatoId,
+      tipo_convenio_id: input.tipo_convenio_id || null,
       elementos: input.elementos || [],
       is_active: input.is_active !== false,
       updated_at: new Date().toISOString(),
     }
+
+    let arteId = input.id || ''
     if (input.id) {
       const { error } = await admin.from('marketing_artes').update(row).eq('id', input.id)
       if (error) throw error
-      revalidatePath('/marketing/artes')
-      return { success: true, id: input.id }
+    } else {
+      const { data, error } = await admin.from('marketing_artes').insert({ ...row, created_by: user.id }).select('id').single()
+      if (error) throw error
+      arteId = String(data.id)
     }
-    const { data, error } = await admin.from('marketing_artes').insert({ ...row, created_by: user.id }).select('id').single()
-    if (error) throw error
+
+    // Substitui os destinos (ponte arte↔associação).
+    await admin.from('marketing_arte_associacoes').delete().eq('arte_id', arteId)
+    if (associacaoIds.length > 0) {
+      const { error: linkErr } = await admin
+        .from('marketing_arte_associacoes')
+        .insert(associacaoIds.map((associacao_id) => ({ arte_id: arteId, associacao_id })))
+      if (linkErr) throw linkErr
+    }
+
     revalidatePath('/marketing/artes')
-    return { success: true, id: String(data.id) }
+    return { success: true, id: arteId }
   } catch (err: any) {
     return { success: false, error: err.message }
   }

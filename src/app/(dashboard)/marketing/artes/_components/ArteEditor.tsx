@@ -7,7 +7,7 @@
  * WhatsApp) e as regras → tudo salvo como % do canvas no jsonb `elementos`.
  * Elementos existentes podem ser movidos/redimensionados.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Image as ImageIcon, Loader2, MessageSquare, Save, Trash2, Type, User } from 'lucide-react'
 import {
@@ -16,8 +16,11 @@ import {
   salvarArte,
   uploadImagemBase,
   type ArteElemento,
+  type ArteLookups,
   type MarketingArte,
 } from '@/lib/marketing/artes-actions'
+
+const LOOKUPS_VAZIO: ArteLookups = { convenios: [], tipos: [], formatos: [], associacoes: [] }
 
 const CORES_TIPO: Record<ArteElemento['tipo'], string> = {
   logo: '#7c3aed',
@@ -42,11 +45,10 @@ export default function ArteEditor({ arte }: { arte?: MarketingArte }) {
 
   const [nome, setNome] = useState(arte?.nome || '')
   const [descricao, setDescricao] = useState(arte?.descricao || '')
-  const [categoria, setCategoria] = useState(arte?.categoria || '')
-  const [formato, setFormato] = useState(arte?.formato || '')
-  const [grupoNome, setGrupoNome] = useState(arte?.grupo_nome || '')
+  const [tipoConvenioId, setTipoConvenioId] = useState(arte?.tipo_convenio_id || '')
   const [convenioId, setConvenioId] = useState(arte?.convenio_id || '')
-  const [convenios, setConvenios] = useState<Array<{ id: string; nome: string }>>([])
+  const [lookups, setLookups] = useState<ArteLookups>(LOOKUPS_VAZIO)
+  const [destinos, setDestinos] = useState<string[]>(arte?.associacao_ids || []) // associacao ids marcados
 
   const [imagemPath, setImagemPath] = useState(arte?.imagem_url || '')
   const [imagemUrl, setImagemUrl] = useState(arte?.imagem_signed_url || '')
@@ -62,8 +64,40 @@ export default function ArteEditor({ arte }: { arte?: MarketingArte }) {
   const dragRef = useRef<null | { modo: 'novo' | 'mover' | 'resize'; id: string; startX: number; startY: number; orig: ArteElemento }>(null)
 
   useEffect(() => {
-    getArteLookups().then((l) => setConvenios(l.convenios))
+    getArteLookups().then((l) => setLookups(l || LOOKUPS_VAZIO))
   }, [])
+
+  // Convênios visíveis = Genérico + os do tipo selecionado (ou todos se sem tipo).
+  const conveniosFiltrados = useMemo(() => {
+    if (!tipoConvenioId) return lookups.convenios
+    return lookups.convenios.filter((c) => c.tipo_convenio_id === tipoConvenioId)
+  }, [lookups.convenios, tipoConvenioId])
+
+  // Se o tipo mudar e o convênio escolhido não pertencer mais, limpa.
+  useEffect(() => {
+    if (convenioId && !conveniosFiltrados.some((c) => c.id === convenioId)) setConvenioId('')
+  }, [conveniosFiltrados, convenioId])
+
+  // Destinos possíveis = associações cujo formato bate com a DIMENSÃO da imagem.
+  const destinosDisponiveis = useMemo(() => {
+    if (!dim.w || !dim.h) return []
+    return lookups.associacoes.filter((a) => a.largura_px === dim.w && a.altura_px === dim.h)
+  }, [lookups.associacoes, dim.w, dim.h])
+
+  // Agrupa por Grupo para o checklist.
+  const destinosPorGrupo = useMemo(() => {
+    const mapa = new Map<string, typeof destinosDisponiveis>()
+    for (const a of destinosDisponiveis) {
+      const arr = mapa.get(a.grupo_nome) || []
+      arr.push(a)
+      mapa.set(a.grupo_nome, arr)
+    }
+    return [...mapa.entries()].sort((x, y) => x[0].localeCompare(y[0]))
+  }, [destinosDisponiveis])
+
+  function toggleDestino(id: string) {
+    setDestinos((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
 
   useEffect(() => {
     if (imagemPath && !imagemUrl) assinarImagemBase(imagemPath).then(setImagemUrl)
@@ -156,6 +190,8 @@ export default function ArteEditor({ arte }: { arte?: MarketingArte }) {
     setSalvando(true)
     setErro('')
     try {
+      // Formato da arte = o cadastro cuja dimensão bate com a imagem (se houver).
+      const formatoId = lookups.formatos.find((f) => f.largura_px === dim.w && f.altura_px === dim.h)?.id || null
       const res = await salvarArte({
         id: arte?.id,
         nome,
@@ -164,9 +200,9 @@ export default function ArteEditor({ arte }: { arte?: MarketingArte }) {
         largura_px: dim.w,
         altura_px: dim.h,
         convenio_id: convenioId || null,
-        categoria,
-        formato,
-        grupo_nome: grupoNome || null,
+        formato_id: formatoId,
+        tipo_convenio_id: tipoConvenioId || null,
+        associacao_ids: destinos,
         elementos,
       })
       if (!res.success) throw new Error(res.error)
@@ -197,17 +233,58 @@ export default function ArteEditor({ arte }: { arte?: MarketingArte }) {
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.7rem' }}>
           <div><label style={rotulo}>Nome *</label><input className="form-control" value={nome} onChange={(e) => setNome(e.target.value)} /></div>
-          <div><label style={rotulo}>Categoria</label><input className="form-control" value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="ex.: Story, Feed…" /></div>
-          <div><label style={rotulo}>Formato</label><input className="form-control" value={formato} onChange={(e) => setFormato(e.target.value)} placeholder="ex.: 1080x1920" /></div>
+          <div><label style={rotulo}>Tipo de Convênio</label>
+            <select className="form-control" value={tipoConvenioId} onChange={(e) => setTipoConvenioId(e.target.value)}>
+              <option value="">— Todos —</option>
+              {lookups.tipos.map((t) => <option key={t.id} value={t.id}>{t.nome}{t.esfera_nome ? ` (${t.esfera_nome})` : ''}</option>)}
+            </select>
+          </div>
           <div><label style={rotulo}>Convênio</label>
             <select className="form-control" value={convenioId} onChange={(e) => setConvenioId(e.target.value)}>
               <option value="">— Genérico —</option>
-              {convenios.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {conveniosFiltrados.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
           </div>
-          <div><label style={rotulo}>Grupo</label><input className="form-control" value={grupoNome} onChange={(e) => setGrupoNome(e.target.value)} placeholder="ex.: Campanha Setembro" /></div>
-          <div><label style={rotulo}>Descrição</label><input className="form-control" value={descricao} onChange={(e) => setDescricao(e.target.value)} /></div>
+          <div style={{ gridColumn: '1 / -1' }}><label style={rotulo}>Descrição</label><input className="form-control" value={descricao} onChange={(e) => setDescricao(e.target.value)} /></div>
         </div>
+        <p style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', margin: '0.6rem 0 0' }}>
+          O <strong>Tipo de Convênio</strong> filtra os convênios abaixo: mostra “Genérico” + os convênios daquele tipo.
+          Deixe “Genérico” quando a arte não for de um convênio específico.
+        </p>
+      </div>
+
+      {/* destinos (grupo/categoria/formato) — filtrados pela dimensão da imagem */}
+      <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+          <strong style={{ fontSize: '0.9rem' }}>Destinos desta arte</strong>
+          {dim.w > 0 && <span style={{ fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>dimensão {dim.w}×{dim.h}px · {destinos.length} marcado(s)</span>}
+        </div>
+        {!dim.w ? (
+          <p style={{ fontSize: '0.8rem', color: 'var(--brs-gray-400)', margin: 0 }}>Envie a imagem-base para escolher os destinos (as opções são filtradas pela dimensão da imagem).</p>
+        ) : destinosDisponiveis.length === 0 ? (
+          <p style={{ fontSize: '0.8rem', color: 'var(--brs-danger)', margin: 0 }}>
+            Nenhuma combinação cadastrada para {dim.w}×{dim.h}px. Cadastre em <strong>Biblioteca de Artes › Associações</strong> (ou confira o Formato dessa dimensão).
+          </p>
+        ) : (
+          <>
+            <p style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', margin: '0 0 0.6rem' }}>
+              Marque todos os lugares que esta arte {dim.w}×{dim.h}px atende. Uma mesma arte pode servir vários grupos/categorias com a mesma dimensão.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              {destinosPorGrupo.map(([grupo, itens]) => (
+                <div key={grupo} style={{ border: '1px solid var(--brs-gray-100)', borderRadius: 8, padding: '0.6rem 0.75rem' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--brs-gray-700)', marginBottom: 6 }}>{grupo}</div>
+                  {itens.map((a) => (
+                    <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', padding: '2px 0', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={destinos.includes(a.id)} onChange={() => toggleDestino(a.id)} />
+                      <span>{a.categoria_nome} <span style={{ color: 'var(--brs-gray-400)' }}>· {a.formato_rotulo}</span></span>
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1rem', alignItems: 'start' }}>
