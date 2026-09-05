@@ -29,10 +29,7 @@
       "Bash(psql *)",
       "Bash(curl *)",
       "Bash(wget *)",
-      "Bash(rm -rf *)",
-      "Bash(cat .env*)",
-      "Bash(cat ./.env*)",
-      "Read(./.env*)"
+      "Bash(rm -rf *)"
     ]
   },
   "env": {
