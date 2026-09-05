@@ -86,6 +86,39 @@ novo atrás de flag desligada. Ambiente de teste: Postgres isolado
 **Estado verificado 05/09 ~04:50:** `npm test` 18/18 · `npm run test:db` PASS
 (8/8 migrations) · `npm run typecheck` limpo.
 
+## Etapa 5 — parcial (Sonnet, 05/09)
+
+Achados de leitura de código (a auditoria de 04/09 não cobriu a seção 5 em
+detalhe) mapeados 1:1 na seção 5 do plano, corrigidos sem precisar de schema:
+
+1. **Fechar exigia só um motivo opcional — sem tabulação nem decisão de
+   funil.** `encerrarConversaAtendimento` agora recebe `{ tabulacao, estagio }`
+   em vez de um `motivo` livre. Com lead vinculado, os dois são obrigatórios e
+   gravados (via `moverEstagio`+`addTabulacao`, mesmo par que `PainelLead.tsx`
+   já usa) ANTES do resolve no Chatwoot — se falhar, a conversa continua
+   aberta. Sem lead vinculado (FK de `crm_tabulacoes` exige `contato_id`) só o
+   texto é exigido — limitação de schema, documentada, não simulada.
+2. **Reabertura de conversa resolvida era silenciosa.**
+   `services/engine/src/chatwoot.ts:reabrirSeResolvida` só trocava o status;
+   agora deixa uma nota privada identificável ("🔓 Atendimento reaberto..."),
+   mesmo idioma que assumir/transferir/encerrar já usavam.
+3. **Falsa confirmação ao criar lead receptivo com CPF/Nome/Telefone/Convênio
+   ok mas sync do WeSales falhando.** `criarLeadDaConversa` já exige os
+   quatro campos (isso já estava certo); o toast em `AtendimentoShell.tsx` é
+   que dizia "Lead criado." mesmo com `idws` nulo. Novo tipo de toast
+   `aviso` (`ui.tsx`, âmbar) avisa "sincronização pendente" em vez de
+   confirmar um vínculo que não existe.
+
+**O resto da seção 5** (tags por conversa, atribuição atômica, agendamento
+individual persistente, rascunhos, citação de mensagem, busca, galeria,
+ordenação por espera, sidebar recolhível) tem status desigual — alguns
+precisam de migration, outros só não foram feitos ainda. Detalhe completo,
+com SQL de rascunho pros que precisam de schema, em
+[PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md](PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md).
+
+**Estado verificado 05/09 ~06:10:** `npm test` 18/18 · `npm run typecheck`
+limpo. (`test:db` não muda com esta entrega — nenhuma migration nova.)
+
 ## Regras para a sessão Sonnet
 
 **Pode fazer sem perguntar:** código TS/TSX do CRM e do engine, testes,
@@ -109,7 +142,9 @@ para lead real; alterar a stack Docker `bem-varejo`.
    `20260903220713`). Flags continuam **desligadas** depois do push.
 2. ~~Etapa 4 restante~~ **FEITO 05/09 (Sonnet)** — ver seção acima. Sobrou só a
    busca por CPF/IDWS além da 1ª página e virtualização (medir antes).
-3. **Etapa 5 (Sonnet):** ferramentas de atendimento — spec no plano, seção 5.
+3. **Etapa 5 — parcial, FEITO 05/09 (Sonnet)** — ver seção acima. Resto na
+   proposta de schema + backlog schema-free (drafts, citação, busca, galeria,
+   ordenação por espera, sidebar).
 4. **Etapa 6 (Sonnet):** disparos — `montarRotacao` já implementa a fórmula
    `(i + N·(volta%3) + ⌊volta/3⌋) % M`; falta pool versionado, prévia das
    rodadas, worker com agenda persistente (cron de minuto não serve para
