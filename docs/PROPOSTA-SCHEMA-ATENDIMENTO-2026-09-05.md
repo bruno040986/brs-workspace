@@ -162,3 +162,65 @@ disparo; reinício do worker não perde nem duplica.
   (`FilaConversas.tsx`/`AtendimentoShell.tsx`). É trabalho de UI puro, mas é
   a tela mais usada do CRM — melhor fazer com o navegador aberto do que às
   cegas; não tentei nesta sessão.
+
+## Etapa 6 (disparos e métricas por instância) — 05/09, sessão Sonnet
+
+Levantamento sobre `brs-alvoconsig`. A fórmula de rotação e o saco de delays
+(seção 6 do plano) já estavam corretos — conferidos linha por linha contra o
+exemplo canônico do plano (10 números, 30 templates: rodadas T1–T10, T11–T20,
+T21–T30, T2–T11) e cobertos por teste novo em `disparo.test.ts`. **Implementado
+nesta sessão:**
+
+- **Worker persistente de disparo dentro do engine**
+  (`services/engine/src/disparo-worker.ts`), atrás de `ENGINE_DISPARO_WORKER`
+  (desligado). Resolve "cron de minuto não serve pra cadências de cinco
+  segundos": o cron do Next.js só pode ser acionado de fora em intervalos de
+  minuto; o engine já é processo sempre no ar (Railway), então o worker pode
+  reivindicar a fila a cada 1-2s. Usa a MESMA RPC do cron
+  (`crm_disparo_claim`/`finish`) e a MESMA rota de envio
+  (`/instancias/:id/enviar`, chamada em loopback) — nada de lógica de envio
+  duplicada, só a composição da mensagem (variáveis do template) precisou ser
+  espelhada, porque o build do engine não inclui `apps/web` (ver comentário no
+  arquivo). Cron do Next.js continua sendo o caminho ativo até este worker ser
+  testado com carga real.
+- **Prévia das rodadas** no wizard de campanha
+  (`NovaCampanhaWizard.tsx`), usando `montarRotacao` direto — mostra os pares
+  número×template das primeiras rodadas antes de criar a campanha.
+- **Painel "Envios do disparo"** em `CampanhaDetalhe.tsx`: contagem por status
+  (pendente/enviando/enviado/incerto/falhou/cancelado) e próximo horário
+  agendado. `getProgressoDisparo` tinha DOIS bugs — não existia nenhuma tela
+  que a chamasse (função morta) e ela contava em memória (`select('status')`
+  sem paginação, undercontava campanhas grandes) sem incluir o status
+  `incerto` (que eu adicionei na migration de disparo durável). Trocado por
+  `count: 'exact', head: true` por status — não depende do limite de linhas do
+  PostgREST (exigência explícita da seção 6).
+
+**Não fiz — precisam de decisão de produto antes de virar código:**
+
+1. **Fluxo técnico entre números controlados.** O plano pede: depois de um
+   envio elegível pra lead, até 4 números do MESMO tenant recebem mensagem e
+   respondem em tempos sorteados; com menos de 5 números elegíveis o fluxo
+   fica suspenso; nunca cria novo ciclo a partir de resposta técnica; conta
+   separado do indicador comercial; **desligado até teste real autorizado**.
+   Isso é código que manda o PRÓPRIO sistema iniciar conversas sem gatilho de
+   atendente — categoria diferente de tudo que existe hoje no CRM (que só
+   reage a ação humana ou a mensagem do cliente). Antes de desenhar o schema
+   quero confirmação explícita do Bruno sobre o objetivo exato (dar atividade
+   orgânica aos números pra reduzir risco de bloqueio do WhatsApp?) e os
+   limites numéricos (quantos ciclos por dia, por número, etc. — o plano não
+   define, só diz "impor limites").
+2. **Versionar edição do pool de templates em campanha ativa.** Hoje
+   `editarCampanhaParceiro` só edita nome/descrição/atendentes — trocar
+   instâncias/templates de uma campanha JÁ criada não é possível (a fila
+   inteira é materializada de uma vez em `persistirComposicaoDisparo`, na
+   criação). "Edição gera versão nova aplicada em limite definido da rodada"
+   pressupõe uma feature de editar-em-andamento que ainda não existe; construir
+   as duas juntas é mais SQL novo (`crm_campanha_disparo_templates` já tem
+   `ordem`, mas nenhuma coluna de versão/vigência) — falta decidir o que
+   "limite definido da rodada" quer dizer na prática (a partir do próximo
+   `n` múltiplo de N? a partir da próxima campanha?).
+3. **Limite de envios por instância** (achado 6 do plano: "limites por
+   instância e recuperação de leases" — a recuperação de lease já está feita
+   desde a migration de disparo durável; o limite numérico por instância,
+   não). Sem um número (quantos por hora/dia por número pra não levar
+   bloqueio), não dá pra codificar sem chutar um valor.

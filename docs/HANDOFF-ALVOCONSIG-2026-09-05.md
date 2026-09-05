@@ -119,6 +119,35 @@ com SQL de rascunho pros que precisam de schema, em
 **Estado verificado 05/09 ~06:10:** `npm test` 18/18 · `npm run typecheck`
 limpo. (`test:db` não muda com esta entrega — nenhuma migration nova.)
 
+## Etapa 6 — parcial (Sonnet, 05/09)
+
+Rotação e delay (fórmula canônica `(i + N·(volta%3) + ⌊volta/3⌋) % M`, saco de
+delays sem reposição) já estavam corretos de uma sessão anterior — conferidos
+à mão contra o exemplo do plano (10 números, 30 templates) e agora com teste
+próprio (`disparo.test.ts`, caso `rotação canônica 10x30`).
+
+**Feito:**
+1. **Worker persistente no engine** (`services/engine/src/disparo-worker.ts`,
+   flag `ENGINE_DISPARO_WORKER`, desligada) — resolve "cron de minuto não
+   serve pra cadências de 5s" reivindicando `crm_disparo_claim` a cada 1-2s em
+   vez de 1x/minuto. Cron do Next.js continua sendo o caminho ativo.
+2. **Prévia das rodadas** no wizard de campanha, antes de criar.
+3. **Painel de progresso do disparo** em `CampanhaDetalhe.tsx` — e dois bugs
+   corrigidos em `getProgressoDisparo` de quebra: função nunca tinha UI que a
+   chamasse, contava em memória sem paginação (undercontava campanha grande)
+   e não incluía o status `incerto`.
+
+**Não feito — precisa de decisão do Bruno antes de codar** (detalhe em
+[PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md](PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md#etapa-6-disparos-e-métricas-por-instância--0509-sessão-sonnet)):
+fluxo técnico entre números controlados (código que inicia conversa sozinho,
+categoria nova — quero confirmação do objetivo e dos limites numéricos antes
+de desenhar schema), versionar edição de pool em campanha ativa (a própria
+edição do pool não existe ainda), limite numérico de envios por instância
+(sem um número, não dá pra codificar).
+
+**Estado verificado 05/09 ~07:00:** `npm test` 21/21 (+3 do engine) ·
+`npm run test:db` PASS · `npm run typecheck` limpo.
+
 ## Regras para a sessão Sonnet
 
 **Pode fazer sem perguntar:** código TS/TSX do CRM e do engine, testes,
@@ -145,10 +174,9 @@ para lead real; alterar a stack Docker `bem-varejo`.
 3. **Etapa 5 — parcial, FEITO 05/09 (Sonnet)** — ver seção acima. Resto na
    proposta de schema + backlog schema-free (drafts, citação, busca, galeria,
    ordenação por espera, sidebar).
-4. **Etapa 6 (Sonnet):** disparos — `montarRotacao` já implementa a fórmula
-   `(i + N·(volta%3) + ⌊volta/3⌋) % M`; falta pool versionado, prévia das
-   rodadas, worker com agenda persistente (cron de minuto não serve para
-   cadência de 5 s) e o fluxo técnico entre números controlados (desligado).
+4. **Etapa 6 — parcial, FEITO 05/09 (Sonnet)** — ver seção acima. Sobrou fluxo
+   técnico entre números controlados, versionamento de pool e limite por
+   instância — todos esperando decisão do Bruno, não código.
 5. **Etapa 7 (Sonnet):** painéis de simulação/digitação + chat interno.
 6. **Ativação gradual (Fable + Bruno):** `ENGINE_DURABLE_EVENTS` → 
    `CHAT_INSTANCE_LEASES` → `ENGINE_OWNED_HISTORY`, um tenant de teste por vez,
