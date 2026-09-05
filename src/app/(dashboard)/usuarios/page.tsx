@@ -86,6 +86,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-credito', name: 'Comissionamento e Coeficientes (ARW)', parentId: 'cat-div-operacional', level: 1 },
   { id: 'operacional-nuvidio-links', name: 'Nuvidio (criar e acompanhar links)', parentId: 'cat-div-operacional', level: 1 },
   { id: 'operacional-nuvidio-atendimento', name: 'Nuvidio — Atendimento', parentId: 'operacional-nuvidio-links', level: 2 },
+  { id: 'operacional-painel-operacoes', name: 'Painel de Operações (Propostas de Crédito)', parentId: 'cat-div-operacional', level: 1 },
 
   // Divisão: Comercial (Gestão de Leads)
   { id: 'cat-div-comercial', name: 'Divisão: Comercial — Gestão de Leads', isHeader: true, level: 0 },
@@ -135,6 +136,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-regimes-tributarios', name: 'Regimes Tributários', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-recalculo-tributario', name: 'Recálculo Tributário', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-quarkrh', name: 'API QuarkRH', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-if-credito', name: 'APIs de Instituições Financeiras de Crédito', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-contaazul', name: 'API Conta Azul (em breve)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-arw', name: 'API ARW (em breve)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-crm', name: 'API CRM (em breve)', parentId: 'sistema-config-root', level: 2 },
