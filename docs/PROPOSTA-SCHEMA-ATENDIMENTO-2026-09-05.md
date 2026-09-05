@@ -194,6 +194,21 @@ nesta sessão:**
   `incerto` (que eu adicionei na migration de disparo durável). Trocado por
   `count: 'exact', head: true` por status — não depende do limite de linhas do
   PostgREST (exigência explícita da seção 6).
+- **Só uma campanha de disparo ativa por parceiro** (decisão do Bruno,
+  05/09/2026, durante a revisão desta sessão): a cadência do worker
+  (`crm_disparo_cadencia`) é por PARCEIRO, não por campanha — duas ativas ao
+  mesmo tempo embaralhariam a rotação uma da outra, competindo pelo mesmo
+  espaço de envio. `existeDisparoAtivo` (`disparo-shared.ts`) trava criação
+  (`criarCampanhaParceiro`) e retomada (`mudarStatus`) no servidor;
+  `CampanhasHub.tsx` desabilita o tile "WhatsApp não oficial" (badge "em
+  andamento") e o botão Retomar de campanhas pausadas do mesmo tipo;
+  `CampanhaDetalhe.tsx` faz o mesmo pro botão Retomar da própria tela. O
+  Bruno cogitou permitir campanhas simultâneas com conjuntos de números
+  disjuntos (ex.: tenant com 15 números rodando 7+8 em campanhas separadas)
+  — plausível, mas exige mudar a cadência de por-parceiro pra por-conjunto-
+  de-instâncias, o que é o item 2 abaixo tocado ("versionar pool") mais um
+  pouco: ficou combinado fazer a trava simples agora e avaliar a evolução
+  depois, sem represar a fundação do chat esperando por ela.
 
 **Não fiz — precisam de decisão de produto antes de virar código:**
 

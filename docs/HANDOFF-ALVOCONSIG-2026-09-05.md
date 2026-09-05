@@ -136,6 +136,13 @@ próprio (`disparo.test.ts`, caso `rotação canônica 10x30`).
    corrigidos em `getProgressoDisparo` de quebra: função nunca tinha UI que a
    chamasse, contava em memória sem paginação (undercontava campanha grande)
    e não incluía o status `incerto`.
+4. **Só uma campanha de disparo ativa por parceiro** (pedido do Bruno,
+   05/09/2026, durante a revisão): a cadência é por parceiro, não por
+   campanha — duas ativas embaralhariam o rodízio uma da outra.
+   `existeDisparoAtivo` trava no servidor (criar e retomar); `CampanhasHub.tsx`
+   e `CampanhaDetalhe.tsx` desabilitam os botões correspondentes na tela.
+   Campanhas simultâneas com números disjuntos ficou cogitado pro futuro —
+   detalhe na proposta.
 
 **Não feito — precisa de decisão do Bruno antes de codar** (detalhe em
 [PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md](PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md#etapa-6-disparos-e-métricas-por-instância--0509-sessão-sonnet)):
