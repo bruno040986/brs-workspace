@@ -155,6 +155,22 @@ edição do pool não existe ainda), limite numérico de envios por instância
 **Estado verificado 05/09 ~07:00:** `npm test` 21/21 (+3 do engine) ·
 `npm run test:db` PASS · `npm run typecheck` limpo.
 
+## Decisões do Bruno + 5 migrations novas (Fable, 05/09 tarde)
+
+Bruno decidiu fazer agora: atribuição atômica, solicitação operacional como
+registro próprio + painel, mídia no chat interno, limite de envios/dia por
+número (campo na aba AlvoConsig), tráfego técnico desenhado mas **desligado**.
+Migrations `20260905125418`…`125422` commitadas nesta branch, validadas no
+Postgres de teste, **NÃO aplicadas** — push só depois do merge em `main`,
+pela pasta principal. Detalhe, revisão e as 5 frentes que o Sonnet implementa
+em seguida (a)–(e): fim de
+[PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md](PROPOSTA-SCHEMA-ATENDIMENTO-2026-09-05.md).
+
+**Worktrees (regra nova, GRUPO.md):** esta frente vive em
+`brs-workspace-chat` e `brs-alvoconsig-chat` (branch codex). As pastas
+principais ficam em `main` e são só estação de merge. Nunca `git checkout`
+na pasta principal.
+
 ## Regras para a sessão Sonnet
 
 **Pode fazer sem perguntar:** código TS/TSX do CRM e do engine, testes,
