@@ -10,7 +10,7 @@ aceite) → este handoff. Branch nos dois repos: `codex/alvoconsig-chat-foundati
 
 ## O que está pronto (etapas 1–4 do plano, parcial)
 
-**brs-workspace** — 8 migrations, renumeradas com timestamp real, **NÃO aplicadas**:
+**brs-workspace** — 8 migrations, renumeradas com timestamp real, **APLICADAS em produção 05/09 ~01:50** (flags seguem desligadas):
 
 | Migration | O quê | Consumidor no CRM |
 |---|---|---|
@@ -69,7 +69,7 @@ para lead real; alterar a stack Docker `bem-varejo`.
 
 ## Próximos passos, em ordem
 
-1. **Bruno aprova e aplica** as 8 migrations (`echo Y | supabase db push` daqui;
+1. ~~Bruno aprova e aplica~~ **FEITO 05/09** — 8 migrations aplicadas (`supabase db push`;
    conferir `npx supabase migration list` antes — remoto está sincronizado até
    `20260903220713`). Flags continuam **desligadas** depois do push.
 2. **Etapa 4 restante (Sonnet):** trocar cron `disparo-whatsapp` para
