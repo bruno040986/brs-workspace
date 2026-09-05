@@ -239,3 +239,178 @@ nesta sessão:**
    desde a migration de disparo durável; o limite numérico por instância,
    não). Sem um número (quantos por hora/dia por número pra não levar
    bloqueio), não dá pra codificar sem chutar um valor.
+
+
+## Etapa 7 (painéis de simulação/digitação e chat interno) — 05/09, sessão Sonnet
+
+Levantamento sobre `brs-alvoconsig`. Diferente das etapas 4-6, quase tudo que
+falta aqui esbarra em schema ou numa decisão de segurança — não é trabalho
+que dá pra fechar só escrevendo TS. Documentando em vez de arriscar.
+
+**Já está feito** (de sessão anterior, conferido agora):
+- Cursor do chat interno com desempate por `(created_at, id)`, paginação de
+  histórico antigo (`antesDe`) e recuperação de lacunas (`depoisDe`) —
+  achado 17 da auditoria — em `chat-interno-cursor.ts` +
+  `getMensagensInterno`, com teste próprio, e de fato ligado em
+  `ChatInterno.tsx` (não é função morta).
+- "Revogação de acesso alcança banco/Realtime" — corrigido na migration
+  `crm_chat_autorizacao` (etapa 4 desta sessão): a policy de SELECT de
+  `crm_chat_mensagens` agora exige `chat_interno.usar` + tenant habilitado,
+  não só participação no canal.
+- "Leitura por usuário" — `crm_chat_membros.lido_ate` já dá a cada usuário
+  seu próprio marcador de leitura por canal (`marcarLido`).
+
+**Existe uma versão parcial de "solicitação operacional"**, mas apoiada em
+cima do chat interno em vez de ser um registro próprio: `solicitarSimulacao`/
+`responderOfertaSimulada` (`chat-interno-actions.ts`) gravam a solicitação e
+a resposta como MENSAGENS (`crm_chat_mensagens.tipo = 'solicitacao_simulacao'`
+/`'oferta_simulada'`, com `payload` jsonb). Funciona pra registrar e notificar,
+mas descumpre duas coisas que o plano pede explicitamente: "não depender de
+encontrar uma mensagem pra recuperar o trabalho operacional" (aqui depende —
+é a própria mensagem que é o registro) e "painel compartilhado por escopo...
+sem abrir cada conversa" (não existe painel nenhum — pra ver solicitações
+pendentes hoje só abrindo o canal). Sem estado formal (solicitado/em
+atendimento/aguardando informações/respondido/cancelado) nem timestamps de
+primeira resposta/conclusão.
+
+### Proposta de schema — solicitação operacional como registro próprio
+
+```sql
+create table public.crm_solicitacoes_operacionais (
+  id uuid primary key default gen_random_uuid(),
+  agente_parceiro_id uuid not null references public.agentes_parceiros(id),
+  contato_id uuid not null references public.crm_contatos(id),
+  tipo text not null check (tipo in ('simulacao','digitacao')),
+  solicitado_por uuid not null references public.crm_usuarios(id),
+  atribuido_a uuid null references public.crm_usuarios(id),
+  status text not null default 'solicitado'
+    check (status in ('solicitado','em_atendimento','aguardando_informacoes','respondido','cancelado')),
+  -- digitacao referencia a oferta ESCOLHIDA + snapshot das condições aceitas
+  -- no momento (o valor pode mudar depois; o pedido não).
+  oferta_id uuid null references public.crm_ofertas(id),
+  snapshot_condicoes jsonb null,
+  payload jsonb not null default '{}'::jsonb,
+  canal_chat_interno_id uuid null references public.crm_chat_canais(id),
+  criado_em timestamptz not null default now(),
+  primeira_resposta_em timestamptz null,
+  concluido_em timestamptz null,
+  -- soma de todo tempo em 'aguardando_informacoes' — não apagar ao reatribuir.
+  tempo_aguardando_ms bigint not null default 0,
+  aguardando_desde timestamptz null
+);
+create index crm_solicitacoes_operacionais_parceiro_idx on public.crm_solicitacoes_operacionais (agente_parceiro_id, status, criado_em desc);
+create index crm_solicitacoes_operacionais_atribuido_idx on public.crm_solicitacoes_operacionais (atribuido_a, status) where status not in ('respondido','cancelado');
+alter table public.crm_solicitacoes_operacionais enable row level security;
+revoke all on public.crm_solicitacoes_operacionais from public, anon, authenticated;
+grant select, insert, update on public.crm_solicitacoes_operacionais to service_role;
+
+create table public.crm_solicitacoes_eventos (
+  id uuid primary key default gen_random_uuid(),
+  solicitacao_id uuid not null references public.crm_solicitacoes_operacionais(id) on delete cascade,
+  autor_crm_usuario_id uuid null references public.crm_usuarios(id),
+  status_de text null,
+  status_para text not null,
+  nota text null,
+  created_at timestamptz not null default now()
+);
+alter table public.crm_solicitacoes_eventos enable row level security;
+revoke all on public.crm_solicitacoes_eventos from public, anon, authenticated;
+grant select, insert on public.crm_solicitacoes_eventos to service_role;
+```
+
+Painel por escopo é uma consulta por `atribuido_a` (visão do atendente),
+`status in ('solicitado','em_atendimento','aguardando_informacoes')` sem
+filtro de usuário (visão operacional) e sem filtro nenhum (master, tenant
+inteiro) — não precisa de tabela extra, só de uma tela nova. **Aceite do
+plano** ("dupla atribuição não cria dois responsáveis") pede um `update ...
+where atribuido_a is null` (compare-and-swap) na hora de assumir, mesmo
+padrão da atribuição de conversa (proposta 1 deste documento).
+
+### Digitando com expiração — decisão de segurança, não só de schema
+
+Duas formas de fazer, nenhuma "só TypeScript":
+1. **Coluna** (`crm_chat_membros.digitando_ate timestamptz`) + Realtime via
+   `postgres_changes` — mesmo padrão já usado em todo o resto do chat,
+   revogação de acesso já coberta pela policy existente. Mais tráfego de
+   UPDATE (um a cada tecla, com debounce).
+2. **Broadcast efêmero** do Realtime (sem gravar nada) — mais leve, mas
+   broadcast NÃO passa pela policy de RLS da tabela; teria que configurar
+   canal privado com Realtime Authorization (`realtime.messages`), que hoje
+   não existe neste projeto (só `postgres_changes` é usado, em nenhum lugar
+   do código há canal broadcast). Fazer sem essa autorização deixaria
+   qualquer usuário autenticado escutar/fingir "digitando" em canal que não
+   participa — regressão de segurança, não vou fazer sem migration.
+
+Recomendo a opção 1 (reaproveita o modelo de segurança já validado).
+
+### Novos tipos de mídia no chat interno
+
+`crm_chat_mensagens.tipo` tem CHECK fechado
+(`'texto','solicitacao_simulacao','oferta_simulada','lembrete','sistema'`) —
+adicionar `'imagem'/'audio'/'documento'` é `alter table ... drop constraint
+... add constraint` (migration pequena). Também falta decidir bucket: pode
+reaproveitar `parceiro-midias` (já existe, já tem URL assinada resolvida) com
+um prefixo `chat-interno/<canal_id>/`, sem bucket novo. Depois disso é UI —
+`ConversaCentro.tsx` já tem upload de imagem/documento e gravação de áudio
+prontos (achado 06 da auditoria já resolvido lá); o plano pede
+explicitamente reaproveitar esses componentes em vez de reconstruir.
+
+### Resumo do que falta pra fechar a etapa 7
+
+| Item | Precisa de | Bloqueado por |
+|---|---|---|
+| Solicitação/digitação como registro próprio + painel 3 visões | 2 tabelas (acima) | decisão do Bruno |
+| Digitando com expiração | 1 coluna | decisão do Bruno (qual das duas formas) |
+| Mídia no chat interno (imagem/áudio/documento/figurinha) | `alter` no `tipo` + decisão de bucket | decisão do Bruno; depois é UI reaproveitando componentes existentes |
+| Cursor/paginação/revogação | nada | já feito |
+
+## Decisões do Bruno + revisão Fable — 05/09/2026 (tarde)
+
+Bruno decidiu (sessão Fable, mesma conversa):
+
+| Item | Decisão | Migration (rascunho testado) |
+|---|---|---|
+| Atribuição atômica de conversa | **fazer agora** | `20260905125418_chat_conversas_atribuicao_lock` — só 2 colunas; a trava é um UPDATE condicional na app, sem função |
+| Solicitação operacional como registro próprio + painel | **fazer agora** | `20260905125419_crm_solicitacoes_operacionais` — 2 tabelas |
+| Mídia no chat interno | **fazer agora** | `20260905125420_crm_chat_mensagens_midia` — abre o CHECK de tipo; bucket `parceiro-midias` reaproveitado |
+| Limite de envios por instância | **campo por parceiro na aba AlvoConsig do Agente Corban** | `20260905125421_crm_disparo_limite_por_instancia` — coluna + `crm_disparo_claim` reescrito pra respeitar o teto |
+| Fluxo técnico entre números controlados | **desenhar agora, deixar desligado** | `20260905125422_crm_disparo_trafego_tecnico` — 4 colunas de config (flag off por parceiro) + tabela própria + `origem='tecnico'` |
+| Tags, agendamento individual, "digitando" | segunda rodada | (rascunhos acima continuam valendo) |
+| Versionar pool em campanha ativa | adiado (a edição do pool não existe) | — |
+| Campanhas simultâneas com números disjuntos | adiado; trava "uma por vez" já em produção no código | — |
+
+**Revisão Fable do rascunho do Sonnet (o que mudou):**
+1. `crm_solicitacoes_operacionais.contato_id` era NOT NULL sem `on delete` — o
+   expurgo de campanha (`crm_campanha_encerrar` apaga `crm_contatos`) ia
+   FALHAR na primeira solicitação existente. Virou nullable + `set null`, com
+   `relacionamento_id` (identidade estável de `crm_relacionamentos`, preenchida
+   por `crm_assegurar_relacionamento` na criação) segurando a pessoa. Mesmo
+   ajuste em `oferta_id` (`crm_ofertas` cascateia com o contato). Testado:
+   deletar o contato deixa a solicitação de pé com o snapshot.
+2. Atribuição atômica não precisa de `security definer`: um UPDATE com
+   `where atribuicao_lock_por is null or atribuicao_lock_expira < now()` já é
+   atômico. Menos superfície.
+3. Teto por instância entra DENTRO de `crm_disparo_claim` (não na app): o item
+   cujo número bateu o teto hoje é pulado e o próximo pendente do parceiro
+   com saldo é reivindicado. Só `status='enviado'` conta; `incerto` não
+   (não dá pra afirmar que saiu). Dia civil de São Paulo.
+4. Tráfego técnico: `chat_conversas.origem` ganha `'tecnico'` — o Atendimento
+   tem que filtrar `origem <> 'tecnico'` SEMPRE (não é "disparo sem
+   resposta": nunca entra na fila) e o engine, ao receber inbound de um jid
+   que é número de disparo do próprio tenant, não pode marcar `respondida`.
+   Ciclo só nasce de envio a lead, nunca de linha técnica (sem laço).
+
+**Onde estão:** `supabase/migrations/20260905125418`…`125422` (worktree
+`brs-workspace-chat`, branch codex). Validadas com bootstrap + 8 aplicadas +
+testes atuais + 5 pendentes + cenários novos, tudo em rollback. **Não
+aplicadas** — push só depois do merge em main, pela pasta principal.
+
+**Próximo passo:** branch `codex` de volta → mover pra `supabase/migrations/`
+→ commit → Bruno aprova `db push` → handoff pro Sonnet implementar:
+(a) `atribuirConversa` com a trava; (b) painel de solicitações (3 visões) +
+migrar `solicitarSimulacao`/`responderOfertaSimulada` pra gravar no registro
+e só notificar no chat; (c) upload/gravação no chat interno reaproveitando
+`ConversaCentro.tsx`; (d) campo "máx. envios/dia por número" e os 4 campos
+do tráfego técnico na aba AlvoConsig (Workspace: `AlvoconsigTab.tsx` +
+`alvoconsig-actions.ts`) e em `limites-parceiro.ts` (CRM); (e) worker do
+tráfego técnico no engine, atrás da flag por parceiro.
