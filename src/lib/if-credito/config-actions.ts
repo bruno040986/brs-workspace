@@ -11,6 +11,7 @@ import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/server'
 import { cifrarTexto } from '@/lib/central-conversas/cofre'
+import { normalizeApiConexao } from '@/lib/financial-institutions'
 
 const RESOURCE = 'sistema-config-if-credito'
 
@@ -22,24 +23,31 @@ export type InstituicaoConfigResumo = {
   ativo: boolean
 }
 
+/**
+ * Só as IFs com "API Disponível" marcada na aba Conexão de API do cadastro
+ * (`financial_institutions.api_conexao.disponivel`) aparecem aqui — o cadastro
+ * de Instituições Financeiras é a fonte da verdade de quem tem API.
+ */
 export async function listarInstituicoesConfig(): Promise<{ success: boolean; data?: InstituicaoConfigResumo[]; error?: string }> {
   try {
     await requirePermission(RESOURCE)
     const admin = await createAdminClient()
     const [{ data: instituicoes, error: e1 }, { data: configs, error: e2 }] = await Promise.all([
-      admin.from('financial_institutions').select('id, name, logo_url').is('deleted_at', null).eq('is_active', true).order('name'),
+      admin.from('financial_institutions').select('id, name, logo_url, api_conexao').is('deleted_at', null).eq('is_active', true).order('name'),
       admin.from('if_credito_config').select('instituicao_financeira_id, ativo'),
     ])
     if (e1) throw e1
     if (e2) throw e2
     const configPorIf = new Map((configs || []).map((c: any) => [String(c.instituicao_financeira_id), Boolean(c.ativo)]))
-    const data: InstituicaoConfigResumo[] = (instituicoes || []).map((i: any) => ({
-      id: String(i.id),
-      name: String(i.name || ''),
-      logo_url: String(i.logo_url || ''),
-      temConfig: configPorIf.has(String(i.id)),
-      ativo: configPorIf.get(String(i.id)) || false,
-    }))
+    const data: InstituicaoConfigResumo[] = (instituicoes || [])
+      .filter((i: any) => normalizeApiConexao(i.api_conexao).disponivel)
+      .map((i: any) => ({
+        id: String(i.id),
+        name: String(i.name || ''),
+        logo_url: String(i.logo_url || ''),
+        temConfig: configPorIf.has(String(i.id)),
+        ativo: configPorIf.get(String(i.id)) || false,
+      }))
     return { success: true, data }
   } catch (err: any) {
     return { success: false, error: err.message }
