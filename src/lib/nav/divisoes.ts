@@ -96,6 +96,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
         perms: [view('agente-corban'), view('scp-crm')],
         children: [
           { label: 'Cadastros Recebidos', href: '/agente-corban/cadastros-recebidos', perms: [view('agente-corban-cadastros-recebidos')] },
+          { label: 'Solicitações de Atualização Cadastral', href: '/agente-corban/solicitacoes', perms: [view('agente-corban-solicitacoes')] },
           { label: 'Nuvidio — Acompanhamento', href: '/agente-corban/cadastros-recebidos/nuvidio', perms: [view('agente-corban-cadastros-recebidos')] },
           { label: 'Nível de Acesso', href: '/agente-corban/niveis-acesso', perms: [view('agente-corban-niveis-acesso')] },
           { label: 'Tipo de Agente', href: '/agente-corban/tipos-agente', perms: [view('agente-corban-tipos-agente')] },

@@ -61,6 +61,7 @@ const SYSTEM_MODULES = [
   { id: 'cat-div-cadastros', name: 'Divisão: Cadastros', isHeader: true, level: 0 },
   { id: 'agente-corban', name: 'Agente Corban', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'agente-corban-cadastros-recebidos', name: 'Cadastros Recebidos', parentId: 'agente-corban', level: 2 },
+  { id: 'agente-corban-solicitacoes', name: 'Solicitações de Atualização Cadastral', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-tipos-agente', name: 'Tipo de Agente', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-regras-fisico', name: 'Regra de Físico', parentId: 'agente-corban', level: 2 },
