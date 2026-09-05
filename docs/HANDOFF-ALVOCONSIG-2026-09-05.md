@@ -21,7 +21,7 @@ aceite) → este handoff. Branch nos dois repos: `codex/alvoconsig-chat-foundati
 | `20260905013752_crm_preservar_expurgo` | `crm_historico_registros` + triggers BEFORE DELETE em `crm_contatos`/`crm_tabulacoes` + `crm_relacionamento_visivel` | `apps/web/src/app/api/crm/historico/route.ts` |
 | `20260905013753_chat_instance_leases` | posse de socket Baileys por réplica | `services/engine/src/baileys.ts` (flag `CHAT_INSTANCE_LEASES`) |
 | `20260905013754_chat_uploads` | `chat_upload_tickets` (upload direto ao bucket `parceiro-midias`) | `apps/web/src/lib/chat/actions.ts` |
-| `20260905013755_crm_disparo_duravel` | lease + status `incerto` na `crm_disparo_fila`, `crm_disparo_cadencia`, `crm_disparo_claim/finish` | **ninguém ainda** — cron `disparo-whatsapp` continua no claim antigo |
+| `20260905013755_crm_disparo_duravel` | lease + status `incerto` na `crm_disparo_fila`, `crm_disparo_cadencia`, `crm_disparo_claim/finish` | `apps/web/src/app/api/cron/disparo-whatsapp/route.ts` (migrado 05/09 — ver seção Sonnet abaixo) |
 
 **brs-alvoconsig** — ~25 arquivos modificados + ~20 novos (+580/−170). Correções
 dos achados 01, 02, 04 (parcial), 07, 08, 10, 11, 13, 15, 17 da auditoria; tudo
@@ -51,6 +51,41 @@ novo atrás de flag desligada. Ambiente de teste: Postgres isolado
    Script `scripts/test-db.mjs` passou a localizar por sufixo.
 5. `baileys.ts:56` — `.catch` em builder do Supabase → `try/catch` (typecheck).
 
+## Etapa 4 restante — feito pela sessão Sonnet (05/09)
+
+1. **Cron `disparo-whatsapp` migrado** para `crm_disparo_claim`/`crm_disparo_finish`.
+   O claim otimista manual (`update ... where status='pendente'`) saiu; a RPC
+   já reconcilia lease vencida, aplica cadência por parceiro e devolve no
+   máximo 1 item por parceiro elegível. Distinção nova, central pro plano
+   ("timeout após possível envio exige reconciliação"): erro de **validação
+   local** (template sumiu, instância desconectada — nunca tentou enviar) vira
+   `falhou`/`pendente`; erro na **chamada ao engine em si** (rede, timeout,
+   5xx — pode ter chegado no WhatsApp) vira `incerto` e nunca é reenviado
+   sozinho. `tests/db/disparo.sql` (novo) cobre dois workers no mesmo tick,
+   campanha pausada isolando só o parceiro afetado, retomada, e lease vencida
+   → `incerto`. `crm_disparo_duravel` entrou em `scripts/test-db.mjs` — os 3
+   testes de banco agora cobrem as 8 migrations (não mais 7).
+2. **Bootstrap agregado — parcial.** `atendimento-read-client.ts` já cobria
+   mensagens (`lerConversa`, com cursor `before`) e fila (`lerFila`, com
+   `page`/`nextSourcePage`). Migrados agora os dois polls de 10s que ainda
+   eram Server Action (achado 03): resumo do lead (`PainelLead.tsx`) e
+   tabulações/eventos da conversa (`ConversaCentro.tsx`) — novos recursos
+   `resource=resumo|pastas|tabulacoes` em `/api/crm/atendimento`, mesma
+   autorização de sempre (a rota só delega pras actions existentes). Cadência
+   de fetch preservada (não virou uma tela mais lenta nem mais rápida, só
+   tirou a fila de Server Actions do caminho). `getLeadResumo` continua como
+   Server Action em `LigacaoCentro.tsx`/`ChatInterno.tsx` — são chamadas
+   avulsas (on-mount), não polls, fora do escopo do achado.
+3. **Paginação por cursor — já em boa parte pronta**, não precisou de mudança:
+   mensagens usam `before` (cursor por id do Chatwoot), fila usa
+   `page`/`nextSourcePage`/`temMais`. **Ainda falta**: busca por CPF/IDWS que
+   não dependa só da 1ª página do Chatwoot (achado 05, mais fundo que UI —
+   exige índice próprio) e virtualização de lista (só se o volume medido
+   justificar, plano não pede sem medir).
+
+**Estado verificado 05/09 ~04:50:** `npm test` 18/18 · `npm run test:db` PASS
+(8/8 migrations) · `npm run typecheck` limpo.
+
 ## Regras para a sessão Sonnet
 
 **Pode fazer sem perguntar:** código TS/TSX do CRM e do engine, testes,
@@ -72,11 +107,8 @@ para lead real; alterar a stack Docker `bem-varejo`.
 1. ~~Bruno aprova e aplica~~ **FEITO 05/09** — 8 migrations aplicadas (`supabase db push`;
    conferir `npx supabase migration list` antes — remoto está sincronizado até
    `20260903220713`). Flags continuam **desligadas** depois do push.
-2. **Etapa 4 restante (Sonnet):** trocar cron `disparo-whatsapp` para
-   `crm_disparo_claim/finish` (contrato já no SQL; testar 2 workers, pausa,
-   lease vencido); bootstrap agregado + GETs autenticados no atendimento
-   (`atendimento-read-client.ts` já existe — falta ligar nos componentes);
-   paginação por cursor na fila e no histórico (achado 05).
+2. ~~Etapa 4 restante~~ **FEITO 05/09 (Sonnet)** — ver seção acima. Sobrou só a
+   busca por CPF/IDWS além da 1ª página e virtualização (medir antes).
 3. **Etapa 5 (Sonnet):** ferramentas de atendimento — spec no plano, seção 5.
 4. **Etapa 6 (Sonnet):** disparos — `montarRotacao` já implementa a fórmula
    `(i + N·(volta%3) + ⌊volta/3⌋) % M`; falta pool versionado, prévia das
@@ -90,9 +122,6 @@ para lead real; alterar a stack Docker `bem-varejo`.
 
 ## Pendências conhecidas
 
-- `test:db` cobre 7 das 8 migrations; `crm_disparo_duravel` fica de fora porque
-  o fixture não tem `crm_disparo_fila`/`crm_campanhas_parceiro` — adicionar ao
-  `bootstrap.sql` quando o cron migrar.
 - Job de limpeza de `chat_upload_tickets` vencidos e de sinais Realtime
   (achado 16) não agendados.
 - `chat_historico_canais.conversa_legada_id` sem `on delete` de propósito:
