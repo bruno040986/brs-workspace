@@ -107,6 +107,7 @@ const SYSTEM_MODULES = [
   { id: 'cat-div-configuracoes', name: 'Divisão: Configurações', isHeader: true, level: 0 },
   { id: 'conversas', name: 'Comunicação — Atendimento (BRS Messenger)', parentId: 'cat-div-configuracoes', level: 1 },
   { id: 'central-conversas', name: 'Comunicação — Canais, Instâncias e Grupos Internos', parentId: 'conversas', level: 2 },
+  { id: 'conversas-agora', name: 'Atendimento — Painel Agora (supervisão em tempo real)', parentId: 'conversas', level: 2 },
   { id: 'comercial-disparo-whatsapp', name: 'Disparo de WhatsApp', parentId: 'cat-div-configuracoes', level: 1 },
   { id: 'sistema-comunicados', name: 'Comunicados (Editor)', parentId: 'cat-div-configuracoes', level: 1 },
   { id: 'sistema-usuarios-root', name: 'Usuários e Permissões', parentId: 'cat-div-configuracoes', level: 1 },
