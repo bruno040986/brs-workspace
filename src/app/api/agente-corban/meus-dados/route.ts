@@ -110,7 +110,16 @@ export async function GET(request: NextRequest) {
       pixKey: draft.pix_key,
       paymentPeriod: draft.payment_period,
     },
-    garantia: draft.garantia ?? {},
+    // Só valor de garantia + produção mensal — o objeto bruto pode carregar
+    // avalistas/testemunha, que o parceiro NÃO deve ver aqui.
+    garantia: (() => {
+      const g = (draft.garantia ?? {}) as Record<string, unknown>
+      const producao = Array.isArray(g.producao) ? (g.producao as Array<Record<string, unknown>>) : []
+      return {
+        valorGarantia: g.valor_garantia ?? null,
+        producao: producao.map((p) => ({ mes: String(p?.mes ?? ''), valor: Number(p?.valor ?? 0) })),
+      }
+    })(),
     documentos: {
       contractPdfUrl: draft.contract_pdf_url,
       officialDocumentUrl: draft.official_document_url,

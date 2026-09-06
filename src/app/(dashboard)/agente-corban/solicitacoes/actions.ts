@@ -3,10 +3,54 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/server'
-import { normalizeAgenteCorbanDraftFromRow, type AgenteCorbanDraft } from '@/lib/agente-corban'
+import type { AgenteCorbanDraft } from '@/lib/agente-corban'
 import { saveAgenteCorbanRecord } from '../actions'
 
 const RESOURCE = 'agente-corban-solicitacoes'
+
+/**
+ * Campos que uma solicitação PODE alterar, por tipo. A aprovação NUNCA espalha
+ * o jsonb cru no draft: saveAgenteCorbanRecord sincroniza a senha no Supabase
+ * Auth quando temporary_password muda, então qualquer chave fora da lista
+ * (bug ou inserção indevida) é descartada aqui, não gravada.
+ */
+const CAMPOS_BANCARIO = [
+  'bank_code',
+  'bank_name',
+  'bank_agency',
+  'bank_account',
+  'bank_account_type',
+  'pix_type',
+  'pix_key',
+] as const
+const CAMPOS_CADASTRAL = [
+  'name',
+  'fantasy_name',
+  'cep',
+  'address_street',
+  'address_number',
+  'address_complement',
+  'address_neighborhood',
+  'address_city',
+  'address_state',
+  'phone_whatsapp',
+  'email_comissao',
+] as const
+
+type CampoPermitido = (typeof CAMPOS_BANCARIO)[number] | (typeof CAMPOS_CADASTRAL)[number]
+
+function filtrarCamposPermitidos(
+  tipo: 'cadastral' | 'bancario',
+  solicitados: Record<string, unknown>
+): Partial<Pick<AgenteCorbanDraft, CampoPermitido>> {
+  const permitidos: readonly string[] = tipo === 'bancario' ? CAMPOS_BANCARIO : CAMPOS_CADASTRAL
+  const resultado: Record<string, string> = {}
+  for (const chave of permitidos) {
+    const valor = solicitados[chave]
+    if (typeof valor === 'string') resultado[chave] = valor
+  }
+  return resultado as Partial<Pick<AgenteCorbanDraft, CampoPermitido>>
+}
 
 export type SolicitacaoListItem = {
   id: string
@@ -99,11 +143,9 @@ export async function getSolicitacaoById(
 }
 
 /**
- * Aprova a solicitação: aplica `dados_solicitados` (mesmo shape flat de
- * AgenteCorbanDraft, tanto pra bancário quanto pra cadastral) por cima do
- * draft atual e reaproveita saveAgenteCorbanRecord — a MESMA função que o
- * editor manual usa, então o roteamento coluna física × corban_data continua
- * centralizado num lugar só.
+ * Aprova: aplica só os campos permitidos de `dados_solicitados` via
+ * saveAgenteCorbanRecord — a MESMA função do editor manual, que já faz o merge
+ * com o registro atual e o roteamento coluna física × corban_data.
  */
 export async function aprovarSolicitacao(id: string): Promise<{ success: boolean; error?: string }> {
   try {
@@ -121,20 +163,21 @@ export async function aprovarSolicitacao(id: string): Promise<{ success: boolean
 
     const { data: agenteRow, error: agenteError } = await admin
       .from('agentes_parceiros')
-      .select('*')
+      .select('id')
       .eq('id', solicitacao.agente_parceiro_id)
       .maybeSingle()
     if (agenteError) throw agenteError
     if (!agenteRow) return { success: false, error: 'Agente Corban não encontrado.' }
 
-    const draftAtual = normalizeAgenteCorbanDraftFromRow(agenteRow)
-    const draftAtualizado: Partial<AgenteCorbanDraft> = {
-      ...draftAtual,
-      ...(solicitacao.dados_solicitados as Partial<AgenteCorbanDraft>),
-      id: agenteRow.id,
+    const camposAprovados = filtrarCamposPermitidos(
+      solicitacao.tipo as 'cadastral' | 'bancario',
+      (solicitacao.dados_solicitados ?? {}) as Record<string, unknown>
+    )
+    if (Object.keys(camposAprovados).length === 0) {
+      return { success: false, error: 'A solicitação não contém nenhum campo permitido para alteração.' }
     }
 
-    const saveResult = await saveAgenteCorbanRecord(draftAtualizado)
+    const saveResult = await saveAgenteCorbanRecord({ id: agenteRow.id, ...camposAprovados })
     if (!saveResult.success) return { success: false, error: saveResult.error || 'Falha ao gravar o cadastro.' }
 
     const { error: updError } = await admin
