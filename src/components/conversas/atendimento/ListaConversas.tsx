@@ -1,19 +1,31 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
+import { Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
+import type { ContatoBusca, DepartamentoResumo } from '@/lib/central-conversas/actions'
+
+type Presenca = 'online' | 'busy' | 'offline' | null
 
 type Props = {
   aba: AbaAtendimento
   onAbaChange: (aba: AbaAtendimento) => void
   filaCount: number
+  contadores: { mine: number; unassigned: number; all: number }
   busca: string
   onBuscaChange: (v: string) => void
   canais: { inboxes: InboxAtendimento[]; instancias: InstanciaAtendimento[] }
   canalId: number | null
   onCanalChange: (id: number | null) => void
+  departamentos: DepartamentoResumo[]
+  departamentoId: string | null
+  onDepartamentoChange: (id: string | null) => void
+  ehSupervisor: boolean
+  presenca: Presenca
+  onPresencaChange: (status: 'online' | 'busy' | 'offline') => void
+  contatos: ContatoBusca[]
+  carregandoContatos: boolean
   conversas: ConversaAtendimento[]
   carregando: boolean
   disponivel: boolean
@@ -22,29 +34,30 @@ type Props = {
   onNovaConversa: (input: { instanciaId: string; telefone: string; texto: string }) => Promise<{ conversationId: number | null }>
 }
 
-const ABAS: Array<{ id: AbaAtendimento; rotulo: string; Icone: typeof MessageCircle }> = [
-  { id: 'meus', rotulo: 'Meus', Icone: MessageCircle },
-  { id: 'fila', rotulo: 'Fila', Icone: Inbox },
-  { id: 'geral', rotulo: 'Geral', Icone: Users },
-]
-
-function nomeDoCanal(inboxId: number | undefined, canais: Props['canais']) {
-  if (!inboxId) return null
-  const instancia = canais.instancias.find((i) => i.inboxId === inboxId)
-  if (instancia) return instancia.nome
-  const inbox = canais.inboxes.find((i) => i.id === inboxId)
-  return inbox?.nome || null
+const PRESENCA_INFO: Record<NonNullable<Presenca>, { cor: string; rotulo: string }> = {
+  online: { cor: '#22c55e', rotulo: 'Online' },
+  busy: { cor: '#eab308', rotulo: 'Ausente' },
+  offline: { cor: '#94a3b8', rotulo: 'Offline' },
 }
 
 export default function ListaConversas({
   aba,
   onAbaChange,
   filaCount,
+  contadores,
   busca,
   onBuscaChange,
   canais,
   canalId,
   onCanalChange,
+  departamentos,
+  departamentoId,
+  onDepartamentoChange,
+  ehSupervisor,
+  presenca,
+  onPresencaChange,
+  contatos,
+  carregandoContatos,
   conversas,
   carregando,
   disponivel,
@@ -53,6 +66,18 @@ export default function ListaConversas({
   onNovaConversa,
 }: Props) {
   const [modalAberto, setModalAberto] = useState(false)
+  const [prefillModal, setPrefillModal] = useState<{ telefone: string; nome: string } | null>(null)
+  const [menuPresencaAberto, setMenuPresencaAberto] = useState(false)
+
+  const ABAS = useMemo(() => {
+    const base: Array<{ id: AbaAtendimento; rotulo: string; Icone: typeof MessageCircle; badge?: number }> = [
+      { id: 'meus', rotulo: 'Chats', Icone: MessageCircle, badge: contadores.mine },
+      { id: 'fila', rotulo: 'Fila', Icone: Inbox, badge: contadores.unassigned },
+      { id: 'contatos', rotulo: 'Contatos', Icone: Contact },
+    ]
+    if (ehSupervisor) base.push({ id: 'geral', rotulo: 'Geral', Icone: Users })
+    return base
+  }, [ehSupervisor, contadores])
 
   const chipsCanal = useMemo(() => {
     const vistos = new Set<number>()
@@ -77,18 +102,47 @@ export default function ListaConversas({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: 'var(--msn-surface)' }}>
       <div style={{ padding: '0.6rem 0.6rem 0.4rem' }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--msn-muted)' }} />
-          <input
-            className="brs-messenger-search-input"
-            style={{ paddingLeft: 28 }}
-            placeholder="Pesquisar por nome ou número…"
-            value={busca}
-            onChange={(e) => onBuscaChange(e.target.value)}
-          />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--msn-muted)' }} />
+            <input
+              className="brs-messenger-search-input"
+              style={{ paddingLeft: 28 }}
+              placeholder={aba === 'contatos' ? 'Pesquisar contato…' : 'Pesquisar por nome ou número…'}
+              value={busca}
+              onChange={(e) => onBuscaChange(e.target.value)}
+            />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setMenuPresencaAberto((v) => !v)}
+              title="Sua disponibilidade"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '4px 8px', background: 'transparent', cursor: 'pointer' }}
+            >
+              <Circle size={9} fill={presenca ? PRESENCA_INFO[presenca].cor : '#94a3b8'} color={presenca ? PRESENCA_INFO[presenca].cor : '#94a3b8'} />
+            </button>
+            {menuPresencaAberto && (
+              <div className="brs-messenger" style={{ position: 'absolute', right: 0, top: '110%', borderRadius: 6, width: 140, zIndex: 60, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
+                {(['online', 'busy', 'offline'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setMenuPresencaAberto(false)
+                      onPresencaChange(s)
+                    }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)' }}
+                  >
+                    <Circle size={9} fill={PRESENCA_INFO[s].cor} color={PRESENCA_INFO[s].cor} /> {PRESENCA_INFO[s].rotulo}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', marginTop: 8, borderBottom: '1px solid var(--msn-soft-border)' }}>
-          {ABAS.map(({ id, rotulo, Icone }) => (
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ABAS.length}, 1fr)`, marginTop: 8, borderBottom: '1px solid var(--msn-soft-border)' }}>
+          {ABAS.map(({ id, rotulo, Icone, badge }) => (
             <button
               key={id}
               type="button"
@@ -109,7 +163,7 @@ export default function ListaConversas({
               }}
             >
               <Icone size={13} /> {rotulo}
-              {id === 'fila' && filaCount > 0 && (
+              {!!badge && badge > 0 && (
                 <span
                   style={{
                     background: 'var(--msn-accent)',
@@ -122,13 +176,13 @@ export default function ListaConversas({
                     textAlign: 'center',
                   }}
                 >
-                  {filaCount}
+                  {badge}
                 </span>
               )}
             </button>
           ))}
         </div>
-        {chipsCanal.length > 0 && (
+        {aba !== 'contatos' && chipsCanal.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
             <button
               type="button"
@@ -167,10 +221,82 @@ export default function ListaConversas({
             ))}
           </div>
         )}
+        {aba !== 'contatos' && departamentos.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            <button
+              type="button"
+              onClick={() => onDepartamentoChange(null)}
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '3px 9px',
+                borderRadius: 99,
+                border: `1px solid ${departamentoId === null ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
+                background: departamentoId === null ? 'var(--msn-item-active)' : 'transparent',
+                color: departamentoId === null ? 'var(--msn-accent)' : 'var(--msn-muted)',
+                cursor: 'pointer',
+              }}
+            >
+              Todos deptos.
+            </button>
+            {departamentos.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => onDepartamentoChange(departamentoId === d.id ? null : d.id)}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '3px 9px',
+                  borderRadius: 99,
+                  border: `1px solid ${departamentoId === d.id ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
+                  background: departamentoId === d.id ? 'var(--msn-item-active)' : 'transparent',
+                  color: departamentoId === d.id ? 'var(--msn-accent)' : 'var(--msn-muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                {d.nome}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ overflowY: 'auto', flex: 1 }}>
-        {!disponivel ? (
+        {aba === 'contatos' ? (
+          carregandoContatos ? (
+            <div style={{ padding: '2rem', textAlign: 'center' }}>
+              <Loader2 size={18} className="spinner" />
+            </div>
+          ) : contatos.length === 0 ? (
+            <div style={{ padding: '2rem 1rem', textAlign: 'center', fontSize: 13, color: 'var(--msn-muted)' }}>Nenhum contato encontrado.</div>
+          ) : (
+            contatos.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setPrefillModal({ telefone: (c.telefone || '').replace(/\D/g, ''), nome: c.nome })
+                  setModalAberto(true)
+                }}
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--msn-soft-border)', padding: '9px 10px', cursor: 'pointer', display: 'flex', gap: 9, alignItems: 'center' }}
+              >
+                <span style={{ width: 32, height: 32, borderRadius: 99, background: 'var(--msn-avatar-bg)', color: 'var(--msn-avatar-text)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, flexShrink: 0, border: '1px solid var(--msn-border)', overflow: 'hidden' }}>
+                  {c.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    iniciais(c.nome)
+                  )}
+                </span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</div>
+                  {c.telefone && <div style={{ fontSize: 11.5, color: 'var(--msn-muted)' }}>{c.telefone}</div>}
+                </span>
+              </button>
+            ))
+          )
+        ) : !disponivel ? (
           <div style={{ padding: '2rem 1rem', textAlign: 'center', fontSize: 13, color: 'var(--msn-muted)' }}>Chatwoot ainda não provisionado.</div>
         ) : carregando ? (
           <div style={{ padding: '2rem', textAlign: 'center' }}>
@@ -182,7 +308,7 @@ export default function ListaConversas({
           listaOrdenada.map((c) => {
             const ativa = selecionadaId === c.id
             const grupo = ehGrupo(c)
-            const departamento = nomeDoCanal(c.inbox_id, canais)
+            const departamento = c.meta.team?.name || null
             const entidade = c.atendimentoMeta?.entidade
             return (
               <button
@@ -275,7 +401,10 @@ export default function ListaConversas({
       <div style={{ display: 'flex', borderTop: '1px solid var(--msn-border)', background: 'var(--msn-surface-alt)' }}>
         <button
           type="button"
-          onClick={() => setModalAberto(true)}
+          onClick={() => {
+            setPrefillModal(null)
+            setModalAberto(true)
+          }}
           disabled={!disponivel}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '8px 0', fontSize: 12, fontWeight: 700, color: 'var(--msn-accent)', background: 'none', border: 'none', cursor: disponivel ? 'pointer' : 'not-allowed' }}
         >
@@ -294,10 +423,15 @@ export default function ListaConversas({
       {modalAberto && (
         <NovaConversaModal
           instancias={canais.instancias}
-          onFechar={() => setModalAberto(false)}
+          prefill={prefillModal}
+          onFechar={() => {
+            setModalAberto(false)
+            setPrefillModal(null)
+          }}
           onEnviar={async (input) => {
             await onNovaConversa(input)
             setModalAberto(false)
+            setPrefillModal(null)
           }}
         />
       )}
@@ -307,15 +441,17 @@ export default function ListaConversas({
 
 function NovaConversaModal({
   instancias,
+  prefill,
   onFechar,
   onEnviar,
 }: {
   instancias: InstanciaAtendimento[]
+  prefill?: { telefone: string; nome: string } | null
   onFechar: () => void
   onEnviar: (input: { instanciaId: string; telefone: string; texto: string }) => Promise<void>
 }) {
   const [instanciaId, setInstanciaId] = useState(instancias[0]?.id || '')
-  const [telefone, setTelefone] = useState('')
+  const [telefone, setTelefone] = useState(prefill?.telefone || '')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)

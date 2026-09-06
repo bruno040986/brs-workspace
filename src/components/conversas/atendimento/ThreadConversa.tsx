@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import EmojiPicker from './EmojiPicker'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, type AgenteChat, type ChatwootMensagem, type ConversaAtendimento, type RespostaRapida } from './types'
+import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
 
 const MIME_ANEXO_ACEITOS = '.pdf,.png,.jpg,.jpeg,.webp,.mp3,.ogg,.opus,.mp4,.xlsx,.csv'
 
@@ -30,6 +31,7 @@ type Props = {
   agentes: AgenteChat[]
   respostasRapidas: RespostaRapida[] | null
   departamento: string | null
+  departamentos: DepartamentoResumo[]
   enviando: boolean
   compacto?: boolean
   onVoltar?: () => void
@@ -38,7 +40,7 @@ type Props = {
   onEnviarNota: (texto: string) => Promise<void>
   onEnviarAnexo: (file: File, legenda?: string) => Promise<void>
   onEnviarAudio: (blob: Blob) => Promise<void>
-  onTransferir: (agenteId: number) => Promise<void>
+  onTransferir: (input: { departamentoId: string; agenteId?: number | null; comentario?: string }) => Promise<void>
   onEncerrar: (motivo?: string) => Promise<void>
 }
 
@@ -54,6 +56,7 @@ export default function ThreadConversa({
   agentes,
   respostasRapidas,
   departamento,
+  departamentos,
   enviando,
   compacto,
   onVoltar,
@@ -70,7 +73,11 @@ export default function ThreadConversa({
   const [emojiAberto, setEmojiAberto] = useState(false)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [buscaTexto, setBuscaTexto] = useState('')
-  const [popoverTransferir, setPopoverTransferir] = useState(false)
+  const [modalTransferir, setModalTransferir] = useState(false)
+  const [transfDepartamentoId, setTransfDepartamentoId] = useState('')
+  const [transfAgenteId, setTransfAgenteId] = useState('')
+  const [transfComentario, setTransfComentario] = useState('')
+  const [transferindo, setTransferindo] = useState(false)
   const [popoverEncerrar, setPopoverEncerrar] = useState(false)
   const [motivoEncerrar, setMotivoEncerrar] = useState('')
   const [gravando, setGravando] = useState<'idle' | 'gravando' | 'pronto'>('idle')
@@ -209,32 +216,20 @@ export default function ThreadConversa({
         <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
           <Search size={18} />
         </button>
-        <div style={{ position: 'relative' }}>
-          <button type="button" onClick={() => setPopoverTransferir((v) => !v)} title="Transferir" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34 }}>
-            <UserCog size={18} />
-          </button>
-          {popoverTransferir && (
-            <div className="brs-messenger" style={{ position: 'absolute', right: 0, top: '110%', borderRadius: 6, width: 200, zIndex: 60, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
-              <div style={{ padding: 8, fontSize: 11, fontWeight: 700, color: 'var(--msn-muted)', borderBottom: '1px solid var(--msn-soft-border)' }}>Transferir para</div>
-              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                {agentes.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={async () => {
-                      setPopoverTransferir(false)
-                      await onTransferir(a.id)
-                    }}
-                    style={{ width: '100%', textAlign: 'left', padding: '7px 10px', fontSize: 12.5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)' }}
-                  >
-                    {a.name}
-                  </button>
-                ))}
-                {agentes.length === 0 && <div style={{ padding: 10, fontSize: 12, color: 'var(--msn-muted)' }}>Nenhum agente.</div>}
-              </div>
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setTransfDepartamentoId('')
+            setTransfAgenteId('')
+            setTransfComentario('')
+            setModalTransferir(true)
+          }}
+          title="Transferir"
+          className="brs-messenger-toolbar-btn"
+          style={{ width: 34, height: 34 }}
+        >
+          <UserCog size={18} />
+        </button>
         <div style={{ position: 'relative' }}>
           <button type="button" onClick={() => setPopoverEncerrar((v) => !v)} title="Encerrar" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34 }}>
             <CheckCheck size={18} />
@@ -421,6 +416,67 @@ export default function ThreadConversa({
           </div>
         )}
       </div>
+
+      {modalTransferir && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center', zIndex: 400 }} data-brs-messenger-ignore-close="true">
+          <div className="brs-messenger" style={{ width: 340, maxWidth: '92vw', borderRadius: 6, overflow: 'hidden' }} data-brs-messenger-ignore-close="true">
+            <div className="brs-messenger-titlebar">
+              <span>Transferir chamado</span>
+            </div>
+            <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--msn-surface)' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Transferir para departamento
+                <select className="brs-messenger-select" style={{ width: '100%', marginTop: 4 }} value={transfDepartamentoId} onChange={(e) => setTransfDepartamentoId(e.target.value)}>
+                  <option value="">Selecione…</option>
+                  {departamentos.map((d) => (
+                    <option key={d.id} value={d.id}>{d.nome}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Transferir para atendente (opcional)
+                <select className="brs-messenger-select" style={{ width: '100%', marginTop: 4 }} value={transfAgenteId} onChange={(e) => setTransfAgenteId(e.target.value)}>
+                  <option value="">Sem atendente (fica na fila)</option>
+                  {agentes.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Adicionar comentário
+                <textarea
+                  className="brs-messenger-composer-input"
+                  style={{ width: '100%', marginTop: 4, minHeight: 60 }}
+                  value={transfComentario}
+                  onChange={(e) => setTransfComentario(e.target.value)}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setModalTransferir(false)} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!transfDepartamentoId || transferindo}
+                  onClick={async () => {
+                    setTransferindo(true)
+                    try {
+                      await onTransferir({ departamentoId: transfDepartamentoId, agenteId: transfAgenteId ? Number(transfAgenteId) : null, comentario: transfComentario.trim() || undefined })
+                      setModalTransferir(false)
+                    } finally {
+                      setTransferindo(false)
+                    }
+                  }}
+                  className="brs-messenger-primary-button"
+                  style={{ padding: '6px 14px' }}
+                >
+                  {transferindo ? 'Salvando…' : 'Salvar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

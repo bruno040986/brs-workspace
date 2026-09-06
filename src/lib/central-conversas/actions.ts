@@ -7,7 +7,7 @@
  */
 
 import { revalidatePath } from 'next/cache'
-import { requirePermission, requireCurrentUser, getCurrentUserEffectivePermissions } from '@/lib/auth/server'
+import { requirePermission, requireCurrentUser, getCurrentUserEffectivePermissions, hasPermissionForUser } from '@/lib/auth/server'
 
 /** Pro dock do BRS Messenger decidir se mostra a aba Atendimento. */
 export async function podeAtenderConversas(): Promise<boolean> {
@@ -21,7 +21,7 @@ export async function podeAtenderConversas(): Promise<boolean> {
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
 import { engine, engineConfigurado } from './engine'
-import { ChatwootConta } from './chatwoot'
+import { ChatwootConta, type ChatwootConversa } from './chatwoot'
 
 const LIMITE_INSTANCIAS_BRS = 3
 
@@ -40,17 +40,18 @@ export type InstanciaView = {
   conectada_em: string | null
   chatwoot_inbox_id: number | null
   ordem: number
+  departamento_id: string | null
 }
 
-const COLS_VIEW = 'id, nome, papel, provedor, permite_grupos, status, numero, nome_perfil, ultimo_qr, qr_atualizado_em, ultimo_erro, conectada_em, chatwoot_inbox_id, ordem'
+const COLS_VIEW = 'id, nome, papel, provedor, permite_grupos, status, numero, nome_perfil, ultimo_qr, qr_atualizado_em, ultimo_erro, conectada_em, chatwoot_inbox_id, ordem, departamento_id'
 
-async function contaBrs() {
+export async function contaBrs() {
   const admin = await createAdminClient()
   const { data } = await admin.from('chat_contas').select('id, nome, chatwoot_account_id, token_cifrado').eq('owner_tipo', 'brs').maybeSingle()
   return data
 }
 
-async function clienteChatwootBrs(): Promise<ChatwootConta | null> {
+export async function clienteChatwootBrs(): Promise<ChatwootConta | null> {
   const conta = await contaBrs()
   if (!conta) return null
   return new ChatwootConta(Number(conta.chatwoot_account_id), decifrarTexto(String(conta.token_cifrado)))
@@ -255,20 +256,131 @@ function assinar(assinatura: string, texto: string): string {
   return assinatura ? `*${assinatura}:*\n${texto}` : texto
 }
 
-export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?: string; page?: number; inboxId?: number }) {
+// ---------------------------------------------------------------------------
+// Departamentos (Fase A — paridade Digisac). Fonte da verdade da FILIAÇÃO é o
+// Chatwoot (Teams); o espelho local (`chat_departamentos`) guarda o resto.
+// ---------------------------------------------------------------------------
+
+export type DepartamentoResumo = { id: string; nome: string; chatwootTeamId: number | null; ehGrupos: boolean }
+
+async function meusDepartamentosInterno(userId: string): Promise<{ ehSupervisor: boolean; departamentos: DepartamentoResumo[] }> {
+  const ehSupervisor = await hasPermissionForUser(userId, 'central-conversas', 'can_view')
+  const admin = await createAdminClient()
+  const conta = await contaBrs()
+  if (!conta) return { ehSupervisor, departamentos: [] }
+  if (ehSupervisor) {
+    const { data } = await admin.from('chat_departamentos').select('id, nome, chatwoot_team_id, eh_grupos').eq('conta_id', conta.id).eq('ativo', true)
+    return { ehSupervisor, departamentos: mapDepartamentos(data) }
+  }
+  const { data: membros } = await admin.from('chat_departamento_membros').select('departamento_id').eq('user_id', userId)
+  const ids = [...new Set((membros || []).map((m: any) => m.departamento_id))]
+  if (!ids.length) return { ehSupervisor, departamentos: [] }
+  const { data } = await admin.from('chat_departamentos').select('id, nome, chatwoot_team_id, eh_grupos').in('id', ids).eq('ativo', true)
+  return { ehSupervisor, departamentos: mapDepartamentos(data) }
+}
+
+function mapDepartamentos(rows: any[] | null): DepartamentoResumo[] {
+  return (rows || []).map((d) => ({ id: String(d.id), nome: String(d.nome), chatwootTeamId: d.chatwoot_team_id === null ? null : Number(d.chatwoot_team_id), ehGrupos: Boolean(d.eh_grupos) }))
+}
+
+/** Pro seletor "Transferir para departamento" e pro filtro por permissão. */
+export async function meusDepartamentos(): Promise<{ ehSupervisor: boolean; departamentos: DepartamentoResumo[] }> {
   await requirePermission('conversas', 'can_view')
+  const user = await requireCurrentUser()
+  return meusDepartamentosInterno(user.id)
+}
+
+// Mesma heurística de grupo do PainelContato (types.ts) — duplicada aqui de
+// propósito: esta é uma action de servidor, não deve depender de um arquivo
+// de componente de UI.
+function conversaEhGrupo(c: ChatwootConversa): boolean {
+  const sender = c.meta?.sender as { type?: string; identifier?: string } | undefined
+  return sender?.type === 'group' || String(sender?.identifier || '').includes('-group')
+}
+
+/**
+ * Roteia automaticamente pro departamento certo as conversas que ainda não
+ * têm Team no Chatwoot (grupo → departamento "recebe grupos"; senão →
+ * departamento padrão da conexão/inbox). Best-effort: falha aqui nunca
+ * derruba a listagem — só fica sem departamento até a próxima tentativa.
+ */
+async function atribuirDepartamentosAutomaticos(cli: ChatwootConta, contaId: string, payload: ChatwootConversa[]): Promise<void> {
+  const semTeam = payload.filter((c) => !c.meta?.team)
+  if (!semTeam.length) return
+  try {
+    const admin = await createAdminClient()
+    const [{ data: deptoGrupos }, { data: instancias }] = await Promise.all([
+      admin.from('chat_departamentos').select('chatwoot_team_id').eq('conta_id', contaId).eq('eh_grupos', true).maybeSingle(),
+      admin.from('chat_instancias').select('chatwoot_inbox_id, departamento_id').eq('conta_id', contaId).is('deleted_at', null).not('departamento_id', 'is', null),
+    ])
+    const deptoIds = [...new Set((instancias || []).map((i: any) => i.departamento_id).filter(Boolean))] as string[]
+    let teamPorDepto = new Map<string, number>()
+    if (deptoIds.length) {
+      const { data: deps } = await admin.from('chat_departamentos').select('id, chatwoot_team_id').in('id', deptoIds)
+      teamPorDepto = new Map((deps || []).filter((d: any) => d.chatwoot_team_id).map((d: any) => [String(d.id), Number(d.chatwoot_team_id)]))
+    }
+    const teamPorInbox = new Map<number, number>()
+    for (const i of instancias || []) {
+      const team = i.departamento_id ? teamPorDepto.get(i.departamento_id) : undefined
+      if (i.chatwoot_inbox_id && team) teamPorInbox.set(Number(i.chatwoot_inbox_id), team)
+    }
+    const teamGrupos = deptoGrupos?.chatwoot_team_id ? Number(deptoGrupos.chatwoot_team_id) : null
+
+    for (const c of semTeam) {
+      const alvo = conversaEhGrupo(c) ? teamGrupos : teamPorInbox.get(c.inbox_id) ?? null
+      if (alvo) {
+        try {
+          await cli.atribuir(c.id, { teamId: alvo })
+        } catch {
+          // best-effort: tenta de novo na próxima listagem
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[conversas] roteamento automático de departamento falhou', err)
+  }
+}
+
+export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?: string; page?: number; inboxId?: number; teamId?: number }) {
+  await requirePermission('conversas', 'can_view')
+  const user = await requireCurrentUser()
   const cli = await clienteChatwootBrs()
   if (!cli) return { disponivel: false as const, conversas: [], meta: {} }
   const assigneeType = params.aba === 'meus' ? 'me' : params.aba === 'fila' ? 'unassigned' : 'all'
-  const data = await cli.listarConversas({ status: 'open', assigneeType, q: params.q, page: params.page, inboxId: params.inboxId })
+  const data = await cli.listarConversas({ status: 'open', assigneeType, q: params.q, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
+
+  const conta = await contaBrs()
+  let payload = data.payload || []
+
+  // Permissão por departamento: filiação ao Team = permissão (spec §6). Quem
+  // não tem `central-conversas` (supervisor) só vê conversas dos SEUS
+  // departamentos; a aba "Geral" (visão de supervisão) fica vazia pra eles —
+  // a UI já esconde essa aba de quem não é supervisor.
+  const { ehSupervisor, departamentos } = await meusDepartamentosInterno(user.id)
+  if (!ehSupervisor) {
+    if (params.aba === 'geral') {
+      payload = []
+    } else {
+      const idsPermitidos = new Set(departamentos.map((d) => d.chatwootTeamId).filter((x): x is number => x !== null))
+      payload = payload.filter((c) => {
+        const teamId = c.meta?.team?.id
+        // Sem team ainda (conversa nova, roteamento automático pendente):
+        // mostra — falha-aberto pra não esconder trabalho de ninguém antes do
+        // roteamento rodar. Ver §0/§6 da spec.
+        if (teamId === undefined || teamId === null) return true
+        return idsPermitidos.has(teamId)
+      })
+    }
+  }
+
+  if (conta) void atribuirDepartamentosAutomaticos(cli, conta.id, payload)
 
   // Junta os metadados do Workspace (chat_conversa_meta) por conversa. A linha
   // meta NÃO é criada aqui em lote — nasce on-demand no getMeta() da conversa
   // aberta; quem ainda não tem linha volta com atendimentoMeta: null.
   let metaPorConversa = new Map<number, ConversaMeta>()
   try {
-    const conta = await contaBrs()
-    const ids = (data.payload || []).map((c) => c.id)
+    const ids = payload.map((c) => c.id)
     if (conta && ids.length) {
       const admin = await createAdminClient()
       const { data: rows } = await admin
@@ -283,8 +395,21 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   } catch {
     // meta é acessório da listagem: falha aqui não derruba o atendimento
   }
-  const conversas = (data.payload || []).map((c) => ({ ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }))
+  const conversas = payload.map((c) => ({ ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }))
   return { disponivel: true as const, conversas, meta: data.meta }
+}
+
+/** Contadores por aba (Chats/Fila/Geral), opcionalmente restritos a um departamento. */
+export async function getContadores(teamId?: number): Promise<{ mine: number; unassigned: number; all: number }> {
+  await requirePermission('conversas', 'can_view')
+  const cli = await clienteChatwootBrs()
+  if (!cli) return { mine: 0, unassigned: 0, all: 0 }
+  try {
+    const meta = await cli.metaConversas({ teamId })
+    return { mine: meta.mine_count, unassigned: meta.unassigned_count, all: meta.all_count }
+  } catch {
+    return { mine: 0, unassigned: 0, all: 0 }
+  }
 }
 
 /**
@@ -485,12 +610,26 @@ export async function addNotaInterna(conversationId: number, texto: string): Pro
   return cli.notaInterna(conversationId, corpo)
 }
 
-/** Transfere a conversa pra outro agente (o Chatwoot registra a activity). */
-export async function transferirConversa(conversationId: number, agenteId: number): Promise<{ ok: true }> {
+/**
+ * Transfere a conversa pra um DEPARTAMENTO (obrigatório) e, opcionalmente,
+ * pra um atendente dentro dele. Comentário vira nota interna ANTES da
+ * atribuição (padrão Digisac). Sem atendente escolhido, a conversa cai na
+ * fila do departamento (desatribuída) — nunca fica presa com o atendente
+ * anterior depois de transferida.
+ */
+export async function transferirConversa(conversationId: number, input: { departamentoId: string; agenteId?: number | null; comentario?: string }): Promise<{ ok: true }> {
   await requirePermission('conversas', 'can_view')
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
-  await cli.atribuir(conversationId, agenteId)
+  const admin = await createAdminClient()
+  const { data: depto } = await admin.from('chat_departamentos').select('nome, chatwoot_team_id').eq('id', input.departamentoId).maybeSingle()
+  if (!depto?.chatwoot_team_id) throw new Error('Departamento sem sincronização com o Chatwoot ainda.')
+
+  const comentario = String(input.comentario || '').trim()
+  if (comentario) {
+    await cli.notaInterna(conversationId, `🔁 Transferido para ${depto.nome}: ${comentario}`)
+  }
+  await cli.atribuir(conversationId, { teamId: depto.chatwoot_team_id, assigneeId: input.agenteId ?? null })
   return { ok: true }
 }
 
@@ -633,7 +772,7 @@ export async function assumirConversa(conversationId: number, agenteId: number |
   await requirePermission('conversas', 'can_view')
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
-  await cli.atribuir(conversationId, agenteId)
+  await cli.atribuir(conversationId, { assigneeId: agenteId })
   return { ok: true }
 }
 
@@ -643,6 +782,68 @@ export async function resolverConversa(conversationId: number) {
   if (!cli) throw new Error('Chatwoot não provisionado.')
   await cli.mudarStatus(conversationId, 'resolved')
   return { ok: true }
+}
+
+// ---------------------------------------------------------------------------
+// Presença (Online / Ausente / Offline) — mapeia pro agente Chatwoot do
+// usuário logado, resolvido por e-mail (mesmo padrão de provisionar-agentes).
+// "Ausente" no Digisac = 'busy' no Chatwoot.
+// ---------------------------------------------------------------------------
+
+async function meuEmail(userId: string): Promise<string | null> {
+  const admin = await createAdminClient()
+  const { data } = await admin.from('users').select('email').eq('id', userId).maybeSingle()
+  return data?.email ? String(data.email) : null
+}
+
+export async function setMinhaDisponibilidade(status: 'online' | 'busy' | 'offline'): Promise<{ ok: boolean; erro?: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const user = await requireCurrentUser()
+    const cli = await clienteChatwootBrs()
+    const email = await meuEmail(user.id)
+    if (!cli || !email) return { ok: false, erro: 'Chatwoot não provisionado.' }
+    const agentes = await cli.agentes()
+    const agente = agentes.find((a) => String(a.email || '').toLowerCase() === email.toLowerCase())
+    if (!agente) return { ok: false, erro: 'Ainda não sincronizado como agente — tente novamente em instantes.' }
+    await cli.atualizarDisponibilidadeAgente(agente.id, agente.role || 'agent', status)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, erro: err instanceof Error ? err.message : 'Falha ao atualizar disponibilidade.' }
+  }
+}
+
+export async function getMinhaDisponibilidade(): Promise<'online' | 'busy' | 'offline' | null> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const user = await requireCurrentUser()
+    const cli = await clienteChatwootBrs()
+    const email = await meuEmail(user.id)
+    if (!cli || !email) return null
+    const agentes = await cli.agentes()
+    const agente = agentes.find((a) => String(a.email || '').toLowerCase() === email.toLowerCase())
+    return (agente?.availability_status as 'online' | 'busy' | 'offline' | undefined) || null
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Contatos (aba "Contatos" da lista — Digisac). Busca via /contacts/search.
+// ---------------------------------------------------------------------------
+
+export type ContatoBusca = { id: number; nome: string; telefone: string | null; thumbnail: string | null }
+
+export async function listarContatos(params: { q?: string; page?: number }): Promise<ContatoBusca[]> {
+  await requirePermission('conversas', 'can_view')
+  const cli = await clienteChatwootBrs()
+  if (!cli) return []
+  try {
+    const lista = await cli.listarContatos({ q: params.q, page: params.page })
+    return lista.map((c) => ({ id: c.id, nome: String(c.name || c.phone_number || 'Sem nome'), telefone: c.phone_number || null, thumbnail: c.thumbnail || null }))
+  } catch {
+    return []
+  }
 }
 
 export async function getAgentesChat() {

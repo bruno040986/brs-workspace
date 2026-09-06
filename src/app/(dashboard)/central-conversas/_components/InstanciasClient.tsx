@@ -10,6 +10,7 @@ import {
   statusInstancia,
   type InstanciaView,
 } from '@/lib/central-conversas/actions'
+import { listarDepartamentos, setDepartamentoInstancia, type DepartamentoRow } from '@/lib/central-conversas/departamentos-actions'
 
 type View = Awaited<ReturnType<typeof import('@/lib/central-conversas/actions').getCentralConversasView>>
 
@@ -28,7 +29,22 @@ export default function InstanciasClient({ view }: { view: View }) {
   const [novo, setNovo] = useState({ nome: '', provedor: 'baileys' as 'baileys' | 'zapi', instanceId: '', token: '', clientToken: '' })
   const [mostrarForm, setMostrarForm] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [departamentos, setDepartamentos] = useState<DepartamentoRow[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    listarDepartamentos().then((res) => res.success && setDepartamentos(res.data || []))
+  }, [])
+
+  async function mudarDepartamento(inst: InstanciaView, departamentoId: string) {
+    const anterior = inst.departamento_id
+    setInstancias((atual) => atual.map((i) => (i.id === inst.id ? { ...i, departamento_id: departamentoId || null } : i)))
+    const res = await setDepartamentoInstancia(inst.id, departamentoId || null)
+    if (!res.success) {
+      setInstancias((atual) => atual.map((i) => (i.id === inst.id ? { ...i, departamento_id: anterior } : i)))
+      setMensagem({ tipo: 'erro', texto: res.error || 'Falha ao definir o departamento.' })
+    }
+  }
 
   // Enquanto alguma instância estiver aguardando QR/conectando, atualiza a cada 3s.
   const atualizar = useCallback(async () => {
@@ -103,7 +119,7 @@ export default function InstanciasClient({ view }: { view: View }) {
         <div>
           <h1 className="page-title">Instâncias WhatsApp</h1>
           <p className="page-subtitle">
-            Números da BRS conectados por QR Code (Baileys) ou Z-API. Todas são <strong>receptivas</strong> e aceitam grupos — é por elas que o suporte aos parceiros e às IFs entra no chat.
+            Números da BRS conectados por QR Code (Baileys) ou Z-API. Todas enviam, recebem e operam grupos — é por elas que o suporte aos parceiros e às IFs entra no chat.
           </p>
         </div>
         {podeCriar && (
@@ -184,13 +200,29 @@ export default function InstanciasClient({ view }: { view: View }) {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700 }}>{inst.nome}</div>
                   <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
-                    {inst.provedor === 'zapi' ? 'Z-API' : 'Baileys'} · receptiva · <Users size={12} style={{ verticalAlign: '-2px' }} /> grupos
+                    {inst.provedor === 'zapi' ? 'Z-API' : 'Baileys'} · <Users size={12} style={{ verticalAlign: '-2px' }} /> grupos
                   </div>
                 </div>
                 <span className={`badge ${conectada ? 'badge-success' : inst.status === 'erro' ? 'badge-danger' : ''}`}>{STATUS_LABEL[inst.status] || inst.status}</span>
               </div>
 
               {inst.numero && <div style={{ fontSize: 13 }}>Número: <strong>+{inst.numero}</strong>{inst.nome_perfil ? ` · ${inst.nome_perfil}` : ''}</div>}
+
+              {view.can_edit && (
+                <label className="form-field" style={{ margin: 0 }}>
+                  <span className="form-label" style={{ fontSize: 11 }}>Departamento padrão</span>
+                  <select
+                    className="form-input"
+                    value={inst.departamento_id || ''}
+                    onChange={(e) => mudarDepartamento(inst, e.target.value)}
+                  >
+                    <option value="">Sem departamento padrão</option>
+                    {departamentos.map((d) => (
+                      <option key={d.id} value={d.id}>{d.nome}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               {inst.status === 'aguardando_qr' && inst.ultimo_qr && (
                 <div style={{ textAlign: 'center' }}>

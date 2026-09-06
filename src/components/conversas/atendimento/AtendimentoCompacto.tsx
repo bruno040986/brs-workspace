@@ -9,13 +9,6 @@ import ListaConversas from './ListaConversas'
 import ThreadConversa from './ThreadConversa'
 import PainelContato from './PainelContato'
 
-function nomeDoCanal(inboxId: number | undefined, canais: { inboxes: Array<{ id: number; nome: string }>; instancias: Array<{ id: string; nome: string; inboxId: number | null }> }) {
-  if (!inboxId) return null
-  const instancia = canais.instancias.find((i) => i.inboxId === inboxId)
-  if (instancia) return instancia.nome
-  return canais.inboxes.find((i) => i.id === inboxId)?.nome || null
-}
-
 /**
  * Aba Atendimento do dock (MessengerDockTabs): uma coluna com push
  * lista→thread; painel do contato vira gaveta que desliza por cima
@@ -73,7 +66,7 @@ export default function AtendimentoCompacto() {
     })()
   }, [at.conversas])
 
-  const departamento = at.selecionada ? nomeDoCanal(at.selecionada.inbox_id, at.canaisAtendimento) : null
+  const departamento = at.selecionada?.meta.team?.name || null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, position: 'relative', overflow: 'hidden' }}>
@@ -87,6 +80,7 @@ export default function AtendimentoCompacto() {
             agentes={at.agentes}
             respostasRapidas={at.respostasRapidas}
             departamento={departamento}
+            departamentos={at.departamentos}
             enviando={at.enviando}
             compacto
             onVoltar={() => at.selecionarConversa(null)}
@@ -103,11 +97,20 @@ export default function AtendimentoCompacto() {
             aba={at.aba}
             onAbaChange={at.setAba}
             filaCount={at.filaCount}
+            contadores={at.contadores}
             busca={at.busca}
             onBuscaChange={at.setBusca}
             canais={at.canaisAtendimento}
             canalId={at.canalId}
             onCanalChange={at.setCanalId}
+            departamentos={at.departamentos}
+            departamentoId={at.departamentoId}
+            onDepartamentoChange={at.setDepartamentoId}
+            ehSupervisor={at.ehSupervisor}
+            presenca={at.presenca}
+            onPresencaChange={at.mudarPresenca}
+            contatos={at.contatos}
+            carregandoContatos={at.carregandoContatos}
             conversas={at.conversas}
             carregando={at.carregandoLista}
             disponivel={at.disponivel}
@@ -152,7 +155,7 @@ export default function AtendimentoCompacto() {
             onVincular={at.vincular}
             onSalvarObservacoes={at.salvarObservacoes}
             onSalvarTags={at.salvarTags}
-            onTransferir={at.transferir}
+            onAtribuirAgente={at.atribuirAgente}
             buscarEntidades={at.buscarEntidades}
           />
         </div>

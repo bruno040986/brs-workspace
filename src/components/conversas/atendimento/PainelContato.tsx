@@ -30,7 +30,7 @@ type Props = {
   onVincular: (tipo: EntidadeTipo | null, id: string | null) => Promise<void>
   onSalvarObservacoes: (texto: string) => Promise<void>
   onSalvarTags: (tags: string[]) => Promise<void>
-  onTransferir: (agenteId: number) => Promise<void>
+  onAtribuirAgente: (agenteId: number | null) => Promise<void>
   buscarEntidades: (q: string) => Promise<{ parceiros: EntidadeBusca[]; instituicoes: EntidadeBusca[]; promotoras: EntidadeBusca[] }>
   /**
    * Participantes do grupo — payload do Chatwoot/engine não expõe isso ainda
@@ -56,7 +56,7 @@ export default function PainelContato({
   onVincular,
   onSalvarObservacoes,
   onSalvarTags,
-  onTransferir,
+  onAtribuirAgente,
   buscarEntidades,
   membros,
 }: Props) {
@@ -367,7 +367,7 @@ export default function PainelContato({
                 className="brs-messenger-select"
                 style={{ width: '100%' }}
                 value={conversa.meta.assignee?.id || ''}
-                onChange={(e) => e.target.value && void onTransferir(Number(e.target.value))}
+                onChange={(e) => void onAtribuirAgente(e.target.value ? Number(e.target.value) : null)}
               >
                 <option value="">Sem atendente</option>
                 {agentes.map((a) => (

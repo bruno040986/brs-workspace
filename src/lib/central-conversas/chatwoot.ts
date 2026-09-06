@@ -76,14 +76,23 @@ export class ChatwootConta {
     })
   }
 
-  listarConversas(params: { status?: 'open' | 'resolved' | 'pending' | 'all'; assigneeType?: 'me' | 'unassigned' | 'all'; page?: number; q?: string; inboxId?: number }) {
+  listarConversas(params: { status?: 'open' | 'resolved' | 'pending' | 'all'; assigneeType?: 'me' | 'unassigned' | 'all'; page?: number; q?: string; inboxId?: number; teamId?: number }) {
     const s = new URLSearchParams()
     s.set('status', params.status || 'open')
     s.set('assignee_type', params.assigneeType || 'all')
     s.set('page', String(params.page || 1))
     if (params.q) s.set('q', params.q)
     if (params.inboxId) s.set('inbox_id', String(params.inboxId))
+    if (params.teamId) s.set('team_id', String(params.teamId))
     return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => r.data)
+  }
+
+  /** Contadores por aba (mine/unassigned/assigned/all), opcionalmente por departamento. */
+  metaConversas(params: { teamId?: number; status?: 'open' | 'resolved' | 'pending' | 'all' } = {}) {
+    const s = new URLSearchParams()
+    s.set('status', params.status || 'open')
+    if (params.teamId) s.set('team_id', String(params.teamId))
+    return this.req<{ meta: { mine_count: number; unassigned_count: number; assigned_count: number; all_count: number } }>(`/conversations/meta?${s.toString()}`).then((r) => r.meta)
   }
 
   mensagens(conversationId: number, before?: number) {
@@ -140,8 +149,67 @@ export class ChatwootConta {
     return this.req<Array<{ id: number; short_code: string; content: string }>>('/canned_responses')
   }
 
-  atribuir(conversationId: number, assigneeId: number | null) {
-    return this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { assignee_id: assigneeId } })
+  /**
+   * Atribui a conversa a um agente e/ou a um departamento (Team). A API do
+   * Chatwoot ignora `team_id` quando `assignee_id` vem NA MESMA requisição —
+   * por isso, quando os dois são passados, disparamos duas chamadas em
+   * sequência (departamento primeiro, depois agente) pra garantir que os
+   * dois colem.
+   */
+  async atribuir(conversationId: number, params: { assigneeId?: number | null; teamId?: number | null }) {
+    if (params.teamId !== undefined) {
+      await this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { team_id: params.teamId } })
+    }
+    if (params.assigneeId !== undefined) {
+      await this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { assignee_id: params.assigneeId } })
+    }
+    return { ok: true }
+  }
+
+  // ---------------------------------------------------------------------
+  // Teams (departamentos) — espelhados em chat_departamentos.
+  // ---------------------------------------------------------------------
+
+  listarTeams() {
+    return this.req<ChatwootTeam[]>('/teams')
+  }
+
+  criarTeam(input: { nome: string; descricao?: string; distribuicaoAutomatica?: boolean }) {
+    return this.req<ChatwootTeam>('/teams', {
+      method: 'POST',
+      body: { name: input.nome, description: input.descricao || '', allow_auto_assign: Boolean(input.distribuicaoAutomatica) },
+    })
+  }
+
+  atualizarTeam(teamId: number, input: { nome?: string; descricao?: string; distribuicaoAutomatica?: boolean }) {
+    const body: Record<string, unknown> = {}
+    if (input.nome !== undefined) body.name = input.nome
+    if (input.descricao !== undefined) body.description = input.descricao
+    if (input.distribuicaoAutomatica !== undefined) body.allow_auto_assign = input.distribuicaoAutomatica
+    return this.req<ChatwootTeam>(`/teams/${teamId}`, { method: 'PATCH', body })
+  }
+
+  membrosTeam(teamId: number) {
+    return this.req<Array<{ id: number; name: string; email: string }>>(`/teams/${teamId}/team_members`)
+  }
+
+  adicionarMembrosTeam(teamId: number, userIds: number[]) {
+    if (!userIds.length) return Promise.resolve()
+    return this.req(`/teams/${teamId}/team_members`, { method: 'POST', body: { user_ids: userIds } })
+  }
+
+  removerMembrosTeam(teamId: number, userIds: number[]) {
+    if (!userIds.length) return Promise.resolve()
+    return this.req(`/teams/${teamId}/team_members`, { method: 'DELETE', body: { user_ids: userIds } })
+  }
+
+  /**
+   * Ajusta a disponibilidade (online/busy/offline) de UM agente específico.
+   * A API exige reenviar o `role` atual (senão rebaixaria/promoveria sem
+   * querer) — por isso pede o role de quem chama antes de setar.
+   */
+  atualizarDisponibilidadeAgente(agentId: number, role: 'agent' | 'administrator', availability: 'online' | 'busy' | 'offline') {
+    return this.req(`/agents/${agentId}`, { method: 'PATCH', body: { role, availability } })
   }
 
   mudarStatus(conversationId: number, status: 'open' | 'resolved' | 'pending') {
@@ -149,7 +217,15 @@ export class ChatwootConta {
   }
 
   agentes() {
-    return this.req<Array<{ id: number; name: string; email: string; availability_status?: string }>>('/agents')
+    return this.req<Array<{ id: number; name: string; email: string; role?: 'agent' | 'administrator'; availability_status?: string }>>('/agents')
+  }
+
+  /** Aba "Contatos" (Digisac): busca por nome/e-mail/telefone; sem termo, lista os contatos "resolvidos". */
+  listarContatos(params: { q?: string; page?: number }) {
+    const page = params.page || 1
+    const termo = params.q?.trim()
+    const path = termo ? `/contacts/search?q=${encodeURIComponent(termo)}&page=${page}` : `/contacts?page=${page}`
+    return this.req<{ payload: Array<{ id: number; name: string; phone_number: string | null; email: string | null; thumbnail?: string }> }>(path).then((r) => r.payload || [])
   }
 
   perfil() {
@@ -157,16 +233,28 @@ export class ChatwootConta {
   }
 }
 
+export type ChatwootTeam = { id: number; name: string; description: string | null; allow_auto_assign: boolean }
+
 export type ChatwootConversa = {
   id: number
   inbox_id: number
   status: string
   unread_count: number
   last_activity_at: number
+  created_at?: number
+  waiting_since?: number
   labels?: string[]
   muted?: boolean
   messages?: ChatwootMensagem[]
-  meta: { sender?: { id: number; name: string; phone_number?: string | null; thumbnail?: string; identifier?: string }; assignee?: { id: number; name: string } | null; channel?: string }
+  meta: {
+    sender?: { id: number; name: string; phone_number?: string | null; thumbnail?: string; identifier?: string }
+    assignee?: { id: number; name: string } | null
+    // Não documentado no OpenAPI oficial do Chatwoot mas presente na prática
+    // (o próprio dashboard deles usa pra exibir o chip do departamento) — a
+    // leitura desse campo é sempre defensiva (ver getConversas).
+    team?: { id: number; name: string } | null
+    channel?: string
+  }
   last_non_activity_message?: ChatwootMensagem | null
 }
 

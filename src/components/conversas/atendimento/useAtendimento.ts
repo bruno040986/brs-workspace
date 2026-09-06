@@ -4,26 +4,34 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   addNotaInterna,
+  assumirConversa,
   buscarEntidades,
   encerrarConversa,
   enviarAnexoConversa,
   enviarAudioConversa,
   getAgentesChat,
   getCanaisAtendimento,
+  getContadores,
   getConversas,
   getMensagens,
   getMeta,
+  getMinhaDisponibilidade,
   getRespostasRapidas,
   getTags,
   getTagsConta,
   iniciarConversaPorTelefone,
+  listarContatos,
   marcarNaoLidaConversa,
+  meusDepartamentos,
   responderConversa,
+  setMinhaDisponibilidade,
   setObservacoes as setObservacoesAction,
   setTags as setTagsAction,
   setVinculo as setVinculoAction,
   silenciarConversa,
   transferirConversa,
+  type ContatoBusca,
+  type DepartamentoResumo,
 } from '@/lib/central-conversas/actions'
 import type {
   AgenteChat,
@@ -37,7 +45,7 @@ import type {
   TagConta,
 } from './types'
 
-export type AbaAtendimento = 'meus' | 'fila' | 'geral'
+export type AbaAtendimento = 'meus' | 'fila' | 'geral' | 'contatos'
 
 function mensagem(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback
@@ -47,10 +55,17 @@ export function useAtendimento() {
   const [aba, setAba] = useState<AbaAtendimento>('meus')
   const [busca, setBusca] = useState('')
   const [canalId, setCanalId] = useState<number | null>(null)
+  const [departamentoId, setDepartamentoId] = useState<string | null>(null)
+  const [departamentos, setDepartamentos] = useState<DepartamentoResumo[]>([])
+  const [ehSupervisor, setEhSupervisor] = useState(false)
   const [disponivel, setDisponivel] = useState(true)
   const [carregandoLista, setCarregandoLista] = useState(true)
   const [conversas, setConversas] = useState<ConversaAtendimento[]>([])
   const [filaCount, setFilaCount] = useState(0)
+  const [contadores, setContadores] = useState({ mine: 0, unassigned: 0, all: 0 })
+  const [presenca, setPresenca] = useState<'online' | 'busy' | 'offline' | null>(null)
+  const [contatos, setContatos] = useState<ContatoBusca[]>([])
+  const [carregandoContatos, setCarregandoContatos] = useState(false)
   const [selecionada, setSelecionada] = useState<ConversaAtendimento | null>(null)
   const [mensagens, setMensagens] = useState<ChatwootMensagem[]>([])
   const [carregandoThread, setCarregandoThread] = useState(false)
@@ -67,9 +82,12 @@ export function useAtendimento() {
     selecionadaIdRef.current = selecionada?.id ?? null
   }, [selecionada])
 
+  const teamIdFiltro = departamentoId ? departamentos.find((d) => d.id === departamentoId)?.chatwootTeamId ?? undefined : undefined
+
   const carregarLista = useCallback(async (): Promise<ConversaAtendimento[]> => {
+    if (aba === 'contatos') return []
     try {
-      const r = await getConversas({ aba, q: busca || undefined, inboxId: canalId ?? undefined })
+      const r = await getConversas({ aba, q: busca || undefined, inboxId: canalId ?? undefined, teamId: teamIdFiltro ?? undefined })
       const lista = (r.conversas || []) as ConversaAtendimento[]
       setDisponivel(r.disponivel)
       setConversas(lista)
@@ -80,8 +98,6 @@ export function useAtendimento() {
         const fresca = lista.find((c) => c.id === prev.id)
         return fresca ? { ...fresca, atendimentoMeta: fresca.atendimentoMeta ?? prev.atendimentoMeta } : prev
       })
-      const contagemFila = (r.meta as Record<string, number> | undefined)?.unassigned_count
-      if (typeof contagemFila === 'number') setFilaCount(contagemFila)
       setErro(null)
       return lista
     } catch (err) {
@@ -90,7 +106,29 @@ export function useAtendimento() {
     } finally {
       setCarregandoLista(false)
     }
-  }, [aba, busca, canalId])
+  }, [aba, busca, canalId, teamIdFiltro])
+
+  const carregarContadores = useCallback(async () => {
+    try {
+      const c = await getContadores(teamIdFiltro ?? undefined)
+      setContadores(c)
+      setFilaCount(c.unassigned)
+    } catch {
+      // contadores são acessórios — a lista continua funcionando sem eles
+    }
+  }, [teamIdFiltro])
+
+  const carregarContatos = useCallback(async () => {
+    setCarregandoContatos(true)
+    try {
+      const lista = await listarContatos({ q: busca || undefined })
+      setContatos(lista)
+    } catch (err) {
+      setErro(mensagem(err, 'Erro ao carregar contatos.'))
+    } finally {
+      setCarregandoContatos(false)
+    }
+  }, [busca])
 
   const carregarThread = useCallback(async (conversationId: number, opts: { silencioso?: boolean } = {}) => {
     if (!opts.silencioso) setCarregandoThread(true)
@@ -117,10 +155,15 @@ export function useAtendimento() {
   // Bootstrap: lista, agentes, canais, tags da conta, respostas rápidas (feature opcional).
   useEffect(() => {
     void (async () => {
-      const [ag, canais, tags] = await Promise.allSettled([getAgentesChat(), getCanaisAtendimento(), getTagsConta()])
+      const [ag, canais, tags, deps, pres] = await Promise.allSettled([getAgentesChat(), getCanaisAtendimento(), getTagsConta(), meusDepartamentos(), getMinhaDisponibilidade()])
       if (ag.status === 'fulfilled') setAgentes(ag.value || [])
       if (canais.status === 'fulfilled') setCanaisAtendimento(canais.value)
       if (tags.status === 'fulfilled') setTagsConta(tags.value || [])
+      if (deps.status === 'fulfilled') {
+        setDepartamentos(deps.value.departamentos)
+        setEhSupervisor(deps.value.ehSupervisor)
+      }
+      if (pres.status === 'fulfilled') setPresenca(pres.value)
       try {
         const r = await getRespostasRapidas()
         setRespostasRapidas(r || [])
@@ -136,11 +179,18 @@ export function useAtendimento() {
     // num callback próprio em vez de uma chamada direta no corpo do efeito.
     void (async () => {
       setCarregandoLista(true)
-      await carregarLista()
+      await Promise.all([carregarLista(), carregarContadores()])
     })()
-    const t = setInterval(() => void carregarLista(), 6000)
+    const t = setInterval(() => {
+      void carregarLista()
+      void carregarContadores()
+    }, 6000)
     return () => clearInterval(t)
-  }, [carregarLista])
+  }, [carregarLista, carregarContadores])
+
+  useEffect(() => {
+    if (aba === 'contatos') void carregarContatos()
+  }, [aba, carregarContatos])
 
   useEffect(() => {
     if (!selecionada) return
@@ -247,19 +297,52 @@ export function useAtendimento() {
     }
   }
 
-  async function transferir(agenteId: number) {
+  async function transferir(input: { departamentoId: string; agenteId?: number | null; comentario?: string }) {
     if (!selecionada) return
     try {
-      await transferirConversa(selecionada.id, agenteId)
-      const agente = agentes.find((a) => a.id === agenteId)
-      if (agente) {
-        setSelecionada((prev) => (prev ? { ...prev, meta: { ...prev.meta, assignee: { id: agente.id, name: agente.name } } } : prev))
-      }
+      await transferirConversa(selecionada.id, input)
+      const departamento = departamentos.find((d) => d.id === input.departamentoId)
+      const agente = input.agenteId ? agentes.find((a) => a.id === input.agenteId) : null
+      setSelecionada((prev) =>
+        prev
+          ? {
+              ...prev,
+              meta: { ...prev.meta, assignee: agente ? { id: agente.id, name: agente.name } : null, team: departamento ? { id: departamento.chatwootTeamId || 0, name: departamento.nome } : prev.meta.team },
+            }
+          : prev,
+      )
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
       setErro(mensagem(err, 'Falha ao transferir conversa.'))
       throw err
+    }
+  }
+
+  /** Atribuição rápida (troca só o atendente, mantém o departamento — usada no select "Atendente" do painel). */
+  async function atribuirAgente(agenteId: number | null) {
+    if (!selecionada) return
+    try {
+      await assumirConversa(selecionada.id, agenteId)
+      const agente = agenteId ? agentes.find((a) => a.id === agenteId) : null
+      setSelecionada((prev) => (prev ? { ...prev, meta: { ...prev.meta, assignee: agente || null } } : prev))
+      await carregarThread(selecionada.id, { silencioso: true })
+      void carregarLista()
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao atribuir atendente.'))
+      throw err
+    }
+  }
+
+  async function mudarPresenca(status: 'online' | 'busy' | 'offline') {
+    const anterior = presenca
+    setPresenca(status)
+    try {
+      const r = await setMinhaDisponibilidade(status)
+      if (!r.ok) throw new Error(r.erro || 'Falha ao atualizar disponibilidade.')
+    } catch (err) {
+      setPresenca(anterior)
+      setErro(mensagem(err, 'Falha ao atualizar disponibilidade.'))
     }
   }
 
@@ -351,6 +434,15 @@ export function useAtendimento() {
     setBusca,
     canalId,
     setCanalId,
+    departamentoId,
+    setDepartamentoId,
+    departamentos,
+    ehSupervisor,
+    contadores,
+    presenca,
+    mudarPresenca,
+    contatos,
+    carregandoContatos,
     disponivel,
     carregandoLista,
     conversas,
@@ -375,6 +467,7 @@ export function useAtendimento() {
     encerrar,
     silenciar,
     marcarNaoLida,
+    atribuirAgente,
     vincular,
     salvarObservacoes,
     salvarTags,

@@ -230,6 +230,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
         perms: [view('central-conversas'), view('comercial-disparo-whatsapp'), view('sistema-comunicados')],
         children: [
           { label: 'Canais', href: '/central-conversas/canais', perms: [view('central-conversas')] },
+          { label: 'Departamentos', href: '/central-conversas/departamentos', perms: [view('central-conversas')] },
           { label: 'Grupos Internos', href: '/central-conversas/grupos', perms: [view('central-conversas')] },
           { label: 'Atendimento (tela cheia)', href: '/conversas', perms: [view('conversas')] },
           { label: 'Disparo de WhatsApp', href: '/disparo-whatsapp', perms: [view('comercial-disparo-whatsapp')] },

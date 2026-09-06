@@ -8,20 +8,13 @@ import ListaConversas from './ListaConversas'
 import ThreadConversa from './ThreadConversa'
 import PainelContato from './PainelContato'
 
-function nomeDoCanal(inboxId: number | undefined, canais: { inboxes: Array<{ id: number; nome: string }>; instancias: Array<{ id: string; nome: string; inboxId: number | null }> }) {
-  if (!inboxId) return null
-  const instancia = canais.instancias.find((i) => i.inboxId === inboxId)
-  if (instancia) return instancia.nome
-  return canais.inboxes.find((i) => i.id === inboxId)?.nome || null
-}
-
 /** /conversas — 3 colunas (300/1fr/300), tema MSN, exatamente como o design aprovado. */
 export default function AtendimentoCompleto() {
   const at = useAtendimento()
 
   useEffect(() => publicarPresencaFullpage(), [])
 
-  const departamento = at.selecionada ? nomeDoCanal(at.selecionada.inbox_id, at.canaisAtendimento) : null
+  const departamento = at.selecionada?.meta.team?.name || null
 
   return (
     <div className="brs-messenger" style={{ display: 'grid', gridTemplateColumns: '300px 1fr 300px', height: '100%', minHeight: 0 }}>
@@ -33,11 +26,20 @@ export default function AtendimentoCompleto() {
           aba={at.aba}
           onAbaChange={at.setAba}
           filaCount={at.filaCount}
+          contadores={at.contadores}
           busca={at.busca}
           onBuscaChange={at.setBusca}
           canais={at.canaisAtendimento}
           canalId={at.canalId}
           onCanalChange={at.setCanalId}
+          departamentos={at.departamentos}
+          departamentoId={at.departamentoId}
+          onDepartamentoChange={at.setDepartamentoId}
+          ehSupervisor={at.ehSupervisor}
+          presenca={at.presenca}
+          onPresencaChange={at.mudarPresenca}
+          contatos={at.contatos}
+          carregandoContatos={at.carregandoContatos}
           conversas={at.conversas}
           carregando={at.carregandoLista}
           disponivel={at.disponivel}
@@ -55,6 +57,7 @@ export default function AtendimentoCompleto() {
             agentes={at.agentes}
             respostasRapidas={at.respostasRapidas}
             departamento={departamento}
+            departamentos={at.departamentos}
             enviando={at.enviando}
             onEnviarTexto={at.enviarTexto}
             onEnviarNota={at.enviarNota}
@@ -84,7 +87,7 @@ export default function AtendimentoCompleto() {
             onVincular={at.vincular}
             onSalvarObservacoes={at.salvarObservacoes}
             onSalvarTags={at.salvarTags}
-            onTransferir={at.transferir}
+            onAtribuirAgente={at.atribuirAgente}
             buscarEntidades={at.buscarEntidades}
           />
         ) : (
