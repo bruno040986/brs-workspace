@@ -91,3 +91,13 @@ hoje.
 **Códigos de erro de grupo (`NAO_MEMBRO`/`NAO_ADMIN`/`FALHA_WHATSAPP`):**
 anotado pro roteiro da Fase C (a UI de grupos ainda não começou aqui) — vai
 tratar os três desde o início.
+
+**Dois pedidos menores pra Fase C (não bloqueiam, a UI contorna):**
+1. `POST /instancias/:id/enviar` não espelha quando `destino` é `@g.us`
+   (`deveEspelhar` exclui grupo). Depois de "Criar grupo" no Workspace, a
+   conversa só aparece na lista quando alguém do grupo manda a primeira
+   mensagem. Se der pra espelhar o envio pra grupo (garantirConversa com
+   `ehGrupo=true` e `nomeChat` = subject do grupo), a experiência fica igual ao
+   Digisac. Enquanto isso a UI avisa o atendente.
+2. Confirmar: com `ENGINE_DURABLE_EVENTS` ligado, `/enviar` exige
+   `operationId` uuid — o Workspace passa a mandar sempre (Fase C, frente a).

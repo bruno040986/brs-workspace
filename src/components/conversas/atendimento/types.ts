@@ -73,11 +73,21 @@ export function previaConversa(c: ChatwootConversa) {
   return ''
 }
 
+/**
+ * O engine cria o contato do Chatwoot com `identifier = "<instanciaId>:<jid>"`
+ * (bridge.ts `garantirConversa`); grupo de WhatsApp = jid terminado em `@g.us`
+ * (mesma regra do engine). O `-group` antigo nunca bateu com jid real.
+ */
+export function parseIdentifier(identifier?: string | null): { instanciaId: string; jid: string } | null {
+  const s = String(identifier || '')
+  const i = s.indexOf(':')
+  if (i <= 0) return null
+  return { instanciaId: s.slice(0, i), jid: s.slice(i + 1) }
+}
+
 export function ehGrupo(c: ChatwootConversa) {
-  // Chatwoot marca conversas de grupo com identifier composto ou sender do tipo "group";
-  // como o cliente pode não expor isso ainda, checamos os dois formatos possíveis.
   const sender = c.meta?.sender as { type?: string } | undefined
-  return sender?.type === 'group' || String(c.meta?.sender?.identifier || '').includes('-group')
+  return sender?.type === 'group' || (parseIdentifier(c.meta?.sender?.identifier)?.jid.endsWith('@g.us') ?? false)
 }
 
 export type { ChatwootConversa, ChatwootMensagem }

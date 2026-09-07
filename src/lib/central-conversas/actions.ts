@@ -294,8 +294,10 @@ export async function meusDepartamentos(): Promise<{ ehSupervisor: boolean; depa
 // propósito: esta é uma action de servidor, não deve depender de um arquivo
 // de componente de UI.
 function conversaEhGrupo(c: ChatwootConversa): boolean {
+  // identifier = "<instanciaId>:<jid>" (engine); grupo = jid `@g.us`, igual ao engine.
   const sender = c.meta?.sender as { type?: string; identifier?: string } | undefined
-  return sender?.type === 'group' || String(sender?.identifier || '').includes('-group')
+  const jid = String(sender?.identifier || '').split(':').slice(1).join(':')
+  return sender?.type === 'group' || jid.endsWith('@g.us')
 }
 
 /**
