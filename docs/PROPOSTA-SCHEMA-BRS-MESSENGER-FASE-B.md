@@ -1,8 +1,12 @@
 # Proposta de schema — BRS Messenger Fase B (paridade da conversa individual)
 
-Rascunho do Sonnet 5, 06/09/2026, pra revisão do Fable. **Nada aqui foi
-aplicado nem colocado em `supabase/migrations/`** — SQL de proposta, sujeito a
-ajuste. Contexto: `docs/SPEC-BRS-MESSENGER-PARIDADE-DIGISAC.md` §4/§9, decisão
+Rascunho do Sonnet 5, 06/09/2026, revisado pelo Fable. **APLICADA em 07/09/2026
+como `supabase/migrations/20260907022722_brs_messenger_fase_b.sql`** — a
+migration é a fonte da verdade; diferenças da revisão: triggers de
+`updated_at`, índice por conversa em `chat_acoes_agendadas`, RPCs
+`chat_acoes_agendadas_claim` (FOR UPDATE SKIP LOCKED) e `_finish` (só
+`service_role`), grant de delete. Roteiro de execução:
+`ROTEIRO-BRS-MESSENGER-FASE-B.md`. Contexto: `docs/SPEC-BRS-MESSENGER-PARIDADE-DIGISAC.md` §4/§9, decisão
 "Ok, implemente!" do Bruno em 06/09 pra seguir com a Fase B.
 
 Convenções seguidas do que já existe: `chat_contato_meta` espelha o desenho de
