@@ -45,8 +45,31 @@ type Props = {
   onEnviarNota: (texto: string) => Promise<void>
   onEnviarAnexo: (file: File, legenda?: string) => Promise<void>
   onEnviarAudio: (blob: Blob) => Promise<void>
+  /** Resposta rápida COM anexo: o servidor baixa o arquivo do bucket e manda com o texto como legenda (Fase B §d). */
+  onEnviarRespostaRapida: (respostaId: string) => Promise<void>
   onTransferir: (input: { departamentoId: string; agenteId?: number | null; comentario?: string }) => Promise<void>
   onEncerrar: (motivo?: string) => Promise<void>
+}
+
+type SenderGrupo = { jid?: string; numero?: string | null; nome?: string | null }
+
+/**
+ * Remetente de mensagem recebida em GRUPO. Contrato do engine
+ * (RECADO-ENGINE-GRUPOS): `content_attributes.sender = { jid, numero, nome }`
+ * — é OBJETO, nunca renderizar direto. O engine mantém o prefixo `*Nome:* `
+ * no texto por compatibilidade com o CRM; com o label na bolha, tiramos o
+ * prefixo pra não duplicar o nome. Mensagens anteriores ao contrato (sem
+ * `sender`) caem no prefixo do texto.
+ */
+function remetenteDeGrupo(m: MensagemComExtras): { nome: string; conteudo: string | null } | null {
+  const bruto = m.content_attributes?.sender
+  const s: SenderGrupo | null = bruto && typeof bruto === 'object' ? (bruto as SenderGrupo) : typeof bruto === 'string' ? { nome: bruto } : null
+  const conteudo = m.content
+  const prefixo = conteudo?.match(/^\*(.+?):\*\s?([\s\S]*)$/)
+  const nome = String(s?.nome || s?.numero || prefixo?.[1] || '').trim()
+  if (!nome) return null
+  const tiraPrefixo = prefixo && (!s?.nome || prefixo[1] === s.nome)
+  return { nome, conteudo: tiraPrefixo ? prefixo[2] : conteudo }
 }
 
 function tempoGravacao(ms: number) {
@@ -73,6 +96,7 @@ export default function ThreadConversa({
   onEnviarNota,
   onEnviarAnexo,
   onEnviarAudio,
+  onEnviarRespostaRapida,
   onTransferir,
   onEncerrar,
 }: Props) {
@@ -117,10 +141,23 @@ export default function ThreadConversa({
   // Fase B §d: chips de resposta rápida cadastradas no Workspace (com escopo por
   // departamento) substituem o canned response nativo do Chatwoot; se nada foi
   // cadastrado ainda, cai de volta pro nativo (fallback combinado no roteiro).
-  const chipsResposta = useMemo(
-    () => (respostasVisiveis.length > 0 ? respostasVisiveis.map((r) => ({ id: r.id, atalho: r.atalho, conteudo: r.texto })) : respostasRapidas || []),
+  const chipsResposta = useMemo<Array<{ id: string; atalho: string; conteudo: string; arquivoPath: string | null }>>(
+    () =>
+      respostasVisiveis.length > 0
+        ? respostasVisiveis.map((r) => ({ id: r.id, atalho: r.atalho, conteudo: r.texto, arquivoPath: r.arquivoPath }))
+        : (respostasRapidas || []).map((r) => ({ id: String(r.id), atalho: r.atalho, conteudo: r.conteudo, arquivoPath: null })),
     [respostasVisiveis, respostasRapidas],
   )
+
+  /** Resposta com anexo sai na hora (arquivo + texto como legenda); só texto vai pro composer. */
+  function usarResposta(r: { id: string; conteudo: string; arquivoPath: string | null }) {
+    if (r.arquivoPath) {
+      setTexto('')
+      void onEnviarRespostaRapida(r.id)
+      return
+    }
+    setTexto((prev) => (prev && !prev.trim().startsWith('/') ? `${prev} ${r.conteudo}` : r.conteudo))
+  }
 
   const sugestoesPicker = useMemo(() => {
     const termo = texto.trim()
@@ -323,7 +360,8 @@ export default function ThreadConversa({
             const saida = m.message_type === 1 || m.message_type === 3
             const nota = Boolean(m.private)
             const aparelho = m.content_attributes?.origem === 'aparelho'
-            const remetenteGrupo = grupo && !saida ? (m.content_attributes?.sender as string | undefined) : undefined
+            const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
+            const conteudo = remetente ? remetente.conteudo : m.content
             const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
             const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
             return (
@@ -334,7 +372,7 @@ export default function ThreadConversa({
                   </button>
                 )}
                 <div className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}>
-                  {remetenteGrupo && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetenteGrupo}</div>}
+                  {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
                   {inReplyTo && (
                     <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
@@ -352,7 +390,7 @@ export default function ThreadConversa({
                       </a>
                     ),
                   )}
-                  {m.content && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{m.content}</div>}
+                  {conteudo && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{conteudo}</div>}
                   {m.reacoes.length > 0 && (
                     <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
                       {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
@@ -401,10 +439,11 @@ export default function ThreadConversa({
             <button
               key={r.id}
               type="button"
-              onClick={() => setTexto((prev) => (prev ? `${prev} ${r.conteudo}` : r.conteudo))}
+              onClick={() => usarResposta(r)}
               style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 99, border: '1px solid var(--msn-soft-border)', background: 'var(--msn-surface-alt)', color: 'var(--msn-text)', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0 }}
               title={r.conteudo}
             >
+              {r.arquivoPath ? '📎 ' : ''}
               {r.atalho}
             </button>
           ))}
@@ -428,10 +467,10 @@ export default function ThreadConversa({
               <button
                 key={r.id}
                 type="button"
-                onClick={() => setTexto(r.conteudo)}
+                onClick={() => usarResposta(r)}
                 style={{ textAlign: 'left', padding: '6px 9px', fontSize: 12, background: 'var(--msn-surface)', border: 'none', borderBottom: '1px solid var(--msn-soft-border)', cursor: 'pointer', color: 'var(--msn-text)' }}
               >
-                <span style={{ fontWeight: 700 }}>{r.atalho}</span> — {r.conteudo.slice(0, 60)}
+                <span style={{ fontWeight: 700 }}>{r.arquivoPath ? '📎 ' : ''}{r.atalho}</span> — {r.conteudo.slice(0, 60)}
               </button>
             ))}
           </div>

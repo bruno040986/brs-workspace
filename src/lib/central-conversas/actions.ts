@@ -922,7 +922,7 @@ export async function listarTagsAdmin(): Promise<TagAdmin[]> {
 }
 
 export async function salvarTagAdmin(input: { id?: number; titulo: string; cor: string; descricao?: string }): Promise<{ ok: true }> {
-  await requirePermission('central-conversas', 'can_edit')
+  await requirePermission('central-conversas', input.id ? 'can_edit' : 'can_include')
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   const titulo = String(input.titulo || '').trim()
@@ -934,7 +934,7 @@ export async function salvarTagAdmin(input: { id?: number; titulo: string; cor: 
 }
 
 export async function excluirTagAdmin(id: number): Promise<{ ok: true }> {
-  await requirePermission('central-conversas', 'can_edit')
+  await requirePermission('central-conversas', 'can_delete')
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   await cli.excluirLabel(id)

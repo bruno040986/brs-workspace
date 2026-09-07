@@ -73,8 +73,10 @@ export async function agendarAcao(input: { conversationId: number; acao: 'mensag
 
 export async function cancelarAgendamento(id: string): Promise<{ ok: true }> {
   await requirePermission('conversas', 'can_view')
+  const conta = await contaBrs()
+  if (!conta) throw new Error('Chatwoot não provisionado.')
   const admin = await createAdminClient()
-  const { error } = await admin.from('chat_acoes_agendadas').update({ status: 'cancelado' }).eq('id', id).eq('status', 'pendente')
+  const { error } = await admin.from('chat_acoes_agendadas').update({ status: 'cancelado' }).eq('id', id).eq('conta_id', conta.id).eq('status', 'pendente')
   if (error) throw error
   revalidatePath('/conversas')
   return { ok: true }
@@ -84,8 +86,10 @@ export async function reagendar(id: string, novaData: string): Promise<{ ok: tru
   await requirePermission('conversas', 'can_view')
   const quando = new Date(novaData)
   if (Number.isNaN(quando.getTime()) || quando.getTime() <= Date.now()) throw new Error('Data/hora inválida.')
+  const conta = await contaBrs()
+  if (!conta) throw new Error('Chatwoot não provisionado.')
   const admin = await createAdminClient()
-  const { error } = await admin.from('chat_acoes_agendadas').update({ agendado_para: quando.toISOString() }).eq('id', id).eq('status', 'pendente')
+  const { error } = await admin.from('chat_acoes_agendadas').update({ agendado_para: quando.toISOString() }).eq('id', id).eq('conta_id', conta.id).eq('status', 'pendente')
   if (error) throw error
   revalidatePath('/conversas')
   return { ok: true }

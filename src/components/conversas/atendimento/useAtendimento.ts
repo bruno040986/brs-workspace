@@ -42,7 +42,7 @@ import {
   type DepartamentoResumo,
 } from '@/lib/central-conversas/actions'
 import { agendarAcao, cancelarAgendamento, listarAgendamentos, reagendar as reagendarAction } from '@/lib/central-conversas/agendamento-actions'
-import { listarRespostasVisiveis } from '@/lib/central-conversas/respostas-rapidas-actions'
+import { enviarRespostaRapida, listarRespostasVisiveis } from '@/lib/central-conversas/respostas-rapidas-actions'
 import type {
   AcaoAgendada,
   AgenteChat,
@@ -312,6 +312,23 @@ export function useAtendimento() {
 
   function citar(m: MensagemComExtras | null) {
     setCitacao(m)
+  }
+
+  /** Resposta rápida com anexo: sai direto (arquivo + texto como legenda) — Fase B §d. */
+  async function enviarRespostaRapidaFn(respostaId: string) {
+    if (!selecionada) return
+    setEnviando(true)
+    setErro(null)
+    try {
+      await enviarRespostaRapida(selecionada.id, respostaId)
+      await carregarThread(selecionada.id, { silencioso: true })
+      void carregarLista()
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao enviar resposta rápida.'))
+      throw err
+    } finally {
+      setEnviando(false)
+    }
   }
 
   async function enviarNota(texto: string) {
@@ -663,6 +680,7 @@ export function useAtendimento() {
     enviarNota,
     enviarAnexo,
     enviarAudio,
+    enviarRespostaRapida: enviarRespostaRapidaFn,
     transferir,
     encerrar,
     silenciar,

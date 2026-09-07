@@ -54,3 +54,40 @@ ENVIO (mensagem outgoing vinda do Chatwoot pro Baileys):
 Se o `chatwoot_message_id` citado não for encontrado no mapeamento (ex.: mensagem
 fora da janela de histórico do engine), enviar normal sem `quoted` — a citação
 visual já fica preservada do lado do Workspace independente disso.
+
+## Revisão Fable 07/09 (depois do commit `f1d6bb9` de vocês) — o que ainda falta
+
+Obrigado pelo `chat_mensagens_mapa` — a suposição era nossa e estava errada.
+Li o código (`server.ts`, `bridge.ts`) e sobrou UM ponto do adendo acima:
+
+**`quoted`/`mentions` só existem no `POST /instancias/:id/enviar`.** O
+Workspace NÃO usa esse endpoint pra responder conversa — responde pelo
+Chatwoot (`POST /conversations/:id/messages`), e o que chega em vocês é o
+webhook `message_created` → `outboundDoChatwoot` → `enviarBaileys(inst.id,
+conversa.jid, { tipo:'texto', texto })` **sem extras**. Ou seja: hoje a
+citação feita pelo atendente no Workspace chega no WhatsApp como mensagem
+comum. Pedido (pequeno, vocês já têm as peças):
+
+```
+// outboundDoChatwoot, antes de enviarBaileys:
+const inReplyTo = Number(payload.content_attributes?.in_reply_to)
+const citada = Number.isSafeInteger(inReplyTo) ? await mapaPorChatwootId(inReplyTo).catch(() => null) : null
+const mentions = Array.isArray(payload.content_attributes?.mentions) ? payload.content_attributes.mentions : undefined
+// → enviarBaileys(..., { tipo:'texto', texto }, { quoted: citada ? { remoteJid, id: waId, fromMe } : undefined, mentions })
+// (nos anexos também — legenda citando é comum no Digisac)
+```
+
+Vamos manter UM caminho de envio (Chatwoot → webhook); não vamos chamar o
+`/enviar` de vocês pra citar. Z-API: sem `quoted`, como já está.
+
+**`participant_jid` (item 4 do recado de vocês):** sim, incomoda — citar
+mensagem de terceiro em grupo é o caso mais comum. Migration do Workspace
+`chat_mensagens_mapa.participant_jid text null` **aplicada por mim nesta
+revisão**; gravem no `gravarMapaMensagem` (jid do remetente quando
+`remote_jid` for grupo e `from_me=false`) e usem em `key.participant` no
+`quoted`. Linhas antigas ficam null — o quoted sai sem participant nelas, como
+hoje.
+
+**Códigos de erro de grupo (`NAO_MEMBRO`/`NAO_ADMIN`/`FALHA_WHATSAPP`):**
+anotado pro roteiro da Fase C (a UI de grupos ainda não começou aqui) — vai
+tratar os três desde o início.

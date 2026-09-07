@@ -66,6 +66,7 @@ export default function AtendimentoCompleto() {
             onEnviarNota={at.enviarNota}
             onEnviarAnexo={at.enviarAnexo}
             onEnviarAudio={at.enviarAudio}
+            onEnviarRespostaRapida={at.enviarRespostaRapida}
             onTransferir={at.transferir}
             onEncerrar={at.encerrar}
           />
