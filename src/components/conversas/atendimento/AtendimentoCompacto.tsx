@@ -79,6 +79,9 @@ export default function AtendimentoCompacto() {
             carregando={at.carregandoThread}
             agentes={at.agentes}
             respostasRapidas={at.respostasRapidas}
+            respostasVisiveis={at.respostasVisiveis}
+            citacao={at.citacao}
+            onCitar={at.citar}
             departamento={departamento}
             departamentos={at.departamentos}
             enviando={at.enviando}
@@ -146,16 +149,33 @@ export default function AtendimentoCompacto() {
             conversa={at.selecionada}
             mensagens={at.mensagens}
             agentes={at.agentes}
+            departamentos={at.departamentos}
             tagsConta={at.tagsConta}
             tagsConversa={at.tagsConversa}
             departamento={departamento}
+            contatoMeta={at.contatoMeta}
+            tagsContato={at.tagsContato}
+            historico={at.historico}
+            carregandoHistorico={at.carregandoHistorico}
+            onCarregarHistorico={at.carregarHistoricoContato}
+            galeria={at.galeria}
+            carregandoGaleria={at.carregandoGaleria}
+            onCarregarGaleria={at.carregarGaleriaCompleta}
+            agendamentos={at.agendamentos}
             onFechar={() => setPainelAberto(false)}
             onSilenciar={at.silenciar}
             onMarcarNaoLida={at.marcarNaoLida}
             onVincular={at.vincular}
+            onVincularContato={at.vincularContato}
+            onDefinirDepartamentoPadraoContato={at.definirDepartamentoPadraoContato}
+            onDefinirAtendentePadraoContato={at.definirAtendentePadraoContato}
             onSalvarObservacoes={at.salvarObservacoes}
             onSalvarTags={at.salvarTags}
+            onSalvarTagsContato={at.salvarTagsContato}
             onAtribuirAgente={at.atribuirAgente}
+            onCriarAgendamento={at.criarAgendamento}
+            onCancelarAgendamento={at.cancelarAgendamento}
+            onReagendarAcao={at.reagendarAcao}
             buscarEntidades={at.buscarEntidades}
           />
         </div>

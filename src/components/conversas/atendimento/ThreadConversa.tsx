@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  Check,
   CheckCheck,
   Download,
   Info,
   Loader2,
   Mic,
   Paperclip,
+  Reply,
   Search,
   Send,
   Smile,
@@ -19,17 +21,20 @@ import {
   X,
 } from 'lucide-react'
 import EmojiPicker from './EmojiPicker'
-import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, type AgenteChat, type ChatwootMensagem, type ConversaAtendimento, type RespostaRapida } from './types'
+import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
 
 const MIME_ANEXO_ACEITOS = '.pdf,.png,.jpg,.jpeg,.webp,.mp3,.ogg,.opus,.mp4,.xlsx,.csv'
 
 type Props = {
   conversa: ConversaAtendimento
-  mensagens: ChatwootMensagem[]
+  mensagens: MensagemComExtras[]
   carregando: boolean
   agentes: AgenteChat[]
   respostasRapidas: RespostaRapida[] | null
+  respostasVisiveis: RespostaRapidaRow[]
+  citacao: MensagemComExtras | null
+  onCitar: (m: MensagemComExtras | null) => void
   departamento: string | null
   departamentos: DepartamentoResumo[]
   enviando: boolean
@@ -55,6 +60,9 @@ export default function ThreadConversa({
   carregando,
   agentes,
   respostasRapidas,
+  respostasVisiveis,
+  citacao,
+  onCitar,
   departamento,
   departamentos,
   enviando,
@@ -103,6 +111,23 @@ export default function ThreadConversa({
     const alvo = buscaTexto.trim().toLowerCase()
     return mensagens.filter((m) => (m.content || '').toLowerCase().includes(alvo))
   }, [mensagens, buscaAberta, buscaTexto])
+
+  const mensagensPorId = useMemo(() => new Map(mensagens.map((m) => [m.id, m])), [mensagens])
+
+  // Fase B §d: chips de resposta rápida cadastradas no Workspace (com escopo por
+  // departamento) substituem o canned response nativo do Chatwoot; se nada foi
+  // cadastrado ainda, cai de volta pro nativo (fallback combinado no roteiro).
+  const chipsResposta = useMemo(
+    () => (respostasVisiveis.length > 0 ? respostasVisiveis.map((r) => ({ id: r.id, atalho: r.atalho, conteudo: r.texto })) : respostasRapidas || []),
+    [respostasVisiveis, respostasRapidas],
+  )
+
+  const sugestoesPicker = useMemo(() => {
+    const termo = texto.trim()
+    if (!termo.startsWith('/') || termo.length < 1) return []
+    const alvo = termo.slice(1).toLowerCase()
+    return chipsResposta.filter((r) => r.atalho.replace(/^\//, '').toLowerCase().startsWith(alvo)).slice(0, 6)
+  }, [texto, chipsResposta])
 
   const grupo = ehGrupo(conversa)
   const entidade = conversa.atendimentoMeta?.entidade
@@ -297,9 +322,24 @@ export default function ThreadConversa({
             }
             const saida = m.message_type === 1 || m.message_type === 3
             const nota = Boolean(m.private)
+            const aparelho = m.content_attributes?.origem === 'aparelho'
+            const remetenteGrupo = grupo && !saida ? (m.content_attributes?.sender as string | undefined) : undefined
+            const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
+            const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
             return (
-              <div key={m.id} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%' }}>
+              <div key={m.id} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3 }}>
+                {!saida && (
+                  <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
+                    <Reply size={12} />
+                  </button>
+                )}
                 <div className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}>
+                  {remetenteGrupo && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetenteGrupo}</div>}
+                  {inReplyTo && (
+                    <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
+                    </div>
+                  )}
                   {m.attachments?.map((a) =>
                     a.file_type === 'image' ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -313,12 +353,40 @@ export default function ThreadConversa({
                     ),
                   )}
                   {m.content && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{m.content}</div>}
-                  <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2 }}>
-                    {nota && <StickyNote size={9} style={{ verticalAlign: 'middle', marginRight: 3 }} />}
+                  {m.reacoes.length > 0 && (
+                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+                      {m.reacoes.map((r, i) => (
+                        <span key={`${r.jid}-${i}`} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
+                          {r.emoji}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
+                    {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
+                    {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
                     {horaCurta(m.created_at)}
                     {nota ? ' · nota interna' : ''}
+                    {saida && !nota && (
+                      <>
+                        {m.status === 'falhou' ? (
+                          <span style={{ color: '#dc2626' }} title="Falhou">
+                            !
+                          </span>
+                        ) : m.status === 'lido' || m.status === 'entregue' ? (
+                          <CheckCheck size={12} style={{ color: m.status === 'lido' ? 'var(--msn-accent)' : undefined }} />
+                        ) : (
+                          <Check size={12} />
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
+                {saida && (
+                  <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
+                    <Reply size={12} />
+                  </button>
+                )}
               </div>
             )
           })
@@ -326,9 +394,9 @@ export default function ThreadConversa({
         <div ref={fimRef} />
       </div>
 
-      {respostasRapidas && respostasRapidas.length > 0 && (
+      {chipsResposta.length > 0 && (
         <div style={{ display: 'flex', gap: 5, padding: '6px 10px 0', overflowX: 'auto' }}>
-          {respostasRapidas.map((r) => (
+          {chipsResposta.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -343,6 +411,30 @@ export default function ThreadConversa({
       )}
 
       <div className="brs-messenger-editor" style={{ padding: 8, borderTop: '1px solid var(--msn-border)' }}>
+        {citacao && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '5px 8px', marginBottom: 6, borderLeft: '3px solid var(--msn-accent)', background: 'var(--msn-surface-alt)', borderRadius: 4 }}>
+            <div style={{ fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Respondendo: {citacao.content || (citacao.attachments?.length ? '📎 anexo' : '')}
+            </div>
+            <button type="button" onClick={() => onCitar(null)} className="brs-messenger-toolbar-btn" style={{ padding: 3, flexShrink: 0 }}>
+              <X size={11} />
+            </button>
+          </div>
+        )}
+        {sugestoesPicker.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--msn-soft-border)', borderRadius: 6, marginBottom: 6, overflow: 'hidden' }}>
+            {sugestoesPicker.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setTexto(r.conteudo)}
+                style={{ textAlign: 'left', padding: '6px 9px', fontSize: 12, background: 'var(--msn-surface)', border: 'none', borderBottom: '1px solid var(--msn-soft-border)', cursor: 'pointer', color: 'var(--msn-text)' }}
+              >
+                <span style={{ fontWeight: 700 }}>{r.atalho}</span> — {r.conteudo.slice(0, 60)}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
           <div style={{ position: 'relative' }}>
             <button type="button" className="brs-messenger-toolbar-btn" onClick={() => setEmojiAberto((v) => !v)} title="Emoji">

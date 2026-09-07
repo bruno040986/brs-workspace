@@ -35,3 +35,22 @@ id pelo espelho/histórico próprio).
 Render de ✓/✓✓/lido/falhou, reações sob a bolha, "Dispositivo externo" em
 itálico, preview da citada. Nada de polling extra: entra na leitura de
 mensagens que já existe. Avisem commit + deploy quando publicarem.
+
+## Adendo — `in_reply_to` também na SAÍDA (frente g, "responder citando")
+
+O Workspace agora manda `content_attributes: { in_reply_to: <chatwoot_message_id
+da citada> }` no `POST /conversations/:id/messages` quando o atendente responde
+citando uma bolha (contrato privado Workspace↔engine — não é campo documentado
+do Chatwoot, mas ele grava o objeto verbatim). Pra citação aparecer de fato no
+WhatsApp do cliente (não só na nossa thread), o engine precisa, no caminho de
+ENVIO (mensagem outgoing vinda do Chatwoot pro Baileys):
+
+1. Ler `content_attributes.in_reply_to` do payload do Chatwoot.
+2. Resolver o `wa_id`/`key` da mensagem citada (mesmo mapeamento wa_id ↔
+   chatwoot_message_id que vocês já mantêm pro espelho/histórico).
+3. Passar como `quoted` (`{ key, message }` da mensagem original) no `sendMessage`
+   do Baileys.
+
+Se o `chatwoot_message_id` citado não for encontrado no mapeamento (ex.: mensagem
+fora da janela de histórico do engine), enviar normal sem `quoted` — a citação
+visual já fica preservada do lado do Workspace independente disso.

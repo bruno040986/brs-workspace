@@ -100,8 +100,16 @@ export class ChatwootConta {
     return this.req<{ payload: ChatwootMensagem[]; meta: Record<string, unknown> }>(`/conversations/${conversationId}/messages${s}`)
   }
 
-  enviarMensagem(conversationId: number, content: string, privada = false) {
-    return this.req<{ id: number }>(`/conversations/${conversationId}/messages`, { method: 'POST', body: { content, message_type: 'outgoing', private: privada } })
+  /**
+   * `contentAttributes` é um contrato NOSSO com o engine (não é campo
+   * documentado do Chatwoot — eles só guardam o objeto e devolvem de volta).
+   * Usado hoje pra `in_reply_to` (responder citando): o engine lê no webhook
+   * `message_created` e mapeia pro `quoted` do Baileys.
+   */
+  enviarMensagem(conversationId: number, content: string, privada = false, contentAttributes?: Record<string, unknown>) {
+    const body: Record<string, unknown> = { content, message_type: 'outgoing', private: privada }
+    if (contentAttributes) body.content_attributes = contentAttributes
+    return this.req<{ id: number }>(`/conversations/${conversationId}/messages`, { method: 'POST', body })
   }
 
   /**
@@ -134,6 +142,39 @@ export class ChatwootConta {
   /** Substitui o CONJUNTO de labels da conversa (comportamento do endpoint do Chatwoot). */
   setLabelsDaConversa(conversationId: number, labels: string[]) {
     return this.req<{ payload: string[] }>(`/conversations/${conversationId}/labels`, { method: 'POST', body: { labels } }).then((r) => r.payload || [])
+  }
+
+  labelsDoContato(contactId: number) {
+    return this.req<{ payload: string[] }>(`/contacts/${contactId}/labels`).then((r) => r.payload || [])
+  }
+
+  /** Substitui o CONJUNTO de labels do contato. */
+  setLabelsDoContato(contactId: number, labels: string[]) {
+    return this.req<{ payload: string[] }>(`/contacts/${contactId}/labels`, { method: 'POST', body: { labels } }).then((r) => r.payload || [])
+  }
+
+  criarLabel(input: { titulo: string; cor: string; descricao?: string }) {
+    return this.req<{ id: number; title: string; color: string | null; description: string | null }>('/labels', {
+      method: 'POST',
+      body: { title: input.titulo, color: input.cor, description: input.descricao || '', show_on_sidebar: true },
+    })
+  }
+
+  atualizarLabel(labelId: number, input: { titulo?: string; cor?: string; descricao?: string }) {
+    const body: Record<string, unknown> = {}
+    if (input.titulo !== undefined) body.title = input.titulo
+    if (input.cor !== undefined) body.color = input.cor
+    if (input.descricao !== undefined) body.description = input.descricao
+    return this.req(`/labels/${labelId}`, { method: 'PATCH', body })
+  }
+
+  excluirLabel(labelId: number) {
+    return this.req(`/labels/${labelId}`, { method: 'DELETE' })
+  }
+
+  /** Histórico de chamados do contato (Digisac): conversas por conexão/departamento/protocolo. */
+  conversasDoContato(contactId: number) {
+    return this.req<{ payload: ChatwootConversa[] }>(`/contacts/${contactId}/conversations`).then((r) => r.payload || [])
   }
 
   silenciar(conversationId: number, silenciar: boolean) {

@@ -1,5 +1,15 @@
 import type { ChatwootConversa, ChatwootMensagem } from '@/lib/central-conversas/chatwoot'
-import type { ConversaMeta, EntidadeBusca, EntidadeTipo } from '@/lib/central-conversas/actions'
+import type {
+  ConversaMeta,
+  ContatoMeta,
+  EntidadeBusca,
+  EntidadeTipo,
+  GaleriaItem,
+  HistoricoChamado,
+  MensagemComExtras,
+} from '@/lib/central-conversas/actions'
+import type { AcaoAgendada } from '@/lib/central-conversas/agendamento-actions'
+import type { RespostaRapidaRow } from '@/lib/central-conversas/respostas-rapidas-actions'
 
 /**
  * Tipos compartilhados pelos blocos reutilizáveis de Atendimento
@@ -29,7 +39,7 @@ export type InstanciaAtendimento = {
   status: string
 }
 
-export type { ConversaMeta, EntidadeBusca, EntidadeTipo }
+export type { ConversaMeta, ContatoMeta, EntidadeBusca, EntidadeTipo, GaleriaItem, HistoricoChamado, MensagemComExtras, AcaoAgendada, RespostaRapidaRow }
 
 export const VINCULO_LABEL: Record<EntidadeTipo, string> = {
   parceiro: 'Parceiro',

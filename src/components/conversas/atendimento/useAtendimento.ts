@@ -12,36 +12,51 @@ import {
   getAgentesChat,
   getCanaisAtendimento,
   getContadores,
+  getContatoMeta,
   getConversas,
+  getGaleriaConversa,
+  getHistoricoContato,
   getMensagens,
   getMeta,
   getMinhaDisponibilidade,
   getRespostasRapidas,
   getTags,
   getTagsConta,
+  getTagsContato,
   iniciarConversaPorTelefone,
   listarContatos,
   marcarNaoLidaConversa,
   meusDepartamentos,
   responderConversa,
+  setAtendentePadraoContato,
+  setDepartamentoPadraoContato,
   setMinhaDisponibilidade,
   setObservacoes as setObservacoesAction,
   setTags as setTagsAction,
+  setTagsContato as setTagsContatoAction,
   setVinculo as setVinculoAction,
+  setVinculoContato as setVinculoContatoAction,
   silenciarConversa,
   transferirConversa,
   type ContatoBusca,
   type DepartamentoResumo,
 } from '@/lib/central-conversas/actions'
+import { agendarAcao, cancelarAgendamento, listarAgendamentos, reagendar as reagendarAction } from '@/lib/central-conversas/agendamento-actions'
+import { listarRespostasVisiveis } from '@/lib/central-conversas/respostas-rapidas-actions'
 import type {
+  AcaoAgendada,
   AgenteChat,
-  ChatwootMensagem,
   ConversaAtendimento,
+  ContatoMeta,
   EntidadeBusca,
   EntidadeTipo,
+  GaleriaItem,
+  HistoricoChamado,
   InboxAtendimento,
   InstanciaAtendimento,
+  MensagemComExtras,
   RespostaRapida,
+  RespostaRapidaRow,
   TagConta,
 } from './types'
 
@@ -67,13 +82,22 @@ export function useAtendimento() {
   const [contatos, setContatos] = useState<ContatoBusca[]>([])
   const [carregandoContatos, setCarregandoContatos] = useState(false)
   const [selecionada, setSelecionada] = useState<ConversaAtendimento | null>(null)
-  const [mensagens, setMensagens] = useState<ChatwootMensagem[]>([])
+  const [mensagens, setMensagens] = useState<MensagemComExtras[]>([])
   const [carregandoThread, setCarregandoThread] = useState(false)
   const [agentes, setAgentes] = useState<AgenteChat[]>([])
   const [canaisAtendimento, setCanaisAtendimento] = useState<{ inboxes: InboxAtendimento[]; instancias: InstanciaAtendimento[] }>({ inboxes: [], instancias: [] })
   const [tagsConta, setTagsConta] = useState<TagConta[]>([])
   const [tagsConversa, setTagsConversaState] = useState<string[]>([])
   const [respostasRapidas, setRespostasRapidas] = useState<RespostaRapida[] | null>(null)
+  const [respostasVisiveis, setRespostasVisiveis] = useState<RespostaRapidaRow[]>([])
+  const [contatoMeta, setContatoMeta] = useState<ContatoMeta | null>(null)
+  const [tagsContato, setTagsContatoState] = useState<string[]>([])
+  const [historico, setHistorico] = useState<HistoricoChamado[] | null>(null)
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false)
+  const [galeria, setGaleria] = useState<GaleriaItem[] | null>(null)
+  const [carregandoGaleria, setCarregandoGaleria] = useState(false)
+  const [agendamentos, setAgendamentos] = useState<AcaoAgendada[]>([])
+  const [citacao, setCitacao] = useState<MensagemComExtras | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -142,13 +166,36 @@ export function useAtendimento() {
     }
   }, [])
 
-  const carregarMeta = useCallback(async (conversationId: number) => {
+  const carregarMeta = useCallback(async (conversationId: number, contactId?: number) => {
     try {
-      const [meta, tags] = await Promise.all([getMeta(conversationId), getTags(conversationId).catch(() => [])])
+      const [meta, tags] = await Promise.all([getMeta(conversationId, contactId), getTags(conversationId).catch(() => [])])
       setSelecionada((prev) => (prev && prev.id === conversationId ? { ...prev, atendimentoMeta: meta } : prev))
       setTagsConversaState(tags)
     } catch {
       // meta é auxiliar — segue exibindo a conversa sem ela
+    }
+  }, [])
+
+  /** Dados por CONTATO (Fase B §a/b/c): vínculo/departamento/atendente padrão, tags, agendamentos da conversa. */
+  const carregarDadosContato = useCallback(async (conversationId: number, contactId?: number) => {
+    setAgendamentos([])
+    setContatoMeta(null)
+    setTagsContatoState([])
+    setHistorico(null)
+    setGaleria(null)
+    try {
+      const agend = await listarAgendamentos(conversationId)
+      setAgendamentos(agend)
+    } catch {
+      // agendamentos são auxiliares
+    }
+    if (!contactId) return
+    try {
+      const [cm, tc] = await Promise.all([getContatoMeta(contactId), getTagsContato(contactId).catch(() => [])])
+      setContatoMeta(cm)
+      setTagsContatoState(tc)
+    } catch {
+      // meta de contato é auxiliar — segue exibindo a conversa sem ela
     }
   }, [])
 
@@ -194,9 +241,11 @@ export function useAtendimento() {
 
   useEffect(() => {
     if (!selecionada) return
+    const contactId = selecionada.meta?.sender?.id
     void (async () => {
       await carregarThread(selecionada.id)
-      await carregarMeta(selecionada.id)
+      await carregarMeta(selecionada.id, contactId)
+      await carregarDadosContato(selecionada.id, contactId)
     })()
     const t = setInterval(() => void carregarThread(selecionada.id, { silencioso: true }), 6000)
     return () => clearInterval(t)
@@ -227,14 +276,30 @@ export function useAtendimento() {
     setSelecionada(c)
     setMensagens([])
     setTagsConversaState([])
+    setCitacao(null)
   }, [])
+
+  // Respostas rápidas cadastradas (Fase B §d), restritas ao(s) departamento(s) do
+  // atendente. Se a tabela estiver vazia (nada cadastrado ainda), o composer cai
+  // de volta pro canned response nativo do Chatwoot (`respostasRapidas` acima).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await listarRespostasVisiveis(departamentos.map((d) => d.id))
+        setRespostasVisiveis(r)
+      } catch {
+        setRespostasVisiveis([])
+      }
+    })()
+  }, [departamentos])
 
   async function enviarTexto(texto: string) {
     if (!selecionada || !texto.trim()) return
     setEnviando(true)
     setErro(null)
     try {
-      await responderConversa(selecionada.id, texto.trim())
+      await responderConversa(selecionada.id, texto.trim(), citacao?.id)
+      setCitacao(null)
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
@@ -243,6 +308,10 @@ export function useAtendimento() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  function citar(m: MensagemComExtras | null) {
+    setCitacao(m)
   }
 
   async function enviarNota(texto: string) {
@@ -409,6 +478,122 @@ export function useAtendimento() {
     }
   }
 
+  function contatoId(): number | undefined {
+    return selecionada?.meta?.sender?.id
+  }
+
+  async function vincularContato(tipo: EntidadeTipo | null, id: string | null) {
+    const cid = contatoId()
+    if (!cid) return
+    try {
+      const meta = await setVinculoContatoAction(cid, tipo, id)
+      setContatoMeta(meta)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao vincular o contato.'))
+      throw err
+    }
+  }
+
+  async function definirDepartamentoPadraoContato(departamentoId: string | null) {
+    const cid = contatoId()
+    if (!cid) return
+    try {
+      const meta = await setDepartamentoPadraoContato(cid, departamentoId)
+      setContatoMeta(meta)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao definir o departamento padrão do contato.'))
+      throw err
+    }
+  }
+
+  async function definirAtendentePadraoContato(chatwootAgentId: number | null) {
+    const cid = contatoId()
+    if (!cid) return
+    try {
+      const meta = await setAtendentePadraoContato(cid, chatwootAgentId)
+      setContatoMeta(meta)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao definir o atendente padrão do contato.'))
+      throw err
+    }
+  }
+
+  async function salvarTagsContato(tags: string[]) {
+    const cid = contatoId()
+    if (!cid) return
+    try {
+      const atualizado = await setTagsContatoAction(cid, tags)
+      setTagsContatoState(atualizado)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao salvar tags do contato.'))
+    }
+  }
+
+  /** Sob demanda (abre no modal "Histórico de chamados" do painel — Fase B §b). */
+  async function carregarHistoricoContato() {
+    const cid = contatoId()
+    if (!cid) return
+    setCarregandoHistorico(true)
+    try {
+      const r = await getHistoricoContato(cid)
+      setHistorico(r)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao carregar histórico de chamados.'))
+    } finally {
+      setCarregandoHistorico(false)
+    }
+  }
+
+  /** Sob demanda ("ver todos" da galeria — Fase B §b). */
+  async function carregarGaleriaCompleta() {
+    if (!selecionada) return
+    setCarregandoGaleria(true)
+    try {
+      const r = await getGaleriaConversa(selecionada.id)
+      setGaleria(r)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao carregar galeria.'))
+    } finally {
+      setCarregandoGaleria(false)
+    }
+  }
+
+  async function criarAgendamento(input: { acao: 'mensagem' | 'lembrete_interno'; texto: string; agendadoPara: string }) {
+    if (!selecionada) return
+    try {
+      await agendarAcao({ conversationId: selecionada.id, ...input })
+      const lista = await listarAgendamentos(selecionada.id)
+      setAgendamentos(lista)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao agendar ação.'))
+      throw err
+    }
+  }
+
+  async function cancelarAgendamentoFn(id: string) {
+    if (!selecionada) return
+    try {
+      await cancelarAgendamento(id)
+      const lista = await listarAgendamentos(selecionada.id)
+      setAgendamentos(lista)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao cancelar agendamento.'))
+      throw err
+    }
+  }
+
+  async function reagendarAcao(id: string, novaData: string) {
+    if (!selecionada) return
+    try {
+      await reagendarAction(id, novaData)
+      const lista = await listarAgendamentos(selecionada.id)
+      setAgendamentos(lista)
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao reagendar ação.'))
+      throw err
+    }
+  }
+
   async function buscarEntidadesFn(q: string): Promise<{ parceiros: EntidadeBusca[]; instituicoes: EntidadeBusca[]; promotoras: EntidadeBusca[] }> {
     try {
       return await buscarEntidades(q)
@@ -456,6 +641,21 @@ export function useAtendimento() {
     tagsConta,
     tagsConversa,
     respostasRapidas,
+    respostasVisiveis,
+    contatoMeta,
+    tagsContato,
+    historico,
+    carregandoHistorico,
+    carregarHistoricoContato,
+    galeria,
+    carregandoGaleria,
+    carregarGaleriaCompleta,
+    agendamentos,
+    criarAgendamento,
+    cancelarAgendamento: cancelarAgendamentoFn,
+    reagendarAcao,
+    citacao,
+    citar,
     enviando,
     erro,
     setErro,
@@ -469,8 +669,12 @@ export function useAtendimento() {
     marcarNaoLida,
     atribuirAgente,
     vincular,
+    vincularContato,
+    definirDepartamentoPadraoContato,
+    definirAtendentePadraoContato,
     salvarObservacoes,
     salvarTags,
+    salvarTagsContato,
     buscarEntidades: buscarEntidadesFn,
     novaConversa,
     recarregarLista: carregarLista,
