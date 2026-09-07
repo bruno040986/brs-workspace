@@ -87,6 +87,11 @@ export class ChatwootConta {
     return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => r.data)
   }
 
+  /** Conversa única — usado pelo worker de agendamento pra revalidar status antes de enviar (Fase B §5). */
+  conversa(conversationId: number) {
+    return this.req<ChatwootConversa>(`/conversations/${conversationId}`)
+  }
+
   /** Contadores por aba (mine/unassigned/assigned/all), opcionalmente por departamento. */
   metaConversas(params: { teamId?: number; status?: 'open' | 'resolved' | 'pending' | 'all' } = {}) {
     const s = new URLSearchParams()

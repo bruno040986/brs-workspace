@@ -30,6 +30,13 @@ export async function rodarWorkerAgendamentos(): Promise<ResultadoWorkerAgendame
     resultado.processados++
     try {
       if (acao.acao === 'mensagem') {
+        // Revalida conversa aberta + instância conectada antes de enviar (roteiro
+        // Fase B §5) — evita mandar mensagem agendada pra um chamado já encerrado
+        // ou por uma conexão que caiu entre o agendamento e a execução.
+        const conversa = await cli.conversa(acao.chatwoot_conversation_id)
+        if (conversa.status === 'resolved') throw new Error('Conversa já encerrada — agendamento não enviado.')
+        const { data: instancia } = await admin.from('chat_instancias').select('status').eq('chatwoot_inbox_id', conversa.inbox_id).is('deleted_at', null).maybeSingle()
+        if (instancia && instancia.status !== 'conectada') throw new Error(`Instância desconectada (status: ${instancia.status}) — agendamento não enviado.`)
         const assinatura = await assinaturaDoUsuario(acao.criado_por)
         await cli.enviarMensagem(acao.chatwoot_conversation_id, assinar(assinatura, String(acao.texto || '')))
       } else {

@@ -355,9 +355,10 @@ export default function ThreadConversa({
                   {m.content && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{m.content}</div>}
                   {m.reacoes.length > 0 && (
                     <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
-                      {m.reacoes.map((r, i) => (
-                        <span key={`${r.jid}-${i}`} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
-                          {r.emoji}
+                      {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
+                        <span key={emoji} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
+                          {emoji}
+                          {qtd > 1 ? ` ${qtd}` : ''}
                         </span>
                       ))}
                     </div>
