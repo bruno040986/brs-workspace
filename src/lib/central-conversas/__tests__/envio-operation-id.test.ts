@@ -1,5 +1,6 @@
 /**
- * Lote 02B — contrato de envio com operationId (engine simulado).
+ * Lote 02B — contrato de envio com operationId (engine simulado) + máquina de
+ * estados da modal "Nova conversa".
  * Roda com: npm test  (node --test --experimental-strip-types)
  * Não fala com engine real: `fetch` é substituído por um stub que captura o
  * corpo/headers e devolve o que cada caso pede.
@@ -7,7 +8,7 @@
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { engine, EngineEnvioIncertoError, EngineErro } from '../engine.ts'
-import { ehOperationId, normalizarTelefoneDestino, novoOperationId, resolverIntencao } from '../envio-intencao.ts'
+import { ehOperationId, estadoInicialEnvio, normalizarTelefoneDestino, novoOperationId, reduzirEnvio, resolverIntencao, type EstadoEnvio } from '../envio-intencao.ts'
 
 type Chamada = { url: string; init: RequestInit; body: Record<string, unknown> }
 
@@ -23,6 +24,10 @@ function simularEngine(responder: (c: Chamada) => Response | Promise<Response>) 
 }
 
 const ok = (extra: Record<string, unknown> = {}) => new Response(JSON.stringify({ ok: true, id: 'wa-1', messageId: 'wa-1', conversationId: 77, ...extra }), { status: 200 })
+const envio = (chave = novoOperationId()) => engine.enviar('inst-1', '5511999990000', 'oi', { operationId: chave })
+const ehIncerto = (motivo: string, chave?: string) => (err: unknown) =>
+  err instanceof EngineEnvioIncertoError && err.motivo === motivo && (chave === undefined || err.operationId === chave)
+const ehRejeicao = (codigo: string) => (err: unknown) => err instanceof EngineErro && err.codigo === codigo && !(err instanceof EngineEnvioIncertoError)
 
 describe('engine.enviar — operationId no corpo', () => {
   beforeEach(() => {
@@ -49,8 +54,8 @@ describe('engine.enviar — operationId no corpo', () => {
   test('retry da mesma intenção conserva a chave (helper não gera nem troca)', async () => {
     simularEngine(() => ok())
     const chave = novoOperationId()
-    await engine.enviar('inst-1', '5511999990000', 'oi', { operationId: chave })
-    await engine.enviar('inst-1', '5511999990000', 'oi', { operationId: chave })
+    await envio(chave)
+    await envio(chave)
     assert.equal(chamadas.length, 2)
     assert.equal(chamadas[0].body.operationId, chave)
     assert.equal(chamadas[1].body.operationId, chave)
@@ -61,48 +66,95 @@ describe('engine.enviar — operationId no corpo', () => {
     const a = novoOperationId()
     const b = novoOperationId()
     assert.notEqual(a, b)
-    await engine.enviar('inst-1', '5511999990000', 'oi', { operationId: a })
-    await engine.enviar('inst-1', '5511999990000', 'oi', { operationId: b })
+    await envio(a)
+    await envio(b)
     assert.notEqual(chamadas[0].body.operationId, chamadas[1].body.operationId)
   })
 
-  test('recusa chave ausente/inválida antes de chamar o engine', async () => {
+  test('recusa chave ausente/inválida antes de chamar o engine (rejeição, não incerteza)', async () => {
     simularEngine(() => ok())
     await assert.rejects(() => engine.enviar('inst-1', '5511999990000', 'oi', { operationId: 'nao-e-uuid' }), /operationId inválido/)
     await assert.rejects(() => engine.enviar('inst-1', '5511999990000', 'oi', {} as never), /operationId inválido/)
     assert.equal(chamadas.length, 0)
   })
 
-  test('409 DELIVERY_UNCERTAIN → EngineEnvioIncertoError, uma única chamada, sem retry', async () => {
+  test('409 DELIVERY_UNCERTAIN → incerto(uncertain), uma chamada, chave preservada, sem retry', async () => {
     simularEngine(() => new Response(JSON.stringify({ error: 'Envio em processamento ou resultado incerto; aguarde reconciliação.', code: 'DELIVERY_UNCERTAIN' }), { status: 409 }))
     const chave = novoOperationId()
-    await assert.rejects(
-      () => engine.enviar('inst-1', '5511999990000', 'oi', { operationId: chave }),
-      (err: unknown) => err instanceof EngineEnvioIncertoError && err.motivo === 'uncertain' && err.operationId === chave,
-    )
+    await assert.rejects(() => envio(chave), ehIncerto('uncertain', chave))
     assert.equal(chamadas.length, 1)
   })
 
-  test('timeout (abort) → EngineEnvioIncertoError, uma única chamada, sem retry', async () => {
+  test('timeout (abort) → incerto(timeout), uma chamada', async () => {
     simularEngine(() => {
       const e = new Error('aborted')
       e.name = 'AbortError'
       throw e
     })
     const chave = novoOperationId()
-    await assert.rejects(
-      () => engine.enviar('inst-1', '5511999990000', 'oi', { operationId: chave }),
-      (err: unknown) => err instanceof EngineEnvioIncertoError && err.motivo === 'timeout',
-    )
+    await assert.rejects(() => envio(chave), ehIncerto('timeout', chave))
     assert.equal(chamadas.length, 1)
   })
 
-  test('erro de domínio { erro, codigo } vira EngineErro com código (não é incerto)', async () => {
+  test('queda de conexão (TypeError fetch failed / ECONNRESET) → incerto(transporte), uma chamada', async () => {
+    simularEngine(() => {
+      throw new TypeError('fetch failed')
+    })
+    const chave = novoOperationId()
+    await assert.rejects(() => envio(chave), ehIncerto('transporte', chave))
+    assert.equal(chamadas.length, 1)
+  })
+
+  test('502/503/504 do gateway → incerto(gateway), uma chamada cada', async () => {
+    for (const status of [502, 503, 504]) {
+      chamadas = []
+      simularEngine(() => new Response('Bad Gateway', { status }))
+      const chave = novoOperationId()
+      await assert.rejects(() => envio(chave), ehIncerto('gateway', chave))
+      assert.equal(chamadas.length, 1)
+    }
+  })
+
+  test('500 genérico do engine (falha no meio do envio) → incerto(gateway)', async () => {
+    simularEngine(() => new Response(JSON.stringify({ statusCode: 500, error: 'Internal Server Error', message: 'SEND_RESULT_PERSISTENCE_FAILED' }), { status: 500 }))
+    await assert.rejects(() => envio(), ehIncerto('gateway'))
+    assert.equal(chamadas.length, 1)
+  })
+
+  test('corpo interrompido (falha ao ler a resposta) → incerto(resposta)', async () => {
+    simularEngine(() => {
+      const res = new Response('x', { status: 200 })
+      Object.defineProperty(res, 'text', { value: () => Promise.reject(new TypeError('terminated')) })
+      return res
+    })
+    await assert.rejects(() => envio(), ehIncerto('resposta'))
+    assert.equal(chamadas.length, 1)
+  })
+
+  test('2xx sem confirmação válida (objeto vazio, JSON quebrado, ok:false, sem id) → incerto(resposta)', async () => {
+    for (const corpo of ['{}', '', 'not json', JSON.stringify({ ok: false }), JSON.stringify({ ok: true })]) {
+      chamadas = []
+      simularEngine(() => new Response(corpo, { status: 200 }))
+      await assert.rejects(() => envio(), ehIncerto('resposta'))
+      assert.equal(chamadas.length, 1)
+    }
+  })
+
+  test('rejeições comprovadas NÃO viram incerto: 4xx do contrato, erro de domínio com código, conflito de chave', async () => {
+    simularEngine(() => new Response(JSON.stringify({ error: 'Mensagem vazia.' }), { status: 400 }))
+    await assert.rejects(() => envio(), ehRejeicao('HTTP_400'))
+
+    chamadas = []
     simularEngine(() => new Response(JSON.stringify({ erro: 'Instância não está conectada.', codigo: 'INSTANCIA_DESCONECTADA' }), { status: 409 }))
-    await assert.rejects(
-      () => engine.enviar('inst-1', '5511999990000', 'oi', { operationId: novoOperationId() }),
-      (err: unknown) => err instanceof EngineErro && err.codigo === 'INSTANCIA_DESCONECTADA' && !(err instanceof EngineEnvioIncertoError),
-    )
+    await assert.rejects(() => envio(), ehRejeicao('INSTANCIA_DESCONECTADA'))
+
+    chamadas = []
+    simularEngine(() => new Response(JSON.stringify({ statusCode: 500, error: 'Internal Server Error', message: 'OPERATION_CONTENT_CONFLICT' }), { status: 500 }))
+    await assert.rejects(() => envio(), ehRejeicao('OPERATION_CONTENT_CONFLICT'))
+
+    chamadas = []
+    simularEngine(() => new Response(JSON.stringify({ error: 'Instância não encontrada.' }), { status: 404 }))
+    await assert.rejects(() => envio(), ehRejeicao('HTTP_404'))
     assert.equal(chamadas.length, 1)
   })
 
@@ -142,5 +194,82 @@ describe('envio-intencao — chave por intenção', () => {
     assert.equal(normalizarTelefoneDestino('1133334444'), '551133334444')
     assert.equal(normalizarTelefoneDestino('5511912345678'), '5511912345678')
     assert.throws(() => normalizarTelefoneDestino('123'), /DDD/)
+  })
+})
+
+describe('máquina de estados da modal "Nova conversa" (a mesma que a UI usa via useReducer)', () => {
+  let n = 0
+  const gerar = () => `00000000-0000-4000-8000-00000000000${++n}`
+  const reduzir = (s: EstadoEnvio, a: Parameters<typeof reduzirEnvio>[1]) => reduzirEnvio(s, a, gerar)
+  const campos = { instanciaId: 'i', telefone: '(11) 99999-0000', texto: ' oi ' }
+
+  test('enviar normaliza campos, gera a chave uma vez; enquanto envia, editar e fechar-por-edição são ignorados', () => {
+    let s = reduzir(estadoInicialEnvio(campos), { tipo: 'enviar' })
+    assert.equal(s.fase, 'enviando')
+    assert.deepEqual(s.intencao, { instanciaId: 'i', telefone: '11999990000', texto: 'oi', chave: s.intencao!.chave })
+    const chave = s.intencao!.chave
+    s = reduzir(s, { tipo: 'editar', campos: { texto: 'outro' } })
+    assert.equal(s.fase, 'enviando')
+    assert.equal(s.intencao!.texto, 'oi')
+    assert.equal(s.intencao!.chave, chave)
+  })
+
+  test('incerto → tentar editar é ignorado → repetir usa a MESMA chave e o MESMO payload', () => {
+    let s = reduzir(estadoInicialEnvio(campos), { tipo: 'enviar' })
+    const chave = s.intencao!.chave
+    s = reduzir(s, { tipo: 'resultado', resultado: { resultado: 'incerto', mensagem: 'timeout' } })
+    assert.equal(s.fase, 'incerto')
+    assert.equal(s.mensagem, 'timeout')
+    // campos congelados: a edição não pega
+    s = reduzir(s, { tipo: 'editar', campos: { texto: 'editado', telefone: '11888880000', instanciaId: 'j' } })
+    assert.equal(s.fase, 'incerto')
+    assert.equal(s.campos.texto, ' oi ')
+    s = reduzir(s, { tipo: 'repetir' })
+    assert.equal(s.fase, 'enviando')
+    assert.equal(s.intencao!.chave, chave)
+    assert.deepEqual(s.campos, { instanciaId: 'i', telefone: '11999990000', texto: 'oi' })
+    // e "enviar" cru também não gera outra chave a partir de 'incerto'
+    const s2 = reduzir(reduzir(s, { tipo: 'resultado', resultado: { resultado: 'incerto', mensagem: 'de novo' } }), { tipo: 'enviar' })
+    assert.equal(s2.fase, 'incerto')
+    assert.equal(s2.intencao!.chave, chave)
+  })
+
+  test('incerto → novo envio explícito: intenção anterior registrada como incerta, campos liberados, chave NOVA', () => {
+    let s = reduzir(estadoInicialEnvio(campos), { tipo: 'enviar' })
+    const chaveAnterior = s.intencao!.chave
+    s = reduzir(s, { tipo: 'resultado', resultado: { resultado: 'incerto', mensagem: 'gateway' } })
+    s = reduzir(s, { tipo: 'novoEnvio' })
+    assert.equal(s.fase, 'editando')
+    assert.equal(s.intencao, null)
+    assert.equal(s.incertoAnterior!.chave, chaveAnterior)
+    assert.match(s.mensagem!, /PODE ter sido entregue/)
+    s = reduzir(s, { tipo: 'editar', campos: { texto: 'segunda tentativa' } })
+    assert.equal(s.campos.texto, 'segunda tentativa')
+    s = reduzir(s, { tipo: 'enviar' })
+    assert.equal(s.fase, 'enviando')
+    assert.notEqual(s.intencao!.chave, chaveAnterior)
+    assert.equal(s.incertoAnterior!.chave, chaveAnterior)
+  })
+
+  test('rejeitado: nada saiu → volta a editar; repetir igual conserva a chave; mudar campo troca', () => {
+    let s = reduzir(estadoInicialEnvio(campos), { tipo: 'enviar' })
+    const chave = s.intencao!.chave
+    s = reduzir(s, { tipo: 'resultado', resultado: { resultado: 'rejeitado', mensagem: 'Instância não encontrada.' } })
+    assert.equal(s.fase, 'editando')
+    assert.equal(s.mensagem, 'Instância não encontrada.')
+    s = reduzir(s, { tipo: 'enviar' })
+    assert.equal(s.intencao!.chave, chave)
+    s = reduzir(s, { tipo: 'resultado', resultado: { resultado: 'rejeitado', mensagem: 'x' } })
+    s = reduzir(s, { tipo: 'editar', campos: { telefone: '11777770000' } })
+    s = reduzir(s, { tipo: 'enviar' })
+    assert.notEqual(s.intencao!.chave, chave)
+  })
+
+  test('confirmado → concluido, intenção zerada, conversationId guardado', () => {
+    let s = reduzir(estadoInicialEnvio(campos), { tipo: 'enviar' })
+    s = reduzir(s, { tipo: 'resultado', resultado: { resultado: 'confirmado', conversationId: 9 } })
+    assert.equal(s.fase, 'concluido')
+    assert.equal(s.intencao, null)
+    assert.equal(s.conversationId, 9)
   })
 })

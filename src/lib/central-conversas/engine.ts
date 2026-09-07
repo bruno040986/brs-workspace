@@ -5,12 +5,16 @@
  * Contrato de envio (Lote 02B, 07/09/2026): todo `POST /instancias/:id/enviar`
  * leva `operationId` (uuid) gerado UMA vez por intenção de envio na UI e
  * propagado UI → action → aqui (ver `envio-intencao.ts`). Este helper NUNCA
- * gera a chave nem faz retry: timeout e 409 `DELIVERY_UNCERTAIN` viram
- * `EngineEnvioIncertoError` (resultado não confirmado) e quem chama decide —
- * sem reenvio automático com chave nova. Enquanto o modo durável da conta BRS
- * estiver desligado no engine, o campo é aceito e ignorado: NÃO há
- * idempotência, só preparação do contrato.
+ * gera a chave nem faz retry. Depois que o POST foi tentado, qualquer falha
+ * que não comprove rejeição (queda de conexão, timeout, 5xx, corpo ilegível,
+ * 2xx sem confirmação válida, 409 DELIVERY_UNCERTAIN) vira
+ * `EngineEnvioIncertoError`: a mensagem pode ter saído. Só rejeições
+ * comprovadas (validação local, 4xx do contrato, erro de domínio com código,
+ * conflito de chave antes do envio) sobem como erro comum/`EngineErro`.
+ * Enquanto o modo durável da conta BRS estiver desligado no engine, o campo é
+ * aceito e ignorado: NÃO há idempotência, só preparação do contrato.
  */
+
 // Sem import de módulo irmão: o runner de testes (node --test com strip-types)
 // resolve ESM sem extensão implícita; a regra de uuid é a mesma de envio-intencao.ts.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -24,9 +28,10 @@ export function engineConfigurado(): boolean {
   return Boolean(process.env.ENGINE_API_TOKEN)
 }
 
-/** Erro de domínio do engine (`{ erro|error, codigo|code }`), ex.: NAO_ADMIN, INSTANCIA_DESCONECTADA. */
 // Campos declarados explicitamente (sem "parameter properties"): o runner de
 // testes usa o strip-types do Node, que não aceita essa sintaxe.
+
+/** Erro de domínio/rejeição comprovada do engine (`{ erro|error, codigo|code }`, 4xx do contrato). Nada foi enviado. */
 export class EngineErro extends Error {
   readonly codigo: string
   readonly status: number
@@ -38,15 +43,16 @@ export class EngineErro extends Error {
   }
 }
 
+export type MotivoIncerto = 'timeout' | 'transporte' | 'gateway' | 'resposta' | 'uncertain'
+
 /**
- * Envio sem confirmação: a mensagem PODE ter saído ou não (timeout do nosso
- * lado, ou 409 `DELIVERY_UNCERTAIN` do engine — envio em processamento ou
- * aguardando reconciliação). Nunca reenviar automaticamente com chave nova.
+ * Envio sem confirmação: a mensagem PODE ter saído ou não. Nunca reenviar
+ * automaticamente com chave nova; a UI informa e a pessoa decide.
  */
 export class EngineEnvioIncertoError extends Error {
   readonly operationId: string
-  readonly motivo: 'timeout' | 'uncertain'
-  constructor(message: string, operationId: string, motivo: 'timeout' | 'uncertain') {
+  readonly motivo: MotivoIncerto
+  constructor(message: string, operationId: string, motivo: MotivoIncerto) {
     super(message)
     this.name = 'EngineEnvioIncertoError'
     this.operationId = operationId
@@ -68,12 +74,7 @@ async function chamar<T>(path: string, init?: { method?: string; body?: unknown;
     })
     const text = await res.text()
     if (!res.ok) {
-      let corpo: { erro?: string; error?: string; codigo?: string; code?: string } | null = null
-      try {
-        corpo = text ? JSON.parse(text) : null
-      } catch {
-        corpo = null
-      }
+      const corpo = parseJson(text)
       const codigo = corpo?.codigo || corpo?.code
       if (codigo) throw new EngineErro(String(corpo?.erro || corpo?.error || `Engine HTTP ${res.status}`), String(codigo), res.status)
       throw new Error(`Engine HTTP ${res.status}: ${text.slice(0, 200)}`)
@@ -81,6 +82,17 @@ async function chamar<T>(path: string, init?: { method?: string; body?: unknown;
     return (text ? JSON.parse(text) : {}) as T
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+type CorpoErro = { erro?: string; error?: string; codigo?: string; code?: string; message?: string }
+
+function parseJson(text: string): CorpoErro | null {
+  try {
+    const v = text ? JSON.parse(text) : null
+    return v && typeof v === 'object' ? (v as CorpoErro) : null
+  } catch {
+    return null
   }
 }
 
@@ -97,36 +109,94 @@ export type EnvioEngineOpcoes = {
   quoted?: { messageId: number }
 }
 
+/**
+ * Erros que o engine lança ANTES de tocar o WhatsApp (send-operation.ts) e
+ * sobem como 500 genérico do Fastify: são rejeições comprovadas, não incerteza.
+ * `SEND_RESULT_PERSISTENCE_FAILED` (depois do envio) NÃO está aqui — é incerto.
+ */
+const REJEICOES_PRE_ENVIO = new Set(['OPERATION_CONTENT_CONFLICT', 'SEND_PERSISTENCE_FAILED'])
+
 function ehAbort(err: unknown): boolean {
   return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')
+}
+
+/**
+ * Envio direto por instância. Só lança três coisas: `Error` (validação local,
+ * antes de qualquer rede), `EngineErro` (rejeição comprovada — nada saiu) e
+ * `EngineEnvioIncertoError` (pode ter saído; conservar a chave, não reenviar
+ * sozinho). Exatamente UMA tentativa de POST.
+ */
+async function enviarPorInstancia(instanciaId: string, destino: string, texto: string, opcoes: EnvioEngineOpcoes): Promise<EngineEnviarResposta> {
+  if (!ehOperationId(opcoes?.operationId)) throw new Error('operationId inválido: a chave de envio deve ser um uuid gerado uma vez por intenção.')
+  const token = process.env.ENGINE_API_TOKEN
+  if (!token) throw new Error('Engine não configurado (ENGINE_API_TOKEN).')
+  const operationId = opcoes.operationId
+  const body: Record<string, unknown> = { destino, texto, operationId }
+  if (opcoes.mentions?.length) body.mentions = opcoes.mentions
+  if (opcoes.quoted?.messageId) body.quoted = { messageId: opcoes.quoted.messageId }
+  const incerto = (motivo: MotivoIncerto, msg: string) => new EngineEnvioIncertoError(msg, operationId, motivo)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 25_000)
+  let res: Response
+  try {
+    res = await fetch(`${base()}/instancias/${instanciaId}/enviar`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+  } catch (err) {
+    clearTimeout(timeout)
+    // O POST foi tentado: não dá pra saber se chegou. Timeout e queda de
+    // conexão (fetch failed / ECONNRESET) são ambos incertos.
+    if (ehAbort(err)) throw incerto('timeout', 'O engine não respondeu a tempo — o envio pode ter saído ou não.')
+    throw incerto('transporte', 'A conexão com o engine caiu durante o envio — a mensagem pode ter saído ou não.')
+  }
+
+  let text: string
+  try {
+    text = await res.text()
+  } catch {
+    throw incerto('resposta', 'A resposta do engine foi interrompida — o envio pode ter saído ou não.')
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!res.ok) {
+    const corpo = parseJson(text)
+    const codigo = String(corpo?.codigo || corpo?.code || '')
+    const mensagem = String(corpo?.erro || corpo?.error || corpo?.message || '')
+    if (codigo === 'DELIVERY_UNCERTAIN' || (res.status === 409 && !codigo)) {
+      throw incerto('uncertain', 'O engine não confirmou o envio (em processamento ou aguardando reconciliação).')
+    }
+    if (codigo) throw new EngineErro(mensagem || `Engine HTTP ${res.status}`, codigo, res.status)
+    // Fastify serializa `throw new Error('OPERATION_CONTENT_CONFLICT')` como
+    // { statusCode:500, error:'Internal Server Error', message:'OPERATION_CONTENT_CONFLICT' }.
+    const marcador = [corpo?.message, corpo?.erro, corpo?.error].map((v) => String(v || '')).find((v) => REJEICOES_PRE_ENVIO.has(v))
+    if (marcador) throw new EngineErro(marcador, marcador, res.status)
+    if (res.status >= 500) {
+      // 500 do engine no meio do envio, 502/503/504 do gateway: pode ter saído.
+      throw incerto('gateway', `O engine/gateway falhou (HTTP ${res.status}) — o envio pode ter saído ou não.`)
+    }
+    // 4xx do contrato (400 mensagem vazia, 401, 404 instância…): rejeição antes do envio.
+    throw new EngineErro(mensagem || `Engine HTTP ${res.status}: ${text.slice(0, 200)}`, `HTTP_${res.status}`, res.status)
+  }
+
+  // 2xx só confirma com corpo válido: `ok:true` + id da mensagem. Objeto vazio
+  // ou JSON quebrado não é prova de envio.
+  const dados = parseJson(text) as (EngineEnviarResposta & CorpoErro) | null
+  if (!dados || dados.ok !== true || !(dados.id || dados.messageId)) {
+    throw incerto('resposta', 'O engine respondeu sem confirmação válida — o envio pode ter saído ou não.')
+  }
+  return dados
 }
 
 export const engine = {
   conectar: (instanciaId: string) => chamar<EngineConectarResposta>(`/instancias/${instanciaId}/conectar`, { method: 'POST', body: {} }),
   status: (instanciaId: string) => chamar<EngineStatusResposta>(`/instancias/${instanciaId}/status`),
   desconectar: (instanciaId: string, logout: boolean) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/desconectar`, { method: 'POST', body: { logout } }),
-  /**
-   * Envio direto por instância. Lança `EngineEnvioIncertoError` em timeout ou
-   * 409 DELIVERY_UNCERTAIN (resultado não confirmado — não reenviar com chave
-   * nova) e `EngineErro` nos erros de domínio do engine.
-   */
-  enviar: async (instanciaId: string, destino: string, texto: string, opcoes: EnvioEngineOpcoes): Promise<EngineEnviarResposta> => {
-    if (!ehOperationId(opcoes?.operationId)) throw new Error('operationId inválido: a chave de envio deve ser um uuid gerado uma vez por intenção.')
-    const body: Record<string, unknown> = { destino, texto, operationId: opcoes.operationId }
-    if (opcoes.mentions?.length) body.mentions = opcoes.mentions
-    if (opcoes.quoted?.messageId) body.quoted = { messageId: opcoes.quoted.messageId }
-    try {
-      return await chamar<EngineEnviarResposta>(`/instancias/${instanciaId}/enviar`, { method: 'POST', body })
-    } catch (err) {
-      if (err instanceof EngineErro && (err.codigo === 'DELIVERY_UNCERTAIN' || (err.status === 409 && !err.codigo))) {
-        throw new EngineEnvioIncertoError('O engine não confirmou o envio (em processamento ou aguardando reconciliação).', opcoes.operationId, 'uncertain')
-      }
-      if (ehAbort(err)) {
-        throw new EngineEnvioIncertoError('O engine não respondeu a tempo — o envio pode ter saído ou não.', opcoes.operationId, 'timeout')
-      }
-      throw err
-    }
-  },
+  enviar: enviarPorInstancia,
   saude: async () => {
     try {
       const res = await fetch(`${base()}/health`, { signal: AbortSignal.timeout(6000) })

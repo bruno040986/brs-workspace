@@ -21,7 +21,7 @@ export async function podeAtenderConversas(): Promise<boolean> {
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
 import { engine, engineConfigurado, EngineEnvioIncertoError } from './engine'
-import { ehOperationId, normalizarTelefoneDestino } from './envio-intencao'
+import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
 
 const LIMITE_INSTANCIAS_BRS = 3
@@ -1107,38 +1107,41 @@ export async function getCanaisAtendimento(): Promise<{
  * "Nova conversa": envia a 1ª mensagem pelo engine na instância escolhida
  * (o engine espelha no Chatwoot e devolve a conversa criada). Texto assinado.
  */
-export type ResultadoNovaConversa =
-  | { resultado: 'confirmado'; conversationId: number | null }
-  /** Timeout ou 409 DELIVERY_UNCERTAIN: pode ter saído ou não. A UI informa e NÃO reenvia sozinha. */
-  | { resultado: 'incerto'; conversationId: null; mensagem: string }
+export type ResultadoNovaConversa = ResultadoEnvio
 
 /**
  * Único envio direto ao engine (fora do Chatwoot). `operationId` vem da UI —
  * gerado uma vez por intenção (Lote 02B); a action não gera nem substitui a
  * chave. Autorização: instância precisa pertencer à conta BRS; texto sai
  * assinado com `users.nome_exibicao || name`, como no composer.
+ *
+ * Devolve o resultado como VALOR (confirmado | rejeitado | incerto) — Server
+ * Action mascara `Error.message` em produção, e a UI precisa distinguir
+ * "nada saiu" (pode repetir) de "pode ter saído" (não reenviar sozinho). Só a
+ * permissão continua lançando (é a mesma regra de todas as actions).
  */
 export async function iniciarConversaPorTelefone(input: { instanciaId: string; telefone: string; texto: string; operationId: string }): Promise<ResultadoNovaConversa> {
   await requirePermission('conversas', 'can_view')
-  const user = await requireCurrentUser()
-  if (!ehOperationId(input.operationId)) throw new Error('Chave de envio (operationId) ausente ou inválida.')
-  const destino = normalizarTelefoneDestino(input.telefone)
-  const texto = String(input.texto || '').trim()
-  if (!texto) throw new Error('Escreva a primeira mensagem.')
-  const admin = await createAdminClient()
-  const conta = await contaBrs()
-  if (!conta) throw new Error('Chatwoot não provisionado.')
-  const { data: inst } = await admin.from('chat_instancias').select('id, conta_id').eq('id', input.instanciaId).eq('conta_id', conta.id).is('deleted_at', null).maybeSingle()
-  if (!inst) throw new Error('Instância não encontrada.')
-  const assinatura = await assinaturaDoUsuario(user.id)
+  const rejeitado = (mensagem: string): ResultadoNovaConversa => ({ resultado: 'rejeitado', mensagem })
   try {
+    const user = await requireCurrentUser()
+    if (!ehOperationId(input.operationId)) return rejeitado('Chave de envio (operationId) ausente ou inválida.')
+    const destino = normalizarTelefoneDestino(input.telefone)
+    const texto = String(input.texto || '').trim()
+    if (!texto) return rejeitado('Escreva a primeira mensagem.')
+    const admin = await createAdminClient()
+    const conta = await contaBrs()
+    if (!conta) return rejeitado('Chatwoot não provisionado.')
+    const { data: inst } = await admin.from('chat_instancias').select('id, conta_id').eq('id', input.instanciaId).eq('conta_id', conta.id).is('deleted_at', null).maybeSingle()
+    if (!inst) return rejeitado('Instância não encontrada.')
+    const assinatura = await assinaturaDoUsuario(user.id)
     const res = await engine.enviar(String(inst.id), destino, assinar(assinatura, texto), { operationId: input.operationId })
     return { resultado: 'confirmado', conversationId: res.conversationId ?? null }
   } catch (err) {
-    // Resultado incerto vira valor de retorno (não exceção): a mensagem precisa
-    // chegar íntegra na UI, e Server Action mascara `Error.message` em produção.
-    if (err instanceof EngineEnvioIncertoError) return { resultado: 'incerto', conversationId: null, mensagem: err.message }
-    throw err
+    if (err instanceof EngineEnvioIncertoError) return { resultado: 'incerto', mensagem: err.message }
+    // Tudo o mais acontece ANTES do POST (validação, banco, EngineErro =
+    // rejeição comprovada): nada saiu.
+    return rejeitado(err instanceof Error ? err.message : 'Falha ao iniciar conversa.')
   }
 }
 

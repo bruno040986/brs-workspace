@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useReducer, useState } from 'react'
 import { Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
 import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
-import { resolverIntencao, type IntencaoEnvio } from '@/lib/central-conversas/envio-intencao'
+import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
 
 type Presenca = 'online' | 'busy' | 'offline' | null
 
@@ -454,45 +454,45 @@ function NovaConversaModal({
   onFechar: () => void
   onEnviar: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<ResultadoNovaConversa>
 }) {
-  const [instanciaId, setInstanciaId] = useState(instancias[0]?.id || '')
-  const [telefone, setTelefone] = useState(prefill?.telefone || '')
-  const [texto, setTexto] = useState('')
-  const [enviando, setEnviando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-  // Intenção de envio corrente (Lote 02B): a chave nasce aqui, uma vez, e é
-  // conservada em "tentar de novo" com os MESMOS campos; mudou campo ou deu
-  // certo → próxima tentativa é outra intenção, outra chave. Vive só no estado
-  // do modal: recarregar a página perde a intenção (e a UI não promete o
-  // contrário).
-  const [intencao, setIntencao] = useState<IntencaoEnvio | null>(null)
-  const [incerto, setIncerto] = useState<string | null>(null)
+  // Máquina de estados de envio-intencao.ts (Lote 02B): a chave nasce uma vez
+  // por intenção; em 'enviando' e 'incerto' os campos ficam congelados;
+  // "Repetir esta operação" reaproveita chave e payload; "Novo envio" libera
+  // os campos com outra chave e registra que o anterior pode ter saído.
+  const [estado, dispatch] = useReducer(
+    (s: EstadoEnvio, a: AcaoEnvio) => reduzirEnvio(s, a),
+    { instanciaId: instancias[0]?.id || '', telefone: prefill?.telefone || '', texto: '' },
+    estadoInicialEnvio,
+  )
+  const { fase, campos, mensagem, incertoAnterior } = estado
+  const congelado = fase !== 'editando'
+  const enviando = fase === 'enviando'
+  const avisoNovoEnvio = fase === 'editando' && incertoAnterior !== null && mensagem !== null && mensagem.startsWith('O envio anterior')
 
   async function enviar() {
-    if (!instanciaId) return setErro('Escolha uma instância.')
-    const digitos = telefone.replace(/\D/g, '')
-    if (digitos.length < 10) return setErro('Informe um telefone válido com DDD.')
-    if (!texto.trim()) return setErro('Escreva a primeira mensagem.')
-    const atual = resolverIntencao(intencao, { instanciaId, telefone: digitos, texto: texto.trim() })
-    setIntencao(atual)
-    setEnviando(true)
-    setErro(null)
-    setIncerto(null)
-    try {
-      const r = await onEnviar({ instanciaId, telefone: digitos, texto: texto.trim(), operationId: atual.chave })
-      if (r.resultado === 'incerto') {
-        // Mantém a intenção (mesma chave) — quem decide reenviar é a pessoa,
-        // depois de conferir. Nada é reenviado automaticamente.
-        setIncerto(r.mensagem)
-        return
-      }
-      setIntencao(null)
-    } catch (err) {
-      // Erro claro (validação, instância, HTTP): intenção continua a mesma pra
-      // um "tentar de novo" com a mesma chave.
-      setErro(err instanceof Error ? err.message : 'Falha ao iniciar conversa.')
-    } finally {
-      setEnviando(false)
+    if (fase === 'editando') {
+      if (!campos.instanciaId) return dispatch({ tipo: 'erro', mensagem: 'Escolha uma instância.' })
+      if (campos.telefone.replace(/\D/g, '').length < 10) return dispatch({ tipo: 'erro', mensagem: 'Informe um telefone válido com DDD.' })
+      if (!campos.texto.trim()) return dispatch({ tipo: 'erro', mensagem: 'Escreva a primeira mensagem.' })
+    } else if (fase !== 'incerto') {
+      return
     }
+    // Reducer puro: calcula o próximo estado com a MESMA ação que vai ser
+    // despachada (a chave vai dentro da ação), pra montar o payload sem
+    // divergir do estado.
+    const acao: AcaoEnvio = fase === 'incerto' ? { tipo: 'repetir' } : { tipo: 'enviar', chave: novoOperationId() }
+    const proximo = reduzirEnvio(estado, acao)
+    if (proximo.fase !== 'enviando' || !proximo.intencao) return
+    dispatch(acao)
+    const i = proximo.intencao
+    let resultado: ResultadoNovaConversa
+    try {
+      resultado = await onEnviar({ instanciaId: i.instanciaId, telefone: i.telefone, texto: i.texto, operationId: i.chave })
+    } catch {
+      // Perda de resposta entre navegador e Server Action (ou erro mascarado):
+      // conservador — a intenção fica e a UI trata como incerto.
+      resultado = { resultado: 'incerto', mensagem: 'Não foi possível confirmar com o servidor (conexão ou erro inesperado).' }
+    }
+    dispatch({ tipo: 'resultado', resultado })
   }
 
   return (
@@ -504,7 +504,7 @@ function NovaConversaModal({
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--msn-surface)' }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
             Instância
-            <select className="brs-messenger-select" style={{ width: '100%', marginTop: 4 }} value={instanciaId} onChange={(e) => setInstanciaId(e.target.value)}>
+            <select className="brs-messenger-select" style={{ width: '100%', marginTop: 4 }} value={campos.instanciaId} disabled={congelado} onChange={(e) => dispatch({ tipo: 'editar', campos: { instanciaId: e.target.value } })}>
               {instancias.length === 0 && <option value="">Nenhuma instância disponível</option>}
               {instancias.map((i) => (
                 <option key={i.id} value={i.id}>
@@ -515,25 +515,51 @@ function NovaConversaModal({
           </label>
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
             Telefone (com DDD)
-            <input className="brs-messenger-profile-input" style={{ width: '100%', marginTop: 4 }} placeholder="(11) 91234-5678" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+            <input
+              className="brs-messenger-profile-input"
+              style={{ width: '100%', marginTop: 4 }}
+              placeholder="(11) 91234-5678"
+              value={campos.telefone}
+              disabled={congelado}
+              onChange={(e) => dispatch({ tipo: 'editar', campos: { telefone: e.target.value } })}
+            />
           </label>
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
             Mensagem
-            <textarea className="brs-messenger-composer-input" style={{ width: '100%', marginTop: 4, minHeight: 70 }} value={texto} onChange={(e) => setTexto(e.target.value)} />
+            <textarea
+              className="brs-messenger-composer-input"
+              style={{ width: '100%', marginTop: 4, minHeight: 70 }}
+              value={campos.texto}
+              disabled={congelado}
+              onChange={(e) => dispatch({ tipo: 'editar', campos: { texto: e.target.value } })}
+            />
           </label>
-          {erro && <div style={{ fontSize: 12, color: '#b91c1c' }}>{erro}</div>}
-          {incerto && (
+
+          {fase === 'editando' && mensagem && !avisoNovoEnvio && <div style={{ fontSize: 12, color: '#b91c1c' }}>{mensagem}</div>}
+          {avisoNovoEnvio && (
             <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '6px 8px' }}>
-              <strong>Envio não confirmado.</strong> {incerto} Antes de tentar de novo, confira se a conversa apareceu na lista (ou a mensagem no WhatsApp). "Tentar de novo" reaproveita a mesma
-              operação — isso só evita duplicidade quando o modo durável desta conta estiver ligado no engine.
+              <strong>Novo envio.</strong> {mensagem}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onFechar} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
-              {incerto ? 'Fechar' : 'Cancelar'}
+          {fase === 'incerto' && (
+            <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '6px 8px' }}>
+              <strong>Envio não confirmado.</strong> {mensagem} Os campos ficam travados até você decidir: confira se a conversa apareceu na lista (ou a mensagem no WhatsApp).
+              "Repetir esta operação" reaproveita a mesma chave e o mesmo conteúdo — só evita duplicidade quando o modo durável desta conta estiver ligado no engine. "Novo envio" libera os
+              campos e usa outra chave.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <button type="button" onClick={onFechar} disabled={enviando} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
+              {fase === 'incerto' ? 'Fechar' : 'Cancelar'}
             </button>
-            <button type="button" onClick={enviar} disabled={enviando} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
-              {enviando ? 'Enviando…' : incerto ? 'Tentar de novo (mesma operação)' : 'Iniciar'}
+            {fase === 'incerto' && (
+              <button type="button" onClick={() => dispatch({ tipo: 'novoEnvio' })} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
+                Novo envio (outra chave)
+              </button>
+            )}
+            <button type="button" onClick={() => void enviar()} disabled={enviando} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
+              {enviando ? 'Enviando…' : fase === 'incerto' ? 'Repetir esta operação (mesma chave)' : 'Iniciar'}
             </button>
           </div>
         </div>

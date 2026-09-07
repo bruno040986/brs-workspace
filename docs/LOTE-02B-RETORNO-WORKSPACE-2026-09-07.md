@@ -49,6 +49,58 @@ da action porque ela depende de Supabase/auth reais — não simulados neste lot
 
 Gates: `npx tsc --noEmit` limpo · `npm run build` verde.
 
+## Rodada 2 — correções da revisão Astra (`REVISAO-LOTE-02B-2026-09-07.md`)
+
+### P1-1 · falha de transporte/5xx/resposta inválida agora é incerto
+`engine.enviar` (`engine.ts`, `enviarPorInstancia`) faz exatamente UM POST e
+classifica pelo momento da falha:
+- **antes de qualquer rede** (chave inválida, token ausente) → `Error` comum;
+- **POST tentado** e: queda de conexão (`fetch failed`/ECONNRESET) →
+  `incerto(transporte)`; abort → `incerto(timeout)`; falha ao ler o corpo →
+  `incerto(resposta)`; HTTP 5xx sem código de domínio (500 no meio do envio,
+  502/503/504 do gateway) → `incerto(gateway)`; 409 `DELIVERY_UNCERTAIN` →
+  `incerto(uncertain)`; 2xx sem `ok:true` + `id|messageId` (objeto vazio, JSON
+  quebrado, `ok:false`) → `incerto(resposta)`;
+- **rejeição comprovada** (nada saiu): `{ erro|error, codigo|code }` de
+  domínio (ex.: `INSTANCIA_DESCONECTADA`), 4xx do contrato (`HTTP_400` mensagem
+  vazia, `HTTP_404` instância), e os erros que o engine lança ANTES do envio em
+  `send-operation.ts` (`OPERATION_CONTENT_CONFLICT`, `SEND_PERSISTENCE_FAILED`,
+  que o Fastify serializa como 500 com `message`) → `EngineErro`.
+  `SEND_RESULT_PERSISTENCE_FAILED` (depois do envio) fica incerto.
+- A action devolve `ResultadoEnvio` = `confirmado | rejeitado | incerto` como
+  VALOR (Server Action mascara `Error.message`); só a permissão lança.
+- Na modal, qualquer exceção vinda do `onEnviar` (perda de resposta navegador ↔
+  Server Action, erro mascarado) é tratada como **incerto**, conservando a
+  intenção.
+
+### P1-2 · repetir a operação × novo envio, com campos congelados
+Máquina de estados em `envio-intencao.ts` (`reduzirEnvio`, `estadoInicialEnvio`)
+— é a mesma que a modal usa via `useReducer`:
+- `editando → enviar → enviando`: normaliza campos, chave gerada UMA vez (a UI
+  gera o uuid e passa dentro da ação, para o reducer puro calcular o payload e
+  o estado sem divergir);
+- `enviando` e `incerto`: campos **congelados** (`editar` é ignorado; inputs
+  `disabled`); "Cancelar" desabilitado enquanto envia;
+- `incerto → repetir`: MESMA chave e MESMO payload (vindo da intenção
+  congelada, não dos inputs); rótulo "Repetir esta operação (mesma chave)";
+- `incerto → novoEnvio`: intenção zerada, campos liberados, a anterior fica em
+  `incertoAnterior` e a UI mostra "O envio anterior … PODE ter sido entregue.
+  Este será um novo envio, com outra operação"; rótulo "Novo envio (outra
+  chave)". Nunca o rótulo de retry para uma chamada com outra chave;
+- `rejeitado`: volta a editar; repetir igual conserva a chave, mudar campo troca;
+- `confirmado → concluido` (o pai fecha a modal).
+
+### Testes (`npm test`) — 21/21
+Novos, engine simulado, sempre 1 chamada e chave preservada: queda de conexão
+(TypeError), 502/503/504, 500 genérico pós-envio, corpo interrompido
+(`res.text()` rejeita), 2xx sem confirmação válida (5 corpos), rejeições que
+NÃO viram incerto (400, 404, `INSTANCIA_DESCONECTADA`, `OPERATION_CONTENT_CONFLICT`).
+Máquina de estados da modal: editar ignorado em `enviando`/`incerto`; repetir
+com mesma chave e payload (inclusive `enviar` cru a partir de `incerto` não
+gera chave); novo envio explícito com chave nova e anterior registrado;
+rejeitado conserva/troca chave conforme campos; confirmado → concluido.
+Gates: `tsc` limpo, `build` verde. Nenhuma mensagem real.
+
 ## Observações pro Astra
 
 - Enquanto `ENGINE_DURABLE_EVENTS` estiver desligado pra conta BRS, o engine
