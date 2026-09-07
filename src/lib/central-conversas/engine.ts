@@ -110,11 +110,43 @@ export type EnvioEngineOpcoes = {
 }
 
 /**
- * Erros que o engine lança ANTES de tocar o WhatsApp (send-operation.ts) e
- * sobem como 500 genérico do Fastify: são rejeições comprovadas, não incerteza.
- * `SEND_RESULT_PERSISTENCE_FAILED` (depois do envio) NÃO está aqui — é incerto.
+ * Lista EXPLÍCITA de códigos cuja semântica, no contrato do `POST
+ * /instancias/:id/enviar` do engine (server.ts / send-operation.ts /
+ * baileys.ts / grupos.ts), comprova rejeição ANTES de qualquer efeito no
+ * WhatsApp. Só esses viram `EngineErro`; qualquer outro código em 5xx (inclusive
+ * `SEND_RESULT_PERSISTENCE_FAILED`, que é pós-envio, e códigos desconhecidos)
+ * fica INCERTO.
+ *  - numero_sem_whatsapp: 422 `{ error, erro }` (NumeroSemWhatsAppError, checado antes de enviar)
+ *  - OPERATION_CONTENT_CONFLICT / SEND_PERSISTENCE_FAILED: claimSend, antes do envio;
+ *    o Fastify entrega como 500 `{ error: 'enviar pelo WhatsApp: <código>' }`
+ *    ou `{ statusCode, error, message: '<código>' }` — por isso o casamento é
+ *    por palavra inteira dentro dos campos, não igualdade
+ *  - INSTANCIA_DESCONECTADA / PROVEDOR_NAO_SUPORTADO / GRUPO_NAO_PERMITIDO:
+ *    gates de instância (`{ erro, codigo }`), avaliados antes do envio
  */
-const REJEICOES_PRE_ENVIO = new Set(['OPERATION_CONTENT_CONFLICT', 'SEND_PERSISTENCE_FAILED'])
+const REJEICOES_PRE_ENVIO = ['numero_sem_whatsapp', 'OPERATION_CONTENT_CONFLICT', 'SEND_PERSISTENCE_FAILED', 'INSTANCIA_DESCONECTADA', 'PROVEDOR_NAO_SUPORTADO', 'GRUPO_NAO_PERMITIDO']
+const REJEICAO_RE = new RegExp(`\\b(${REJEICOES_PRE_ENVIO.join('|')})\\b`)
+
+/**
+ * Classifica uma resposta não-2xx do /enviar. Ordem: DELIVERY_UNCERTAIN →
+ * rejeição pré-envio da lista → 5xx (qualquer código) = incerto → 409 sem
+ * código = incerto → demais 4xx = rejeição (erro de contrato/cliente, antes do
+ * efeito). Um código existir NÃO prova rejeição.
+ */
+function classificarFalha(status: number, corpo: CorpoErro | null, texto: string): { tipo: 'incerto'; motivo: MotivoIncerto; mensagem: string } | { tipo: 'rejeicao'; codigo: string; mensagem: string } {
+  const campos = [corpo?.codigo, corpo?.code, corpo?.erro, corpo?.error, corpo?.message].map((v) => String(v || '')).filter(Boolean)
+  const mensagem = String(corpo?.erro || corpo?.error || corpo?.message || '') || `Engine HTTP ${status}: ${texto.slice(0, 200)}`
+  if (campos.some((c) => /\bDELIVERY_UNCERTAIN\b/.test(c)) || (status === 409 && !campos.length)) {
+    return { tipo: 'incerto', motivo: 'uncertain', mensagem: 'O engine não confirmou o envio (em processamento ou aguardando reconciliação).' }
+  }
+  for (const c of campos) {
+    const m = c.match(REJEICAO_RE)
+    if (m) return { tipo: 'rejeicao', codigo: m[1], mensagem }
+  }
+  if (status >= 500) return { tipo: 'incerto', motivo: 'gateway', mensagem: `O engine/gateway falhou (HTTP ${status}) — o envio pode ter saído ou não.` }
+  if (status === 409) return { tipo: 'incerto', motivo: 'uncertain', mensagem: 'O engine não confirmou o envio (HTTP 409 sem código conhecido).' }
+  return { tipo: 'rejeicao', codigo: String(corpo?.codigo || corpo?.code || `HTTP_${status}`), mensagem }
+}
 
 function ehAbort(err: unknown): boolean {
   return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')
@@ -164,23 +196,9 @@ async function enviarPorInstancia(instanciaId: string, destino: string, texto: s
   }
 
   if (!res.ok) {
-    const corpo = parseJson(text)
-    const codigo = String(corpo?.codigo || corpo?.code || '')
-    const mensagem = String(corpo?.erro || corpo?.error || corpo?.message || '')
-    if (codigo === 'DELIVERY_UNCERTAIN' || (res.status === 409 && !codigo)) {
-      throw incerto('uncertain', 'O engine não confirmou o envio (em processamento ou aguardando reconciliação).')
-    }
-    if (codigo) throw new EngineErro(mensagem || `Engine HTTP ${res.status}`, codigo, res.status)
-    // Fastify serializa `throw new Error('OPERATION_CONTENT_CONFLICT')` como
-    // { statusCode:500, error:'Internal Server Error', message:'OPERATION_CONTENT_CONFLICT' }.
-    const marcador = [corpo?.message, corpo?.erro, corpo?.error].map((v) => String(v || '')).find((v) => REJEICOES_PRE_ENVIO.has(v))
-    if (marcador) throw new EngineErro(marcador, marcador, res.status)
-    if (res.status >= 500) {
-      // 500 do engine no meio do envio, 502/503/504 do gateway: pode ter saído.
-      throw incerto('gateway', `O engine/gateway falhou (HTTP ${res.status}) — o envio pode ter saído ou não.`)
-    }
-    // 4xx do contrato (400 mensagem vazia, 401, 404 instância…): rejeição antes do envio.
-    throw new EngineErro(mensagem || `Engine HTTP ${res.status}: ${text.slice(0, 200)}`, `HTTP_${res.status}`, res.status)
+    const f = classificarFalha(res.status, parseJson(text), text)
+    if (f.tipo === 'incerto') throw incerto(f.motivo, f.mensagem)
+    throw new EngineErro(f.mensagem, f.codigo, res.status)
   }
 
   // 2xx só confirma com corpo válido: `ok:true` + id da mensagem. Objeto vazio

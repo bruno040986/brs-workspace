@@ -101,6 +101,37 @@ gera chave); novo envio explícito com chave nova e anterior registrado;
 rejeitado conserva/troca chave conforme campos; confirmado → concluido.
 Gates: `tsc` limpo, `build` verde. Nenhuma mensagem real.
 
+## Rodada 3 — classificador de erros (revisão Astra, seção "Rodada 2")
+
+Problema: `if (codigo)` convertia QUALQUER `code`/`codigo` em rejeição, mesmo
+em 500 pós-envio. Correção em `engine.ts` (`classificarFalha`):
+
+- **Lista explícita** `REJEICOES_PRE_ENVIO`, validada contra o contrato do
+  `/enviar` no engine (server.ts, send-operation.ts, baileys.ts, grupos.ts):
+  `numero_sem_whatsapp` (422, checado antes de enviar),
+  `OPERATION_CONTENT_CONFLICT` e `SEND_PERSISTENCE_FAILED` (claimSend, antes do
+  envio — o engine entrega como 500 `{ error: 'enviar pelo WhatsApp: <código>' }`,
+  por isso o casamento é por palavra inteira dentro de
+  `codigo|code|erro|error|message`), `INSTANCIA_DESCONECTADA`,
+  `PROVEDOR_NAO_SUPORTADO`, `GRUPO_NAO_PERMITIDO` (gates de instância).
+- **Ordem:** `DELIVERY_UNCERTAIN` → incerto; código da lista → rejeição;
+  **qualquer 5xx** (código pós-envio como `SEND_RESULT_PERSISTENCE_FAILED`,
+  `FALHA_WHATSAPP`, `INTERNAL_ERROR`, desconhecidos) → incerto; 409 sem código
+  → incerto; demais 4xx → rejeição (`codigo` ou `HTTP_<status>`). Um código
+  existir não prova rejeição; a ramificação não contorna a classificação.
+- Uma única tentativa de POST preservada; `chamar()` (conectar/status/
+  desconectar/grupos) não mudou.
+
+Regressões novas (`npm test` — **23/23**): 500 estruturado pós-envio
+(`code`/`codigo` `SEND_RESULT_PERSISTENCE_FAILED`, `INTERNAL_ERROR`, `error:
+'enviar pelo WhatsApp: SEND_RESULT_PERSISTENCE_FAILED'`, `FALHA_WHATSAPP` em
+500/502) → incerto, 1 chamada, chave preservada; rejeições conhecidas nos
+formatos reais do engine (422 `numero_sem_whatsapp`, 500 `'enviar pelo
+WhatsApp: OPERATION_CONTENT_CONFLICT'`/`SEND_PERSISTENCE_FAILED`, 500 Fastify
+`message`, 409 `INSTANCIA_DESCONECTADA`, 501 `PROVEDOR_NAO_SUPORTADO`, 400 com
+código desconhecido) → rejeição com o código. tsc limpo, build verde. Modal
+inalterada.
+
 ## Observações pro Astra
 
 - Enquanto `ENGINE_DURABLE_EVENTS` estiver desligado pra conta BRS, o engine

@@ -158,6 +158,45 @@ describe('engine.enviar — operationId no corpo', () => {
     assert.equal(chamadas.length, 1)
   })
 
+  test('código existir NÃO prova rejeição: erro pós-envio estruturado e código desconhecido em 500 ficam incertos', async () => {
+    for (const corpo of [
+      { code: 'SEND_RESULT_PERSISTENCE_FAILED', message: 'falha apos envio' },
+      { codigo: 'SEND_RESULT_PERSISTENCE_FAILED', erro: 'falha apos envio' },
+      { code: 'INTERNAL_ERROR', message: 'falha apos envio' },
+      { error: 'enviar pelo WhatsApp: SEND_RESULT_PERSISTENCE_FAILED' },
+      { error: 'espelhar mensagem no Chatwoot: timeout' },
+      { erro: 'Falha ao comunicar com o WhatsApp', codigo: 'FALHA_WHATSAPP' },
+    ]) {
+      chamadas = []
+      simularEngine(() => new Response(JSON.stringify(corpo), { status: 500 }))
+      const chave = novoOperationId()
+      await assert.rejects(() => envio(chave), ehIncerto('gateway', chave))
+      assert.equal(chamadas.length, 1)
+    }
+    chamadas = []
+    simularEngine(() => new Response(JSON.stringify({ erro: 'Falha ao comunicar com o WhatsApp', codigo: 'FALHA_WHATSAPP' }), { status: 502 }))
+    await assert.rejects(() => envio(), ehIncerto('gateway'))
+    assert.equal(chamadas.length, 1)
+  })
+
+  test('rejeições conhecidas estruturadas, nos formatos reais do engine, continuam rejeição', async () => {
+    const casos: Array<[number, Record<string, unknown>, string]> = [
+      [422, { error: 'numero_sem_whatsapp', erro: 'numero_sem_whatsapp' }, 'numero_sem_whatsapp'],
+      [500, { error: 'enviar pelo WhatsApp: OPERATION_CONTENT_CONFLICT' }, 'OPERATION_CONTENT_CONFLICT'],
+      [500, { error: 'enviar pelo WhatsApp: SEND_PERSISTENCE_FAILED' }, 'SEND_PERSISTENCE_FAILED'],
+      [500, { statusCode: 500, error: 'Internal Server Error', message: 'OPERATION_CONTENT_CONFLICT' }, 'OPERATION_CONTENT_CONFLICT'],
+      [409, { erro: 'Instância não está conectada.', codigo: 'INSTANCIA_DESCONECTADA' }, 'INSTANCIA_DESCONECTADA'],
+      [501, { erro: 'Só Baileys.', codigo: 'PROVEDOR_NAO_SUPORTADO' }, 'PROVEDOR_NAO_SUPORTADO'],
+      [400, { code: 'PAYLOAD_INVALIDO', message: 'operationId inválido' }, 'PAYLOAD_INVALIDO'],
+    ]
+    for (const [status, corpo, codigo] of casos) {
+      chamadas = []
+      simularEngine(() => new Response(JSON.stringify(corpo), { status }))
+      await assert.rejects(() => envio(), ehRejeicao(codigo))
+      assert.equal(chamadas.length, 1)
+    }
+  })
+
   test('mentions/quoted só entram no corpo quando informados', async () => {
     simularEngine(() => ok())
     await engine.enviar('inst-1', '5511999990000', 'oi', { operationId: novoOperationId(), mentions: ['5511@s.whatsapp.net'], quoted: { messageId: 42 } })
