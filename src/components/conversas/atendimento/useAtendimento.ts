@@ -619,10 +619,11 @@ export function useAtendimento() {
     }
   }
 
-  async function novaConversa(input: { instanciaId: string; telefone: string; texto: string }) {
+  /** `operationId` nasce no modal (uma chave por intenção — Lote 02B); aqui só passa adiante. Resultado 'incerto' volta pro modal, sem retry. */
+  async function novaConversa(input: { instanciaId: string; telefone: string; texto: string; operationId: string }) {
     const r = await iniciarConversaPorTelefone(input)
     const lista = await carregarLista()
-    if (r.conversationId) {
+    if (r.resultado === 'confirmado' && r.conversationId) {
       const encontrada = lista.find((c) => c.id === r.conversationId)
       if (encontrada) selecionarConversa(encontrada)
     }

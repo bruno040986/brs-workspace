@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react'
 import { Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
-import type { ContatoBusca, DepartamentoResumo } from '@/lib/central-conversas/actions'
+import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
+import { resolverIntencao, type IntencaoEnvio } from '@/lib/central-conversas/envio-intencao'
 
 type Presenca = 'online' | 'busy' | 'offline' | null
 
@@ -31,7 +32,7 @@ type Props = {
   disponivel: boolean
   selecionadaId: number | null
   onSelecionar: (c: ConversaAtendimento) => void
-  onNovaConversa: (input: { instanciaId: string; telefone: string; texto: string }) => Promise<{ conversationId: number | null }>
+  onNovaConversa: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<ResultadoNovaConversa>
 }
 
 const PRESENCA_INFO: Record<NonNullable<Presenca>, { cor: string; rotulo: string }> = {
@@ -429,9 +430,12 @@ export default function ListaConversas({
             setPrefillModal(null)
           }}
           onEnviar={async (input) => {
-            await onNovaConversa(input)
-            setModalAberto(false)
-            setPrefillModal(null)
+            const r = await onNovaConversa(input)
+            if (r.resultado === 'confirmado') {
+              setModalAberto(false)
+              setPrefillModal(null)
+            }
+            return r
           }}
         />
       )}
@@ -448,24 +452,43 @@ function NovaConversaModal({
   instancias: InstanciaAtendimento[]
   prefill?: { telefone: string; nome: string } | null
   onFechar: () => void
-  onEnviar: (input: { instanciaId: string; telefone: string; texto: string }) => Promise<void>
+  onEnviar: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<ResultadoNovaConversa>
 }) {
   const [instanciaId, setInstanciaId] = useState(instancias[0]?.id || '')
   const [telefone, setTelefone] = useState(prefill?.telefone || '')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Intenção de envio corrente (Lote 02B): a chave nasce aqui, uma vez, e é
+  // conservada em "tentar de novo" com os MESMOS campos; mudou campo ou deu
+  // certo → próxima tentativa é outra intenção, outra chave. Vive só no estado
+  // do modal: recarregar a página perde a intenção (e a UI não promete o
+  // contrário).
+  const [intencao, setIntencao] = useState<IntencaoEnvio | null>(null)
+  const [incerto, setIncerto] = useState<string | null>(null)
 
   async function enviar() {
     if (!instanciaId) return setErro('Escolha uma instância.')
     const digitos = telefone.replace(/\D/g, '')
     if (digitos.length < 10) return setErro('Informe um telefone válido com DDD.')
     if (!texto.trim()) return setErro('Escreva a primeira mensagem.')
+    const atual = resolverIntencao(intencao, { instanciaId, telefone: digitos, texto: texto.trim() })
+    setIntencao(atual)
     setEnviando(true)
     setErro(null)
+    setIncerto(null)
     try {
-      await onEnviar({ instanciaId, telefone: digitos, texto: texto.trim() })
+      const r = await onEnviar({ instanciaId, telefone: digitos, texto: texto.trim(), operationId: atual.chave })
+      if (r.resultado === 'incerto') {
+        // Mantém a intenção (mesma chave) — quem decide reenviar é a pessoa,
+        // depois de conferir. Nada é reenviado automaticamente.
+        setIncerto(r.mensagem)
+        return
+      }
+      setIntencao(null)
     } catch (err) {
+      // Erro claro (validação, instância, HTTP): intenção continua a mesma pra
+      // um "tentar de novo" com a mesma chave.
       setErro(err instanceof Error ? err.message : 'Falha ao iniciar conversa.')
     } finally {
       setEnviando(false)
@@ -499,12 +522,18 @@ function NovaConversaModal({
             <textarea className="brs-messenger-composer-input" style={{ width: '100%', marginTop: 4, minHeight: 70 }} value={texto} onChange={(e) => setTexto(e.target.value)} />
           </label>
           {erro && <div style={{ fontSize: 12, color: '#b91c1c' }}>{erro}</div>}
+          {incerto && (
+            <div style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: '6px 8px' }}>
+              <strong>Envio não confirmado.</strong> {incerto} Antes de tentar de novo, confira se a conversa apareceu na lista (ou a mensagem no WhatsApp). "Tentar de novo" reaproveita a mesma
+              operação — isso só evita duplicidade quando o modo durável desta conta estiver ligado no engine.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onFechar} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
-              Cancelar
+              {incerto ? 'Fechar' : 'Cancelar'}
             </button>
             <button type="button" onClick={enviar} disabled={enviando} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
-              {enviando ? 'Enviando…' : 'Iniciar'}
+              {enviando ? 'Enviando…' : incerto ? 'Tentar de novo (mesma operação)' : 'Iniciar'}
             </button>
           </div>
         </div>

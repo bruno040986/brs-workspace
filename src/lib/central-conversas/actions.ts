@@ -20,7 +20,8 @@ export async function podeAtenderConversas(): Promise<boolean> {
 }
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
-import { engine, engineConfigurado } from './engine'
+import { engine, engineConfigurado, EngineEnvioIncertoError } from './engine'
+import { ehOperationId, normalizarTelefoneDestino } from './envio-intencao'
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
 
 const LIMITE_INSTANCIAS_BRS = 3
@@ -1106,11 +1107,22 @@ export async function getCanaisAtendimento(): Promise<{
  * "Nova conversa": envia a 1ª mensagem pelo engine na instância escolhida
  * (o engine espelha no Chatwoot e devolve a conversa criada). Texto assinado.
  */
-export async function iniciarConversaPorTelefone(input: { instanciaId: string; telefone: string; texto: string }): Promise<{ conversationId: number | null }> {
+export type ResultadoNovaConversa =
+  | { resultado: 'confirmado'; conversationId: number | null }
+  /** Timeout ou 409 DELIVERY_UNCERTAIN: pode ter saído ou não. A UI informa e NÃO reenvia sozinha. */
+  | { resultado: 'incerto'; conversationId: null; mensagem: string }
+
+/**
+ * Único envio direto ao engine (fora do Chatwoot). `operationId` vem da UI —
+ * gerado uma vez por intenção (Lote 02B); a action não gera nem substitui a
+ * chave. Autorização: instância precisa pertencer à conta BRS; texto sai
+ * assinado com `users.nome_exibicao || name`, como no composer.
+ */
+export async function iniciarConversaPorTelefone(input: { instanciaId: string; telefone: string; texto: string; operationId: string }): Promise<ResultadoNovaConversa> {
   await requirePermission('conversas', 'can_view')
   const user = await requireCurrentUser()
-  const telefone = String(input.telefone || '').replace(/\D/g, '')
-  if (telefone.length < 10) throw new Error('Informe o telefone com DDD (mínimo 10 dígitos).')
+  if (!ehOperationId(input.operationId)) throw new Error('Chave de envio (operationId) ausente ou inválida.')
+  const destino = normalizarTelefoneDestino(input.telefone)
   const texto = String(input.texto || '').trim()
   if (!texto) throw new Error('Escreva a primeira mensagem.')
   const admin = await createAdminClient()
@@ -1119,9 +1131,15 @@ export async function iniciarConversaPorTelefone(input: { instanciaId: string; t
   const { data: inst } = await admin.from('chat_instancias').select('id, conta_id').eq('id', input.instanciaId).eq('conta_id', conta.id).is('deleted_at', null).maybeSingle()
   if (!inst) throw new Error('Instância não encontrada.')
   const assinatura = await assinaturaDoUsuario(user.id)
-  const destino = telefone.length <= 11 ? `55${telefone}` : telefone
-  const res = await engine.enviar(String(inst.id), destino, assinar(assinatura, texto))
-  return { conversationId: res.conversationId ?? null }
+  try {
+    const res = await engine.enviar(String(inst.id), destino, assinar(assinatura, texto), { operationId: input.operationId })
+    return { resultado: 'confirmado', conversationId: res.conversationId ?? null }
+  } catch (err) {
+    // Resultado incerto vira valor de retorno (não exceção): a mensagem precisa
+    // chegar íntegra na UI, e Server Action mascara `Error.message` em produção.
+    if (err instanceof EngineEnvioIncertoError) return { resultado: 'incerto', conversationId: null, mensagem: err.message }
+    throw err
+  }
 }
 
 export async function assumirConversa(conversationId: number, agenteId: number | null) {
