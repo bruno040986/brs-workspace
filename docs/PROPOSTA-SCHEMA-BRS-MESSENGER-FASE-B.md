@@ -47,12 +47,13 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 ```
 
-**Decisão a confirmar:** quando a conversa nasce, o vínculo do CONTATO
+**Decidido:** quando a conversa nasce, o vínculo do CONTATO
 (`chat_contato_meta`) preenche o vínculo da CONVERSA (`chat_conversa_meta`)
 automaticamente — mas a conversa continua podendo ter um vínculo próprio,
 pontual, sem alterar o padrão do contato (ex.: "essa conversa aqui é sobre a
 IF X, mas o parceiro dono do número continua sendo Y"). `chat_conversa_meta`
-não muda de schema, só ganha essa regra de preenchimento na app.
+não muda de schema, só ganha essa regra de preenchimento na app. Reversível
+sem migration nova se o comportamento não agradar na prática.
 
 **Serve também pro sinal de "parceiro inativo" no grupo** (spec §8): o grupo é
 um contato no Chatwoot — mesma tabela, mesmo vínculo; a UI checa
@@ -199,7 +200,3 @@ não duplicar.
 
 Nenhuma permissão nova (`SYSTEM_MODULES`/`divisoes.ts`/`permissions.ts`) — tudo
 sob `conversas`/`central-conversas` já existentes.
-
-**Decisão pra confirmar antes de aplicar:** o preenchimento automático de
-`chat_conversa_meta` a partir de `chat_contato_meta` na criação da conversa
-(seção 1) — ok assim, ou prefere outra regra?
