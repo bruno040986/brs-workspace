@@ -239,7 +239,13 @@ export async function getNvtiLimites(): Promise<NvtiLimitesState> {
   const admin = await createAdminClient()
   const config = await getNvtiConfig()
 
-  const { data: users } = await admin.from('users').select('id, name, email').order('name', { ascending: true })
+  // Só usuários ATIVOS (mesma regra da tela de Usuários: `active !== false`);
+  // inativo com teto antigo continua no banco, só some da lista.
+  const { data: users } = await admin
+    .from('users')
+    .select('id, name, email')
+    .or('active.is.null,active.eq.true')
+    .order('name', { ascending: true })
   const { data: limits } = await admin.from('nvti_user_limits').select('user_id, monthly_cap_brl')
   const capOverrides = new Map((limits || []).map((row) => [String(row.user_id), Number(row.monthly_cap_brl)]))
 
@@ -315,15 +321,18 @@ export async function setNvtiUserCap(userId: string, newCap: number | null): Pro
     .maybeSingle()
   const oldValue = existing ? Number(existing.monthly_cap_brl) : null
 
+  // Erro do banco sobe (antes era engolido: a UI dizia "atualizado" sem gravar).
   if (newCap === null) {
-    await admin.from('nvti_user_limits').delete().eq('user_id', userId)
+    const { error } = await admin.from('nvti_user_limits').delete().eq('user_id', userId)
+    if (error) throw new Error(`Falha ao remover o teto: ${error.message}`)
   } else {
     const cap = Number(newCap)
     if (!Number.isFinite(cap) || cap < 0) throw new Error('Informe um valor válido para o teto do usuário.')
-    await admin.from('nvti_user_limits').upsert(
+    const { error } = await admin.from('nvti_user_limits').upsert(
       { user_id: userId, monthly_cap_brl: cap, updated_by: user.id, updated_at: new Date().toISOString() },
       { onConflict: 'user_id' },
     )
+    if (error) throw new Error(`Falha ao gravar o teto: ${error.message}`)
   }
 
   const config = await getNvtiConfig()
