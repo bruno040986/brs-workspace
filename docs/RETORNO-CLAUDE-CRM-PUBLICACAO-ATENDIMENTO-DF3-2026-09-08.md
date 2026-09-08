@@ -35,8 +35,13 @@ alternativa. O item permanece em aberto para a solução estrutural (mirror
 de status/assignee em `chat_conversas`) descrita no mesmo documento; nenhum
 código novo foi escrito para o contador nesta rodada.
 
-## Próximo passo
+## Verificação no navegador — bloqueada por falta de login
 
-Após confirmar o deploy, vou eu mesmo abrir o Atendimento e as conversas de
-final 6019 e 2537 (sem enviar mensagem nova) para conferir mensagens no
-centro e fotos disponíveis, como Bruno pediu.
+Tentei abrir `alvoconsig.brspromotora.com.br/crm/atendimento` num navegador
+de verdade (Playwright) após o deploy confirmado. Fui redirecionado pro SSO
+(`parceiro.brspromotora.com.br/login`) — não há sessão ativa e eu não
+tenho (nem devo obter) credencial de usuário do CRM pra entrar. Não tentei
+nenhum contorno. A conferência das conversas de final 6019 e 2537 (mensagens
+no centro, fotos disponíveis) depende de alguém com login válido — Bruno,
+como ele mesmo já havia previsto como possibilidade ("você poderá testar
+depois que o Claude publicar").
