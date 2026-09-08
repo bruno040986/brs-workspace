@@ -223,8 +223,54 @@ export function NvtiUsageCard({ canEditLimites }: { canEditLimites: boolean }) {
                 </button>
               </div>
               <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', marginTop: '0.5rem' }}>
-                Toda alteração de limite fica registrada em auditoria. O teto individual é ajustado por usuário na
-                tabela acima.
+                Toda alteração de limite fica registrada em auditoria.
+              </div>
+
+              {/* Teto individual: TODOS os usuários do Workspace (não só quem consultou no mês —
+                  a tabela de consumo acima só lista quem gastou, e usuário sem consulta ficava
+                  sem como receber um teto). Vazio = usa o padrão. */}
+              <div style={{ marginTop: '1.25rem', fontWeight: 700, color: 'var(--brs-gray-800)', fontSize: '0.9rem' }}>Teto individual por usuário</div>
+              <div style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', margin: '0.25rem 0 0.5rem' }}>
+                Sobrescreve o teto padrão só para aquele usuário. Deixar vazio ao ajustar volta ao padrão ({brl(limites.defaultUserCap)}).
+              </div>
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Usuário</th>
+                      <th>Gasto no mês</th>
+                      <th>Teto</th>
+                      <th style={{ textAlign: 'right' }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {limites.users.map((u) => (
+                      <tr key={u.userId}>
+                        <td>{u.name}</td>
+                        <td>{brl(u.spend)}</td>
+                        <td>
+                          {u.cap === null ? (
+                            <span style={{ color: 'var(--brs-gray-400)' }}>padrão ({brl(limites.defaultUserCap)})</span>
+                          ) : (
+                            <strong>{brl(u.cap)}</strong>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleUserCap(u.userId, u.cap)}>
+                            {u.cap === null ? 'Definir teto' : 'Ajustar teto'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {limites.users.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--brs-gray-400)', padding: '1rem' }}>
+                          Nenhum usuário encontrado.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
               </div>
             </div>
           ) : null}
