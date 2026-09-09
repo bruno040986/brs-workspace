@@ -69,11 +69,41 @@ fecha. Esta é uma ocorrência NOVA e separada da anterior (wa_id
 `3EB09AD2B9878C3BA2B127`, que Bruno confirmou ter ficado legível); não
 estou generalizando estabilidade a partir de nenhuma das duas.
 
+## Atualização — legibilidade confirmada (09/09/2026, após o Bruno acompanhar)
+
+Bruno confirmou: a mensagem 385 ficou legível às **14:06 Brasília / 17:06
+UTC**, cerca de 3 minutos depois do envio (17:03:15.789 UTC). Registrado
+como **recuperação tardia** — não como recuperação normal nem como falha
+sem solução: houve entrega eventual, mas fora do tempo adequado pra
+atendimento.
+
+O horário coincide com a 3ª e última consulta de `getMessage` (17:06:00.69
+UTC) — mas essa coincidência **não comprova** que foi aquela tentativa
+específica que resolveu. `getMessage` só prova que o conteúdo estava no
+nosso cache no momento do pedido, não que o `relayMessage` daquele pedido
+foi o que finalmente decifrou no aparelho; poderia ter sido essa tentativa,
+uma renovação de sessão acumulada ao longo das 3, ou outro fator do lado
+do aparelho não observável por este logger. A causa do atraso de ~3
+minutos continua em investigação — nada aqui identifica uma causa raiz,
+só o intervalo e a sequência de eventos observados.
+
+Como já registrado: o cache nunca esteve vazio (`encontrado: true` nas 3
+consultas) — falta de conteúdo no cache está descartada como explicação
+desta ocorrência. O ack "entregue" às 17:03:18.7 UTC não comprovou
+legibilidade (chegaram mais 2 pedidos de recuperação depois dele). A
+ausência de "lido" na tabela de status, isoladamente, também não permite
+concluir falha — o Chatwoot/nossa tabela de status não captura leitura
+de retry tardio fora do fluxo normal de ack; a confirmação real veio do
+Bruno observando o aparelho, não de um sinal do protocolo.
+
 ## Pendências
 
-Aguardando confirmação do Bruno se/quando a mensagem 385 ficar legível no
-celular, com horário, pra medir o tempo de recuperação. A instrumentação
-corrigida (rodada 2, commit `3587f4b`) segue aguardando revisão antes de
-publicar — quando publicada, uma ocorrência como esta (3 pedidos de
-recuperação pro mesmo wa_id) teria log explícito de início/erro/abandono
-de cada reenvio, o que falta hoje.
+Causa do atraso de ~3 minutos nesta ocorrência: em investigação, sem
+identificação de causa raiz até agora. A instrumentação corrigida (rodada
+2, commit `3587f4b`) segue aguardando revisão do Bruno antes de publicar
+— sem reenvio da mensagem 385 nem reconexão da instância 2043 enquanto
+isso. Quando publicada, uma ocorrência como esta (3 pedidos de
+recuperação pro mesmo wa_id, ~3 min de atraso) teria log explícito de
+início/erro/abandono de cada reenvio, o que falta hoje — pode ajudar a
+isolar em qual tentativa (ou se em nenhuma delas) a entrega de fato
+completou.
