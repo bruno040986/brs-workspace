@@ -9,6 +9,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
+import { normalizarUrl } from '@/lib/url-site'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,6 +37,10 @@ export type ConvenioRecord = {
   cidade?: string | null
   uf?: string | null
   cep?: string | null
+  averbadora_id?: string | null
+  averbadora_nome?: string // derivado, só leitura
+  site_averbador?: string | null
+  tipo_autenticacao_id?: string | null
   is_active?: boolean
 }
 
@@ -44,7 +49,9 @@ export async function getConvenios() {
     await requirePermission(PERMISSION_RESOURCE)
     const { data, error } = await supabaseAdmin
       .from('convenios')
-      .select('id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome))')
+      .select(
+        'id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)',
+      )
       .is('deleted_at', null)
       .order('is_active', { ascending: false })
       .order('nome', { ascending: true })
@@ -54,6 +61,7 @@ export async function getConvenios() {
       tipo_convenio_nome: r.tipo?.nome || '',
       // esfera efetiva: deriva do tipo; cai no texto legado se ainda sem tipo
       esfera: r.tipo?.esfera?.nome || r.esfera || '',
+      averbadora_nome: r.averbadora?.nome || '',
     }))
     return { success: true, items }
   } catch (error: any) {
@@ -90,6 +98,19 @@ export async function saveConvenio(payload: ConvenioRecord) {
     if (!tipoRow) return { success: false, error: 'Tipo de convênio inválido.' }
     const esfera = String((tipoRow as any).esfera?.nome || '').toLowerCase()
 
+    // Vínculo com averbadora só faz sentido junto da averbadora escolhida —
+    // sem averbadora_id, site/tipo de autenticação não têm a quem se referir.
+    const averbadoraId = String(payload.averbadora_id || '').trim() || null
+    let siteAverbador: string | null = null
+    let tipoAutenticacaoId: string | null = null
+    if (averbadoraId) {
+      const siteBruto = String(payload.site_averbador || '').trim()
+      // site_averbador é texto livre e pode REPETIR entre convênios (subdomínio
+      // próprio ou URL compartilhada) — só normaliza o formato, nunca valida unicidade.
+      siteAverbador = siteBruto ? normalizarUrl(siteBruto) : null
+      tipoAutenticacaoId = String(payload.tipo_autenticacao_id || '').trim() || null
+    }
+
     const row = {
       nome,
       nome_reduzido: nomeReduzido,
@@ -101,6 +122,9 @@ export async function saveConvenio(payload: ConvenioRecord) {
       cidade: String(payload.cidade || '').trim() || null,
       uf: String(payload.uf || '').trim().toUpperCase().slice(0, 2) || null,
       cep: onlyDigitsOrNull(payload.cep),
+      averbadora_id: averbadoraId,
+      site_averbador: siteAverbador,
+      tipo_autenticacao_id: tipoAutenticacaoId,
       updated_at: new Date().toISOString(),
     }
 

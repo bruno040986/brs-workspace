@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
 import { maskCep, maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
 import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
+import { normalizarUrl } from '@/lib/url-site'
+import { getAverbadorasAtivas, getTiposAutenticacaoAtivos, type Averbadora, type TipoAutenticacao } from '../averbadoras/actions'
 import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
 import { getTiposAtivos, type TipoConvenio } from './cadastros-actions'
 
@@ -21,6 +23,10 @@ type ConvenioItem = {
   cidade: string | null
   uf: string | null
   cep: string | null
+  averbadora_id: string | null
+  averbadora_nome?: string
+  site_averbador: string | null
+  tipo_autenticacao_id: string | null
   is_active: boolean
 }
 
@@ -38,6 +44,8 @@ export default function ConveniosPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [esferaFilter, setEsferaFilter] = useState('all')
   const [tipos, setTipos] = useState<TipoConvenio[]>([])
+  const [averbadoras, setAverbadoras] = useState<Averbadora[]>([])
+  const [tiposAutenticacao, setTiposAutenticacao] = useState<TipoAutenticacao[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<Partial<ConvenioRecord> | null>(null)
   const [saving, setSaving] = useState(false)
@@ -59,6 +67,8 @@ export default function ConveniosPage() {
   useEffect(() => {
     loadData()
     getTiposAtivos().then(setTipos).catch(() => setTipos([]))
+    getAverbadorasAtivas().then(setAverbadoras).catch(() => setAverbadoras([]))
+    getTiposAutenticacaoAtivos().then(setTiposAutenticacao).catch(() => setTiposAutenticacao([]))
   }, [])
 
   // Esferas distintas disponíveis (a partir dos tipos ativos) para o filtro.
@@ -85,7 +95,10 @@ export default function ConveniosPage() {
   }, [tipos, editing?.tipo_convenio_id])
 
   function openNew() {
-    setEditing({ nome: '', nome_reduzido: '', codigo: '', tipo_convenio_id: '', cnpj: '', razao_social: '', cidade: '', uf: '', cep: '' })
+    setEditing({
+      nome: '', nome_reduzido: '', codigo: '', tipo_convenio_id: '', cnpj: '', razao_social: '', cidade: '', uf: '', cep: '',
+      averbadora_id: '', site_averbador: '', tipo_autenticacao_id: '',
+    })
     setIsModalOpen(true)
   }
 
@@ -102,8 +115,47 @@ export default function ConveniosPage() {
       cidade: item.cidade || '',
       uf: item.uf || '',
       cep: item.cep || '',
+      averbadora_id: item.averbadora_id || '',
+      averbadora_nome: item.averbadora_nome || '',
+      site_averbador: item.site_averbador || '',
+      tipo_autenticacao_id: item.tipo_autenticacao_id || '',
     })
     setIsModalOpen(true)
+  }
+
+  // Seletor de averbadora: lista das ativas + a do próprio registro se ela já
+  // tiver sido inativada depois do vínculo (senão o select "perde" a seleção).
+  const averbadorasParaSelect = useMemo(() => {
+    const id = editing?.averbadora_id
+    if (!id || averbadoras.some((a) => a.id === id)) return averbadoras
+    return [...averbadoras, { id, nome: editing?.averbadora_nome || '(averbadora inativa)', cnpj: '', razao_social: '', site_institucional: null, is_active: false }]
+  }, [averbadoras, editing?.averbadora_id, editing?.averbadora_nome])
+
+  const tiposAutenticacaoParaSelect = useMemo(() => {
+    const id = editing?.tipo_autenticacao_id
+    if (!id || tiposAutenticacao.some((t) => t.id === id)) return tiposAutenticacao
+    return [...tiposAutenticacao, { id, tipo: '(tipo inativo)', vigencia_horas: 0, is_active: false }]
+  }, [tiposAutenticacao, editing?.tipo_autenticacao_id])
+
+  function handleAverbadoraChange(averbadoraId: string) {
+    setEditing((prev) => {
+      if (!prev) return prev
+      if (!averbadoraId) return { ...prev, averbadora_id: '', site_averbador: '', tipo_autenticacao_id: '' }
+      // Sugere o site institucional da averbadora só se o campo ainda estiver vazio.
+      const jaTinhaSite = String(prev.site_averbador || '').trim()
+      const averbadora = averbadoras.find((a) => a.id === averbadoraId)
+      return { ...prev, averbadora_id: averbadoraId, site_averbador: jaTinhaSite || averbadora?.site_institucional || '' }
+    })
+  }
+
+  function handleSiteAverbadorBlur() {
+    if (!editing?.site_averbador?.trim()) return
+    try {
+      const normalizada = normalizarUrl(editing.site_averbador)
+      setEditing((prev) => (prev ? { ...prev, site_averbador: normalizada } : prev))
+    } catch {
+      // deixa como digitado — o erro real aparece ao tentar salvar
+    }
   }
 
   async function fillByCnpj() {
@@ -159,6 +211,9 @@ export default function ConveniosPage() {
         cidade: String(editing.cidade || ''),
         uf: String(editing.uf || ''),
         cep: String(editing.cep || ''),
+        averbadora_id: editing.averbadora_id || null,
+        site_averbador: editing.site_averbador || null,
+        tipo_autenticacao_id: editing.tipo_autenticacao_id || null,
       })
       if (res.success) {
         setIsModalOpen(false)
@@ -470,6 +525,53 @@ export default function ConveniosPage() {
                       />
                     </div>
                   </div>
+                </div>
+
+                <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brs-gray-500)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    Averbadora (opcional)
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Averbadora</label>
+                    <select
+                      className="form-control"
+                      value={editing?.averbadora_id || ''}
+                      onChange={(e) => handleAverbadoraChange(e.target.value)}
+                    >
+                      <option value="">Sem averbadora</option>
+                      {averbadorasParaSelect.map((a) => (
+                        <option key={a.id} value={a.id}>{a.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {editing?.averbadora_id && (
+                    <div className="form-grid form-grid-2" style={{ marginTop: '0.75rem' }}>
+                      <div className="form-group">
+                        <label className="form-label">Site Averbador</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Ex.: formosa.neoconsig.com.br"
+                          value={editing?.site_averbador || ''}
+                          onChange={(e) => setEditing({ ...editing, site_averbador: e.target.value })}
+                          onBlur={handleSiteAverbadorBlur}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Tipo de Autenticação</label>
+                        <select
+                          className="form-control"
+                          value={editing?.tipo_autenticacao_id || ''}
+                          onChange={(e) => setEditing({ ...editing, tipo_autenticacao_id: e.target.value })}
+                        >
+                          <option value="">Selecione…</option>
+                          {tiposAutenticacaoParaSelect.map((t) => (
+                            <option key={t.id} value={t.id}>{t.tipo}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="modal-footer">

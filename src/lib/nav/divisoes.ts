@@ -120,7 +120,14 @@ export const NAV_DIVISOES: NavDivisao[] = [
         ],
       },
       { label: 'Promotoras', href: '/promotoras', perms: [view('promotoras')] },
-      { label: 'Averbadoras', href: '#averbadoras', soon: true, perms: [view('sistema-config-instituicoes')] },
+      {
+        label: 'Averbadoras',
+        href: '/averbadoras',
+        perms: [view('workspace-averbadoras')],
+        children: [
+          { label: 'Tipos de Autenticação', href: '/averbadoras/tipos-autenticacao', perms: [view('workspace-averbadoras')] },
+        ],
+      },
       {
         label: 'Comerciais',
         href: '/rh/parceiros/config/comercial',
