@@ -27,8 +27,19 @@ const CAMPO_LABEL: Record<string, string> = {
   address_state: 'UF',
   phone_whatsapp: 'WhatsApp principal',
   phone_whatsapp_financeiro: 'WhatsApp financeiro',
+  phone_commercial: 'Telefone comercial',
+  phone_support: 'Telefone suporte',
   email_comissao: 'E-mail (comissão)',
   email_financeiro: 'E-mail financeiro',
+  email_informe: 'E-mail de informes',
+  email_juridico: 'E-mail jurídico',
+  email_mesa_liberacao: 'E-mail mesa de liberação',
+}
+
+const TIPO_LABEL: Record<string, string> = {
+  bancario: 'Dados Bancários',
+  contato: 'Dados de Contato',
+  cadastral: 'Dados Cadastrais',
 }
 
 function formatarValor(v: unknown): string {
@@ -79,7 +90,7 @@ export function SolicitacaoDetalheClient({
       </Link>
       <h1>Solicitação — {item.agenteParceiroNome}</h1>
       <p>
-        Tipo: <strong>{item.tipo === 'bancario' ? 'Dados Bancários' : 'Dados Cadastrais'}</strong> · Status:{' '}
+        Tipo: <strong>{TIPO_LABEL[item.tipo] ?? item.tipo}</strong> · Status:{' '}
         <strong>{item.status}</strong>
       </p>
 
