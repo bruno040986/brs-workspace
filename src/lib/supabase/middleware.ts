@@ -169,6 +169,9 @@ export async function updateSession(request: NextRequest) {
     '/api/nvti/interno',
     // Consulta CPF paga do CRM AlvoConsig (também NVTI_SERVICE_TOKEN no handler).
     '/api/nvti/parceiro-consulta',
+    // Autentica por PORTAL_SERVICE_TOKEN no handler (chamada servidor-a-servidor do
+    // Portal Parceiro, sem cookie de sessão — isPortalServiceAuthorized, fail-closed).
+    '/api/agente-corban/meus-dados',
   ]
   const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {
