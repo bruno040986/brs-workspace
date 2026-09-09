@@ -273,6 +273,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'API Nuvidio', href: '/rh/parceiros/config/provedores/nuvidio', perms: [view('sistema-config-nuvidio')] },
           { label: 'API QuarkRH', href: '/rh/parceiros/config/provedores/quarkrh', perms: [view('sistema-config-quarkrh')] },
           { label: 'APIs de Instituições Financeiras de Crédito', href: '/rh/parceiros/config/provedores/if-credito', perms: [view('sistema-config-if-credito')] },
+          { label: 'Motor de Crédito (MySQL)', href: '/rh/parceiros/config/provedores/motor-credito', perms: [view('sistema-config-motor-credito')] },
           { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', perms: [view('sistema-config-gateways')] },
           { label: 'CNAE', href: '/rh/parceiros/config/provedores/cnae', perms: [view('sistema-config-cnae')] },
           { label: 'CTN', href: '/rh/parceiros/config/provedores/ctn', perms: [view('sistema-config-ctn')] },

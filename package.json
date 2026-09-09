@@ -24,6 +24,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^1.14.0",
+    "mysql2": "^3.24.4",
     "next": "16.2.6",
     "pdf2json": "^4.0.3",
     "qrcode.react": "^4.2.0",
