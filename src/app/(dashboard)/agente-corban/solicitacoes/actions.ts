@@ -33,17 +33,27 @@ const CAMPOS_CADASTRAL = [
   'address_neighborhood',
   'address_city',
   'address_state',
+] as const
+const CAMPOS_CONTATO = [
   'phone_whatsapp',
+  'phone_whatsapp_financeiro',
+  'phone_commercial',
+  'phone_support',
   'email_comissao',
+  'email_financeiro',
+  'email_informe',
+  'email_juridico',
+  'email_mesa_liberacao',
 ] as const
 
-type CampoPermitido = (typeof CAMPOS_BANCARIO)[number] | (typeof CAMPOS_CADASTRAL)[number]
+type TipoSolicitacao = 'cadastral' | 'bancario' | 'contato'
+type CampoPermitido = (typeof CAMPOS_BANCARIO)[number] | (typeof CAMPOS_CADASTRAL)[number] | (typeof CAMPOS_CONTATO)[number]
 
 function filtrarCamposPermitidos(
-  tipo: 'cadastral' | 'bancario',
+  tipo: TipoSolicitacao,
   solicitados: Record<string, unknown>
 ): Partial<Pick<AgenteCorbanDraft, CampoPermitido>> {
-  const permitidos: readonly string[] = tipo === 'bancario' ? CAMPOS_BANCARIO : CAMPOS_CADASTRAL
+  const permitidos: readonly string[] = tipo === 'bancario' ? CAMPOS_BANCARIO : tipo === 'contato' ? CAMPOS_CONTATO : CAMPOS_CADASTRAL
   const resultado: Record<string, string> = {}
   for (const chave of permitidos) {
     const valor = solicitados[chave]
@@ -56,7 +66,7 @@ export type SolicitacaoListItem = {
   id: string
   agenteParceiroId: string
   agenteParceiroNome: string
-  tipo: 'cadastral' | 'bancario'
+  tipo: TipoSolicitacao
   status: 'pendente' | 'aprovada' | 'reprovada'
   createdAt: string
 }
@@ -76,7 +86,7 @@ export async function getSolicitacoesList(): Promise<{ success: boolean; items: 
       id: r.id as string,
       agenteParceiroId: r.agente_parceiro_id as string,
       agenteParceiroNome: (r as { agente?: { name?: string } }).agente?.name ?? '—',
-      tipo: r.tipo as 'cadastral' | 'bancario',
+      tipo: r.tipo as TipoSolicitacao,
       status: r.status as 'pendente' | 'aprovada' | 'reprovada',
       createdAt: r.created_at as string,
     }))
@@ -90,7 +100,7 @@ export type SolicitacaoDetalhe = {
   id: string
   agenteParceiroId: string
   agenteParceiroNome: string
-  tipo: 'cadastral' | 'bancario'
+  tipo: TipoSolicitacao
   status: 'pendente' | 'aprovada' | 'reprovada'
   dadosAtuais: Record<string, unknown>
   dadosSolicitados: Record<string, unknown>
@@ -170,7 +180,7 @@ export async function aprovarSolicitacao(id: string): Promise<{ success: boolean
     if (!agenteRow) return { success: false, error: 'Agente Corban não encontrado.' }
 
     const camposAprovados = filtrarCamposPermitidos(
-      solicitacao.tipo as 'cadastral' | 'bancario',
+      solicitacao.tipo as TipoSolicitacao,
       (solicitacao.dados_solicitados ?? {}) as Record<string, unknown>
     )
     if (Object.keys(camposAprovados).length === 0) {

@@ -17,6 +17,7 @@ const STATUS_BADGE: Record<SolicitacaoListItem['status'], string> = {
 const TIPO_LABEL: Record<SolicitacaoListItem['tipo'], string> = {
   cadastral: 'Dados Cadastrais',
   bancario: 'Dados Bancários',
+  contato: 'Dados de Contato',
 }
 
 export function SolicitacoesListClient({ initialItems }: { initialItems: SolicitacaoListItem[] }) {
