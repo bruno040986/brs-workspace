@@ -23,6 +23,10 @@ const CAMPOS_BANCARIO = [
   'pix_type',
   'pix_key',
 ] as const
+// REGRA DE NEGÓCIO (não remover 'cpf_cnpj' daqui por engano): CNPJ (PJ) e o
+// CPF principal (PF) NUNCA entram nessa whitelist. Trocar o CNPJ/CPF que
+// identifica o cadastro representa abrir um cadastro NOVO, não atualizar o
+// existente — não é uma correção cabível neste fluxo de autoatendimento.
 const CAMPOS_CADASTRAL = [
   'name',
   'fantasy_name',
