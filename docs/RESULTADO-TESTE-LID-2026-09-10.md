@@ -35,13 +35,47 @@ aceite pelo servidor.
 O WhatsApp Web mostrar na hora nas DUAS é coerente: é outro dispositivo,
 com sessão própria, e não é ele que está no espaço LID.
 
-## Limite do que foi provado
+## Segundo destino: o problema NÃO é universal (21:30 UTC)
 
-Um aparelho, um número, uma instância. O mecanismo está demonstrado; a
-generalização para todo cliente é inferência razoável (o LID é como o
-WhatsApp identifica contatos hoje), não medição. Repetir com um segundo
-número — de preferência de alguém que não seja o Bruno — antes de mudar
-o endereçamento de todos os envios é barato e vale a pena.
+Repetido para `5561981617033` (o aparelho da instância 7033), pela mesma
+instância remetente:
+
+| | A — por telefone | B — por LID |
+|---|---|---|
+| destino | `556181617033@s.whatsapp.net` | `65576298897572@lid` |
+| waId | `3EB0B68964E07F1241E546` | `3EB063F67E8830AD18AA2C` |
+| pedidos de retry | **nenhum** | **nenhum** |
+| no aparelho | imediata, e marcada como LIDA | imediata, e marcada como LIDA |
+
+Ou seja: endereçar por telefone funcionou perfeitamente aqui. A
+conclusão da seção anterior estava certa no mecanismo, mas incompleta na
+abrangência — o defeito não atinge todo destino.
+
+**A diferença observada entre os dois destinos**: o celular do Bruno tem
+WhatsApp Web vinculado; o do 7033 não (informado por ele no momento do
+teste). Isso é coerente com o mecanismo: com dispositivos companheiros,
+`relayMessage` precisa cifrar para VÁRIOS devices do destinatário, e é aí
+que a divergência entre espaço PN e espaço LID passa a produzir sessão
+errada para algum deles. Com um único dispositivo, não há divergência a
+produzir.
+
+**Atenção — isto é correlação de duas medições, não causa provada.**
+Outras diferenças entre os aparelhos não foram controladas (versão do
+app, histórico de re-pareamento, quantidade de devices já vinculados).
+
+### Teste que fecharia esta parte
+
+Vincular o WhatsApp Web no 7033 e repetir SÓ o braço A. Se passar a dar
+"aguardando" com retry, a variável está isolada. É barato, reversível
+(desvincula depois) e usa o script que já existe.
+
+## O que já está firme
+
+- Endereçar por LID funcionou nos DOIS destinos, sem retry nenhum.
+- Endereçar por telefone falha em pelo menos um destino real, de forma
+  reprodutível, e o modo de falha é exatamente o descrito no achado.
+- O ack `entregue` não significa entrega ao aparelho — significa aceite
+  pelo servidor. Isso vale para todos os envios, sempre.
 
 ## Encaminhamento
 
