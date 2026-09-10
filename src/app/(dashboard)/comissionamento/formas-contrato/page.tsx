@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, FileText, Loader2, Plus, Power, PowerOff, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Edit2, FileText, Loader2, MessageCircleQuestion, Plus, Power, PowerOff, X } from 'lucide-react'
 import { ORIGENS_MARGEM, origemMargemLabel } from '@/lib/comissionamento'
+import FaqEditor from '@/components/faq/FaqEditor'
 import { getComissionamentoLookups, saveFormaContrato, setFormaContratoAtiva } from '../actions'
 
 type FormaContrato = { id: string; nome: string; codigo_arw: string | null; origem_margem: string; is_active: boolean }
@@ -16,6 +17,7 @@ export default function FormasContratoPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<Partial<FormaContrato> | null>(null)
   const [saving, setSaving] = useState(false)
+  const [faqItem, setFaqItem] = useState<FormaContrato | null>(null)
 
   async function loadData() {
     setLoading(true)
@@ -135,6 +137,7 @@ export default function FormasContratoPage() {
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit2 size={15} /></button>
+                      <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => setFaqItem(item)} title="FAQ" aria-label="FAQ"><MessageCircleQuestion size={15} /></button>
                       <button type="button" className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id} title={item.is_active ? 'Inativar' : 'Ativar'} aria-label={item.is_active ? 'Inativar' : 'Ativar'}>
                         {busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}
                       </button>
@@ -178,6 +181,20 @@ export default function FormasContratoPage() {
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? <Loader2 size={16} className="spinner" /> : null}Salvar</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {faqItem && (
+        <div className="modal-backdrop" onClick={() => setFaqItem(null)}>
+          <div className="modal" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">FAQ — {faqItem.nome}</h3>
+              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setFaqItem(null)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <FaqEditor escopo="geral" entidadeTipo="forma_contrato" entidadeId={faqItem.id} titulo={`FAQ (regra geral) — ${faqItem.nome}`} />
+            </div>
           </div>
         </div>
       )}

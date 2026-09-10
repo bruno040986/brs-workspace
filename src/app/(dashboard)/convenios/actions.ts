@@ -72,19 +72,32 @@ export async function getConvenios() {
     if (error) throw error
 
     const ids = (data || []).map((r: any) => r.id)
-    const [{ data: pubRows }, { data: formaRows }, { data: instRows }] = await Promise.all([
-      ids.length ? supabaseAdmin.from('convenio_publicos').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
-      ids.length ? supabaseAdmin.from('convenio_formas_contrato').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
-      ids.length ? supabaseAdmin.from('convenio_instituicoes').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
-    ])
+    const [{ data: pubRows }, { data: formaRows }, { data: instRows }, { data: decretoRows }, { data: faqPropriaRows }, { data: faqVinculoRows }] =
+      await Promise.all([
+        ids.length ? supabaseAdmin.from('convenio_publicos').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+        ids.length ? supabaseAdmin.from('convenio_formas_contrato').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+        ids.length ? supabaseAdmin.from('convenio_instituicoes').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+        ids.length
+          ? supabaseAdmin.from('convenio_documentos').select('convenio_id').eq('tipo', 'decreto').eq('is_active', true).in('convenio_id', ids)
+          : Promise.resolve({ data: [] as any[] }),
+        ids.length
+          ? supabaseAdmin.from('faq_itens').select('convenio_id').eq('escopo', 'convenio').eq('status', 'ativo').in('convenio_id', ids)
+          : Promise.resolve({ data: [] as any[] }),
+        ids.length ? supabaseAdmin.from('convenio_faq_vinculos').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+      ])
     const setPub = new Set((pubRows || []).map((r: any) => r.convenio_id))
     const setForma = new Set((formaRows || []).map((r: any) => r.convenio_id))
     const setInst = new Set((instRows || []).map((r: any) => r.convenio_id))
+    const setDecreto = new Set((decretoRows || []).map((r: any) => r.convenio_id))
+    const setFaq = new Set([
+      ...(faqPropriaRows || []).map((r: any) => r.convenio_id),
+      ...(faqVinculoRows || []).map((r: any) => r.convenio_id),
+    ])
 
     const items = (data || []).map((r: any) => {
       const temGeral = r.max_comprometimento_salarial != null || r.prazo_minimo_geral != null || r.prazo_maximo_geral != null
-      const bc_score =
-        (setPub.has(r.id) ? 25 : 0) + (setForma.has(r.id) ? 25 : 0) + (setInst.has(r.id) ? 25 : 0) + (temGeral ? 25 : 0)
+      const pilares = [temGeral, setPub.has(r.id), setForma.has(r.id), setInst.has(r.id), setDecreto.has(r.id), setFaq.has(r.id)]
+      const bc_score = Math.round((100 * pilares.filter(Boolean).length) / pilares.length)
       return { ...mapConvenioRow(r), bc_score }
     })
     return { success: true, items }

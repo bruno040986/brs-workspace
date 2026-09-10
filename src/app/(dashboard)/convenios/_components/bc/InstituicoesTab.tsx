@@ -11,6 +11,7 @@ import {
   type InstituicaoAtiva,
 } from '../../bc-actions'
 import { salvarOrgao, type OrgaoEmpregador, type PublicoAtendido } from '../../cadastros-actions'
+import DocumentosLista from './DocumentosLista'
 
 function novaLinha(financialInstitutionId: string): ConvenioBcInstituicao {
   return {
@@ -313,6 +314,17 @@ export default function InstituicoesTab({
             <div className="form-group">
               <label className="form-label">Canais de Quitação</label>
               <CanaisQuitacaoInput value={linha.canais_quitacao} onChange={(next) => atualizarLinha(idx, { canais_quitacao: next })} />
+            </div>
+
+            <div className="form-group" style={{ marginTop: '0.75rem' }}>
+              <label className="form-label">Roteiro Operacional</label>
+              {linha.id ? (
+                <DocumentosLista convenioId={convenioId} tipo="roteiro" convenioInstituicaoId={linha.id} titulo="Roteiro Operacional" />
+              ) : (
+                <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem' }}>
+                  Salve as instituições para anexar o roteiro operacional desta.
+                </div>
+              )}
             </div>
 
             <div className="form-group" style={{ marginTop: '0.75rem' }}>

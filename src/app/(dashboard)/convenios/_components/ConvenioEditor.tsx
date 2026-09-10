@@ -9,10 +9,13 @@ import {
   Building2,
   CheckCircle,
   ChevronLeft,
+  FileStack,
   FileText,
   Landmark,
   Loader2,
+  MessageCircleQuestion,
   Save,
+  ScrollText,
   Users,
 } from 'lucide-react'
 import { maskCep, maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
@@ -30,13 +33,15 @@ import {
   type TipoConvenio,
 } from '../cadastros-actions'
 import { getConvenioBc, getFormasContratoAtivas, getInstituicoesAtivas, type ConvenioBc, type FormaContratoAtiva, type InstituicaoAtiva } from '../bc-actions'
+import DocumentosLista from './bc/DocumentosLista'
+import FaqTab from './bc/FaqTab'
 import FormasTab from './bc/FormasTab'
 import InstituicoesTab from './bc/InstituicoesTab'
 import OrgaosRestricoesTab from './bc/OrgaosRestricoesTab'
 import PublicoTab from './bc/PublicoTab'
 
 type AbaPrincipal = 'dados' | 'bc'
-type SubAbaBc = 'publico' | 'formas' | 'instituicoes' | 'orgaos'
+type SubAbaBc = 'publico' | 'formas' | 'instituicoes' | 'orgaos' | 'decretos' | 'faq' | 'documentos'
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
@@ -557,6 +562,9 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
               { key: 'formas', label: 'Formas & Margens', icon: FileText },
               { key: 'instituicoes', label: 'Instituições', icon: Landmark },
               { key: 'orgaos', label: 'Órgãos / Restrições', icon: Briefcase },
+              { key: 'decretos', label: 'Decretos', icon: ScrollText },
+              { key: 'faq', label: 'FAQ', icon: MessageCircleQuestion },
+              { key: 'documentos', label: 'Documentos', icon: FileStack },
             ].map((tab) => {
               const Icon = tab.icon
               return (
@@ -588,6 +596,18 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
             />
           )}
           {subAba === 'orgaos' && <OrgaosRestricoesTab convenioId={dados.id} bc={bc} orgaosTodos={orgaosTodos} instituicoesAtivas={instituicoesAtivas} />}
+          {subAba === 'decretos' && <DocumentosLista convenioId={dados.id} tipo="decreto" titulo="Decretos" />}
+          {subAba === 'faq' && (
+            <FaqTab
+              convenioId={dados.id}
+              bc={bc}
+              instituicoesAtivas={instituicoesAtivas}
+              formasAtivas={formasAtivas}
+              averbadoraId={dados.averbadora_id}
+              averbadoraNome={dados.averbadora_nome}
+            />
+          )}
+          {subAba === 'documentos' && <DocumentosLista convenioId={dados.id} tipo="outro" titulo="Outros Documentos" />}
         </div>
       )}
     </div>

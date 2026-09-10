@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Building2, CheckCircle, Edit2, ExternalLink, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle, Edit2, ExternalLink, Loader2, MessageCircleQuestion, Plus, Power, PowerOff, Search, X } from 'lucide-react'
 import { maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
 import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
 import { normalizarUrl } from '@/lib/url-site'
+import FaqEditor from '@/components/faq/FaqEditor'
 import { getAverbadoras, salvarAverbadora, setAverbadoraStatus, type Averbadora } from './actions'
 
 type EditingAverbadora = {
@@ -27,6 +28,7 @@ export default function AverbadorasPage() {
   const [editing, setEditing] = useState<EditingAverbadora | null>(null)
   const [saving, setSaving] = useState(false)
   const [consultandoCnpj, setConsultandoCnpj] = useState(false)
+  const [faqItem, setFaqItem] = useState<Averbadora | null>(null)
 
   async function loadData() {
     setLoading(true)
@@ -266,6 +268,9 @@ export default function AverbadorasPage() {
                         <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar">
                           <Edit2 size={15} />
                         </button>
+                        <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => setFaqItem(item)} title="FAQ" aria-label="FAQ">
+                          <MessageCircleQuestion size={15} />
+                        </button>
                         <button
                           type="button"
                           className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`}
@@ -360,6 +365,22 @@ export default function AverbadorasPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {faqItem && (
+        <div className="modal-backdrop" onClick={() => setFaqItem(null)}>
+          <div className="modal" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">FAQ — {faqItem.nome}</h3>
+              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setFaqItem(null)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <FaqEditor escopo="geral" entidadeTipo="averbadora" entidadeId={faqItem.id} titulo={`FAQ (regra geral) — ${faqItem.nome}`} />
+            </div>
           </div>
         </div>
       )}

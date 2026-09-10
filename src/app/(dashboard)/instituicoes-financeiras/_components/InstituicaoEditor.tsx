@@ -17,6 +17,7 @@ import {
   Headset,
   Link2,
   Loader2,
+  MessageCircleQuestion,
   Package,
   Plug,
   Save,
@@ -25,6 +26,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import FaqEditor from '@/components/faq/FaqEditor'
 import {
   maskCep,
   maskCnpj,
@@ -75,7 +77,7 @@ import {
   setInstituicaoFinanceiraStatus,
 } from '../actions'
 
-type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas' | 'sac' | 'links' | 'negociacoes' | 'produtos' | 'api'
+type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas' | 'sac' | 'links' | 'negociacoes' | 'produtos' | 'api' | 'faq'
 type ContactTab = 'comercial' | 'operacional' | 'redes'
 
 const UFS = [
@@ -796,6 +798,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
           { key: 'negociacoes', label: 'Negociações', icon: Handshake },
           { key: 'produtos', label: 'Produtos e Convênios', icon: Package },
           { key: 'api', label: 'Conexão de API', icon: Plug },
+          ...(item.id ? [{ key: 'faq' as const, label: 'FAQ', icon: MessageCircleQuestion }] : []),
         ].map((tab) => {
           const Icon = tab.icon
           return (
@@ -1550,6 +1553,10 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
           <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)', fontSize: '1.05rem' }}>Produtos e Convênios</div>
           <div style={{ marginTop: '0.4rem' }}>Em breve — aqui você vai cadastrar as modalidades de crédito e os convênios operados com esta instituição.</div>
         </div>
+      )}
+
+      {activeTab === 'faq' && item.id && (
+        <FaqEditor escopo="geral" entidadeTipo="instituicao_financeira" entidadeId={item.id} titulo="FAQ (regra geral)" />
       )}
 
       {!isReadOnly && (
