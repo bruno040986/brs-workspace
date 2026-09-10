@@ -53,12 +53,17 @@ enabled sem policy. Os nomes abaixo são definitivos.
 
 | coluna | tipo | obs |
 |---|---|---|
-| `endereco` | text | opcional, ViaCEP sugere |
-| `numero_servidores` | integer | |
+| `logradouro`, `numero`, `complemento`, `bairro` | text | endereçamento completo (+ `cidade`/`uf`/`cep` que já existiam). **CNPJ.ws é a fonte primária** (`normalizeCnpjWsCompleto` devolve os quatro); ViaCEP é fallback ao editar o CEP e só preenche campo vazio. Editados nos **Dados Básicos**. Substituíram o campo único `endereco`, que concatenava logradouro+bairro (migration `20260910140628`) |
+| `numero_servidores` | integer | editado na **Base de Conhecimento** (sub-aba Público) |
 | `max_comprometimento_salarial` | numeric(5,2) | teto % da margem total |
 | `prazo_minimo_geral` / `prazo_maximo_geral` | integer | meses; check min ≤ max |
-| `abrangencia` | text check in (`municipal`,`estadual`,`nacional`) | default derivado da esfera do tipo (Municipal→municipal, Estadual→estadual, demais→nacional); editável |
+| `abrangencia` | text check in (`municipal`,`estadual`,`nacional`) | backfill inicial pela esfera do tipo; editado na **Base de Conhecimento** (sub-aba Público) |
 | `bc_observacoes` | text | notas livres da base de conhecimento |
+
+`abrangencia` e `numero_servidores` moram nesta tabela mas pertencem à seção
+"geral" da BC (`salvarConvenioBcGeral`): `saveConvenio` **não** os grava, senão
+salvar o cadastro básico sobrescreveria o valor da BC com o estado velho do
+formulário.
 
 ### 2.2 `publicos_atendidos` (cadastro global, submenu Convênios › Públicos Atendidos)
 
