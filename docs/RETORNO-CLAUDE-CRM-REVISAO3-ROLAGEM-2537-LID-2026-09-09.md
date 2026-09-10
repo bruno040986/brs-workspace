@@ -99,3 +99,23 @@ pra 7 nos testes de 2537, +4 do mecanismo LID — números não somam
 linearmente porque um teste antigo foi substituído, não só adicionado)
 · `npm run typecheck` 0 erros · `npm run lint` (arquivos tocados) 0 erros
 · `npm run build --workspace apps/web` OK. Sem publicação, sem push.
+
+## Adendo 10/09/2026 — publicado e LID confirmado (revisão Fable)
+
+- Revisão Fable encontrou e corrigiu um bug real antes de publicar: o
+  contador de "novas mensagens" contava o thread inteiro quando o último
+  item anterior SUMIA (aviso otimista de transferência substituído pela
+  mensagem real). Corrigido por conjunto de chaves do render anterior
+  (`3122172`), teste dedicado; 144/144.
+- Publicado: `main` `806ac09` → `3122172` (fast-forward). Railway deployment
+  `854713d7` SUCCESS. Boot: 2043, 6019, 1641, 4934, 4435, 5009 conectadas;
+  2537 recebeu 401 sem nó de conflito → política pré-existente de
+  "deslogada" (sessão limpa) — precisa de QR novo, esperado desde o
+  `device_removed` de 09/09. 7033 não constava mais entre as sessões salvas.
+- Consulta `GET /instancias/:id/onwhatsapp/556196863171` executada pelo
+  Bruno (token do Railway), pelas duas instâncias: ambas devolveram
+  `{"jid":"556196863171@s.whatsapp.net","exists":true,"lid":"264003100127452@lid"}`.
+  **É o mesmo LID observado nos retries** — confirmado que o destinatário
+  dos pedidos de recuperação é o celular pessoal do Bruno, endereçado por
+  LID pelo WhatsApp, para a 2043 e para a 6019 igualmente. Isso fecha
+  rastreabilidade; **não** explica a causa do atraso de entrega.
