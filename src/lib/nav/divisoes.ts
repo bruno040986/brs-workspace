@@ -117,6 +117,8 @@ export const NAV_DIVISOES: NavDivisao[] = [
         children: [
           { label: 'Esferas', href: '/convenios/esferas', perms: [view('workspace-convenios')] },
           { label: 'Tipos de Convênio', href: '/convenios/tipos', perms: [view('workspace-convenios')] },
+          { label: 'Públicos Atendidos', href: '/convenios/publicos', perms: [view('workspace-convenios')] },
+          { label: 'Órgãos / Empregadores', href: '/convenios/orgaos', perms: [view('workspace-convenios')] },
         ],
       },
       { label: 'Promotoras', href: '/promotoras', perms: [view('promotoras')] },

@@ -37,6 +37,9 @@ export type ConvenioRecord = {
   cidade?: string | null
   uf?: string | null
   cep?: string | null
+  endereco?: string | null
+  numero_servidores?: number | null
+  abrangencia?: string // municipal | estadual | nacional — Dados Básicos; sugerido pela esfera do tipo
   averbadora_id?: string | null
   averbadora_nome?: string // derivado, só leitura
   site_averbador?: string | null
@@ -44,28 +47,68 @@ export type ConvenioRecord = {
   is_active?: boolean
 }
 
+const CONVENIO_SELECT =
+  'id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, endereco, numero_servidores, abrangencia, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)'
+
+function mapConvenioRow(r: any) {
+  return {
+    ...r,
+    tipo_convenio_nome: r.tipo?.nome || '',
+    // esfera efetiva: deriva do tipo; cai no texto legado se ainda sem tipo
+    esfera: r.tipo?.esfera?.nome || r.esfera || '',
+    averbadora_nome: r.averbadora?.nome || '',
+  }
+}
+
 export async function getConvenios() {
   try {
     await requirePermission(PERMISSION_RESOURCE)
     const { data, error } = await supabaseAdmin
       .from('convenios')
-      .select(
-        'id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)',
-      )
+      .select(CONVENIO_SELECT)
       .is('deleted_at', null)
       .order('is_active', { ascending: false })
       .order('nome', { ascending: true })
     if (error) throw error
-    const items = (data || []).map((r: any) => ({
-      ...r,
-      tipo_convenio_nome: r.tipo?.nome || '',
-      // esfera efetiva: deriva do tipo; cai no texto legado se ainda sem tipo
-      esfera: r.tipo?.esfera?.nome || r.esfera || '',
-      averbadora_nome: r.averbadora?.nome || '',
-    }))
+
+    const ids = (data || []).map((r: any) => r.id)
+    const [{ data: pubRows }, { data: formaRows }, { data: instRows }] = await Promise.all([
+      ids.length ? supabaseAdmin.from('convenio_publicos').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+      ids.length ? supabaseAdmin.from('convenio_formas_contrato').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+      ids.length ? supabaseAdmin.from('convenio_instituicoes').select('convenio_id').in('convenio_id', ids) : Promise.resolve({ data: [] as any[] }),
+    ])
+    const setPub = new Set((pubRows || []).map((r: any) => r.convenio_id))
+    const setForma = new Set((formaRows || []).map((r: any) => r.convenio_id))
+    const setInst = new Set((instRows || []).map((r: any) => r.convenio_id))
+
+    const items = (data || []).map((r: any) => {
+      const temGeral = r.max_comprometimento_salarial != null || r.prazo_minimo_geral != null || r.prazo_maximo_geral != null
+      const bc_score =
+        (setPub.has(r.id) ? 25 : 0) + (setForma.has(r.id) ? 25 : 0) + (setInst.has(r.id) ? 25 : 0) + (temGeral ? 25 : 0)
+      return { ...mapConvenioRow(r), bc_score }
+    })
     return { success: true, items }
   } catch (error: any) {
     console.error('Erro ao buscar convênios:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function getConvenio(id: string) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE)
+    if (!id) return { success: false, error: 'ID inválido.' }
+    const { data, error } = await supabaseAdmin
+      .from('convenios')
+      .select(CONVENIO_SELECT)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return { success: false, error: 'Convênio não encontrado.' }
+    return { success: true, item: mapConvenioRow(data) }
+  } catch (error: any) {
+    console.error('Erro ao buscar convênio:', error)
     return { success: false, error: error.message }
   }
 }
@@ -111,6 +154,19 @@ export async function saveConvenio(payload: ConvenioRecord) {
       tipoAutenticacaoId = String(payload.tipo_autenticacao_id || '').trim() || null
     }
 
+    const abrangencia = String(payload.abrangencia || 'nacional').trim()
+    if (!['municipal', 'estadual', 'nacional'].includes(abrangencia)) {
+      return { success: false, error: 'Abrangência inválida.' }
+    }
+
+    const numeroServidores =
+      payload.numero_servidores === null || payload.numero_servidores === undefined || (payload.numero_servidores as any) === ''
+        ? null
+        : Number(payload.numero_servidores)
+    if (numeroServidores !== null && (!Number.isFinite(numeroServidores) || numeroServidores < 0)) {
+      return { success: false, error: 'Número de servidores inválido.' }
+    }
+
     const row = {
       nome,
       nome_reduzido: nomeReduzido,
@@ -122,22 +178,28 @@ export async function saveConvenio(payload: ConvenioRecord) {
       cidade: String(payload.cidade || '').trim() || null,
       uf: String(payload.uf || '').trim().toUpperCase().slice(0, 2) || null,
       cep: onlyDigitsOrNull(payload.cep),
+      endereco: String(payload.endereco || '').trim() || null,
+      numero_servidores: numeroServidores,
+      abrangencia,
       averbadora_id: averbadoraId,
       site_averbador: siteAverbador,
       tipo_autenticacao_id: tipoAutenticacaoId,
       updated_at: new Date().toISOString(),
     }
 
+    let id = payload.id
     if (payload.id) {
       const { error } = await supabaseAdmin.from('convenios').update(row).eq('id', payload.id)
       if (error) throw error
     } else {
-      const { error } = await supabaseAdmin.from('convenios').insert(row)
+      const { data, error } = await supabaseAdmin.from('convenios').insert(row).select('id').single()
       if (error) throw error
+      id = data?.id
     }
 
     revalidatePath('/convenios')
-    return { success: true }
+    if (id) revalidatePath(`/convenios/${id}`)
+    return { success: true, id }
   } catch (error: any) {
     console.error('Erro ao salvar convênio:', error)
     if ((error as any)?.code === '23505') {

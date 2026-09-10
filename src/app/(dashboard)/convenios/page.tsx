@@ -1,12 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search, X } from 'lucide-react'
-import { maskCep, maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
-import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
-import { normalizarUrl } from '@/lib/url-site'
-import { getAverbadorasAtivas, getTiposAutenticacaoAtivos, type Averbadora, type TipoAutenticacao } from '../averbadoras/actions'
-import { getConvenios, saveConvenio, setConvenioStatus, type ConvenioRecord } from './actions'
+import { useRouter } from 'next/navigation'
+import { AlertCircle, CheckCircle, Edit2, Landmark, Loader2, Plus, Power, PowerOff, Search } from 'lucide-react'
+import { getConvenios, setConvenioStatus } from './actions'
 import { getTiposAtivos, type TipoConvenio } from './cadastros-actions'
 
 type ConvenioItem = {
@@ -18,15 +15,8 @@ type ConvenioItem = {
   esfera: string
   tipo_convenio_id: string | null
   tipo_convenio_nome?: string
-  cnpj: string | null
-  razao_social: string | null
-  cidade: string | null
-  uf: string | null
-  cep: string | null
-  averbadora_id: string | null
-  averbadora_nome?: string
-  site_averbador: string | null
-  tipo_autenticacao_id: string | null
+  abrangencia: string
+  bc_score: number
   is_active: boolean
 }
 
@@ -34,22 +24,32 @@ function capitalizar(s: string) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
 }
 
+const ABRANGENCIA_LABEL: Record<string, string> = { municipal: 'Municipal', estadual: 'Estadual', nacional: 'Nacional' }
+
+function CompletudeBar({ score }: { score: number }) {
+  const cor = score >= 75 ? '#059669' : score >= 25 ? '#D97706' : 'var(--brs-gray-300)'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div style={{ width: 64, height: 6, borderRadius: 4, background: 'var(--brs-gray-100)', overflow: 'hidden' }}>
+        <div style={{ width: `${score}%`, height: '100%', background: cor, borderRadius: 4 }} />
+      </div>
+      <span style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', fontWeight: 600 }}>{score}%</span>
+    </div>
+  )
+}
+
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
 export default function ConveniosPage() {
+  const router = useRouter()
   const [items, setItems] = useState<ConvenioItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [esferaFilter, setEsferaFilter] = useState('all')
+  const [bcFilter, setBcFilter] = useState<'all' | 'com' | 'sem'>('all')
   const [tipos, setTipos] = useState<TipoConvenio[]>([])
-  const [averbadoras, setAverbadoras] = useState<Averbadora[]>([])
-  const [tiposAutenticacao, setTiposAutenticacao] = useState<TipoAutenticacao[]>([])
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Partial<ConvenioRecord> | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [consultandoCnpj, setConsultandoCnpj] = useState(false)
 
   async function loadData() {
     setLoading(true)
@@ -67,11 +67,8 @@ export default function ConveniosPage() {
   useEffect(() => {
     loadData()
     getTiposAtivos().then(setTipos).catch(() => setTipos([]))
-    getAverbadorasAtivas().then(setAverbadoras).catch(() => setAverbadoras([]))
-    getTiposAutenticacaoAtivos().then(setTiposAutenticacao).catch(() => setTiposAutenticacao([]))
   }, [])
 
-  // Esferas distintas disponíveis (a partir dos tipos ativos) para o filtro.
   const esferasDisponiveis = useMemo(() => {
     return [...new Set(tipos.map((t) => (t.esfera_nome || '').toLowerCase()).filter(Boolean))].sort()
   }, [tipos])
@@ -84,151 +81,10 @@ export default function ConveniosPage() {
         String(item.nome || '').toLowerCase().includes(query) ||
         String(item.codigo || '').toLowerCase().includes(query)
       const matchesEsfera = esferaFilter === 'all' || (item.esfera || '').toLowerCase() === esferaFilter
-      return matchesSearch && matchesEsfera
+      const matchesBc = bcFilter === 'all' || (bcFilter === 'com' ? item.bc_score > 0 : item.bc_score === 0)
+      return matchesSearch && matchesEsfera && matchesBc
     })
-  }, [items, searchQuery, esferaFilter])
-
-  // Esfera derivada do tipo selecionado no formulário (read-only).
-  const esferaDoTipo = useMemo(() => {
-    const t = tipos.find((x) => x.id === editing?.tipo_convenio_id)
-    return t?.esfera_nome || ''
-  }, [tipos, editing?.tipo_convenio_id])
-
-  function openNew() {
-    setEditing({
-      nome: '', nome_reduzido: '', codigo: '', tipo_convenio_id: '', cnpj: '', razao_social: '', cidade: '', uf: '', cep: '',
-      averbadora_id: '', site_averbador: '', tipo_autenticacao_id: '',
-    })
-    setIsModalOpen(true)
-  }
-
-  function openEdit(item: ConvenioItem) {
-    setEditing({
-      id: item.id,
-      nome: item.nome,
-      nome_reduzido: item.nome_reduzido || '',
-      codigo: item.codigo || '',
-      codigo_sistema: item.codigo_sistema,
-      tipo_convenio_id: item.tipo_convenio_id || '',
-      cnpj: item.cnpj || '',
-      razao_social: item.razao_social || '',
-      cidade: item.cidade || '',
-      uf: item.uf || '',
-      cep: item.cep || '',
-      averbadora_id: item.averbadora_id || '',
-      averbadora_nome: item.averbadora_nome || '',
-      site_averbador: item.site_averbador || '',
-      tipo_autenticacao_id: item.tipo_autenticacao_id || '',
-    })
-    setIsModalOpen(true)
-  }
-
-  // Seletor de averbadora: lista das ativas + a do próprio registro se ela já
-  // tiver sido inativada depois do vínculo (senão o select "perde" a seleção).
-  const averbadorasParaSelect = useMemo(() => {
-    const id = editing?.averbadora_id
-    if (!id || averbadoras.some((a) => a.id === id)) return averbadoras
-    return [...averbadoras, { id, nome: editing?.averbadora_nome || '(averbadora inativa)', cnpj: '', razao_social: '', site_institucional: null, is_active: false }]
-  }, [averbadoras, editing?.averbadora_id, editing?.averbadora_nome])
-
-  const tiposAutenticacaoParaSelect = useMemo(() => {
-    const id = editing?.tipo_autenticacao_id
-    if (!id || tiposAutenticacao.some((t) => t.id === id)) return tiposAutenticacao
-    return [...tiposAutenticacao, { id, tipo: '(tipo inativo)', vigencia_horas: 0, is_active: false }]
-  }, [tiposAutenticacao, editing?.tipo_autenticacao_id])
-
-  function handleAverbadoraChange(averbadoraId: string) {
-    setEditing((prev) => {
-      if (!prev) return prev
-      if (!averbadoraId) return { ...prev, averbadora_id: '', site_averbador: '', tipo_autenticacao_id: '' }
-      // Sugere o site institucional da averbadora só se o campo ainda estiver vazio.
-      const jaTinhaSite = String(prev.site_averbador || '').trim()
-      const averbadora = averbadoras.find((a) => a.id === averbadoraId)
-      return { ...prev, averbadora_id: averbadoraId, site_averbador: jaTinhaSite || averbadora?.site_institucional || '' }
-    })
-  }
-
-  function handleSiteAverbadorBlur() {
-    if (!editing?.site_averbador?.trim()) return
-    try {
-      const normalizada = normalizarUrl(editing.site_averbador)
-      setEditing((prev) => (prev ? { ...prev, site_averbador: normalizada } : prev))
-    } catch {
-      // deixa como digitado — o erro real aparece ao tentar salvar
-    }
-  }
-
-  async function fillByCnpj() {
-    if (!editing) return
-    const cnpj = onlyDigits(editing.cnpj || '')
-    if (cnpj.length !== 14) {
-      setMessage({ type: 'error', text: 'Informe um CNPJ válido para consulta.' })
-      return
-    }
-    setConsultandoCnpj(true)
-    try {
-      const res = await fetch(`/api/cnpjws/cnpj/${cnpj}`, { cache: 'no-store' })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.razao_social) throw new Error(data?.error || data?.message || 'CNPJ não encontrado.')
-      const rica = normalizeCnpjWsCompleto(data)
-      setEditing((prev) =>
-        prev
-          ? {
-              ...prev,
-              cnpj,
-              razao_social: rica.razao_social || prev.razao_social,
-              cidade: rica.cidade || prev.cidade,
-              uf: rica.uf || prev.uf,
-              cep: rica.cep || prev.cep,
-            }
-          : prev,
-      )
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error?.message || 'Falha ao consultar o CNPJ.' })
-    } finally {
-      setConsultandoCnpj(false)
-    }
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editing?.nome?.trim() || !editing?.nome_reduzido?.trim()) return
-    if (!editing?.tipo_convenio_id) {
-      setMessage({ type: 'error', text: 'Selecione o tipo de convênio.' })
-      return
-    }
-    setSaving(true)
-    setMessage(null)
-    try {
-      const res = await saveConvenio({
-        id: editing.id,
-        nome: String(editing.nome || ''),
-        nome_reduzido: String(editing.nome_reduzido || ''),
-        codigo: String(editing.codigo || ''),
-        tipo_convenio_id: String(editing.tipo_convenio_id || ''),
-        cnpj: String(editing.cnpj || ''),
-        razao_social: String(editing.razao_social || ''),
-        cidade: String(editing.cidade || ''),
-        uf: String(editing.uf || ''),
-        cep: String(editing.cep || ''),
-        averbadora_id: editing.averbadora_id || null,
-        site_averbador: editing.site_averbador || null,
-        tipo_autenticacao_id: editing.tipo_autenticacao_id || null,
-      })
-      if (res.success) {
-        setIsModalOpen(false)
-        setEditing(null)
-        setMessage({ type: 'success', text: editing.id ? 'Convênio atualizado.' : 'Convênio criado.' })
-        await loadData()
-      } else {
-        setMessage({ type: 'error', text: res.error || 'Erro ao salvar o convênio.' })
-      }
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error?.message || 'Erro ao salvar o convênio.' })
-    } finally {
-      setSaving(false)
-    }
-  }
+  }, [items, searchQuery, esferaFilter, bcFilter])
 
   async function handleToggle(item: ConvenioItem) {
     setBusyId(item.id)
@@ -258,11 +114,11 @@ export default function ConveniosPage() {
             Convênios
           </div>
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            Cadastro de convênios (órgãos/empregadores) — base para coeficientes, CRM AlvoConsig e a futura Base de Conhecimento.
+            Cadastro de convênios (órgãos/empregadores) — dados básicos + Base de Conhecimento para o agente de IA.
           </div>
         </div>
 
-        <button type="button" className="btn btn-primary" onClick={openNew}>
+        <button type="button" className="btn btn-primary" onClick={() => router.push('/convenios/novo')}>
           <Plus size={16} />
           Novo Convênio
         </button>
@@ -307,6 +163,11 @@ export default function ConveniosPage() {
             <option key={esf} value={esf}>{capitalizar(esf)}</option>
           ))}
         </select>
+        <select className="form-control" style={{ width: '220px' }} value={bcFilter} onChange={(e) => setBcFilter(e.target.value as 'all' | 'com' | 'sem')}>
+          <option value="all">Todos (com/sem BC)</option>
+          <option value="com">Com Base de Conhecimento</option>
+          <option value="sem">Sem Base de Conhecimento</option>
+        </select>
       </div>
 
       <div className="card">
@@ -317,9 +178,10 @@ export default function ConveniosPage() {
                 <th>Nome</th>
                 <th>Nome Reduzido</th>
                 <th>Cód. Sistema</th>
-                <th>Cód. ARW</th>
                 <th>Tipo</th>
                 <th>Esfera</th>
+                <th>Abrangência</th>
+                <th>Completude BC</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
               </tr>
@@ -327,13 +189,13 @@ export default function ConveniosPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '3rem' }}>
                     <span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} />
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '3rem' }}>
                     <div className="empty-state">
                       <Landmark size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
                       <h3>Nenhum convênio encontrado</h3>
@@ -347,9 +209,10 @@ export default function ConveniosPage() {
                     <td style={{ fontWeight: 600 }}>{item.nome}</td>
                     <td>{item.nome_reduzido || '-'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_sistema}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo || '-'}</td>
                     <td>{item.tipo_convenio_nome || '-'}</td>
                     <td>{capitalizar(item.esfera) || '-'}</td>
+                    <td>{ABRANGENCIA_LABEL[item.abrangencia] || '-'}</td>
+                    <td><CompletudeBar score={item.bc_score || 0} /></td>
                     <td>
                       <span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>
                         {item.is_active ? 'Ativo' : 'Inativo'}
@@ -357,7 +220,13 @@ export default function ConveniosPage() {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm btn-acao"
+                          onClick={() => router.push(`/convenios/${item.id}`)}
+                          title="Editar"
+                          aria-label="Editar"
+                        >
                           <Edit2 size={15} />
                         </button>
                         <button
@@ -379,214 +248,6 @@ export default function ConveniosPage() {
           </table>
         </div>
       </div>
-
-      {isModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
-          <div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
-            <form onSubmit={handleSave}>
-              <div className="modal-header">
-                <h3 className="modal-title">{editing?.id ? 'Editar Convênio' : 'Novo Convênio'}</h3>
-                <button type="button" className="btn btn-ghost btn-icon" onClick={() => setIsModalOpen(false)}>
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="modal-body">
-                <div className="form-grid form-grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Nome do Convênio <span className="required">*</span></label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      required
-                      placeholder="Ex.: Prefeitura Municipal de Mesquita"
-                      value={editing?.nome || ''}
-                      onChange={(e) => setEditing({ ...editing, nome: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Nome Reduzido <span className="required">*</span></label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      required
-                      placeholder="Ex.: Pref. Mesquita/RJ, IPERJ..."
-                      value={editing?.nome_reduzido || ''}
-                      onChange={(e) => setEditing({ ...editing, nome_reduzido: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-grid form-grid-2" style={{ marginTop: '1rem' }}>
-                  {editing?.id && (
-                    <div className="form-group">
-                      <label className="form-label">Código do Sistema</label>
-                      <input type="text" className="form-control" disabled value={editing?.codigo_sistema || ''} style={{ fontFamily: 'monospace' }} />
-                    </div>
-                  )}
-                  <div className="form-group">
-                    <label className="form-label">Código ARW</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Se já cadastrado no ARW"
-                      value={editing?.codigo || ''}
-                      onChange={(e) => setEditing({ ...editing, codigo: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Tipo de Convênio <span className="required">*</span></label>
-                    <select
-                      className="form-control"
-                      required
-                      value={editing?.tipo_convenio_id || ''}
-                      onChange={(e) => setEditing({ ...editing, tipo_convenio_id: e.target.value })}
-                    >
-                      <option value="">Selecione…</option>
-                      {tipos.map((t) => (
-                        <option key={t.id} value={t.id}>{t.nome}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Esfera</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      disabled
-                      value={capitalizar(esferaDoTipo) || '—'}
-                      title="A esfera vem do tipo de convênio."
-                    />
-                  </div>
-                </div>
-                {tipos.length === 0 && (
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
-                    Nenhum tipo de convênio cadastrado ainda. Crie em <strong>Convênios › Tipos de Convênio</strong>.
-                  </div>
-                )}
-
-                <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brs-gray-500)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-                    Dados fiscais (opcional)
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">CNPJ</label>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="00.000.000/0000-00"
-                        value={maskCnpj(editing?.cnpj || '')}
-                        onChange={(e) => setEditing({ ...editing, cnpj: onlyDigits(e.target.value) })}
-                        onBlur={() => onlyDigits(editing?.cnpj || '').length === 14 && fillByCnpj()}
-                        style={{ flex: 1 }}
-                      />
-                      <button type="button" className="btn btn-outline btn-sm" onClick={fillByCnpj} disabled={consultandoCnpj}>
-                        {consultandoCnpj ? <Loader2 size={15} className="spinner" /> : 'Buscar'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                    <label className="form-label">Razão Social</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={editing?.razao_social || ''}
-                      onChange={(e) => setEditing({ ...editing, razao_social: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-grid form-grid-3" style={{ marginTop: '0.75rem' }}>
-                    <div className="form-group">
-                      <label className="form-label">Cidade</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={editing?.cidade || ''}
-                        onChange={(e) => setEditing({ ...editing, cidade: e.target.value })}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">UF</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        maxLength={2}
-                        value={editing?.uf || ''}
-                        onChange={(e) => setEditing({ ...editing, uf: e.target.value.toUpperCase() })}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">CEP</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="00000-000"
-                        value={maskCep(editing?.cep || '')}
-                        onChange={(e) => setEditing({ ...editing, cep: onlyDigits(e.target.value) })}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--brs-gray-100)' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brs-gray-500)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-                    Averbadora (opcional)
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Averbadora</label>
-                    <select
-                      className="form-control"
-                      value={editing?.averbadora_id || ''}
-                      onChange={(e) => handleAverbadoraChange(e.target.value)}
-                    >
-                      <option value="">Sem averbadora</option>
-                      {averbadorasParaSelect.map((a) => (
-                        <option key={a.id} value={a.id}>{a.nome}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {editing?.averbadora_id && (
-                    <div className="form-grid form-grid-2" style={{ marginTop: '0.75rem' }}>
-                      <div className="form-group">
-                        <label className="form-label">Site Averbador</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          placeholder="Ex.: formosa.neoconsig.com.br"
-                          value={editing?.site_averbador || ''}
-                          onChange={(e) => setEditing({ ...editing, site_averbador: e.target.value })}
-                          onBlur={handleSiteAverbadorBlur}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Tipo de Autenticação</label>
-                        <select
-                          className="form-control"
-                          value={editing?.tipo_autenticacao_id || ''}
-                          onChange={(e) => setEditing({ ...editing, tipo_autenticacao_id: e.target.value })}
-                        >
-                          <option value="">Selecione…</option>
-                          {tiposAutenticacaoParaSelect.map((t) => (
-                            <option key={t.id} value={t.id}>{t.tipo}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setIsModalOpen(false)}>
-                  Cancelar
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? <Loader2 size={16} className="spinner" /> : null}
-                  Salvar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
