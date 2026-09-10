@@ -110,6 +110,15 @@
     vincular FAQ de escopo convênio via action direto deve falhar (trigger).
 12. Commit na branch `convenio-bc/fase-2`; avisar o Fable para revisão antes do merge.
 
+## Pendência aberta na revisão (10/09) — próxima rodada Sonnet
+
+- **Upload direto ao Storage por URL assinada.** Hoje o arquivo atravessa a server
+  action e a Vercel recusa corpo > 4,5 MB; o limite foi baixado para 4 MB com
+  mensagem honesta. Caminho certo: action `criarUploadDocumento(convenioId, docId,
+  nome, mime)` → `admin.storage.from(BUCKET).createSignedUploadUrl(path)`; o browser
+  faz `PUT` direto na URL assinada; depois `salvarDocumento` recebe só os metadados
+  (`arquivo_path/nome/mime/tamanho`) em vez do `File`. Aí o teto volta a 20 MB.
+
 ## Não fazer
 
 - Não servir arquivo por URL pública nem expor `arquivo_path` ao browser além do necessário.

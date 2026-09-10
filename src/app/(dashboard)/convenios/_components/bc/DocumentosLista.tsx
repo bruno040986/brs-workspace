@@ -336,7 +336,7 @@ export default function DocumentosLista({
                   />
                 </div>
                 <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                  <label className="form-label">Arquivo (PDF, DOCX, TXT, MD, PNG ou JPEG — até 20 MB)</label>
+                  <label className="form-label">Arquivo (PDF, DOCX, TXT, MD, PNG ou JPEG — até 4 MB; maior que isso, use o Link)</label>
                   {editing.temArquivo && !editing.arquivoNovo && !editing.removerArquivo ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem' }}>
                       <Paperclip size={14} />

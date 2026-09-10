@@ -234,8 +234,23 @@ export type SalvarFaqInput = {
 
 export async function salvarFaq(input: SalvarFaqInput): Promise<{ success: boolean; error?: string; id?: string }> {
   try {
-    const permissao = permissaoFaq(input.escopo, input.entidade_tipo || null)
-    const { user } = await requirePermission(permissao, input.id ? 'can_edit' : 'can_include')
+    // Na edição, escopo e entidade dona vêm do REGISTRO GRAVADO — nunca do
+    // cliente (senão daria pra editar FAQ de IF alegando permissão de averbadora).
+    let escopo = input.escopo
+    let entidadeDona: FaqEntidadeTipo | null = input.entidade_tipo || null
+    if (input.id) {
+      await requireCurrentUser()
+      const { data: atual } = await admin.from('faq_itens').select('escopo, entidade_tipo, convenio_id').eq('id', input.id).maybeSingle()
+      if (!atual) return { success: false, error: 'FAQ não encontrada.' }
+      escopo = atual.escopo
+      entidadeDona = atual.escopo === 'geral' ? atual.entidade_tipo : null
+      if (escopo === 'convenio' && input.convenio_id && input.convenio_id !== atual.convenio_id) {
+        return { success: false, error: 'FAQ não pertence a este convênio.' }
+      }
+      if (escopo === 'convenio') input.convenio_id = atual.convenio_id
+    }
+    const { user } = await requirePermission(permissaoFaq(escopo, entidadeDona), input.id ? 'can_edit' : 'can_include')
+    input = { ...input, escopo }
 
     const pergunta = String(input.pergunta || '').trim()
     const resposta = String(input.resposta || '').trim()
@@ -292,6 +307,7 @@ export async function salvarFaq(input: SalvarFaqInput): Promise<{ success: boole
 
 export async function setFaqStatus(id: string, status: 'ativo' | 'arquivado'): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireCurrentUser()
     const { data: current, error: fetchErr } = await admin.from('faq_itens').select('escopo, entidade_tipo, convenio_id').eq('id', id).maybeSingle()
     if (fetchErr) throw fetchErr
     if (!current) return { success: false, error: 'FAQ não encontrada.' }
@@ -310,6 +326,7 @@ export async function setFaqStatus(id: string, status: 'ativo' | 'arquivado'): P
 
 export async function excluirFaq(id: string): Promise<{ success: boolean; error?: string }> {
   try {
+    await requireCurrentUser()
     const { data: current } = await admin.from('faq_itens').select('escopo, entidade_tipo, convenio_id').eq('id', id).maybeSingle()
     if (!current) return { success: false, error: 'FAQ não encontrada.' }
 

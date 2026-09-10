@@ -18,7 +18,11 @@ import { admin } from './supabase-admin'
 const RESOURCE = 'workspace-convenios'
 const BUCKET = 'convenio-documentos'
 const SIGNED_URL_TTL_SECONDS = 3600
-const MAX_ARQUIVO_BYTES = 20 * 1024 * 1024
+// O arquivo passa pela server action (corpo da requisição). Na Vercel a função
+// serverless recusa corpo acima de ~4,5 MB, então o teto útil é 4 MB até o
+// upload ir direto ao Storage por URL assinada (pendência registrada no
+// roteiro da Fase 2). Documento maior: usar o campo Link.
+const MAX_ARQUIVO_BYTES = 4 * 1024 * 1024
 const MIMES_ACEITOS = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -133,7 +137,9 @@ export async function salvarDocumento(formData: FormData): Promise<{ success: bo
     const temArquivoNovo = arquivo instanceof File && arquivo.size > 0
     if (temArquivoNovo) {
       const file = arquivo as File
-      if (file.size > MAX_ARQUIVO_BYTES) return { success: false, error: 'Arquivo maior que 20 MB.' }
+      if (file.size > MAX_ARQUIVO_BYTES) {
+        return { success: false, error: 'Arquivo maior que 4 MB. Nesta versão, documentos maiores devem ser informados pelo campo Link.' }
+      }
       if (!MIMES_ACEITOS.has(file.type)) {
         return { success: false, error: 'Tipo de arquivo não aceito (use PDF, DOCX, TXT, MD, PNG ou JPEG).' }
       }
