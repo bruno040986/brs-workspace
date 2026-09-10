@@ -277,7 +277,16 @@ export async function salvarConvenioBcSecao(
     }
 
     if (secao === 'instituicoes') {
-      const instituicoes = payload as ConvenioBcInstituicao[]
+      // "Restringir público" marcado sem nenhum público escolhido = não restringe
+      // (NULL herda o público do vínculo). Evita gravar "restrito a ninguém".
+      const instituicoes = (payload as ConvenioBcInstituicao[]).map((inst) => ({
+        ...inst,
+        formas: (inst.formas || []).map((f) => ({
+          ...f,
+          publicos_restritos: Array.isArray(f.publicos_restritos) && f.publicos_restritos.length > 0 ? f.publicos_restritos : null,
+        })),
+      }))
+      payload = instituicoes
       const [{ data: convenioRow }, { data: publicosRow }, { data: formasRow }] = await Promise.all([
         admin.from('convenios').select('prazo_minimo_geral, prazo_maximo_geral').eq('id', convenioId).maybeSingle(),
         admin.from('convenio_publicos').select('publico_id').eq('convenio_id', convenioId),
