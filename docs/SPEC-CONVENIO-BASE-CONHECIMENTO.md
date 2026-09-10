@@ -277,8 +277,10 @@ dossiê inteiro cabe no contexto de um modelo atual.
 - `/convenios` — listagem atual + colunas **Abrangência** e **Completude BC**
   (barra/score) + filtro "com/sem base de conhecimento". Botões "Novo" e
   "Editar" levam a página cheia (o modal atual é aposentado).
-- `/convenios/novo` — só aba Dados Básicos; ao salvar redireciona para
-  `/convenios/[id]`.
+- `/convenios/novo` — só aba Dados Básicos. **Ao salvar (novo ou edição) volta
+  para a listagem `/convenios`** (decisão do Bruno, 10/09 — a listagem é a base;
+  a Base de Conhecimento se preenche entrando pelo Editar). Em convênio novo o
+  redirect é `replace`, para o "voltar" não cair num formulário já submetido.
 - `/convenios/[id]` — layout com sidebar/abas (mesmo padrão de
   `instituicoes-financeiras/[id]`):
   - **Dados Básicos** — exatamente o formulário atual (CNPJ.ws, tipo→esfera,

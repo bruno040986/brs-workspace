@@ -278,12 +278,13 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
         tipo_autenticacao_id: dados.tipo_autenticacao_id || null,
       })
       if (res.success) {
-        if (!dados.id && res.id) {
-          router.replace(`/convenios/${res.id}?aba=bc`)
-          return
-        }
-        setMessage({ type: 'success', text: 'Convênio atualizado.' })
-        await loadAll()
+        // Salvou o cadastro básico → volta para a listagem (a Base de
+        // Conhecimento se preenche depois, entrando pelo Editar). Em convênio
+        // novo usa replace para o "voltar" do navegador não cair num /novo já
+        // submetido, o que geraria cadastro duplicado.
+        if (dados.id) router.push('/convenios')
+        else router.replace('/convenios')
+        return
       } else {
         setMessage({ type: 'error', text: res.error || 'Erro ao salvar o convênio.' })
       }
