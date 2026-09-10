@@ -37,9 +37,16 @@ export type ConvenioRecord = {
   cidade?: string | null
   uf?: string | null
   cep?: string | null
-  endereco?: string | null
+  // Endereçamento completo — preenchido pelo CNPJ.ws (fonte primária) e pelo
+  // ViaCEP como fallback quando o CEP é editado à mão.
+  logradouro?: string | null
+  numero?: string | null
+  complemento?: string | null
+  bairro?: string | null
+  // abrangencia e numero_servidores moram nesta tabela mas são editados pela
+  // aba Base de Conhecimento (bc-actions.salvarConvenioBcGeral) — só leitura aqui.
   numero_servidores?: number | null
-  abrangencia?: string // municipal | estadual | nacional — Dados Básicos; sugerido pela esfera do tipo
+  abrangencia?: string
   averbadora_id?: string | null
   averbadora_nome?: string // derivado, só leitura
   site_averbador?: string | null
@@ -48,7 +55,7 @@ export type ConvenioRecord = {
 }
 
 const CONVENIO_SELECT =
-  'id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, endereco, numero_servidores, abrangencia, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)'
+  'id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, logradouro, numero, complemento, bairro, numero_servidores, abrangencia, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)'
 
 function mapConvenioRow(r: any) {
   return {
@@ -167,19 +174,9 @@ export async function saveConvenio(payload: ConvenioRecord) {
       tipoAutenticacaoId = String(payload.tipo_autenticacao_id || '').trim() || null
     }
 
-    const abrangencia = String(payload.abrangencia || 'nacional').trim()
-    if (!['municipal', 'estadual', 'nacional'].includes(abrangencia)) {
-      return { success: false, error: 'Abrangência inválida.' }
-    }
-
-    const numeroServidores =
-      payload.numero_servidores === null || payload.numero_servidores === undefined || (payload.numero_servidores as any) === ''
-        ? null
-        : Number(payload.numero_servidores)
-    if (numeroServidores !== null && (!Number.isFinite(numeroServidores) || numeroServidores < 0)) {
-      return { success: false, error: 'Número de servidores inválido.' }
-    }
-
+    // abrangencia e numero_servidores NÃO entram aqui: são editados pela aba
+    // Base de Conhecimento (salvarConvenioBcGeral). Gravar os dois aqui
+    // sobrescreveria com o valor velho carregado no formulário básico.
     const row = {
       nome,
       nome_reduzido: nomeReduzido,
@@ -191,9 +188,10 @@ export async function saveConvenio(payload: ConvenioRecord) {
       cidade: String(payload.cidade || '').trim() || null,
       uf: String(payload.uf || '').trim().toUpperCase().slice(0, 2) || null,
       cep: onlyDigitsOrNull(payload.cep),
-      endereco: String(payload.endereco || '').trim() || null,
-      numero_servidores: numeroServidores,
-      abrangencia,
+      logradouro: String(payload.logradouro || '').trim() || null,
+      numero: String(payload.numero || '').trim() || null,
+      complemento: String(payload.complemento || '').trim() || null,
+      bairro: String(payload.bairro || '').trim() || null,
       averbadora_id: averbadoraId,
       site_averbador: siteAverbador,
       tipo_autenticacao_id: tipoAutenticacaoId,

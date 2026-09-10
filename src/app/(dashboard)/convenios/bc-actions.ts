@@ -25,6 +25,8 @@ const RESOURCE = 'workspace-convenios'
 // Tipos
 // ---------------------------------------------------------------------------
 export type ConvenioBcGeral = {
+  abrangencia: string // municipal | estadual | nacional
+  numero_servidores: number | null
   max_comprometimento_salarial: number | null
   prazo_minimo_geral: number | null
   prazo_maximo_geral: number | null
@@ -78,7 +80,7 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
       await Promise.all([
         admin
           .from('convenios')
-          .select('max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes')
+          .select('abrangencia, numero_servidores, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes')
           .eq('id', convenioId)
           .maybeSingle(),
         admin.from('convenio_publicos').select('publico_id, observacao').eq('convenio_id', convenioId),
@@ -99,6 +101,8 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
 
     const bc: ConvenioBc = {
       geral: {
+        abrangencia: convenioRow.abrangencia || 'nacional',
+        numero_servidores: convenioRow.numero_servidores,
         max_comprometimento_salarial: convenioRow.max_comprometimento_salarial,
         prazo_minimo_geral: convenioRow.prazo_minimo_geral,
         prazo_maximo_geral: convenioRow.prazo_maximo_geral,
@@ -175,6 +179,19 @@ export async function salvarConvenioBcGeral(
     const min = geral.prazo_minimo_geral
     const max = geral.prazo_maximo_geral
 
+    const abrangencia = String(geral.abrangencia || 'nacional').trim()
+    if (!['municipal', 'estadual', 'nacional'].includes(abrangencia)) {
+      return { success: false, error: 'Abrangência inválida.' }
+    }
+
+    const numeroServidores =
+      geral.numero_servidores === null || geral.numero_servidores === undefined || (geral.numero_servidores as any) === ''
+        ? null
+        : Number(geral.numero_servidores)
+    if (numeroServidores !== null && (!Number.isFinite(numeroServidores) || numeroServidores < 0)) {
+      return { success: false, error: 'Número de servidores inválido.' }
+    }
+
     if (teto != null && (teto <= 0 || teto > 100)) {
       return { success: false, error: 'O teto de comprometimento deve estar entre 0 e 100%.' }
     }
@@ -228,6 +245,8 @@ export async function salvarConvenioBcGeral(
     const { error } = await admin
       .from('convenios')
       .update({
+        abrangencia,
+        numero_servidores: numeroServidores,
         max_comprometimento_salarial: teto,
         prazo_minimo_geral: min,
         prazo_maximo_geral: max,

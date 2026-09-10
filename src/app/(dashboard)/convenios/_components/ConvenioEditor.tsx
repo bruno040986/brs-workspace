@@ -71,7 +71,6 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
   const [saving, setSaving] = useState(false)
   const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
-  const [abrangenciaManual, setAbrangenciaManual] = useState(false)
 
   async function loadOrgaos(id: string) {
     const [ativos, todosRes] = await Promise.all([getOrgaosAtivos(id), getOrgaos(id)])
@@ -116,9 +115,10 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
           cidade: '',
           uf: '',
           cep: '',
-          endereco: '',
-          numero_servidores: null,
-          abrangencia: 'nacional',
+          logradouro: '',
+          numero: '',
+          complemento: '',
+          bairro: '',
           averbadora_id: '',
           site_averbador: '',
           tipo_autenticacao_id: '',
@@ -146,19 +146,6 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
     const t = tipos.find((x) => x.id === dados?.tipo_convenio_id)
     return t?.esfera_nome || ''
   }, [tipos, dados?.tipo_convenio_id])
-
-  function handleTipoChange(tipoId: string) {
-    const tipo = tipos.find((t) => t.id === tipoId)
-    setDados((prev) => {
-      if (!prev) return prev
-      let abrangencia = prev.abrangencia
-      if (!abrangenciaManual) {
-        const esf = (tipo?.esfera_nome || '').toLowerCase()
-        abrangencia = esf === 'municipal' ? 'municipal' : esf === 'estadual' ? 'estadual' : 'nacional'
-      }
-      return { ...prev, tipo_convenio_id: tipoId, abrangencia }
-    })
-  }
 
   const averbadorasParaSelect = useMemo(() => {
     const id = dados?.averbadora_id
@@ -205,12 +192,18 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.razao_social) throw new Error(data?.error || data?.message || 'CNPJ não encontrado.')
       const rica = normalizeCnpjWsCompleto(data)
+      // CNPJ.ws é a fonte primária do endereçamento: sobrescreve o que vier
+      // preenchido, porque é o dado oficial da Receita para aquele CNPJ.
       setDados((prev) =>
         prev
           ? {
               ...prev,
               cnpj,
               razao_social: rica.razao_social || prev.razao_social,
+              logradouro: rica.logradouro || prev.logradouro,
+              numero: rica.numero || prev.numero,
+              complemento: rica.complemento || prev.complemento,
+              bairro: rica.bairro || prev.bairro,
               cidade: rica.cidade || prev.cidade,
               uf: rica.uf || prev.uf,
               cep: rica.cep || prev.cep,
@@ -224,17 +217,29 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
     }
   }
 
+  // Fallback do CEP: quando o CEP é digitado/editado à mão (sem passar pelo
+  // CNPJ.ws), o ViaCEP completa só os campos que estiverem VAZIOS — nunca
+  // sobrescreve o que veio da Receita nem o que a pessoa digitou.
   async function fillByCep() {
     if (!dados) return
     const cep = onlyDigits(dados.cep || '')
     if (cep.length !== 8) return
-    if (dados.endereco?.trim()) return // não sobrescreve endereço já preenchido
     try {
       const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { cache: 'no-store' })
       const data = await res.json()
       if (!res.ok || data?.erro) return
-      const partes = [data?.logradouro, data?.bairro].filter(Boolean).join(', ')
-      setDados((prev) => (prev ? { ...prev, endereco: partes || prev.endereco } : prev))
+      setDados((prev) =>
+        prev
+          ? {
+              ...prev,
+              logradouro: prev.logradouro?.trim() ? prev.logradouro : data?.logradouro || '',
+              complemento: prev.complemento?.trim() ? prev.complemento : data?.complemento || '',
+              bairro: prev.bairro?.trim() ? prev.bairro : data?.bairro || '',
+              cidade: prev.cidade?.trim() ? prev.cidade : data?.localidade || '',
+              uf: prev.uf?.trim() ? prev.uf : data?.uf || '',
+            }
+          : prev,
+      )
     } catch {
       // silencioso — endereço é opcional
     }
@@ -264,9 +269,10 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
         cidade: String(dados.cidade || ''),
         uf: String(dados.uf || ''),
         cep: String(dados.cep || ''),
-        endereco: String(dados.endereco || ''),
-        numero_servidores: dados.numero_servidores ?? null,
-        abrangencia: dados.abrangencia || 'nacional',
+        logradouro: String(dados.logradouro || ''),
+        numero: String(dados.numero || ''),
+        complemento: String(dados.complemento || ''),
+        bairro: String(dados.bairro || ''),
         averbadora_id: dados.averbadora_id || null,
         site_averbador: dados.site_averbador || null,
         tipo_autenticacao_id: dados.tipo_autenticacao_id || null,
@@ -401,7 +407,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
               </div>
               <div className="form-group">
                 <label className="form-label">Tipo de Convênio <span className="required">*</span></label>
-                <select className="form-control" required value={dados.tipo_convenio_id || ''} onChange={(e) => handleTipoChange(e.target.value)}>
+                <select className="form-control" required value={dados.tipo_convenio_id || ''} onChange={(e) => setDados({ ...dados, tipo_convenio_id: e.target.value })}>
                   <option value="">Selecione…</option>
                   {tipos.map((t) => (
                     <option key={t.id} value={t.id}>{t.nome}</option>
@@ -411,34 +417,6 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
               <div className="form-group">
                 <label className="form-label">Esfera</label>
                 <input type="text" className="form-control" disabled value={capitalizar(esferaDoTipo) || '—'} title="A esfera vem do tipo de convênio." />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Abrangência</label>
-                <select
-                  className="form-control"
-                  value={dados.abrangencia || 'nacional'}
-                  onChange={(e) => {
-                    setAbrangenciaManual(true)
-                    setDados({ ...dados, abrangencia: e.target.value })
-                  }}
-                >
-                  <option value="municipal">Municipal</option>
-                  <option value="estadual">Estadual</option>
-                  <option value="nacional">Nacional</option>
-                </select>
-                <div style={{ marginTop: '0.3rem', fontSize: '0.78rem', color: 'var(--brs-gray-500)' }}>
-                  Usada pelo agente de IA para saber se busca o regionalismo do cliente ou do convênio.
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Número de Servidores</label>
-                <input
-                  type="number"
-                  min={0}
-                  className="form-control"
-                  value={dados.numero_servidores ?? ''}
-                  onChange={(e) => setDados({ ...dados, numero_servidores: e.target.value === '' ? null : Number(e.target.value) })}
-                />
               </div>
             </div>
             {tipos.length === 0 && (
@@ -474,14 +452,6 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
               </div>
               <div className="form-grid form-grid-3" style={{ marginTop: '0.75rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Cidade</label>
-                  <input type="text" className="form-control" value={dados.cidade || ''} onChange={(e) => setDados({ ...dados, cidade: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">UF</label>
-                  <input type="text" className="form-control" maxLength={2} value={dados.uf || ''} onChange={(e) => setDados({ ...dados, uf: e.target.value.toUpperCase() })} />
-                </div>
-                <div className="form-group">
                   <label className="form-label">CEP</label>
                   <input
                     type="text"
@@ -491,17 +461,45 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
                     onChange={(e) => setDados({ ...dados, cep: onlyDigits(e.target.value) })}
                     onBlur={() => onlyDigits(dados.cep || '').length === 8 && fillByCep()}
                   />
+                  <div style={{ marginTop: '0.3rem', fontSize: '0.78rem', color: 'var(--brs-gray-500)' }}>
+                    Completa os campos vazios abaixo (ViaCEP).
+                  </div>
                 </div>
-              </div>
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label className="form-label">Endereço</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Sugerido automaticamente pelo CEP"
-                  value={dados.endereco || ''}
-                  onChange={(e) => setDados({ ...dados, endereco: e.target.value })}
-                />
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Logradouro</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Rua, avenida, praça..."
+                    value={dados.logradouro || ''}
+                    onChange={(e) => setDados({ ...dados, logradouro: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Número</label>
+                  <input type="text" className="form-control" value={dados.numero || ''} onChange={(e) => setDados({ ...dados, numero: e.target.value })} />
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Complemento</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={dados.complemento || ''}
+                    onChange={(e) => setDados({ ...dados, complemento: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Bairro</label>
+                  <input type="text" className="form-control" value={dados.bairro || ''} onChange={(e) => setDados({ ...dados, bairro: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Cidade</label>
+                  <input type="text" className="form-control" value={dados.cidade || ''} onChange={(e) => setDados({ ...dados, cidade: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">UF</label>
+                  <input type="text" className="form-control" maxLength={2} value={dados.uf || ''} onChange={(e) => setDados({ ...dados, uf: e.target.value.toUpperCase() })} />
+                </div>
               </div>
             </div>
 

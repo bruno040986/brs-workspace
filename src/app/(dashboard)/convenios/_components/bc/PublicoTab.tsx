@@ -88,7 +88,34 @@ export default function PublicoTab({
       )}
 
       <div className="card" style={{ padding: '1rem' }}>
-        <div style={{ fontWeight: 800, marginBottom: '0.75rem' }}>Teto e Prazos Gerais</div>
+        <div style={{ fontWeight: 800, marginBottom: '0.75rem' }}>Dados Gerais do Convênio</div>
+        <div className="form-grid form-grid-2" style={{ marginBottom: '0.75rem' }}>
+          <div className="form-group">
+            <label className="form-label">Abrangência</label>
+            <select
+              className="form-control"
+              value={geral.abrangencia || 'nacional'}
+              onChange={(e) => setGeral((prev) => ({ ...prev, abrangencia: e.target.value }))}
+            >
+              <option value="municipal">Municipal</option>
+              <option value="estadual">Estadual</option>
+              <option value="nacional">Nacional</option>
+            </select>
+            <div style={{ marginTop: '0.3rem', fontSize: '0.78rem', color: 'var(--brs-gray-500)' }}>
+              Define se o agente de IA usa o regionalismo do cliente ou o da cidade do convênio.
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Número de Servidores</label>
+            <input
+              type="number"
+              min={0}
+              className="form-control"
+              value={geral.numero_servidores ?? ''}
+              onChange={(e) => setGeral((prev) => ({ ...prev, numero_servidores: e.target.value === '' ? null : Number(e.target.value) }))}
+            />
+          </div>
+        </div>
         <div className="form-grid form-grid-3">
           <div className="form-group">
             <label className="form-label">Teto de Comprometimento Salarial (%)</label>
