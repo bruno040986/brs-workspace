@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   AlertCircle,
   CheckCircle,
@@ -26,6 +27,7 @@ import {
   type DocumentoConvenio,
   type TipoDocumento,
 } from '../../documentos-actions'
+import { lerDocumentoComJarvis } from '../../pesquisa-actions'
 
 const IA_STATUS_LABEL: Record<string, { label: string; badge: string }> = {
   nao_lido: { label: 'Não lido pela IA', badge: 'badge-gray' },
@@ -72,6 +74,8 @@ export default function DocumentosLista({
   const [editing, setEditing] = useState<Editing | null>(null)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [lendoComJarvis, setLendoComJarvis] = useState(false)
+  const router = useRouter()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   async function loadData() {
@@ -170,6 +174,23 @@ export default function DocumentosLista({
       else setMessage({ type: 'error', text: res.error || 'Erro ao alterar status.' })
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function handleLerComJarvis() {
+    if (!editing?.id) return
+    setLendoComJarvis(true)
+    setMessage(null)
+    try {
+      const res = await lerDocumentoComJarvis(editing.id)
+      if (res.success) {
+        setIsModalOpen(false)
+        router.push(`/convenios/${convenioId}?aba=bc&sub=pesquisa`)
+      } else {
+        setMessage({ type: 'error', text: res.error || 'Erro ao iniciar a leitura com o Jarvis.' })
+      }
+    } finally {
+      setLendoComJarvis(false)
     }
   }
 
@@ -383,10 +404,21 @@ export default function DocumentosLista({
                 )}
 
                 <div style={{ marginTop: '1rem' }}>
-                  <button type="button" className="btn btn-outline btn-sm" disabled title="Disponível na Fase 4">
-                    <Sparkles size={14} />
-                    Ler com o Jarvis — em breve
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={handleLerComJarvis}
+                    disabled={!editing.id || lendoComJarvis}
+                    title={editing.id ? undefined : 'Salve o documento primeiro'}
+                  >
+                    {lendoComJarvis ? <Loader2 size={14} className="spinner" /> : <Sparkles size={14} />}
+                    Ler com o Jarvis
                   </button>
+                  {!editing.id && (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-500)', marginTop: '0.3rem' }}>
+                      Salve o documento primeiro para poder lê-lo com o Jarvis.
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="modal-footer">

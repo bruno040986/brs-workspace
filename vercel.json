@@ -31,6 +31,10 @@
     {
       "path": "/api/cron/messenger-agendamentos",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/convenio-pesquisas",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

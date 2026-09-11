@@ -83,6 +83,98 @@ async function streamDeUmaChamada(
   return { texto, modeloUsado }
 }
 
+// ---------------------------------------------------------------------------
+// Chamada única (sem stream) com JSON estruturado + busca na web opcional —
+// usada pela pesquisa de convênios (Base de Conhecimento, Fase 3). Nada a
+// ver com o chat (`conversarComFallback`, acima): aqui é sempre 1 pergunta,
+// 1 resposta, sem histórico de conversa.
+// ---------------------------------------------------------------------------
+export type IaAnotacao = { url: string; title?: string; content?: string }
+
+export type IaJsonResultado = {
+  texto: string
+  anotacoes: IaAnotacao[]
+  modeloUsado: string
+}
+
+export async function chamarIaJson(params: {
+  apiKey: string
+  modelo: string
+  mensagens: IaTurno[]
+  /** Liga o plugin `web` do OpenRouter — qualquer modelo passa a buscar na internet. */
+  buscaWeb?: { maxResultados: number }
+  maxTokens?: number
+  signal?: AbortSignal
+}): Promise<IaJsonResultado> {
+  const { apiKey, modelo, mensagens, buscaWeb, maxTokens, signal } = params
+
+  const body: Record<string, unknown> = {
+    model: modelo,
+    messages: mensagens,
+  }
+  if (buscaWeb) {
+    body.plugins = [{ id: 'web', max_results: Math.max(1, Math.min(buscaWeb.maxResultados, 10)) }]
+  }
+  if (maxTokens) body.max_tokens = maxTokens
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    signal,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://gestao.brspromotora.com.br',
+      'X-Title': 'BRS Workspace - Jarvis (pesquisa de convênios)',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const corpo = await res.text().catch(() => '')
+    const err = new Error(`OpenRouter ${res.status}: ${corpo.slice(0, 300)}`) as Error & { status?: number }
+    err.status = res.status
+    throw err
+  }
+
+  const json = await res.json().catch(() => null)
+  const message = json?.choices?.[0]?.message
+  const texto = typeof message?.content === 'string' ? message.content : ''
+  if (!texto.trim()) {
+    throw new Error('O modelo não devolveu resposta (possível cota esgotada, sem crédito ou erro do provedor).')
+  }
+
+  const anotacoes: IaAnotacao[] = Array.isArray(message?.annotations)
+    ? message.annotations
+        .filter((a: any) => a?.type === 'url_citation' && a?.url_citation?.url)
+        .map((a: any) => ({
+          url: String(a.url_citation.url),
+          title: a.url_citation.title ? String(a.url_citation.title) : undefined,
+          content: a.url_citation.content ? String(a.url_citation.content) : undefined,
+        }))
+    : []
+
+  return { texto, anotacoes, modeloUsado: String(json?.model || modelo) }
+}
+
+/**
+ * Extrai o primeiro objeto JSON de um texto que pode vir com cerca de código
+ * (```json ... ```) e/ou frases antes/depois — pega do primeiro `{` ao
+ * último `}`. Lança erro claro se não achar nada parseável.
+ */
+export function extrairJson<T = unknown>(texto: string): T {
+  const inicio = texto.indexOf('{')
+  const fim = texto.lastIndexOf('}')
+  if (inicio === -1 || fim === -1 || fim < inicio) {
+    throw new Error('A IA não devolveu um JSON válido.')
+  }
+  const candidato = texto.slice(inicio, fim + 1)
+  try {
+    return JSON.parse(candidato) as T
+  } catch (e: any) {
+    throw new Error(`Falha ao interpretar o JSON da IA: ${e.message}`)
+  }
+}
+
 export async function conversarComFallback(
   apiKey: string,
   modelos: string[],

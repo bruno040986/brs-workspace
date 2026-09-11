@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Sparkles } from 'lucide-react'
 import FaqEditor, { type FaqContexto } from '@/components/faq/FaqEditor'
 import { desvincularFaq, getFaqGeraisDisponiveis, vincularFaq, type FaqGrupoGeral } from '../../faq-actions'
+import { getContagemSugestoesFaqPendentes } from '../../pesquisa-actions'
 import type { ConvenioBc, FormaContratoAtiva, InstituicaoAtiva } from '../../bc-actions'
 
 const ENTIDADE_TIPO_LABEL: Record<string, string> = {
@@ -27,6 +28,7 @@ export default function FaqTab({
   averbadoraId?: string | null
   averbadoraNome?: string | null
 }) {
+  const [sugestoesFaqPendentes, setSugestoesFaqPendentes] = useState(0)
   const [grupos, setGrupos] = useState<FaqGrupoGeral[]>([])
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -53,6 +55,7 @@ export default function FaqTab({
 
   useEffect(() => {
     loadGrupos()
+    getContagemSugestoesFaqPendentes(convenioId).then(setSugestoesFaqPendentes).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convenioId])
 
@@ -191,13 +194,21 @@ export default function FaqTab({
         )}
       </div>
 
-      <div className="card" style={{ padding: '1.5rem', border: '1px dashed var(--brs-gray-300)', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
-        <Sparkles size={28} style={{ marginBottom: '0.5rem', color: 'var(--brs-gray-300)' }} />
-        <div style={{ fontWeight: 700 }}>Rascunhos da IA</div>
-        <div style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>
-          Em breve — o Jarvis vai sugerir FAQ a partir dos decretos e roteiros lidos (Fase 4).
-        </div>
-      </div>
+      {sugestoesFaqPendentes > 0 && (
+        <a
+          href={`/convenios/${convenioId}?aba=bc&sub=pesquisa`}
+          className="card"
+          style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', textDecoration: 'none', border: '1px solid var(--brs-gray-200)' }}
+        >
+          <Sparkles size={22} style={{ color: 'var(--brs-navy)', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--brs-gray-900)' }}>
+              {sugestoesFaqPendentes} sugestão(ões) de FAQ aguardando revisão
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>O Jarvis encontrou essas perguntas nos documentos pesquisados — revise na aba Pesquisa.</div>
+          </div>
+        </a>
+      )}
     </div>
   )
 }

@@ -26,6 +26,13 @@ export type IaConfigPublica = {
   temChave: boolean
   /** Lista ordenada: [principal, reserva1, reserva2, reserva3] */
   modelos: string[]
+  /**
+   * Modelos PAGOS usados só pela Pesquisa (Jarvis) de Convênios — busca na
+   * web e extração de sugestões. Vazio = recurso desligado. Não têm nada a
+   * ver com `modelos` (chat), que continua na lista gratuita.
+   */
+  modeloPesquisa: string
+  modeloLeitura: string
   personalidade: IaPersonalidade
   atualizadoEm: string | null
 }
@@ -58,6 +65,8 @@ type IaConfigRow = {
   provider: string | null
   api_key_enc: string | null
   modelos: unknown
+  modelo_pesquisa: string | null
+  modelo_leitura: string | null
   personalidade: unknown
   updated_at: string | null
 }
@@ -99,6 +108,8 @@ export async function lerIaConfigPublica(): Promise<IaConfigPublica> {
     provider: row?.provider === 'anthropic' ? 'anthropic' : 'openrouter',
     temChave: Boolean(row?.api_key_enc),
     modelos: normalizarModelos(row?.modelos),
+    modeloPesquisa: String(row?.modelo_pesquisa || '').trim(),
+    modeloLeitura: String(row?.modelo_leitura || '').trim(),
     personalidade: normalizarPersonalidade(row?.personalidade),
     atualizadoEm: row?.updated_at || null,
   }
@@ -108,6 +119,8 @@ export async function salvarIaConfig(input: {
   provider: IaProvider
   apiKey?: string | null // undefined/'' = mantém a atual; string nova = troca
   modelos: string[]
+  modeloPesquisa?: string | null
+  modeloLeitura?: string | null
   personalidade: IaPersonalidade
   updatedBy: string
 }): Promise<void> {
@@ -124,6 +137,8 @@ export async function salvarIaConfig(input: {
       provider: input.provider,
       api_key_enc: apiKeyEnc,
       modelos: normalizarModelos(input.modelos),
+      modelo_pesquisa: String(input.modeloPesquisa || '').trim() || null,
+      modelo_leitura: String(input.modeloLeitura || '').trim() || null,
       personalidade: normalizarPersonalidade(input.personalidade),
       updated_at: new Date().toISOString(),
       updated_by: input.updatedBy,
@@ -144,6 +159,25 @@ export async function lerChaveProvedor(): Promise<{ provider: IaProvider; apiKey
     apiKey: decifrarTexto(row.api_key_enc),
     modelos,
     personalidade: normalizarPersonalidade(row.personalidade),
+  }
+}
+
+/**
+ * Chave + modelos PAGOS da Pesquisa de Convênios (busca web + leitura). NULL
+ * se faltar chave ou `modelo_pesquisa` — quem chama trata como "recurso
+ * desligado" e mostra o aviso pra configurar em IA do Workspace.
+ * `modeloLeitura` vazio cai para o mesmo modelo da pesquisa.
+ */
+export async function lerModelosPesquisa(): Promise<{ apiKey: string; modeloPesquisa: string; modeloLeitura: string } | null> {
+  const row = await lerIaConfigRow()
+  if (!row?.api_key_enc) return null
+  const modeloPesquisa = String(row.modelo_pesquisa || '').trim()
+  if (!modeloPesquisa) return null
+  const modeloLeitura = String(row.modelo_leitura || '').trim() || modeloPesquisa
+  return {
+    apiKey: decifrarTexto(row.api_key_enc),
+    modeloPesquisa,
+    modeloLeitura,
   }
 }
 

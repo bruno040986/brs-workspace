@@ -50,6 +50,8 @@ export async function saveIaConfig(input: {
   provider: IaProvider
   apiKey?: string
   modelos: string[]
+  modeloPesquisa?: string
+  modeloLeitura?: string
   personalidade: IaPersonalidade
 }): Promise<{ success: boolean; error?: string }> {
   try {

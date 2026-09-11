@@ -16,6 +16,7 @@ import {
   MessageCircleQuestion,
   Save,
   ScrollText,
+  Sparkles,
   Users,
 } from 'lucide-react'
 import { maskCep, maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
@@ -38,10 +39,11 @@ import FaqTab from './bc/FaqTab'
 import FormasTab from './bc/FormasTab'
 import InstituicoesTab from './bc/InstituicoesTab'
 import OrgaosRestricoesTab from './bc/OrgaosRestricoesTab'
+import PesquisaTab from './bc/PesquisaTab'
 import PublicoTab from './bc/PublicoTab'
 
 type AbaPrincipal = 'dados' | 'bc'
-type SubAbaBc = 'publico' | 'formas' | 'instituicoes' | 'orgaos' | 'decretos' | 'faq' | 'documentos'
+type SubAbaBc = 'pesquisa' | 'publico' | 'formas' | 'instituicoes' | 'orgaos' | 'decretos' | 'faq' | 'documentos'
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
@@ -54,7 +56,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
   const searchParams = useSearchParams()
 
   const [abaAtiva, setAbaAtiva] = useState<AbaPrincipal>(searchParams?.get('aba') === 'bc' ? 'bc' : 'dados')
-  const [subAba, setSubAba] = useState<SubAbaBc>((searchParams?.get('sub') as SubAbaBc) || 'publico')
+  const [subAba, setSubAba] = useState<SubAbaBc>((searchParams?.get('sub') as SubAbaBc) || 'pesquisa')
 
   const [dados, setDados] = useState<Partial<ConvenioRecord> | null>(null)
   const [bc, setBc] = useState<ConvenioBc | null>(null)
@@ -557,6 +559,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
         <div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             {[
+              { key: 'pesquisa', label: 'Pesquisa (Jarvis)', icon: Sparkles },
               { key: 'publico', label: 'Público', icon: Users },
               { key: 'formas', label: 'Formas & Margens', icon: FileText },
               { key: 'instituicoes', label: 'Instituições', icon: Landmark },
@@ -580,6 +583,15 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
             })}
           </div>
 
+          {subAba === 'pesquisa' && (
+            <PesquisaTab
+              convenioId={dados.id}
+              formasAtivas={formasAtivas}
+              publicosAtivos={publicosAtivos}
+              instituicoesAtivas={instituicoesAtivas}
+              onSaved={reloadBc}
+            />
+          )}
           {subAba === 'publico' && <PublicoTab convenioId={dados.id} bc={bc} publicosAtivos={publicosAtivos} onSaved={reloadBc} />}
           {subAba === 'formas' && <FormasTab convenioId={dados.id} bc={bc} formasAtivas={formasAtivas} onSaved={reloadBc} />}
           {subAba === 'instituicoes' && (

@@ -7,7 +7,7 @@
  * seção Personalidade, que vira o system prompt de TODA conversa.
  */
 import { useEffect, useState } from 'react'
-import { Bot, KeyRound, Loader2, MessageCircleHeart, Save } from 'lucide-react'
+import { Bot, KeyRound, Loader2, MessageCircleHeart, Save, Search } from 'lucide-react'
 import { getIaConfig, saveIaConfig } from '@/lib/ia/actions'
 import type { IaPersonalidade, IaProvider } from '@/lib/ia/config'
 
@@ -32,6 +32,8 @@ export default function IaWorkspacePage() {
   const [apiKey, setApiKey] = useState('')
   const [modelos, setModelos] = useState<string[]>(['', '', '', ''])
   const [sugeridos, setSugeridos] = useState<string[]>([])
+  const [modeloPesquisa, setModeloPesquisa] = useState('')
+  const [modeloLeitura, setModeloLeitura] = useState('')
   const [personalidade, setPersonalidade] = useState<IaPersonalidade>(PERSONALIDADE_VAZIA)
 
   useEffect(() => {
@@ -47,6 +49,8 @@ export default function IaWorkspacePage() {
         const m = [...res.data.modelos]
         while (m.length < 4) m.push('')
         setModelos(m.slice(0, 4))
+        setModeloPesquisa(res.data.modeloPesquisa || '')
+        setModeloLeitura(res.data.modeloLeitura || '')
         setPersonalidade(res.data.personalidade)
         setSugeridos(res.sugeridos || [])
       })
@@ -63,6 +67,8 @@ export default function IaWorkspacePage() {
         provider,
         apiKey: apiKey.trim() || undefined,
         modelos: modelos.map((m) => m.trim()).filter(Boolean),
+        modeloPesquisa: modeloPesquisa.trim(),
+        modeloLeitura: modeloLeitura.trim(),
         personalidade,
       })
       if (!res.success) throw new Error(res.error)
@@ -172,6 +178,40 @@ export default function IaWorkspacePage() {
           Atenção com modelos <code>:free</code>: cota diária pequena e alguns provedores podem usar os dados para treino —
           evite colar dados de cliente. Para uso pesado, um modelo pago de centavos resolve.
         </p>
+      </div>
+
+      {/* Pesquisa de Convênios (Jarvis pesquisador) */}
+      <div className="card" style={{ padding: '1.2rem', marginBottom: '1rem' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Search size={17} /> Pesquisa de Convênios (Base de Conhecimento)
+        </h2>
+        <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', margin: '0 0 0.9rem' }}>
+          Modelos usados só pela sub-aba <strong>Pesquisa</strong> de cada convênio — o Jarvis busca
+          decretos/leis na web e sugere o preenchimento da Base de Conhecimento. São <strong>modelos
+          pagos</strong> (a busca na web e a leitura de documentos longos não funcionam bem nos modelos
+          <code> :free</code> de cima) — a conta OpenRouter precisa ter crédito. Deixe em branco para
+          manter o recurso desligado.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.9rem' }}>
+          <div>
+            <label style={rotuloCampo}>Modelo de pesquisa (com busca na web)</label>
+            <input
+              className="form-control"
+              value={modeloPesquisa}
+              onChange={(e) => setModeloPesquisa(e.target.value)}
+              placeholder="ex.: openai/gpt-5.2"
+            />
+          </div>
+          <div>
+            <label style={rotuloCampo}>Modelo de leitura de documentos</label>
+            <input
+              className="form-control"
+              value={modeloLeitura}
+              onChange={(e) => setModeloLeitura(e.target.value)}
+              placeholder="ex.: anthropic/claude-sonnet-5 (vazio = usa o de pesquisa)"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Personalidade */}
