@@ -123,14 +123,15 @@ uma função compartilhada** e usar nos dois caminhos — não duplicar.
 **Ainda abertas:**
 1. **De qual convênio é cada linha?** Continua sem coluna de convênio. O que
    existe: `orgao` (ex. "SEFAZ", igual no lote inteiro) e `lotacao` (secretaria
-   da pessoa, varia). **Proposta:** o convênio é escolhido **por lote
-   (`tarefa_id`)** na tela de revisão — o humano diz "o lote 2158 é o convênio X"
-   uma vez, e isso vale para todas as linhas dele (e fica salvo para os
-   próximos lotes com o mesmo `orgao`, como sugestão). Confirmar com o Bruno se
-   um lote do fornecedor é sempre de um convênio só.
-2. **`tarefa_id`** — tudo indica ser a lista/lote criada no sistema do
-   fornecedor (as 5 linhas são do mesmo 2158, consultadas no mesmo segundo).
-   Confirmar se o Bruno enxerga esse número no sistema deles.
+   da pessoa, varia). **NÃO assumir** que `tarefa_id` identifica o convênio:
+   pergunta enviada à **Kaizom** (o fornecedor) em 10/09 — aguardar a resposta
+   antes de desenhar a staging. Caminhos possíveis, conforme o que responderem:
+   (a) eles passam a gravar o convênio numa coluna/chave → usar direto;
+   (b) existe tabela de tarefas com o convênio → SELECT nela;
+   (c) um lote é sempre de um convênio só → escolha por lote na revisão;
+   (d) um lote pode misturar convênios → escolha por linha (pior UX).
+2. **`tarefa_id`** — parece ser a lista/lote criada no sistema da Kaizom (as 5
+   linhas são do mesmo 2158, consultadas no mesmo segundo), mas não confirmado.
 3. **Linhas com `sucesso = 0`** (a amostra só tem `1`): descartar, ou mostrar
    na revisão como falha de consulta?
 4. **Data da margem no WeSales:** usar `consultado_em` (quando consultou) ou
