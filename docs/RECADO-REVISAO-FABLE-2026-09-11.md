@@ -96,7 +96,41 @@ QR. Minha aposta é que o WhatsApp responde 401 nesse caso. Vale
 confirmar, e talvez limitar: N quedas 500 seguidas → marcar a instância
 para atenção, SEM apagar a credencial.
 
-## 5. Achado lateral
+## 5. Deploy sobreposto gravava "Sessão substituída" em instância viva
+
+Achado 11/09 00:19 (5009): a tela mostrava "Desconectada / Sessão
+substituída", mas o socket estava vivo no engine novo (e o celular
+mostrava o aparelho conectado). Em todo deploy o container novo conecta
+antes de o antigo parar (~8 s; `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS` já é
+0, a sobreposição é do ciclo de saúde do Railway). O WhatsApp derruba o
+antigo com `conflict type="replaced"` (440), e o antigo gravava
+"desconectada" sem condição. Quem gravou por último ganhou:
+
+| instância | antigo gravou | novo gravou | resultado |
+|---|---|---|---|
+| 1641 | 37,058 s | 37,338 s | ok |
+| 2043 | 38,657 s | 38,931 s | ok |
+| 2537 | 41,621 s | 41,827 s | ok |
+| 5009 | 40,620 s | 40,389 s | **errado (231 ms)** |
+
+Correção: cada socket carimba `conectada_em` ao abrir, e o `close` só
+grava (conflito e backoff) via `atualizarInstanciaSeDono`, isto é,
+`UPDATE ... WHERE id = ? AND conectada_em = <carimbo dele>`. Processo
+substituído não casa linha nenhuma. O teste novo falha no código antigo
+exatamente nos 2 casos da corrida.
+
+**Pontos para revisar:**
+- A alternativa de raiz é ligar `CHAT_INSTANCE_LEASES`: o novo esperaria
+  o antigo liberar e não haveria socket duplo. Não liguei porque muda o
+  comportamento de todo deploy (o novo fica sem conectar até a lease
+  vencer). Vale decidir.
+- A igualdade em `conectada_em` depende do ISO com milissegundos
+  sobreviver ao ida-e-volta do `timestamptz`. Deve sobreviver, mas vale
+  confirmar.
+- O ramo do 401 (logout) continua gravando sem condição, de propósito: a
+  credencial morreu para todo mundo.
+
+## 6. Achado lateral
 
 `jsdom` está declarado no `apps/web/package.json`, mas não está
 instalado na pasta principal do `brs-alvoconsig`. Por isso o teste de
