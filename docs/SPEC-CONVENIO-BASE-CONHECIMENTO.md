@@ -277,13 +277,28 @@ cidade.
 ### 6.1 Modelos e custo
 
 `ia_config.modelo_pesquisa` (busca; o sistema liga
-`plugins: [{ id: 'web', max_results: 8 }]` do OpenRouter, então qualquer
+`plugins: [{ id: 'web', max_results: 5 }]` do OpenRouter, então qualquer
 modelo serve) e `ia_config.modelo_leitura` (extração; sem web). Pagos, na mesma
 chave OpenRouter do Jarvis — aprovado pelo Bruno em 10/09 **só para esta
 função**; o chat do Jarvis continua na lista gratuita. Campo vazio = recurso
 desligado, com aviso na tela. Custo por pesquisa: 1 chamada de busca + 1 de
-extração por fonte (máx. 8) — ordem de centavos por convênio, conforme o
-modelo escolhido.
+extração por fonte (máx. 8 fontes reportadas — a busca em si consulta 5
+resultados, número menor que o de fontes, para conter contexto/custo) —
+ordem de centavos por convênio, conforme o modelo escolhido.
+
+**Modelo de raciocínio ⇒ sempre `reasoning: { effort: 'low' }` (achado real,
+11/09/2026).** Em modelos como GPT-5.x/Claude com extended thinking, `max_tokens`
+cobra raciocínio + resposta JUNTOS — sem capar o esforço, o modelo pode gastar
+o orçamento inteiro "pensando" (pior ainda com o plugin de busca) e devolver
+`content` vazio, sem nunca escrever o JSON pedido. Foi exatamente o que
+aconteceu na 1ª pesquisa real (GPT-5.2 como `modelo_pesquisa`): 3 tentativas,
+mesma falha determinística, **US$0,72 gastos sem resultado nenhum** — retentar
+uma falha determinística só repete o gasto, não corrige nada. Por isso:
+`chamarIaJson` sempre manda `reasoning: { effort: 'low' }` (parâmetro
+ignorado pelo OpenRouter em modelos sem suporte a raciocínio); `MAX_TENTATIVAS`
+caiu de 3 para 2; e o erro de "modelo não devolveu resposta" agora distingue
+`finish_reason === 'length'` (estourou `max_tokens`) do resto, citando o
+modelo e o limite usado.
 
 ### 6.2 Etapas (tabela `convenio_pesquisas`)
 

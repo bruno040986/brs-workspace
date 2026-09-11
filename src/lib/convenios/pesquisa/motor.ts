@@ -19,7 +19,11 @@ import { montarPromptBusca, montarPromptExtracao, type CatalogoExtracao, type Co
 
 const BUCKET = 'convenio-documentos'
 const TIPOS_NORMA = new Set(['decreto', 'lei', 'lei_complementar', 'portaria', 'instrucao_normativa', 'resolucao', 'outro'])
-const MAX_TENTATIVAS = 3
+// 2, não 3: uma chamada de IA falhando (ex.: modelo de raciocínio estourando
+// max_tokens) tende a falhar do mesmo jeito de novo com o mesmo prompt/
+// modelo — retentar não corrige, só triplica o gasto (achado real: 3
+// tentativas de GPT-5.2 com busca na web = US$0,72 sem resultado nenhum).
+const MAX_TENTATIVAS = 2
 
 type PesquisaRow = {
   id: string
@@ -100,8 +104,13 @@ async function executarBusca(pesquisa: PesquisaRow) {
     apiKey: modelos.apiKey,
     modelo: modelos.modeloPesquisa,
     mensagens: [{ role: 'user', content: prompt }],
-    buscaWeb: { maxResultados: 8 },
-    maxTokens: 4000,
+    // 5, não 8: cada resultado de busca entra no contexto (custo) e dá mais
+    // "material" pro modelo raciocinar em cima — o limite de até 8 NORMAS
+    // reportadas (prompts.ts) é sobre a resposta, não sobre a largura da
+    // busca em si.
+    buscaWeb: { maxResultados: 5 },
+    reasoningEffort: 'low',
+    maxTokens: 6000,
   })
 
   const json = extrairJson<{ normas?: any[] }>(resultado.texto)
@@ -377,7 +386,8 @@ async function executarExtracao(pesquisa: PesquisaRow) {
     apiKey: modelos.apiKey,
     modelo: modelos.modeloLeitura,
     mensagens: [{ role: 'user', content: prompt }],
-    maxTokens: 6000,
+    reasoningEffort: 'low',
+    maxTokens: 8000,
   })
 
   const json = extrairJson<{ sugestoes?: any[] }>(resultado.texto)

@@ -111,14 +111,27 @@ export async function chamarIaJson(params: {
   /** Liga o plugin `web` do OpenRouter — qualquer modelo passa a buscar na internet. */
   buscaWeb?: { maxResultados: number }
   maxTokens?: number
+  /**
+   * Modelos de raciocínio (GPT-5.x, Claude com extended thinking...) cobram
+   * `max_tokens` de RACIOCÍNIO + RESPOSTA juntos — sem limitar o esforço, o
+   * modelo pode gastar o orçamento inteiro "pensando" (ainda mais com o
+   * plugin de busca no meio) e devolver `content` vazio, sem nunca chegar a
+   * escrever o JSON pedido. Foi o que aconteceu na 1ª pesquisa real
+   * (11/09/2026, GPT-5.2): 3 tentativas, mesma falha determinística, US$0,72
+   * gastos sem resultado nenhum. Default 'low' — aqui queremos um JSON
+   * direto, não uma investigação profunda; modelos sem suporte a "reasoning"
+   * ignoram o campo (é o comportamento documentado do OpenRouter).
+   */
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'none'
   signal?: AbortSignal
   timeoutMs?: number
 }): Promise<IaJsonResultado> {
-  const { apiKey, modelo, mensagens, buscaWeb, maxTokens, signal, timeoutMs = TIMEOUT_PADRAO_MS } = params
+  const { apiKey, modelo, mensagens, buscaWeb, maxTokens, reasoningEffort = 'low', signal, timeoutMs = TIMEOUT_PADRAO_MS } = params
 
   const body: Record<string, unknown> = {
     model: modelo,
     messages: mensagens,
+    reasoning: { effort: reasoningEffort },
   }
   if (buscaWeb) {
     body.plugins = [{ id: 'web', max_results: Math.max(1, Math.min(buscaWeb.maxResultados, 10)) }]
@@ -160,10 +173,18 @@ export async function chamarIaJson(params: {
   }
 
   const json = await res.json().catch(() => null)
-  const message = json?.choices?.[0]?.message
+  const escolha = json?.choices?.[0]
+  const message = escolha?.message
   const texto = typeof message?.content === 'string' ? message.content : ''
   if (!texto.trim()) {
-    throw new Error('O modelo não devolveu resposta (possível cota esgotada, sem crédito ou erro do provedor).')
+    // finish_reason 'length' = estourou max_tokens (o caso mais comum com
+    // modelo de raciocínio: gastou tudo "pensando" e não sobrou pra
+    // resposta) — diagnóstico direto na mensagem, sem precisar ir aos logs.
+    const motivo =
+      escolha?.finish_reason === 'length'
+        ? `o modelo "${modelo}" gastou todo o limite de tokens (max_tokens=${maxTokens ?? 'padrão'}) sem terminar a resposta — aumente o limite ou reduza o esforço de raciocínio`
+        : 'possível cota esgotada, sem crédito ou erro do provedor'
+    throw new Error(`O modelo não devolveu resposta (${motivo}).`)
   }
 
   const anotacoes: IaAnotacao[] = Array.isArray(message?.annotations)
