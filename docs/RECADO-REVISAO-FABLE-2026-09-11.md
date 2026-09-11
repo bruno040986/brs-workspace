@@ -130,7 +130,47 @@ exatamente nos 2 casos da corrida.
 - O ramo do 401 (logout) continua gravando sem condição, de propósito: a
   credencial morreu para todo mundo.
 
-## 6. Achado lateral
+## 6. Deploy de `6a6c93b` (00:51): 5009 travou no handshake e o vigia recuperou
+
+Resultado da corrida neste deploy (o container que saiu ainda rodava o
+código antigo): 1641, 2043 e 2537 ficaram certas, porque o novo gravou
+depois. A 5009 **não chegou a disputar**: o container novo abriu o
+socket (é o que gerou o "replaced" no antigo às 48,7 s), mas esse socket
+nunca emitiu `open` nem `close`. Nenhum log, nenhum erro.
+
+Mecanismo provável (Baileys `Socket/socket.js:499-505`): o `open` só é
+emitido DEPOIS de `await uploadPreKeysToServerIfRequired()` e
+`await sendPassiveIq('active')`, dentro do handler de `CB:success`. Se um
+deles fica pendurado, o servidor já aceitou o login mas o socket nunca
+abre, e também não fecha. O teto de 60 s não pega esse caso, porque
+`conectar()` resolve quando o socket é CRIADO, não quando ABRE. Não há
+handler de `unhandledRejection` e o processo não caiu, então o `await`
+ficou pendurado, não rejeitou.
+
+Recuperação: `sessaoAtiva` exige `aberta === true`, então o vigia viu
+"sem socket vivo". Passada 1 (00:53:44): travou de novo. Passada 2
+(00:55:44): conectou às 00:55:46. Resultado: 8/8 sem intervenção,
+em ~4 min.
+
+**Hipótese NÃO provada — credencial gravada pelo container que sai:**
+`persist` (`baileys.ts:249`, debounce 400 ms) e `flushAuth` no
+encerramento (`:641`, no SIGTERM) gravam `sessao_cifrada` SEM condição
+de dono. O container antigo pode sobrescrever as chaves do novo com um
+retrato velho, e prekeys inconsistentes explicariam o travamento no
+upload de prekeys. Contra a hipótese: a primeira tentativa travou ANTES
+de o antigo parar. Não mexi: proteger a gravação de credencial por
+"dono" pode perder atualização legítima de chave. A correção de raiz
+para as duas corridas (status e credencial) parece ser a lease
+(`CHAT_INSTANCE_LEASES`).
+
+**Pontos para revisar:**
+- Um prazo de `open` por socket (ex.: 45 s sem `open` → `reiniciar`)
+  derrubaria a recuperação de ~4 min para ~1 min. Não implementei:
+  o vigia já cobre, e não quis empilhar mais um timer sem revisão.
+- Ligar `CHAT_INSTANCE_LEASES`: fecha as duas corridas de deploy, mas
+  muda o comportamento de todo deploy. Decisão sua e do Bruno.
+
+## 7. Achado lateral
 
 `jsdom` está declarado no `apps/web/package.json`, mas não está
 instalado na pasta principal do `brs-alvoconsig`. Por isso o teste de
