@@ -22,6 +22,9 @@
   Regionalismo, Feriados).
 - **IA sugere, humano aprova.** Conteúdo gerado pelo Jarvis (resumos, FAQ)
   entra como rascunho com origem marcada; só vira ativo depois de revisado.
+- **A IA busca, o texto oficial é a fonte.** O Jarvis encontra normas na web,
+  mas todo dado que vai para a BC sai do texto oficial baixado pelo servidor,
+  com citação literal conferida e ente verificado (§6). Nunca da resposta da IA.
 - **Padrão do Workspace.** Server actions + admin client, RLS ligada sem
   policy, permissões pela REGRA FIXA, soft delete, `trigger_set_timestamp()`,
   migrations com timestamp real só da pasta principal.
@@ -254,7 +257,106 @@ Endpoint para o agente: `GET /api/conhecimento/convenios/:id?cidade=&uf=`
 inicial: CRM AlvoConsig (agente WhatsApp). Embeddings ficam para depois — o
 dossiê inteiro cabe no contexto de um modelo atual.
 
-## 6. Jarvis leitor (documentos → resumo + FAQ rascunho)
+## 6. Jarvis pesquisador (decisão do Bruno, 10/09/2026 — substitui o "Jarvis leitor")
+
+**Fluxo:** Dados Básicos → **Pesquisa (Jarvis)**, primeiro passo da BC → o
+Jarvis busca na web as normas oficiais do ente → o servidor baixa o texto
+oficial e confere o ente → o Jarvis extrai sugestões **só do texto baixado**,
+cada uma com citação literal → o humano aceita, edita ou rejeita → só o aceito
+entra na BC. O usuário completa o que o Jarvis não achou. O botão "Ler com o
+Jarvis" de um documento já anexado usa o mesmo pipeline, sem a etapa de busca
+(`origem='documento'`).
+
+**Por que o texto oficial é a fonte, e não a resposta da IA.** Teste do Bruno
+com o Gemini para Cubatão/SP (10/09): o decreto principal citado (nº
+11.731/2026) é de **Itajubá-MG**; os "35% empréstimo / 40% total" não estão no
+texto; e "é proibida a portabilidade" era "portabilidade **automática**". Se
+isso entrasse na BC, o agente informaria margem errada a servidor de outra
+cidade.
+
+### 6.1 Modelos e custo
+
+`ia_config.modelo_pesquisa` (busca; o sistema liga
+`plugins: [{ id: 'web', max_results: 8 }]` do OpenRouter, então qualquer
+modelo serve) e `ia_config.modelo_leitura` (extração; sem web). Pagos, na mesma
+chave OpenRouter do Jarvis — aprovado pelo Bruno em 10/09 **só para esta
+função**; o chat do Jarvis continua na lista gratuita. Campo vazio = recurso
+desligado, com aviso na tela. Custo por pesquisa: 1 chamada de busca + 1 de
+extração por fonte (máx. 8) — ordem de centavos por convênio, conforme o
+modelo escolhido.
+
+### 6.2 Etapas (tabela `convenio_pesquisas`)
+
+Cada chamada avança **uma** etapa sob lease (`convenio_pesquisas_claim`), em
+até ~50 s:
+
+1. **buscando** — prompt com nome, razão social, CNPJ, tipo/esfera,
+   cidade/UF; pede JSON de normas `{url, titulo, tipo_norma, numero, ano,
+   ente}` sobre consignação em folha **do ente** (federais só se o convênio
+   for federal), preferindo diário oficial, portal da prefeitura/câmara e
+   repositórios de leis. Grava até 8 fontes `candidata` (dedupe por URL).
+2. **baixando** (uma fonte por passo) — download server-side protegido (§6.4);
+   PDF → texto com `pdf2json` (já no projeto); HTML → texto; original guardado
+   no bucket em `convenios/<id>/pesquisa/<fonte_id>/<nome>`; PDF sem camada de
+   texto (escaneado) → `sem_texto`.
+3. **verificação do ente** — determinística, sem IA: texto normalizado
+   (minúsculas, sem acento); captura "prefeitura / prefeito / município /
+   câmara municipal de X" (municipal), "estado de X" / "governo do estado de
+   X" (estadual), "presidente da república" / "congresso nacional"
+   (federal). Ente detectado ≠ ente do convênio → `ente_divergente`, com
+   motivo legível ("o texto é de Itajubá-MG"); confere → `verificada`; sem
+   menção → `nao_verificada` (o humano pode confirmar lendo a fonte).
+4. **extraindo** (uma fonte verificada ou confirmada por passo) —
+   `modelo_leitura` recebe o texto + catálogos com ids (`formas_contrato` e
+   `publicos_atendidos` ativos) + valores atuais da BC; devolve JSON
+   `{sugestoes: [{secao, campo, valor, citacao, artigo}], faq: [...],
+   nao_encontrado: [...]}`. Validação no servidor: **a citação tem que ser
+   substring do texto** (normalizando espaços e caixa) — senão a sugestão é
+   descartada e contada no resumo; ids têm que existir no catálogo (sem
+   mapeamento → `forma:?` / `publico:?`, e o humano escolhe na revisão);
+   percentual 0 < p ≤ 100; prazos inteiros > 0.
+5. **concluida** — resumo + `nao_encontrado` (o que o usuário precisa completar).
+
+Falha numa etapa: `tentativas + 1`; na 3ª falha → `erro`, com mensagem.
+
+### 6.3 Revisão e aplicação
+
+Sugestões agrupadas por seção; conflitos (mesmo campo, fontes diferentes) lado
+a lado com número/ano da norma. **Aceitar:** (a) importa a fonte como
+`convenio_documentos` (tipo `decreto` para normas; url + arquivo +
+`texto_extraido`; fonte → `importada`), se ainda não importada; (b) aplica com
+**escrita pontual** — nunca pela RPC `convenio_bc_salvar_secao`, que substitui
+a seção inteira: geral → update da coluna (valida R1/R5); formas → upsert do
+par forma/percentual (a trigger R1 continua valendo); públicos → insert `on
+conflict do nothing`; FAQ → `faq_itens` escopo `convenio`, `origem='ia'`,
+`status='ativo'`, com `documento_id`; observação → acrescenta em
+`bc_observacoes` com a referência da norma; (c) demais pendentes do mesmo
+campo → `substituida`. "Aceitar todas desta fonte" aplica uma a uma e relata
+falhas. `convenio_bc_sugestoes` é a trilha de auditoria: quem aceitou, o que
+foi aplicado, de qual texto.
+
+### 6.4 Segurança
+
+- Download só `http`/`https`; DNS resolvido e bloqueio de faixas privadas,
+  loopback, link-local e CGNAT (10/8, 172.16/12, 192.168/16, 127/8,
+  169.254/16, 100.64/10, 0/8, ::1, fc00::/7, fe80::/10); redirects manuais
+  (máx. 3, rechecando cada destino); timeout 20 s; máx. 15 MB; só PDF, HTML e
+  texto. (URL vem de saída de IA — sem isso seria SSRF.)
+- Texto da web é **dado, nunca instrução** (prompt injection): o prompt diz
+  isso, a saída é validada estruturalmente, a citação é conferida e nada é
+  aplicado sem aceite humano.
+- Chave do provedor só no servidor (cofre); logo, **testar em produção** (o
+  `.env.local` não tem a `CRM_CREDENTIALS_KEY` real).
+
+### 6.5 Execução
+
+`POST /api/convenios/[id]/pesquisa` (iniciar) e
+`POST /api/convenios/[id]/pesquisa/avancar` (um passo), `maxDuration = 60`. A
+tela chama `avancar` em laço enquanto estiver aberta; o cron
+`/api/cron/convenio-pesquisas` (a cada 2 min) retoma pesquisas paradas por lease
+vencido. No máximo uma pesquisa ativa por convênio (índice único).
+
+### 6.9 Desenho original (substituído em 10/09 — mantido só como histórico)
 
 - `ia_config` ganha `modelo_leitura` (slug OpenRouter; pode ser pago na
   mesma chave) e `modelo_leitura_max_tokens`. Card "IA do Workspace" mostra
@@ -291,6 +393,9 @@ dossiê inteiro cabe no contexto de um modelo atual.
   - **Dados Básicos** — exatamente o formulário atual (CNPJ.ws, tipo→esfera,
     averbadora/site/autenticação) + endereço, nº servidores, abrangência.
   - **Base de Conhecimento** — sub-abas:
+    0. *Pesquisa (Jarvis)* — **primeira sub-aba** (decisão 10/09): botão
+       "Pesquisar com o Jarvis", progresso, fontes encontradas (com status
+       do ente) e fila de sugestões para aceitar/editar/rejeitar (§6).
     1. *Público* — teto/prazos gerais + checklist de `publicos_atendidos`.
     2. *Formas & Margens* — grade formas permitidas (checklist de
        `formas_contrato` ativas) com % de margem; soma × teto ao vivo.
@@ -334,7 +439,9 @@ Mostra em cada item em quantos convênios está importado.
 
 ### 7.4 IA do Workspace
 
-Card ganha "Modelo de leitura de documentos" (+ botão testar).
+Card ganha "Modelo de pesquisa (com busca na web)" e "Modelo de leitura de
+documentos" (`ia_config.modelo_pesquisa` / `modelo_leitura`), com o aviso de
+que são pagos e usados só pela pesquisa de convênios.
 
 ## 8. Permissões (REGRA FIXA — 4 pontos na mesma entrega)
 
@@ -346,7 +453,8 @@ Card ganha "Modelo de leitura de documentos" (+ botão testar).
 | `sistema-config-instituicoes` | aba FAQ da IF | não |
 | `sistema-config-credito` | FAQ das formas | não |
 | `workspace-averbadoras` | FAQ das averbadoras | não |
-| `sistema-config-ia` | modelo de leitura | não |
+| `sistema-config-ia` | modelos de pesquisa e leitura | não |
+| `workspace-convenios` (regra de rota, não chave nova) | `/api/convenios/**` (pesquisa do Jarvis) | não |
 | `CONHECIMENTO_SERVICE_TOKEN` (env) | `/api/conhecimento/**` | env nova na Vercel |
 
 `usuarios/page.tsx`: `workspace-regionalismo` e `workspace-feriados` sob
@@ -359,8 +467,8 @@ novos sob Convênios. `permissions.ts`: exatos + prefixos.
 |---|---|---|---|
 | **1 — Núcleo** | Migration A (2.1–2.8 + triggers R1–R6 + RPC por seção); página cheia `/convenios/[id]` com Dados Básicos + sub-abas Público, Formas & Margens, Instituições (na Fase 1 o vínculo tem canais/público/matriz/órgãos; o roteiro entra na Fase 2 como documento), Órgãos; submenus Públicos e Órgãos; listagem com completude parcial | migration, RPC, roteiro | telas + actions |
 | **2 — Documentos & FAQ** | Migration B (2.9–2.11 + bucket); sub-abas Decretos, Documentos, FAQ (duas visões + importação); FAQ nas 3 entidades; roteiro no vínculo | migration, bucket, revisão | telas + actions + FaqEditor |
-| **3 — Regionalismo & Feriados** | Migration C (2.12–2.13 + seeds nacionais + perms); menus; resolução da seção 4 | migration, seed, perms | telas |
-| **4 — Jarvis leitor** | `ia_config.modelo_leitura`, extração, resumo, FAQ rascunho, painel de rascunhos | pipeline IA + segurança | UI do painel |
+| **3 — Jarvis pesquisador** (antecipada em 10/09; era a 4) | Migration `20260910224854` (pesquisas, fontes, sugestões, modelos no `ia_config`); pipeline busca → download → verificação do ente → extração com citação; sub-aba Pesquisa; "Ler com o Jarvis" | migration, segurança (SSRF, injeção), revisão | pipeline + telas |
+| **4 — Regionalismo & Feriados** (era a 3) | Migration C (2.12–2.13 + seeds nacionais + perms); menus; resolução da seção 4 | migration, seed, perms | telas |
 | **5 — Dossiê & agente** | `convenio_conhecimento` (json+md), prévia na tela, endpoint `/api/conhecimento`, consumo no CRM AlvoConsig | função SQL, endpoint, token | prévia |
 
 Cada fase = uma worktree/branch (`convenio-bc/fase-N`), merge pequeno,
@@ -386,6 +494,10 @@ independentes entre si (3 pode andar em paralelo em outra sessão).
    score de completude.
 8. Nada exposto a `anon`/`authenticated`; agente consome via endpoint com
    token de serviço.
+9. Jarvis pesquisador (10/09): a IA busca, o **texto oficial baixado** é a
+   fonte; citação literal conferida no texto; ente verificado sem IA; tudo
+   passa por aceite humano; modelo pago só na pesquisa (o chat segue gratuito).
+   É o primeiro passo da BC depois dos Dados Básicos.
 
 ## 11. Pendências fora desta spec
 
@@ -394,5 +506,8 @@ independentes entre si (3 pode andar em paralelo em outra sessão).
 - Embeddings/RAG vetorial: só quando o dossiê não couber no contexto.
 - Portal Parceiro / CLT-NuAzul consumindo o mesmo endpoint: depois do
   AlvoConsig.
-- Valor de `modelo_leitura` (qual modelo pago): Bruno escolhe na hora da
-  Fase 4.
+- Quais modelos pagos usar em `modelo_pesquisa` / `modelo_leitura`: o Bruno
+  escolhe no card IA do Workspace ao testar a Fase 3 (a conta OpenRouter
+  precisa ter crédito — modelos pagos e o plugin de busca não usam a cota
+  gratuita).
+- OCR de PDF escaneado (fontes `sem_texto`): depois.
