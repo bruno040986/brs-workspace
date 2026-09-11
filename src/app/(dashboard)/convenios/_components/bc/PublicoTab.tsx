@@ -411,7 +411,7 @@ export default function PublicoTab({
         </div>
       </div>
 
-      <div className="card" style={{ padding: '1rem' }}>
+      <div className="card" style={{ padding: '1rem', overflow: 'visible' }}>
         <div style={{ fontWeight: 800, marginBottom: '0.25rem' }}>Calendário de Pagamento</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)', marginBottom: '0.9rem' }}>
           Cada convênio tem sua própria regra — escolha o formato que descreve melhor este.
