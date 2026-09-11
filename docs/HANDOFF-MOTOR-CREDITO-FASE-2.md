@@ -47,6 +47,46 @@ banco do fornecedor. **Não substitui a importação por Excel** (decisão do Br
 | `sucesso` | tinyint(1) | |
 | `created_at` / `updated_at` | timestamp | |
 
+### 3.1 Estrutura de `dados_extras` (5 linhas reais analisadas em 10/09)
+
+```
+dados_extras
+├─ cpf            "000.000.000-00" (formatado)
+├─ nome           nome completo  ← usar este (a coluna `nome` vem NULL)
+├─ identificacao  = matrícula
+├─ cargo          código (ex. "05770")
+├─ orgao          ex. "SEFAZ"            (igual em todas as linhas do lote)
+├─ lotacao        ex. "20 - SECRETARIA DA FAZENDA E PLANEJAMENTO" (varia por pessoa)
+├─ vinculo        ex. "7 - Efetivo"
+├─ admissao       "dd/mm/aaaa"
+├─ mes_referencia "mm/aaaa"   (ex. "12/2025")
+├─ prox_folha     "dd/mm/aaaa"
+├─ fim_contrato   "" ou null
+├─ margem_bruta       { "<PRODUTO>": { valor_str: "1165,41", valor_float: 1165.41 }, ... }
+├─ margem_disponivel  { mesmo formato }
+└─ exportador     cópia "achatada" dos mesmos dados (cpf_cliente, nome_cliente,
+                  margem_bruta_cartao_de_credito, margem_disponivel_consignacoes_facultativas…)
+                  ⚠ NÃO traz o Cartão de Benefício — usar os mapas acima, não o exportador.
+```
+
+Produtos que aparecem nos mapas de margem, e a correspondência com os campos
+de margem que a importação Excel já grava no WeSales:
+
+| chave no JSON | produto | campo WeSales (`MARGEM_FIELD_KEYS`) |
+|---|---|---|
+| `CONSIGNACOES FACULTATIVAS` | Empréstimo Novo | `novoValor` / `novoData` |
+| `CARTAO DE CREDITO` | Cartão Consignado (RMC) | `rmcValor` / `rmcData` |
+| `CARTÃO DE BENEFÍCIO` | Cartão Benefício (RCC) | `rccValor` / `rccData` |
+
+- As colunas de topo `valor_margem` / `valor_disponivel` são só a
+  **Consignações Facultativas** (bruta / disponível) repetida — não servem para cartão.
+- Valor a gravar = **`margem_disponivel[...].valor_float`** (número; nunca o
+  `valor_str`, que tem vírgula). Guardar a bruta também na staging, para a revisão.
+- Chaves têm acento e espaço (`"CARTÃO DE BENEFÍCIO"`): comparar normalizando
+  (sem acento, maiúsculas), porque o fornecedor pode variar a grafia.
+- `created_at` e `updated_at` vieram **NULL** → leitura incremental só pelo `id`.
+- Datas vêm em `dd/mm/aaaa` → converter para `AAAA-MM-DD` antes do WeSales.
+
 ## 4. Desenho da Fase 2 (já combinado com o Bruno)
 
 ```
@@ -72,19 +112,36 @@ rastreio em `crm_imports`. Campos/parsers em `src/lib/alvoconsig/import.ts`
 (`CAMPOS_IMPORT`, `parseMoney`, `normalizeCpfCell`). **Extrair esse núcleo para
 uma função compartilhada** e usar nos dois caminhos — não duplicar.
 
-## 5. Perguntas em aberto (resolver antes de codar a staging)
+## 5. Perguntas — situação após a amostra completa (10/09)
 
-1. **Chaves completas de `dados_extras`** — o print cortou. Primeiro passo:
-   Bruno clica em *Explorar* no card e copia o JSON inteiro de uma linha.
-2. **O que é `tarefa_id`?** Lote/job do fornecedor? Dá pra saber o convênio por ele?
-3. **De qual convênio é cada linha?** A tabela não tem coluna de convênio — sem
-   isso não dá pra gravar Convênio (Código/Nome) nem o Consignante no WeSales.
-   Talvez esteja em `dados_extras`, ou venha do `tarefa_id`.
-4. **`valor_margem` × `valor_disponivel`** → qual vai para Margem Novo? Existe
-   margem de cartão (RMC/RCC) em algum lugar, ou só empréstimo?
-5. **Linhas com `sucesso = 0`**: descartar, ou mostrar na revisão como falha?
-6. **Frequência do cron** e o que fazer com linha que o fornecedor atualizar
-   depois (`updated_at` muda mas o `id` não — o cursor por `id` não pega).
+**Resolvidas pela amostra:**
+- ~~Chaves de `dados_extras`~~ → §3.1.
+- ~~`valor_margem` × `valor_disponivel`; tem cartão?~~ → os três produtos vêm
+  nos mapas `margem_bruta`/`margem_disponivel` (§3.1); grava-se a disponível.
+- ~~Linha atualizada depois~~ → `created_at`/`updated_at` vêm NULL; cursor só por `id`.
+
+**Ainda abertas:**
+1. **De qual convênio é cada linha?** Continua sem coluna de convênio. O que
+   existe: `orgao` (ex. "SEFAZ", igual no lote inteiro) e `lotacao` (secretaria
+   da pessoa, varia). **Proposta:** o convênio é escolhido **por lote
+   (`tarefa_id`)** na tela de revisão — o humano diz "o lote 2158 é o convênio X"
+   uma vez, e isso vale para todas as linhas dele (e fica salvo para os
+   próximos lotes com o mesmo `orgao`, como sugestão). Confirmar com o Bruno se
+   um lote do fornecedor é sempre de um convênio só.
+2. **`tarefa_id`** — tudo indica ser a lista/lote criada no sistema do
+   fornecedor (as 5 linhas são do mesmo 2158, consultadas no mesmo segundo).
+   Confirmar se o Bruno enxerga esse número no sistema deles.
+3. **Linhas com `sucesso = 0`** (a amostra só tem `1`): descartar, ou mostrar
+   na revisão como falha de consulta?
+4. **Data da margem no WeSales:** usar `consultado_em` (quando consultou) ou
+   `mes_referencia` (competência da folha)? A importação Excel usa a data do dia.
+5. **Frequência do cron.**
+
+**Ganchos com a Base de Conhecimento de Convênios** (não bloqueiam a Fase 2,
+mas vale deixar a staging guardando esses campos):
+- `vinculo` ("7 - Efetivo") conversa com o cadastro **Públicos Atendidos**.
+- `lotacao` (secretaria) conversa com **Órgãos / Empregadores** — se uma IF
+  tiver restrição de órgão naquele convênio, dá pra avisar na revisão.
 
 ## 6. Regras do Workspace que valem aqui
 
@@ -108,6 +165,6 @@ uma função compartilhada** e usar nos dois caminhos — não duplicar.
 
 ## 7. Próximo passo sugerido
 
-1. Bruno cola o JSON completo de uma linha (item 5.1) e responde 5.2–5.6.
+1. Bruno responde as perguntas abertas da §5 (a principal: convênio por lote).
 2. Desenho da staging + revisão (migration, permissão nova, cron) → roteiro.
 3. Sonnet executa as telas; revisão; publicar.
