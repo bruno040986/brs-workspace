@@ -24,6 +24,8 @@ export type Averbadora = {
   razao_social: string
   nome: string
   site_institucional: string | null
+  logo_wide_url: string | null
+  logo_url: string | null
   is_active: boolean
 }
 
@@ -45,7 +47,7 @@ export async function getAverbadoras(): Promise<{ success: boolean; items?: Aver
     await requirePermission(RESOURCE)
     const { data, error } = await admin
       .from('averbadoras')
-      .select('id, cnpj, razao_social, nome, site_institucional, is_active')
+      .select('id, cnpj, razao_social, nome, site_institucional, logo_wide_url, logo_url, is_active')
       .is('deleted_at', null)
       .order('is_active', { ascending: false })
       .order('nome')
@@ -78,6 +80,8 @@ export async function salvarAverbadora(input: {
   razao_social: string
   nome: string
   site_institucional?: string | null
+  logo_wide_url?: string | null
+  logo_url?: string | null
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requirePermission(RESOURCE, input.id ? 'can_edit' : 'can_include')
@@ -97,6 +101,8 @@ export async function salvarAverbadora(input: {
       razao_social: String(input.razao_social || '').trim(),
       nome,
       site_institucional: siteInstitucional,
+      logo_wide_url: input.logo_wide_url?.trim() || null,
+      logo_url: input.logo_url?.trim() || null,
       updated_at: new Date().toISOString(),
     }
 

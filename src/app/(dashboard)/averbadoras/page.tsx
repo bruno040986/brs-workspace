@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Building2, CheckCircle, Edit2, ExternalLink, Loader2, MessageCircleQuestion, Plus, Power, PowerOff, Search, X } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle, Edit2, ExternalLink, Loader2, MessageCircleQuestion, Plus, Power, PowerOff, Search, Upload, X } from 'lucide-react'
 import { maskCnpj, onlyDigits } from '@/lib/company-bank-accounts'
 import { normalizeCnpjWsCompleto } from '@/lib/cnpj-consulta'
 import { normalizarUrl } from '@/lib/url-site'
 import FaqEditor from '@/components/faq/FaqEditor'
+import { EditableFilePreview } from '@/app/(dashboard)/promotoras/_components/PromotoraEditor'
 import { getAverbadoras, salvarAverbadora, setAverbadoraStatus, type Averbadora } from './actions'
 
 type EditingAverbadora = {
@@ -14,6 +15,60 @@ type EditingAverbadora = {
   razao_social: string
   nome: string
   site_institucional: string
+  logo_wide_url: string
+  logo_url: string
+}
+
+function WideFilePreview({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string
+  value: string
+  onChange: (next: string) => void
+  disabled: boolean
+}) {
+  const uploaded = String(value || '').trim()
+
+  function handleFile(file: File | null) {
+    if (!file || disabled) return
+    const reader = new FileReader()
+    reader.onload = () => onChange(String(reader.result || ''))
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="form-group" style={{ marginBottom: 0 }}>
+      <label className="form-label">{label}</label>
+      <label
+        style={{
+          width: 220,
+          height: 88,
+          borderRadius: 14,
+          border: '1px solid var(--brs-gray-200)',
+          overflow: 'hidden',
+          background: '#fff',
+          display: 'grid',
+          placeItems: 'center',
+          cursor: disabled ? 'default' : 'pointer',
+        }}
+      >
+        {!disabled && (
+          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFile(e.target.files?.[0] || null)} />
+        )}
+        {uploaded ? (
+          <img src={uploaded} alt={label} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        ) : (
+          <div style={{ display: 'grid', placeItems: 'center', gap: '0.3rem', color: 'var(--brs-gray-400)' }}>
+            <Upload size={20} />
+            {!disabled && <span style={{ fontSize: '0.72rem', fontWeight: 600 }}>Clique para enviar</span>}
+          </div>
+        )}
+      </label>
+    </div>
+  )
 }
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
@@ -60,7 +115,7 @@ export default function AverbadorasPage() {
   }, [items, searchQuery])
 
   function openNew() {
-    setEditing({ cnpj: '', razao_social: '', nome: '', site_institucional: '' })
+    setEditing({ cnpj: '', razao_social: '', nome: '', site_institucional: '', logo_wide_url: '', logo_url: '' })
     setIsModalOpen(true)
   }
 
@@ -71,6 +126,8 @@ export default function AverbadorasPage() {
       razao_social: item.razao_social || '',
       nome: item.nome || '',
       site_institucional: item.site_institucional || '',
+      logo_wide_url: item.logo_wide_url || '',
+      logo_url: item.logo_url || '',
     })
     setIsModalOpen(true)
   }
@@ -126,6 +183,8 @@ export default function AverbadorasPage() {
         razao_social: editing.razao_social,
         nome: editing.nome,
         site_institucional: editing.site_institucional || null,
+        logo_wide_url: editing.logo_wide_url || null,
+        logo_url: editing.logo_url || null,
       })
       if (res.success) {
         setIsModalOpen(false)
@@ -220,6 +279,7 @@ export default function AverbadorasPage() {
           <table className="data-table">
             <thead>
               <tr>
+                <th></th>
                 <th>Nome Averbadora</th>
                 <th>CNPJ</th>
                 <th>Razão Social</th>
@@ -231,13 +291,13 @@ export default function AverbadorasPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
                     <span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} />
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '3rem' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
                     <div className="empty-state">
                       <Building2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} />
                       <h3>Nenhuma averbadora encontrada</h3>
@@ -248,6 +308,15 @@ export default function AverbadorasPage() {
               ) : (
                 filteredItems.map((item) => (
                   <tr key={item.id}>
+                    <td>
+                      <div style={{ width: 32, height: 32, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--brs-gray-200)', background: '#fff', display: 'grid', placeItems: 'center' }}>
+                        {item.logo_url ? (
+                          <img src={item.logo_url} alt={`Logotipo de ${item.nome}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <Building2 size={16} style={{ color: 'var(--brs-gray-300)' }} />
+                        )}
+                      </div>
+                    </td>
                     <td style={{ fontWeight: 600 }}>{item.nome}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{maskCnpj(item.cnpj)}</td>
                     <td>{item.razao_social || '-'}</td>
@@ -352,6 +421,21 @@ export default function AverbadorasPage() {
                     value={editing?.site_institucional || ''}
                     onChange={(e) => setEditing((prev) => (prev ? { ...prev, site_institucional: e.target.value } : prev))}
                     onBlur={handleSiteBlur}
+                  />
+                </div>
+
+                <div style={{ marginTop: '0.75rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <WideFilePreview
+                    label="Logotipo horizontal 500x200px"
+                    value={editing?.logo_wide_url || ''}
+                    disabled={false}
+                    onChange={(next) => setEditing((prev) => (prev ? { ...prev, logo_wide_url: next } : prev))}
+                  />
+                  <EditableFilePreview
+                    label="Logotipo quadrado 500x500px"
+                    value={editing?.logo_url || ''}
+                    disabled={false}
+                    onChange={(next) => setEditing((prev) => (prev ? { ...prev, logo_url: next } : prev))}
                   />
                 </div>
               </div>
