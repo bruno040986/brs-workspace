@@ -71,7 +71,32 @@ Com a conclusão do item 2, deixou de ser urgente. Resolve as conversas
 duplicadas PN×LID no Chatwoot se elas aparecerem em clientes. Decidir se
 segue ou fica parado.
 
-## 4. Achado lateral
+## 4. 500 apagava pareamento saudável — `76eafbc` (EM PRODUÇÃO)
+
+Achado ao conferir o deploy de remoção da rota: a 7033 tinha sumido da
+lista de sessões salvas. Log: 10/09 23:47:21, `stream:error` SEM `code`,
+com filho `<ack class="message">`. `getErrorCodeFromStreamError`
+(Baileys `Utils/generics.js:276`) usa `DisconnectReason.badSession`
+(500) como PADRÃO quando falta código e o motivo não está no CODE_MAP. O
+engine tratava 500 igual a logout → `salvarSessao(id, null)` → QR
+obrigatório.
+
+Histórico nos logs retidos: **a 7033 caiu duas vezes por isso** (10/09
+00:09 e 23:47, ambas código 500). A queda de 09/09 15:37 foi 401
+legítimo. A primeira ocorrência é a que deixou a 7033 pedindo QR
+durante o dia 10, e ela tinha sido atribuída a "lado físico". Não era.
+
+Correção: só 401 apaga credencial; 500 vai para o backoff. Grep no
+Baileys: o default é o único emissor de 500. Teste com o payload real
+falha no código antigo e passa no novo.
+
+**Ponto para revisar:** se algum dia um 500 vier de sessão realmente
+inválida, o engine vai reconectar em loop (com backoff) em vez de pedir
+QR. Minha aposta é que o WhatsApp responde 401 nesse caso. Vale
+confirmar, e talvez limitar: N quedas 500 seguidas → marcar a instância
+para atenção, SEM apagar a credencial.
+
+## 5. Achado lateral
 
 `jsdom` está declarado no `apps/web/package.json`, mas não está
 instalado na pasta principal do `brs-alvoconsig`. Por isso o teste de
