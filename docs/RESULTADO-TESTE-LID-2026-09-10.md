@@ -97,10 +97,10 @@ envio por telefone.
 - Opção pontual para o comercial: descartar a sessão PN armazenada para
   `556196863171` e deixar o protocolo renegociar. Mexe em estado de
   criptografia em produção → só com ok do Bruno e olhar do Fable.
-- Remover a rota `/teste-endereco` no próximo deploy. O script
-  `teste-lid.sh` fica como ferramenta de diagnóstico de 1 minuto se um
-  cliente relatar "aguardando" (requer a rota; se removida, reintroduzir
-  sob demanda).
+- Rota `/teste-endereco` REMOVIDA (commit `4fe14ce`, revert de
+  `ec93a36`) e script `teste-lid.sh` apagado. Para diagnosticar um caso
+  novo de "aguardando" em cliente: `git revert 4fe14ce`, publicar, rodar
+  o experimento A/B, e remover de novo.
 
 ## O que já está firme
 
