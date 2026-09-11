@@ -93,7 +93,17 @@ export function verificarEnte(
     ...extrairNomesApos(texto, 'governo do estado de '),
     ...extrairNomesApos(texto, 'estado de '),
   ]
-  const ocorrenciasFederal = (texto.match(/presidente da republica|congresso nacional|uniao federal/g) || []).length
+  // Achado real (11/09/2026): normas federais sobre consignação raramente
+  // dizem "presidente da república" ou "união federal" no corpo — o que
+  // aparece de verdade é "Poder Executivo federal", "servidores públicos
+  // federais", "administração pública federal" etc. Sem esses padrões, uma
+  // Portaria/Decreto claramente federal caía em "não verificada" (sinal
+  // fraco demais) em vez do "ente_divergente" correto e mais informativo.
+  const ocorrenciasFederal = (
+    texto.match(
+      /presidente da republica|congresso nacional|uniao federal|poder executivo federal|administracao publica federal|servidor(?:es)? publico(?:s)? federa(?:l|is)|governo federal|\bda uniao\b/g,
+    ) || []
+  ).length
 
   const contagemMunicipal = nomesMunicipais.length
   const contagemEstadual = nomesEstaduais.length

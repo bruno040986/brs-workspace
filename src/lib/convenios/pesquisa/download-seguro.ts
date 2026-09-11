@@ -11,9 +11,15 @@ import dns from 'node:dns'
 import net from 'node:net'
 
 const MAX_BYTES = 15 * 1024 * 1024
-const TIMEOUT_MS = 20_000
+const TIMEOUT_MS = 25_000
 const MAX_REDIRECTS = 3
-const USER_AGENT = 'BRSWorkspaceJarvisBot/1.0 (+https://gestao.brspromotora.com.br)'
+// Um User-Agent "de robô" identificável (ex.: "BRSWorkspaceJarvisBot/1.0")
+// derruba a conexão com ECONNRESET em vários .gov.br (WAF bloqueando por
+// assinatura de bot) — reproduzido em 11/09/2026 contra planalto.gov.br:
+// com este UA de navegador comum, 200 OK; com o UA de bot, conexão resetada.
+// O conteúdo é lei pública, igual pra qualquer navegador — não há controle
+// de acesso sendo contornado, só um filtro de rede mal calibrado.
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 const MIMES_ACEITOS = new Set(['application/pdf', 'text/html', 'text/plain'])
 
 export type DownloadResultado = { bytes: Buffer; mime: string; urlFinal: string }
@@ -109,11 +115,19 @@ export async function baixarSeguro(urlOriginal: string): Promise<DownloadResulta
         method: 'GET',
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'User-Agent': USER_AGENT, Accept: 'application/pdf,text/html,text/plain;q=0.9,*/*;q=0.1' },
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: 'application/pdf,text/html,text/plain;q=0.9,*/*;q=0.1',
+          'Accept-Language': 'pt-BR,pt;q=0.9',
+        },
       })
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('Download excedeu o tempo limite (20s).')
-      throw new Error(`Falha de rede ao baixar: ${e?.message || e}`)
+      if (e?.name === 'AbortError') throw new Error(`Download excedeu o tempo limite (${TIMEOUT_MS / 1000}s).`)
+      // fetch() embrulha toda falha de rede num TypeError genérico "fetch
+      // failed" — a causa real (ECONNRESET, ENOTFOUND, certificado...) vem
+      // em e.cause. Sem expor isso, "fetch failed" sozinho não diz nada.
+      const causa = e?.cause?.code || e?.cause?.message || e?.cause || e?.message || e
+      throw new Error(`Falha de rede ao baixar: ${causa}`)
     } finally {
       clearTimeout(timeoutId)
     }

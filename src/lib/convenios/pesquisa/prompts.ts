@@ -41,8 +41,18 @@ export function montarPromptBusca(convenio: ConvenioContexto): string {
     '- Procure especificamente pelo ente acima. Não devolva normas de OUTRO município/estado só porque o assunto é parecido.',
     convenio.abrangencia === 'nacional'
       ? '- Este é um convênio FEDERAL/NACIONAL — procure normas federais (leis federais, decretos federais, instruções normativas de órgãos federais), não municipais nem estaduais.'
-      : `- Este é um convênio de abrangência ${abrangencia} — normas FEDERAIS sobre o tema geral só interessam se citadas diretamente pela norma local; priorize sempre a norma do próprio ${abrangencia}.`,
-    '- Prefira fontes primárias: diário oficial do ente, site oficial da prefeitura/câmara/assembleia, portal de legislação municipal/estadual (ex.: leismunicipais.com.br, dosp.com.br e afins que reproduzem o diário oficial).',
+      : [
+          `- Este é um convênio de abrangência ${abrangencia}. O que INTERESSA é a norma PRÓPRIA do ${abrangencia} de`,
+          `${local} (o decreto/lei que ${local} publicou regulamentando a consignação) — NÃO a legislação`,
+          `federal genérica sobre servidor público (RJU, Lei 8.112/1990, Lei 10.820/2003 e afins) que existe`,
+          `igual para o Brasil inteiro e não diz nada específico sobre ${local}.`,
+          `- Tente várias buscas antes de desistir: "decreto consignação ${local}", "diário oficial ${local} consignado"`,
+          `folha de pagamento", "câmara municipal ${local} consignação", site:${String(convenio.cidade || '').toLowerCase().replace(/\s+/g, '')}.${String(convenio.uf || '').toLowerCase()}.gov.br (se o convênio for municipal).`,
+          `- Uma norma federal genérica só entra na resposta se (a) você não achar NENHUMA norma própria de ${local}, e mesmo`,
+          `assim inclua no máximo 1, deixando "ente":"federal (base nacional, sem norma local encontrada)" — nunca`,
+          `apresente a norma federal como se fosse a regra operacional de ${local}.`,
+        ].join(' '),
+    '- Prefira fontes primárias: diário oficial do ente, site oficial da prefeitura/câmara/assembleia, portal de legislação municipal/estadual (ex.: leismunicipais.com.br, dosp.com.br, doweb e afins que reproduzem o diário oficial).',
     '- NUNCA invente uma URL. Só cite URLs que você realmente encontrou na busca.',
     '- No máximo 8 normas.',
     '',
