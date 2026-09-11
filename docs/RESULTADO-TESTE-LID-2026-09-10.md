@@ -69,6 +69,39 @@ Vincular o WhatsApp Web no 7033 e repetir SÓ o braço A. Se passar a dar
 "aguardando" com retry, a variável está isolada. É barato, reversível
 (desvincula depois) e usa o script que já existe.
 
+## Atualização (fim do dia 10/09): hipótese do WhatsApp Web DESCARTADA
+
+Testes adicionais, todos pela 6019, braços A (telefone) e B (LID):
+
+| destino | WhatsApp Web | resultado |
+|---|---|---|
+| 7033 | ligado | A e B imediatas |
+| pessoal do Bruno `5561996853171` (MESMO iPhone 16E do comercial) | desligado | A e B imediatas |
+| pessoal do Bruno | ligado | A e B imediatas |
+
+Placar: 5 destinos-condição testados, 1 falha — sempre o comercial
+`556196863171`, de duas instâncias diferentes (2043 e 6019). Aparelho,
+iOS, rede e WhatsApp Web ficam descartados, porque o pessoal está no
+mesmo aparelho e passou limpo.
+
+**Conclusão de trabalho:** o defeito é específico da sessão Signal que o
+engine mantém para esse contato (identidade PN desatualizada em relação
+ao aparelho — típico de conta reinstalada/migrada/restaurada; o comercial
+convive com outro app WhatsApp no mesmo iPhone). NÃO é defeito geral do
+envio por telefone.
+
+**Decisões:**
+- Não mudar o endereçamento de todos os envios por causa de um caso.
+- Alias LID↔telefone (`eb510a8`) segue na fila do Fable, sem urgência
+  (resolve as conversas duplicadas PN×LID se aparecerem em clientes).
+- Opção pontual para o comercial: descartar a sessão PN armazenada para
+  `556196863171` e deixar o protocolo renegociar. Mexe em estado de
+  criptografia em produção → só com ok do Bruno e olhar do Fable.
+- Remover a rota `/teste-endereco` no próximo deploy. O script
+  `teste-lid.sh` fica como ferramenta de diagnóstico de 1 minuto se um
+  cliente relatar "aguardando" (requer a rota; se removida, reintroduzir
+  sob demanda).
+
 ## O que já está firme
 
 - Endereçar por LID funcionou nos DOIS destinos, sem retry nenhum.
