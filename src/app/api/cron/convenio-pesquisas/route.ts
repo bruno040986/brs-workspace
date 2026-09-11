@@ -8,7 +8,9 @@ import { NextRequest } from 'next/server'
 import { rodarWorkerPesquisas } from '@/lib/convenios/pesquisa/motor'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// Mesma folga da rota /avancar — cada avancarPesquisa() pode levar até ~55s
+// (timeout da chamada de IA) dentro do laço de rodarWorkerPesquisas().
+export const maxDuration = 90
 
 function isAuthorized(req: NextRequest): boolean {
   const secret = String(process.env.CRON_SECRET || '')

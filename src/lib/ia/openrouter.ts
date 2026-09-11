@@ -97,6 +97,13 @@ export type IaJsonResultado = {
   modeloUsado: string
 }
 
+// Sem timeout próprio, uma chamada com busca na web (várias buscas + leitura
+// de várias páginas + geração) pode passar do limite da função serverless —
+// foi exatamente o que travou a primeira pesquisa real (10/09/2026): a
+// Vercel matou a função à força depois de 60s, sem a chamada nunca lançar um
+// erro JS normal, deixando o lease preso e sem mensagem nenhuma pro usuário.
+const TIMEOUT_PADRAO_MS = 55_000
+
 export async function chamarIaJson(params: {
   apiKey: string
   modelo: string
@@ -105,8 +112,9 @@ export async function chamarIaJson(params: {
   buscaWeb?: { maxResultados: number }
   maxTokens?: number
   signal?: AbortSignal
+  timeoutMs?: number
 }): Promise<IaJsonResultado> {
-  const { apiKey, modelo, mensagens, buscaWeb, maxTokens, signal } = params
+  const { apiKey, modelo, mensagens, buscaWeb, maxTokens, signal, timeoutMs = TIMEOUT_PADRAO_MS } = params
 
   const body: Record<string, unknown> = {
     model: modelo,
@@ -117,17 +125,32 @@ export async function chamarIaJson(params: {
   }
   if (maxTokens) body.max_tokens = maxTokens
 
-  const res = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    signal,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://gestao.brspromotora.com.br',
-      'X-Title': 'BRS Workspace - Jarvis (pesquisa de convênios)',
-    },
-    body: JSON.stringify(body),
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  // se quem chamou também passou um signal, aborta se QUALQUER um dos dois disparar
+  signal?.addEventListener('abort', () => controller.abort())
+
+  let res: Response
+  try {
+    res = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://gestao.brspromotora.com.br',
+        'X-Title': 'BRS Workspace - Jarvis (pesquisa de convênios)',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw new Error(`A IA demorou mais que ${Math.round(timeoutMs / 1000)}s para responder — tente novamente (o progresso já feito não se perde).`)
+    }
+    throw new Error(`Falha de rede ao chamar a IA: ${e?.message || e}`)
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (!res.ok) {
     const corpo = await res.text().catch(() => '')

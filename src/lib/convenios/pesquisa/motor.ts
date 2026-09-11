@@ -551,7 +551,12 @@ export async function avancarPesquisa(pesquisaId?: string): Promise<any | null> 
 export async function rodarWorkerPesquisas(): Promise<{ processadas: number }> {
   const inicio = Date.now()
   let processadas = 0
-  while (Date.now() - inicio < 50_000 && processadas < 10) {
+  // Uma etapa pode levar até ~55s (timeout da chamada de IA em chamarIaJson).
+  // Só inicia mais uma iteração se sobrarem pelo menos 60s dos 90s do
+  // maxDuration da rota — senão a PRÓXIMA iteração (não a atual) é que
+  // corre risco de ser morta pela plataforma no meio, com o mesmo problema
+  // que travou a primeira pesquisa real (10/09/2026).
+  while (Date.now() - inicio < 30_000 && processadas < 10) {
     const resultado = await avancarPesquisa()
     if (!resultado) break
     processadas++

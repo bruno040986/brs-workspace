@@ -13,7 +13,11 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback
 }
 
-export const maxDuration = 60
+// Precisa de folga acima do timeout da chamada de IA (55s em chamarIaJson) +
+// as leituras/escritas no banco em volta — 60s era curto demais e a Vercel
+// matava a função à força no meio de uma etapa, deixando o lease preso
+// (achado real em produção, 10/09/2026).
+export const maxDuration = 90
 
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
