@@ -38,7 +38,7 @@ o "fora da carteira" para conversas com telefone (as normais).
 gravá-los ao criar a conversa. Aí o vínculo nasce certo, sem depender
 de casamento por telefone (que falha em telefone compartilhado).
 
-### 2. Segunda mensagem do lead vira conversa órfã por LID — ESTRUTURAL
+### 2. Segunda mensagem do lead vira conversa órfã por LID — CORRIGIDO e publicado (22:30 UTC)
 Padrão em 3 de 5 leads externos: a 1ª resposta chega com `sender_pn`
 (o engine já resolve para o telefone), a seguinte chega só com `@lid`.
 Sem um mapa LID↔telefone persistido, `garantirConversa` cria outra
@@ -50,7 +50,13 @@ Correção (é o alias de 10/09, agora necessário):
 - migration `chat_contato_alias` (proposta `PROPOSTA-ALIAS-LID-TELEFONE-2026-09-10.md`) — Fable;
 - engine grava alias em TODA fonte que já vem de graça: `onWhatsApp` no envio (o disparo passa por aqui, então o alias existe ANTES da resposta), `sender_pn` no inbound, `chats.phoneNumberShare`, retry — `eb510a8` já cobre duas;
 - inbound `@lid` sem `sender_pn` consulta o alias (cache em memória + tabela) e cai na conversa do telefone;
-- conversas órfãs já criadas: ficam; mesclar é trabalho à parte.
+- conversas órfãs já criadas: as 3 de hoje receberam alias + vínculo com o
+  lead (migration de dados `20260911223100`); mesclar conversas segue
+  trabalho à parte.
+
+Feito: migration `20260911222625_chat_contato_alias` aplicada; engine
+`eb47f49` (alias em memória + banco, 5 fontes de aprendizado, inbound
+consultando) publicado; 148/148.
 
 ### 3. 5009 desvinculada no meio da campanha — operacional + regra
 `device_removed` 3 s depois do envio. Coincide com a tentativa de
