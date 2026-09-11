@@ -2,8 +2,89 @@
 
 import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, Loader2, Save } from 'lucide-react'
-import { salvarConvenioBcGeral, salvarConvenioBcSecao, type ConvenioBc, type ConvenioBcGeral } from '../../bc-actions'
+import { salvarConvenioBcGeral, salvarConvenioBcSecao, type ConvenioBc, type ConvenioBcGeral, type ModoData } from '../../bc-actions'
 import type { PublicoAtendido } from '../../cadastros-actions'
+
+/** Um dia/fechamento de folha pode ser "dia X", "Nº dia útil" ou uma regra em texto — cada convênio tem a sua. */
+function SeletorModoData({
+  titulo,
+  ajuda,
+  modo,
+  dia,
+  diaUtil,
+  texto,
+  onChange,
+}: {
+  titulo: string
+  ajuda: string
+  modo: ModoData | null
+  dia: number | null
+  diaUtil: number | null
+  texto: string | null
+  onChange: (next: { modo: ModoData | null; dia: number | null; diaUtil: number | null; texto: string | null }) => void
+}) {
+  return (
+    <div>
+      <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.3rem' }}>{titulo}</div>
+      <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', marginBottom: '0.5rem' }}>{ajuda}</div>
+      <div className="form-grid form-grid-2" style={{ gap: '0.6rem' }}>
+        <div className="form-group">
+          <label className="form-label">Como informar</label>
+          <select
+            className="form-control"
+            value={modo || ''}
+            onChange={(e) => {
+              const novoModo = (e.target.value || null) as ModoData | null
+              onChange({ modo: novoModo, dia: null, diaUtil: null, texto: null })
+            }}
+          >
+            <option value="">Não informado</option>
+            <option value="dia_fixo">Dia fixo do mês</option>
+            <option value="dia_util">Dia útil (contado do início do mês)</option>
+            <option value="texto_livre">Regra em texto</option>
+          </select>
+        </div>
+        {modo === 'dia_fixo' && (
+          <div className="form-group">
+            <label className="form-label">Dia do mês</label>
+            <input
+              type="number"
+              min={1}
+              max={31}
+              className="form-control"
+              value={dia ?? ''}
+              onChange={(e) => onChange({ modo, dia: e.target.value === '' ? null : Number(e.target.value), diaUtil: null, texto: null })}
+            />
+          </div>
+        )}
+        {modo === 'dia_util' && (
+          <div className="form-group">
+            <label className="form-label">Nº do dia útil</label>
+            <input
+              type="number"
+              min={1}
+              className="form-control"
+              value={diaUtil ?? ''}
+              onChange={(e) => onChange({ modo, dia: null, diaUtil: e.target.value === '' ? null : Number(e.target.value), texto: null })}
+            />
+          </div>
+        )}
+        {modo === 'texto_livre' && (
+          <div className="form-group" style={{ gridColumn: 'span 2' }}>
+            <label className="form-label">Regra</label>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Ex.: todo dia 20, ou o próximo dia útil se cair em fim de semana"
+              value={texto || ''}
+              onChange={(e) => onChange({ modo, dia: null, diaUtil: null, texto: e.target.value })}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default function PublicoTab({
   convenioId,
@@ -157,6 +238,49 @@ export default function PublicoTab({
             rows={2}
             value={geral.bc_observacoes || ''}
             onChange={(e) => setGeral((prev) => ({ ...prev, bc_observacoes: e.target.value }))}
+          />
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '1rem' }}>
+        <div style={{ fontWeight: 800, marginBottom: '0.25rem' }}>Calendário de Pagamento</div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)', marginBottom: '0.9rem' }}>
+          Cada convênio tem sua própria regra — escolha o formato que descreve melhor este.
+        </div>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <SeletorModoData
+            titulo="Data de Pagamento"
+            ajuda="Quando o servidor recebe o salário."
+            modo={geral.pagamento_modo}
+            dia={geral.pagamento_dia}
+            diaUtil={geral.pagamento_dia_util}
+            texto={geral.pagamento_texto}
+            onChange={(next) =>
+              setGeral((prev) => ({
+                ...prev,
+                pagamento_modo: next.modo,
+                pagamento_dia: next.dia,
+                pagamento_dia_util: next.diaUtil,
+                pagamento_texto: next.texto,
+              }))
+            }
+          />
+          <SeletorModoData
+            titulo="Fechamento da Folha"
+            ajuda="Prazo limite para enviar descontos de consignação e entrarem na folha do mês."
+            modo={geral.fechamento_folha_modo}
+            dia={geral.fechamento_folha_dia}
+            diaUtil={geral.fechamento_folha_dia_util}
+            texto={geral.fechamento_folha_texto}
+            onChange={(next) =>
+              setGeral((prev) => ({
+                ...prev,
+                fechamento_folha_modo: next.modo,
+                fechamento_folha_dia: next.dia,
+                fechamento_folha_dia_util: next.diaUtil,
+                fechamento_folha_texto: next.texto,
+              }))
+            }
           />
         </div>
       </div>

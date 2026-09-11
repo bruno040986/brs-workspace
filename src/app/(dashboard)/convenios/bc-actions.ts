@@ -24,6 +24,8 @@ const RESOURCE = 'workspace-convenios'
 // ---------------------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------------------
+export type ModoData = 'dia_fixo' | 'dia_util' | 'texto_livre'
+
 export type ConvenioBcGeral = {
   abrangencia: string // municipal | estadual | nacional
   numero_servidores: number | null
@@ -31,6 +33,14 @@ export type ConvenioBcGeral = {
   prazo_minimo_geral: number | null
   prazo_maximo_geral: number | null
   bc_observacoes: string | null
+  pagamento_modo: ModoData | null
+  pagamento_dia: number | null
+  pagamento_dia_util: number | null
+  pagamento_texto: string | null
+  fechamento_folha_modo: ModoData | null
+  fechamento_folha_dia: number | null
+  fechamento_folha_dia_util: number | null
+  fechamento_folha_texto: string | null
 }
 
 export type ConvenioBcPublico = { publico_id: string; observacao?: string | null }
@@ -80,7 +90,9 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
       await Promise.all([
         admin
           .from('convenios')
-          .select('abrangencia, numero_servidores, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes')
+          .select(
+            'abrangencia, numero_servidores, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes, pagamento_modo, pagamento_dia, pagamento_dia_util, pagamento_texto, fechamento_folha_modo, fechamento_folha_dia, fechamento_folha_dia_util, fechamento_folha_texto',
+          )
           .eq('id', convenioId)
           .maybeSingle(),
         admin.from('convenio_publicos').select('publico_id, observacao').eq('convenio_id', convenioId),
@@ -107,6 +119,14 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
         prazo_minimo_geral: convenioRow.prazo_minimo_geral,
         prazo_maximo_geral: convenioRow.prazo_maximo_geral,
         bc_observacoes: convenioRow.bc_observacoes,
+        pagamento_modo: convenioRow.pagamento_modo,
+        pagamento_dia: convenioRow.pagamento_dia,
+        pagamento_dia_util: convenioRow.pagamento_dia_util,
+        pagamento_texto: convenioRow.pagamento_texto,
+        fechamento_folha_modo: convenioRow.fechamento_folha_modo,
+        fechamento_folha_dia: convenioRow.fechamento_folha_dia,
+        fechamento_folha_dia_util: convenioRow.fechamento_folha_dia_util,
+        fechamento_folha_texto: convenioRow.fechamento_folha_texto,
       },
       publicos: (publicosRow || []) as ConvenioBcPublico[],
       formas: (formasRow || []) as ConvenioBcForma[],
@@ -164,6 +184,41 @@ export async function getInstituicoesAtivas(): Promise<InstituicaoAtiva[]> {
   }
 }
 
+// Normaliza um grupo "modo de data" (pagamento OU fechamento da folha):
+// zera os campos que não pertencem ao modo escolhido, pra nunca gravar dado
+// velho de um modo trocado (ex.: usuário mudava de dia_fixo pra dia_util mas
+// o `_dia` antigo continuava no banco).
+function normalizarModoData(
+  label: string,
+  modo: ModoData | null | undefined,
+  dia: number | null | undefined,
+  diaUtil: number | null | undefined,
+  texto: string | null | undefined,
+): { modo: ModoData | null; dia: number | null; diaUtil: number | null; texto: string | null } | { erro: string } {
+  const modoNormalizado = modo || null
+  if (modoNormalizado === null) return { modo: null, dia: null, diaUtil: null, texto: null }
+  if (!['dia_fixo', 'dia_util', 'texto_livre'].includes(modoNormalizado)) {
+    return { erro: `Modo inválido para "${label}".` }
+  }
+  if (modoNormalizado === 'dia_fixo') {
+    const d = dia === null || dia === undefined || (dia as any) === '' ? null : Number(dia)
+    if (d === null || !Number.isFinite(d) || d < 1 || d > 31) {
+      return { erro: `Informe um dia válido (1 a 31) para "${label}".` }
+    }
+    return { modo: modoNormalizado, dia: d, diaUtil: null, texto: null }
+  }
+  if (modoNormalizado === 'dia_util') {
+    const d = diaUtil === null || diaUtil === undefined || (diaUtil as any) === '' ? null : Number(diaUtil)
+    if (d === null || !Number.isFinite(d) || d < 1) {
+      return { erro: `Informe um número de dia útil válido para "${label}".` }
+    }
+    return { modo: modoNormalizado, dia: null, diaUtil: d, texto: null }
+  }
+  const t = String(texto || '').trim()
+  if (!t) return { erro: `Descreva a regra em texto para "${label}".` }
+  return { modo: modoNormalizado, dia: null, diaUtil: null, texto: t }
+}
+
 // ---------------------------------------------------------------------------
 // Escrita — seção "geral" (teto/prazos/observações), direto na tabela pai
 // ---------------------------------------------------------------------------
@@ -191,6 +246,18 @@ export async function salvarConvenioBcGeral(
     if (numeroServidores !== null && (!Number.isFinite(numeroServidores) || numeroServidores < 0)) {
       return { success: false, error: 'Número de servidores inválido.' }
     }
+
+    const pagamento = normalizarModoData('Data de Pagamento', geral.pagamento_modo, geral.pagamento_dia, geral.pagamento_dia_util, geral.pagamento_texto)
+    if ('erro' in pagamento) return { success: false, error: pagamento.erro }
+
+    const fechamentoFolha = normalizarModoData(
+      'Fechamento da Folha',
+      geral.fechamento_folha_modo,
+      geral.fechamento_folha_dia,
+      geral.fechamento_folha_dia_util,
+      geral.fechamento_folha_texto,
+    )
+    if ('erro' in fechamentoFolha) return { success: false, error: fechamentoFolha.erro }
 
     if (teto != null && (teto <= 0 || teto > 100)) {
       return { success: false, error: 'O teto de comprometimento deve estar entre 0 e 100%.' }
@@ -251,6 +318,14 @@ export async function salvarConvenioBcGeral(
         prazo_minimo_geral: min,
         prazo_maximo_geral: max,
         bc_observacoes: String(geral.bc_observacoes || '').trim() || null,
+        pagamento_modo: pagamento.modo,
+        pagamento_dia: pagamento.dia,
+        pagamento_dia_util: pagamento.diaUtil,
+        pagamento_texto: pagamento.texto,
+        fechamento_folha_modo: fechamentoFolha.modo,
+        fechamento_folha_dia: fechamentoFolha.dia,
+        fechamento_folha_dia_util: fechamentoFolha.diaUtil,
+        fechamento_folha_texto: fechamentoFolha.texto,
         updated_at: new Date().toISOString(),
       })
       .eq('id', convenioId)
