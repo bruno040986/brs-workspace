@@ -1,8 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader2, Save } from 'lucide-react'
-import { salvarConvenioBcGeral, salvarConvenioBcSecao, type ConvenioBc, type ConvenioBcGeral, type ModoData } from '../../bc-actions'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CheckCircle, Loader2, Save, Star, X } from 'lucide-react'
+import { formatBankLabel, getBankCode3, type BankLookup } from '@/lib/company-bank-accounts'
+import {
+  salvarConvenioBancosPagadores,
+  salvarConvenioBcGeral,
+  salvarConvenioBcSecao,
+  type ConvenioBc,
+  type ConvenioBcBancoPagador,
+  type ConvenioBcGeral,
+  type ModoData,
+} from '../../bc-actions'
 import type { PublicoAtendido } from '../../cadastros-actions'
 
 /** Um dia/fechamento de folha pode ser "dia X", "Nº dia útil" ou uma regra em texto — cada convênio tem a sua. */
@@ -86,6 +95,159 @@ function SeletorModoData({
   )
 }
 
+/** Multi-seletor de banco (mesma lista/API de Instituições Financeiras › Banco Vinculado), com 1 principal. */
+function BancosPagadoresField({
+  value,
+  onChange,
+}: {
+  value: ConvenioBcBancoPagador[]
+  onChange: (next: ConvenioBcBancoPagador[]) => void
+}) {
+  const [banks, setBanks] = useState<BankLookup[]>([])
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/lookups/banks')
+      .then((r) => r.json())
+      .then((data) => setBanks(Array.isArray(data?.banks) ? data.banks : []))
+      .catch(() => {})
+  }, [])
+
+  const jaSelecionados = useMemo(() => new Set(value.map((b) => b.bank_code)), [value])
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!open || query.length < 3) return []
+    return banks
+      .filter((bank) => !jaSelecionados.has(getBankCode3(bank.code)))
+      .filter((bank) => {
+        const label = formatBankLabel(bank).toLowerCase()
+        return label.includes(query) || String(bank.fullName || '').toLowerCase().includes(query)
+      })
+      .slice(0, 12)
+  }, [banks, open, search, jaSelecionados])
+
+  function adicionar(bank: BankLookup) {
+    const code = getBankCode3(bank.code)
+    if (!code || jaSelecionados.has(code)) return
+    const novo: ConvenioBcBancoPagador = {
+      bank_code: code,
+      bank_name: String(bank.name || '').trim(),
+      bank_ispb: bank.ispb ? String(bank.ispb) : null,
+      bank_full_name: bank.fullName ? String(bank.fullName) : null,
+      is_principal: value.length === 0,
+    }
+    onChange([...value, novo])
+    setSearch('')
+    setOpen(false)
+  }
+
+  function remover(code: string) {
+    const restante = value.filter((b) => b.bank_code !== code)
+    if (restante.length > 0 && !restante.some((b) => b.is_principal)) restante[0] = { ...restante[0], is_principal: true }
+    onChange(restante)
+  }
+
+  function marcarPrincipal(code: string) {
+    onChange(value.map((b) => ({ ...b, is_principal: b.bank_code === code })))
+  }
+
+  return (
+    <div>
+      <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.3rem' }}>Banco Pagador da Folha</div>
+      <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', marginBottom: '0.5rem' }}>
+        Banco(s) de onde sai o pagamento do salário. Pode ter mais de um — clique na estrela para marcar o principal.
+      </div>
+
+      {value.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          {value.map((b) => (
+            <div
+              key={b.bank_code}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.35rem 0.6rem',
+                borderRadius: 999,
+                border: `1px solid ${b.is_principal ? 'var(--brs-navy)' : 'var(--brs-gray-200)'}`,
+                background: b.is_principal ? 'var(--brs-gray-50)' : '#fff',
+                fontSize: '0.82rem',
+              }}
+            >
+              <button
+                type="button"
+                title={b.is_principal ? 'Banco principal' : 'Definir como principal'}
+                onClick={() => marcarPrincipal(b.bank_code)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+              >
+                <Star size={14} fill={b.is_principal ? '#F59E0B' : 'none'} color={b.is_principal ? '#F59E0B' : 'var(--brs-gray-400)'} />
+              </button>
+              <span>{formatBankLabel({ code: b.bank_code, name: b.bank_name })}</span>
+              <button
+                type="button"
+                title="Remover"
+                onClick={() => remover(b.bank_code)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ position: 'relative', maxWidth: 360 }}>
+        <input
+          className="form-control"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+          placeholder="Digite ao menos 3 caracteres para adicionar um banco"
+        />
+        {filtered.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              zIndex: 20,
+              marginTop: 4,
+              background: '#fff',
+              border: '1px solid var(--brs-gray-200)',
+              borderRadius: 10,
+              boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+              maxHeight: 260,
+              overflowY: 'auto',
+            }}
+          >
+            {filtered.map((bank) => (
+              <button
+                key={`${bank.code}-${bank.name}`}
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'flex-start', borderRadius: 0, padding: '0.75rem 0.9rem' }}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  adicionar(bank)
+                }}
+              >
+                {formatBankLabel(bank)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function PublicoTab({
   convenioId,
   bc,
@@ -99,6 +261,7 @@ export default function PublicoTab({
 }) {
   const [geral, setGeral] = useState<ConvenioBcGeral>(bc.geral)
   const [selecionados, setSelecionados] = useState<Record<string, string>>({})
+  const [bancosPagadores, setBancosPagadores] = useState<ConvenioBcBancoPagador[]>(bc.bancosPagadores)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string; detalhes?: string[] } | null>(null)
 
@@ -107,6 +270,7 @@ export default function PublicoTab({
     const map: Record<string, string> = {}
     for (const p of bc.publicos) map[p.publico_id] = p.observacao || ''
     setSelecionados(map)
+    setBancosPagadores(bc.bancosPagadores)
   }, [bc])
 
   function toggle(publicoId: string) {
@@ -133,7 +297,12 @@ export default function PublicoTab({
         setMessage({ type: 'error', text: resPub.error || 'Erro ao salvar os públicos.' })
         return
       }
-      setMessage({ type: 'success', text: 'Teto/prazos e públicos salvos.' })
+      const resBancos = await salvarConvenioBancosPagadores(convenioId, bancosPagadores)
+      if (!resBancos.success) {
+        setMessage({ type: 'error', text: resBancos.error || 'Erro ao salvar o(s) banco(s) pagador(es).' })
+        return
+      }
+      setMessage({ type: 'success', text: 'Teto/prazos, públicos e banco(s) pagador(es) salvos.' })
       onSaved()
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Erro ao salvar.' })
@@ -282,6 +451,7 @@ export default function PublicoTab({
               }))
             }
           />
+          <BancosPagadoresField value={bancosPagadores} onChange={setBancosPagadores} />
         </div>
       </div>
 

@@ -68,11 +68,20 @@ export type ConvenioBcInstituicao = {
   formas: ConvenioBcInstituicaoForma[]
 }
 
+export type ConvenioBcBancoPagador = {
+  bank_code: string
+  bank_name: string
+  bank_ispb: string | null
+  bank_full_name: string | null
+  is_principal: boolean
+}
+
 export type ConvenioBc = {
   geral: ConvenioBcGeral
   publicos: ConvenioBcPublico[]
   formas: ConvenioBcForma[]
   instituicoes: ConvenioBcInstituicao[]
+  bancosPagadores: ConvenioBcBancoPagador[]
 }
 
 export type FormaContratoAtiva = { id: string; nome: string }
@@ -86,7 +95,7 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
     await requirePermission(RESOURCE)
     if (!convenioId) return { success: false, error: 'ID de convênio inválido.' }
 
-    const [{ data: convenioRow, error: convenioErr }, { data: publicosRow }, { data: formasRow }, { data: instRows, error: instErr }] =
+    const [{ data: convenioRow, error: convenioErr }, { data: publicosRow }, { data: formasRow }, { data: instRows, error: instErr }, { data: bancosRow, error: bancosErr }] =
       await Promise.all([
         admin
           .from('convenios')
@@ -106,9 +115,15 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
               'formas:convenio_instituicao_formas(forma_contrato_id, margem_considerada, prazo_minimo, prazo_maximo, publicos_restritos, observacao)',
           )
           .eq('convenio_id', convenioId),
+        admin
+          .from('convenio_bancos_pagadores')
+          .select('bank_code, bank_name, bank_ispb, bank_full_name, is_principal')
+          .eq('convenio_id', convenioId)
+          .order('is_principal', { ascending: false }),
       ])
     if (convenioErr) throw convenioErr
     if (instErr) throw instErr
+    if (bancosErr) throw bancosErr
     if (!convenioRow) return { success: false, error: 'Convênio não encontrado.' }
 
     const bc: ConvenioBc = {
@@ -148,6 +163,7 @@ export async function getConvenioBc(convenioId: string): Promise<{ success: bool
           observacao: f.observacao,
         })),
       })),
+      bancosPagadores: (bancosRow || []) as ConvenioBcBancoPagador[],
     }
     return { success: true, bc }
   } catch (error: any) {
@@ -336,6 +352,61 @@ export async function salvarConvenioBcGeral(
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao salvar dados gerais da base de conhecimento:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Escrita — banco(s) pagador(es) da folha (N por convênio, 1 principal)
+// ---------------------------------------------------------------------------
+export async function salvarConvenioBancosPagadores(
+  convenioId: string,
+  bancos: ConvenioBcBancoPagador[],
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requirePermission(RESOURCE, 'can_edit')
+    if (!convenioId) return { success: false, error: 'ID de convênio inválido.' }
+    if (!Array.isArray(bancos)) return { success: false, error: 'Payload inválido.' }
+
+    const vistos = new Set<string>()
+    const limpos = bancos
+      .map((b) => ({
+        bank_code: String(b.bank_code || '').trim(),
+        bank_name: String(b.bank_name || '').trim(),
+        bank_ispb: String(b.bank_ispb || '').trim() || null,
+        bank_full_name: String(b.bank_full_name || '').trim() || null,
+        is_principal: !!b.is_principal,
+      }))
+      .filter((b) => {
+        if (!b.bank_code || !b.bank_name) return false
+        if (vistos.has(b.bank_code)) return false
+        vistos.add(b.bank_code)
+        return true
+      })
+
+    // Garante exatamente 1 principal quando há bancos: o primeiro marcado
+    // vence; se nenhum vier marcado (ex.: só sobrou 1 depois de remover o
+    // principal na tela), o primeiro da lista assume.
+    const indicePrincipal = limpos.findIndex((b) => b.is_principal)
+    const linhas = limpos.map((b, i) => ({
+      convenio_id: convenioId,
+      ...b,
+      is_principal: limpos.length > 0 && i === (indicePrincipal >= 0 ? indicePrincipal : 0),
+    }))
+
+    const { error: delErro } = await admin.from('convenio_bancos_pagadores').delete().eq('convenio_id', convenioId)
+    if (delErro) throw delErro
+
+    if (linhas.length > 0) {
+      const { error: insErro } = await admin.from('convenio_bancos_pagadores').insert(linhas)
+      if (insErro) throw insErro
+    }
+
+    revalidatePath(`/convenios/${convenioId}`)
+    revalidatePath('/convenios')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao salvar bancos pagadores da folha:', error)
     return { success: false, error: error.message }
   }
 }
