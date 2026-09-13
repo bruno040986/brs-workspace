@@ -174,3 +174,35 @@ certo, não mexer). Troca só a cor da seta dos cards liberados: de
 `text-primary` para `text-emerald-600 dark:text-emerald-400` (mesmo verde
 já usado em `STATUS_COR.ativa` e em `Concretizados` na tabela — não inventar
 tom novo). Uma linha, sem lógica nova.
+
+## Status: implementado e em produção (Sonnet, 13/09/2026 18h)
+
+Commit `brs-alvoconsig` `462a51c` (main), deploy Vercel READY, 0 erros de
+runtime nos primeiros 15 min.
+
+- **C1** feito: fotos no "+ Direto" e na conversa "Você".
+- **C2** feito: botão/modal de simulação saiu do `ChatInterno.tsx`; os
+  cartões de aviso continuam aparecendo.
+- **D1** feito: "Solicitar simulação" no painel do lead (Atendimento), lead
+  já fixo.
+- **D2** feito: "Nova solicitação" na tela de Solicitações — lead da
+  carteira OU cliente sem cadastro (nome/CPF/nascimento, validados nos dois
+  lados) + até 5 anexos. `responderOfertaSimulada` grava `snapshot_condicoes`
+  em toda resposta (com ou sem lead); sem lead não cria `crm_ofertas`.
+- **C3** feito: anexar arquivo, figurinha, gravar áudio, emoji (reaproveita
+  o picker do Atendimento), colar (Ctrl+V) e arrastar imagem — tudo com
+  pré-visualização antes de enviar. Tipo decidido no servidor pelo
+  conteúdo (magic bytes pra imagem/figurinha), nunca pelo que o cliente diz.
+- **E** feito: seta dos cards de campanha liberados agora é verde.
+- Migration `20260913165513` (pessoa/anexos) já estava aplicada quando o
+  Sonnet começou — D2 não ficou bloqueado.
+- `npm run typecheck` limpo, `npm test` 225/225 (14 novos), lint limpo nos
+  arquivos tocados. `next build` não roda na worktree local (Turbopack não
+  segue o `node_modules` symlinkado entre worktrees — limitação só do
+  ambiente local; a Vercel builda a partir de um clone limpo).
+
+Pendente de validação real: ninguém testou anexos/áudio/figurinha nem a
+solicitação sem lead em produção ainda — só o typecheck/testes garantem a
+lógica; a próxima sessão deveria abrir o chat de verdade e testar cada
+ferramenta (colar imagem, gravar áudio, criar solicitação de cliente sem
+cadastro com CPF real) com um usuário de teste.
