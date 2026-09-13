@@ -60,6 +60,14 @@ Fatos que mudam a prioridade:
 
 ## 1. P0 — Proteger os números de disparo (antes de disparar de novo)
 
+**Confirmação do Bruno nos aparelhos (13/09, 19h30 local):** a 5009 foi
+**restrita por 5 horas pela Meta** e teve o QR desconectado (ainda não
+banida, mas bloqueada para nova conexão); a 4435 só perdeu a conexão, sem
+restrição, e foi reconectada em seguida. Restrição temporária é o degrau
+que antecede o banimento — a 5009 já caiu duas vezes (11/09 e 13/09) pelo
+mesmo motivo. A 4435 reconectada hoje conta como pareamento novo: **não
+deve entrar em disparo nas próximas 48 h.**
+
 Isto é operacional e de código, e vem antes de qualquer tela, porque cada
 campanha de teste hoje custa um número.
 
