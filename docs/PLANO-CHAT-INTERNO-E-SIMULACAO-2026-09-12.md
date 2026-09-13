@@ -141,6 +141,25 @@ pessoa de operacional, ela precisa de perfil com
 perfil "Operacional" já traz). Sem isso o painel B3 mostra a fila só
 para o Master.
 
+## Contrato da RPC (já aplicada — Fable, 12/09)
+
+`public.crm_chat_resumo_canais(p_agente_parceiro_id uuid, p_crm_usuario_id uuid)`
+→ uma linha por canal em que o usuário é membro, do parceiro informado:
+
+| coluna | conteúdo |
+|---|---|
+| `canal_id`, `tipo`, `chave`, `nome`, `lido_ate` | do canal / do vínculo |
+| `outro_usuario_id`, `outro_nome`, `outro_ativo` | só para `tipo='direto'`; `outro_nome` = `nome_exibicao` ou `nome`; `outro_ativo=false` → "Usuário inativo" |
+| `ultima_conteudo`, `ultima_tipo`, `ultima_em` | última mensagem (null se canal vazio) |
+| `nao_lidas` | depois de `lido_ate`, excluindo mensagens do próprio usuário (sistema/lembrete contam) |
+
+Chamada pelo servidor: `admin.rpc('crm_chat_resumo_canais', { p_agente_parceiro_id, p_crm_usuario_id })`.
+Só `service_role` tem `execute`. Índice novo: `crm_chat_membros_usuario_idx`.
+`getCanais` passa a ser: RPC → montar `CanalInterno[]` (mesmo mapeamento
+de nome/preview/ordem de hoje) — sem `usuariosAtivos`, sem
+`garantirCanal` no tick (esses ficam para o carregamento inicial da
+página).
+
 ## Ordem sugerida
 1. A1 + A4 (maior ganho, 1 sessão do Sonnet; migration da RPC comigo).
 2. A2 + A3 (Realtime como primário, poll só de reconciliação).
