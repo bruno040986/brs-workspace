@@ -162,3 +162,15 @@ arquivos tocados, merge na main, push. Recado curto pra revisão (Fable).
 - Biblioteca de figurinhas do parceiro (tabela nova).
 - Realtime no painel de solicitações (tabela fora da publicação).
 - Notificação push/sonora de solicitação nova (decisão de produto).
+
+## E — Campanhas: seta verde = liberada (pedido do Bruno, 13/09 17h)
+
+`components/crm/campanhas/CampanhasHub.tsx:102-106`: hoje a seta do card
+disponível é `<ArrowRight className="h-4 w-4 text-primary" .../>` —
+`--color-primary` é a cor de marca (vermelho/rosa, `globals.css:61-62`),
+que lê como "bloqueado", não "liberado". A leitura confunde com o card
+indisponível ao lado (badge cinza "em breve"/"em andamento" — esse já está
+certo, não mexer). Troca só a cor da seta dos cards liberados: de
+`text-primary` para `text-emerald-600 dark:text-emerald-400` (mesmo verde
+já usado em `STATUS_COR.ativa` e em `Concretizados` na tabela — não inventar
+tom novo). Uma linha, sem lógica nova.
