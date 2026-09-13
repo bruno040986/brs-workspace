@@ -164,3 +164,46 @@ página).
 1. A1 + A4 (maior ganho, 1 sessão do Sonnet; migration da RPC comigo).
 2. A2 + A3 (Realtime como primário, poll só de reconciliação).
 3. B1–B5 (1–2 sessões do Sonnet). Independente de A.
+
+## Status (Sonnet, 12-13/09/2026): A e B implementados e publicados
+
+Commit `f87efee` (repo `brs-alvoconsig`, branch `main`), deploy Vercel
+`dpl_7aAj7e8j1FdGU3pHC2gPiQ8FD51j` READY em produção, sem erros de
+runtime nos primeiros minutos.
+
+- **A1+A4+A2+A3 feitos.** `getCanais()` usa a RPC; `carregarChatInternoInicial`
+  (novo) hidrata a página numa ida só via server component; lista de
+  canais com Realtime (`crm_chat_mensagens` `canal_id=in.(...)`) + poll de
+  60s de reconciliação; canal aberto reassina com backoff (1s→15s) e
+  mostra status (verde/âmbar/cinza) no cabeçalho. `chat-interno-shared.ts`
+  novo com as funções puras (mapeamento/ordenação/incremento otimista),
+  13 testes.
+- **B1-B3+B5 feitos** (B4 não precisou de trabalho novo — o cartão do chat
+  já é a notificação e já funcionava). `solicitarSimulacao` grava o
+  registro primeiro (sem dono, payload completo — CPF/convênio/matrícula/
+  margens, não só um resumo); `responderOfertaSimulada` agora recebe
+  `solicitacaoId` e reivindica por CAS antes de criar a oferta.
+  `solicitacoes-actions.ts`/`solicitacoes-shared.ts` novos (máquina de
+  estados como funções puras, 17 testes + 5 do bônus `formatarDuracao`).
+  Painel `/crm/solicitacoes` e `/atendente/solicitacoes` com abas
+  Minhas/Fila/Todas, sem migration nova (reusa `chat_interno.*`).
+- **Achado durante a execução**: os CAS de `pedirInformacoes`/
+  `retomarAtendimento`/`cancelarSolicitacao` originalmente propostos
+  confiavam só no pré-check em memória, sem repetir a condição de status
+  na própria escrita — um cancelamento concorrente (que não mexe em
+  `atribuido_a`) podia ser sobrescrito por um "assumir" que chegasse logo
+  depois. Corrigido: todas as 4 ações têm `WHERE status = <esperado>` na
+  UPDATE, não só o pré-check.
+- **Não fiz**: badge de "abertas" no menu (mencionado no plano original
+  como nice-to-have; painel funciona sem isso, decidi não abrir mais uma
+  frente de poll/estado global do layout pra isto agora). Realtime no
+  painel de solicitações (a tabela não está na publicação do Supabase —
+  abrir isso é decisão de arquitetura, não fiz sozinho).
+- `npm test`: 201 (200 passam + a mesma falha preexistente de jsdom, não
+  regressão). `npm run typecheck` limpo. `npm run lint`: nenhum arquivo
+  tocado aparece nos 103 erros preexistentes do repo.
+
+Pendente de validação real: ninguém usou a tela desde o deploy (madrugada,
+sem tráfego ainda) — vale conferir na próxima sessão se o poll caiu de
+fato pra ~1/min e se o painel de solicitações aparece corretamente pros
+3 perfis.
