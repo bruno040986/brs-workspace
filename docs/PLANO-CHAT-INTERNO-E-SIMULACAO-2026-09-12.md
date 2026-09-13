@@ -207,3 +207,67 @@ Pendente de validação real: ninguém usou a tela desde o deploy (madrugada,
 sem tráfego ainda) — vale conferir na próxima sessão se o poll caiu de
 fato pra ~1/min e se o painel de solicitações aparece corretamente pros
 3 perfis.
+
+## Revisão Fable (13/09/2026) sobre a entrega do Sonnet — corrigido em `brs-alvoconsig` `780f09d`
+
+Lido o commit inteiro (`f87efee`), não o recado. Certo e conferido: RPC no
+`getCanais`, hidratação pelo server component, lista por Realtime com
+`in.(...)`, CAS com status na UPDATE nas 4 ações, nomes das FKs do embed
+(`..._solicitado_por_fkey`/`..._atribuido_a_fkey`) batem com o banco,
+`crm_chat_mensagens` na publicação, 200/201 testes (a falha era jsdom
+ausente). O que não estava:
+
+1. **Loop de requisições — preexistente, e ficaria mais rápido.**
+   `useToasts()` devolvia `erro`/`ok` como funções novas a cada render;
+   `carregarCanais` (chat, desde 30/08) e `carregar` (painel novo) as têm
+   nas deps do `useCallback`, e `polling()` faz uma chamada imediata a cada
+   (re)instalação. Cada resposta → setState → render → callback novo → poll
+   reinstalado → nova chamada. O "1 POST/s" medido em 12/09 é compatível
+   com isso (limitado pela latência do getCanais antigo, ~1 s); com a RPC
+   rápida ficaria pior, não melhor. Corrigido na raiz (`useToasts` estável
+   via `useCallback`) + teste em jsdom (`useToasts.test.ts`) que FALHA com o
+   hook antigo (3 chamadas em 80 ms em vez de 1) e passa com o novo.
+2. **A reconexão do Realtime recursava até estourar a pilha.**
+   `supabase.removeChannel()` → `leave()` do phoenix (`@supabase/phoenix`
+   0.4.5): marca o canal `leaving`, `canPush()` exige `joined`, logo
+   `leavePush.trigger("ok")` roda NA HORA → `phx_close` → o callback de
+   `subscribe` recebe `'CLOSED'` de forma SÍNCRONA, ainda dentro do
+   removeChannel. O handler do A3 removia o canal dentro do próprio callback
+   de erro antes de zerar a referência → reentrada infinita na 1ª queda de
+   conexão, um `setTimeout(conectar)` por nível da pilha, bindings
+   duplicados no canal recriado. Extraído pra `assinarComReconexao`
+   (`chat-interno-shared.ts`): descarte por identidade ANTES de remover;
+   5 testes com canal falso que reproduz a sincronicidade
+   (`chat-interno-realtime.test.ts`). Vale pra QUALQUER código nosso que
+   chame `removeChannel` dentro do callback de status (Workspace incluso).
+3. **Poll de mensagens desligado enquanto o Realtime estava "conectado".**
+   Postgres Changes não garante entrega. Voltou a rodar sempre (30 s,
+   incremental, 1 consulta barata) e a tela reconcilia também a cada
+   (re)assinatura bem-sucedida — o Realtime não reentrega o intervalo caído.
+4. **`responderOfertaSimulada` reivindicava (CAS) antes de validar** —
+   formulário inválido deixava a solicitação `em_atendimento` com dono e
+   sem evento, sumindo da fila dos outros. Validação foi pra antes do CAS.
+5. **Aviso no canal errado.** Pedir informação/cancelar/responder pelo
+   painel por alguém que não é o destinatário original caía na conversa
+   solicitante↔destinatário-original (da qual o autor nem é membro). Agora
+   vai pra conversa direta autor↔solicitante (`canalDeAvisoDaSolicitacao`).
+6. **`relacionamento_id` não era preenchido** — exigência da própria
+   migration `20260905125419` (o expurgo zera `contato_id`). Agora
+   `crm_assegurar_relacionamento` na criação, best-effort (lead sem CPF e
+   sem IDWS segue só com `contato_id`).
+7. Painel: botões de fila/responder apareciam pra quem não tem a permissão
+   (o servidor negava, virava toast de erro); aba padrão agora é Fila pra
+   quem recebe; corrida de troca de aba (resposta da aba anterior pintando a
+   atual) fechada por ref.
+8. Recado do Sonnet impreciso em 2 pontos: "NUNCA chama getCanais no
+   mount" (chama 1× via `polling`, e chamava a cada troca de canal porque
+   `canalId` estava nas deps — trocado por ref) e "antes caía e nunca mais
+   entregava" (o phoenix rejunta sozinho; o que faltava era reconciliar o
+   intervalo).
+
+Estado do banco em 13/09 16h: 0 solicitações, 0 mensagens
+`solicitacao_simulacao` (nem legado — a feature nunca tinha sido usada),
+0 acessos às telas de chat/solicitações desde o deploy de 00:04. Nada disto
+foi exercitado em produção ainda; a validação real segue pendente. `jsdom`
+(declarado em devDependencies, ausente no node_modules) instalado →
+`useRolagemThread.test.ts` voltou a passar.
