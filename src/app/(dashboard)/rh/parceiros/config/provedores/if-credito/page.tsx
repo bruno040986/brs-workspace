@@ -21,12 +21,18 @@ import {
   salvarConfigIF,
   type InstituicaoConfigResumo,
 } from '@/lib/if-credito/config-actions'
+import { AmigozCard } from './AmigozCard'
 
 // "FyDigital" não tem acento em nenhuma variação plausível de cadastro —
 // só normaliza caixa e remove espaços/pontuação antes de comparar.
 function ehFyDigital(nome: string): boolean {
   const n = nome.toLowerCase().replace(/[^a-z0-9]/g, '')
   return n.includes('fydigital')
+}
+
+// Amigoz (grupo Pine): card dedicado com login de operador + corban.
+function ehAmigoz(nome: string): boolean {
+  return nome.toLowerCase().replace(/[^a-z0-9]/g, '').includes('amigoz')
 }
 
 function LogoBox({ logoUrl, nome, size = 44 }: { logoUrl: string; nome: string; size?: number }) {
@@ -61,7 +67,8 @@ export default function IfCreditoConfigPage() {
   }, [])
 
   const fyDigital = instituicoes.find((i) => ehFyDigital(i.name)) || null
-  const outras = instituicoes.filter((i) => i.id !== fyDigital?.id)
+  const amigoz = instituicoes.find((i) => ehAmigoz(i.name)) || null
+  const outras = instituicoes.filter((i) => i.id !== fyDigital?.id && i.id !== amigoz?.id)
 
   return (
     <div style={{ maxWidth: 880 }}>
@@ -90,6 +97,14 @@ export default function IfCreditoConfigPage() {
                 lá para configurar a credencial aqui.
               </div>
             </div>
+          )}
+
+          {amigoz && (
+            <AmigozCard
+              instituicao={amigoz}
+              logo={<LogoBox logoUrl={amigoz.logo_url} nome={amigoz.name} size={48} />}
+              onAtualizado={(patch) => setInstituicoes((prev) => prev.map((i) => (i.id === amigoz.id ? { ...i, ...patch } : i)))}
+            />
           )}
 
           {outras.length > 0 && (
