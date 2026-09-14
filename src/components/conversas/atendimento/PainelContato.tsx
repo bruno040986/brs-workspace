@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, CalendarClock, Check, Copy, History, Images, MailOpen, Plus, Search, Trash2, X } from 'lucide-react'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
+import AvatarContato from './AvatarContato'
 import {
   VINCULO_COR,
   VINCULO_LABEL,
   ehGrupo,
-  iniciais,
   type AcaoAgendada,
   type AgenteChat,
   type ChatwootMensagem,
@@ -305,29 +305,14 @@ export default function PainelContato({
             <X size={13} />
           </button>
         )}
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            margin: '0 auto 8px',
-            borderRadius: grupo ? 14 : 99,
-            background: 'var(--msn-avatar-bg)',
-            color: 'var(--msn-avatar-text)',
-            display: 'grid',
-            placeItems: 'center',
-            fontWeight: 800,
-            fontSize: 24,
-            border: '1px solid var(--msn-border)',
-            overflow: 'hidden',
-          }}
-        >
-          {conversa.meta.sender?.thumbnail ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={conversa.meta.sender.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            iniciais(conversa.meta.sender?.name)
-          )}
-        </div>
+        <AvatarContato
+          thumbnail={conversa.meta.sender?.thumbnail}
+          nome={conversa.meta.sender?.name}
+          tamanho={64}
+          fontSize={24}
+          raio={grupo ? 14 : 99}
+          estilo={{ margin: '0 auto 8px' }}
+        />
         <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--msn-text)' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
         <div style={{ fontSize: 12, color: 'var(--msn-muted)', marginTop: 2 }}>{conversa.meta.sender?.phone_number || conversa.meta.channel || ''}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
@@ -635,23 +620,7 @@ export default function PainelContato({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {(membros || []).map((m) => (
               <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--msn-text)' }}>
-                <span
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 99,
-                    background: 'var(--msn-avatar-bg)',
-                    color: 'var(--msn-avatar-text)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 800,
-                    fontSize: 11,
-                    flexShrink: 0,
-                    border: '1px solid var(--msn-border)',
-                  }}
-                >
-                  {iniciais(m.nome)}
-                </span>
+                <AvatarContato nome={m.nome} tamanho={26} fontSize={11} />
                 {m.nome}
               </div>
             ))}

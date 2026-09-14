@@ -1,9 +1,10 @@
 'use client'
 
-import { useMemo, useReducer, useState } from 'react'
+import { memo, useMemo, useReducer, useState } from 'react'
 import { Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
-import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
+import AvatarContato from './AvatarContato'
+import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
 import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
 
@@ -282,14 +283,7 @@ export default function ListaConversas({
                 }}
                 style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--msn-soft-border)', padding: '9px 10px', cursor: 'pointer', display: 'flex', gap: 9, alignItems: 'center' }}
               >
-                <span style={{ width: 32, height: 32, borderRadius: 99, background: 'var(--msn-avatar-bg)', color: 'var(--msn-avatar-text)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, flexShrink: 0, border: '1px solid var(--msn-border)', overflow: 'hidden' }}>
-                  {c.thumbnail ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    iniciais(c.nome)
-                  )}
-                </span>
+                <AvatarContato thumbnail={c.thumbnail} nome={c.nome} tamanho={32} fontSize={12} />
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</div>
                   {c.telefone && <div style={{ fontSize: 11.5, color: 'var(--msn-muted)' }}>{c.telefone}</div>}
@@ -306,96 +300,7 @@ export default function ListaConversas({
         ) : listaOrdenada.length === 0 ? (
           <div style={{ padding: '2rem 1rem', textAlign: 'center', fontSize: 13, color: 'var(--msn-muted)' }}>Não existem conversas abertas</div>
         ) : (
-          listaOrdenada.map((c) => {
-            const ativa = selecionadaId === c.id
-            const grupo = ehGrupo(c)
-            const departamento = c.meta.team?.name || null
-            const entidade = c.atendimentoMeta?.entidade
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onSelecionar(c)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  background: ativa ? 'var(--msn-item-active)' : 'none',
-                  borderLeft: ativa ? '3px solid var(--msn-accent)' : '3px solid transparent',
-                  border: 'none',
-                  borderBottom: '1px solid var(--msn-soft-border)',
-                  padding: '9px 10px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  gap: 9,
-                }}
-              >
-                <span
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: grupo ? 10 : 99,
-                    background: 'var(--msn-avatar-bg)',
-                    color: 'var(--msn-avatar-text)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 800,
-                    fontSize: 13,
-                    flexShrink: 0,
-                    border: '1px solid var(--msn-border)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {c.meta.sender?.thumbnail ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.meta.sender.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : grupo ? (
-                    <UsersRound size={16} />
-                  ) : (
-                    iniciais(c.meta.sender?.name)
-                  )}
-                </span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                    <strong style={{ fontSize: 13, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.meta.sender?.name || 'Sem nome'}
-                    </strong>
-                    <span style={{ fontSize: 10.5, color: 'var(--msn-meta-text)', flexShrink: 0 }}>{c.last_activity_at ? horaCurta(c.last_activity_at) : ''}</span>
-                  </span>
-                  <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 12, color: 'var(--msn-muted)' }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previaConversa(c)}</span>
-                    {c.unread_count > 0 && (
-                      <span style={{ background: 'var(--msn-accent)', color: '#fff', borderRadius: 99, padding: '0 6px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-                        {c.unread_count}
-                      </span>
-                    )}
-                  </span>
-                  {(entidade || departamento) && (
-                    <span style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
-                      {entidade && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            padding: '1px 6px',
-                            borderRadius: 99,
-                            background: VINCULO_COR[entidade.tipo].bg,
-                            color: VINCULO_COR[entidade.tipo].text,
-                          }}
-                        >
-                          {VINCULO_LABEL[entidade.tipo]}
-                        </span>
-                      )}
-                      {departamento && (
-                        <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: 'var(--msn-surface-alt)', color: 'var(--msn-muted)', border: '1px solid var(--msn-soft-border)' }}>
-                          {departamento}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </span>
-              </button>
-            )
-          })
+          listaOrdenada.map((c) => <ItemConversa key={c.id} conversa={c} selecionada={selecionadaId === c.id} onSelecionar={onSelecionar} />)
         )}
       </div>
 
@@ -442,6 +347,92 @@ export default function ListaConversas({
     </div>
   )
 }
+
+/**
+ * Linha da lista, memoizada: sem isso a lista inteira remontava a cada poll
+ * de 6s e a cada tecla da busca (CRM `d2fd373`). `onSelecionar` já é o
+ * `selecionarConversa` do hook (`useCallback` com deps vazias) — estável por
+ * natureza, então `memo` aqui de fato evita o re-render.
+ */
+const ItemConversa = memo(function ItemConversa({
+  conversa: c,
+  selecionada: ativa,
+  onSelecionar,
+}: {
+  conversa: ConversaAtendimento
+  selecionada: boolean
+  onSelecionar: (c: ConversaAtendimento) => void
+}) {
+  const grupo = ehGrupo(c)
+  const departamento = c.meta.team?.name || null
+  const entidade = c.atendimentoMeta?.entidade
+  return (
+    <button
+      type="button"
+      onClick={() => onSelecionar(c)}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        background: ativa ? 'var(--msn-item-active)' : 'none',
+        borderLeft: ativa ? '3px solid var(--msn-accent)' : '3px solid transparent',
+        border: 'none',
+        borderBottom: '1px solid var(--msn-soft-border)',
+        padding: '9px 10px',
+        cursor: 'pointer',
+        display: 'flex',
+        gap: 9,
+      }}
+    >
+      <AvatarContato
+        thumbnail={c.meta.sender?.thumbnail}
+        nome={c.meta.sender?.name}
+        tamanho={36}
+        fontSize={13}
+        quadrado={grupo}
+        iconeAlternativo={grupo ? <UsersRound size={16} /> : undefined}
+      />
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+          <strong style={{ fontSize: 13, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {c.meta.sender?.name || 'Sem nome'}
+          </strong>
+          <span style={{ fontSize: 10.5, color: 'var(--msn-meta-text)', flexShrink: 0 }}>{c.last_activity_at ? horaCurta(c.last_activity_at) : ''}</span>
+        </span>
+        <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 12, color: 'var(--msn-muted)' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previaConversa(c)}</span>
+          {c.unread_count > 0 && (
+            <span style={{ background: 'var(--msn-accent)', color: '#fff', borderRadius: 99, padding: '0 6px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+              {c.unread_count}
+            </span>
+          )}
+        </span>
+        {(entidade || departamento) && (
+          <span style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+            {entidade && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 99,
+                  background: VINCULO_COR[entidade.tipo].bg,
+                  color: VINCULO_COR[entidade.tipo].text,
+                }}
+              >
+                {VINCULO_LABEL[entidade.tipo]}
+              </span>
+            )}
+            {departamento && (
+              <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: 'var(--msn-surface-alt)', color: 'var(--msn-muted)', border: '1px solid var(--msn-soft-border)' }}>
+                {departamento}
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+    </button>
+  )
+})
 
 function NovaConversaModal({
   instancias,

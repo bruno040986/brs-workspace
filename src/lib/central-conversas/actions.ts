@@ -1079,10 +1079,11 @@ export async function getRespostasRapidas(): Promise<Array<{ id: number; atalho:
 export async function getCanaisAtendimento(): Promise<{
   inboxes: Array<{ id: number; nome: string; tipo: string }>
   instancias: Array<{ id: string; nome: string; inboxId: number | null; papel: 'receptiva' | 'disparo'; provedor: 'baileys' | 'zapi'; status: string }>
+  conta: { nome: string; chatwootAccountId: number } | null
 }> {
   await requirePermission('conversas', 'can_view')
   const conta = await contaBrs()
-  if (!conta) return { inboxes: [], instancias: [] }
+  if (!conta) return { inboxes: [], instancias: [], conta: null }
   const admin = await createAdminClient()
   const [{ data: instancias }, inboxes] = await Promise.all([
     admin.from('chat_instancias').select('id, nome, chatwoot_inbox_id, papel, provedor, status').eq('conta_id', conta.id).is('deleted_at', null).order('ordem'),
@@ -1100,6 +1101,7 @@ export async function getCanaisAtendimento(): Promise<{
       provedor: i.provedor as 'baileys' | 'zapi',
       status: String(i.status || ''),
     })),
+    conta: { nome: String(conta.nome), chatwootAccountId: Number(conta.chatwoot_account_id) },
   }
 }
 

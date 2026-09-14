@@ -21,7 +21,8 @@ import {
   X,
 } from 'lucide-react'
 import EmojiPicker from './EmojiPicker'
-import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, iniciais, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
+import AvatarContato from './AvatarContato'
+import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
 
 const MIME_ANEXO_ACEITOS = '.pdf,.png,.jpg,.jpeg,.webp,.mp3,.ogg,.opus,.mp4,.xlsx,.csv'
@@ -253,14 +254,7 @@ export default function ThreadConversa({
             <ArrowLeft size={14} />
           </button>
         )}
-        <span style={{ width: 32, height: 32, borderRadius: grupo ? 9 : 99, background: 'var(--msn-avatar-bg)', color: 'var(--msn-avatar-text)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, flexShrink: 0, border: '1px solid var(--msn-border)', overflow: 'hidden' }}>
-          {conversa.meta.sender?.thumbnail ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={conversa.meta.sender.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            iniciais(conversa.meta.sender?.name)
-          )}
-        </span>
+        <AvatarContato thumbnail={conversa.meta.sender?.thumbnail} nome={conversa.meta.sender?.name} tamanho={32} fontSize={12} raio={grupo ? 9 : 99} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>

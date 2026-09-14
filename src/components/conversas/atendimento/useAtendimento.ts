@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { pollingVisivel } from '@/lib/polling-visivel'
 import {
   addNotaInterna,
   assumirConversa,
@@ -85,7 +86,11 @@ export function useAtendimento() {
   const [mensagens, setMensagens] = useState<MensagemComExtras[]>([])
   const [carregandoThread, setCarregandoThread] = useState(false)
   const [agentes, setAgentes] = useState<AgenteChat[]>([])
-  const [canaisAtendimento, setCanaisAtendimento] = useState<{ inboxes: InboxAtendimento[]; instancias: InstanciaAtendimento[] }>({ inboxes: [], instancias: [] })
+  const [canaisAtendimento, setCanaisAtendimento] = useState<{ inboxes: InboxAtendimento[]; instancias: InstanciaAtendimento[]; conta: { nome: string; chatwootAccountId: number } | null }>({
+    inboxes: [],
+    instancias: [],
+    conta: null,
+  })
   const [tagsConta, setTagsConta] = useState<TagConta[]>([])
   const [tagsConversa, setTagsConversaState] = useState<string[]>([])
   const [respostasRapidas, setRespostasRapidas] = useState<RespostaRapida[] | null>(null)
@@ -105,6 +110,13 @@ export function useAtendimento() {
   useEffect(() => {
     selecionadaIdRef.current = selecionada?.id ?? null
   }, [selecionada])
+
+  // Set dos ids de mensagem carregados na thread aberta — usado pelo Realtime
+  // de ticks/reações para saber se o payload (sem conversation_id) é da thread atual.
+  const mensagensIdsRef = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    mensagensIdsRef.current = new Set(mensagens.map((m) => m.id))
+  }, [mensagens])
 
   const teamIdFiltro = departamentoId ? departamentos.find((d) => d.id === departamentoId)?.chatwootTeamId ?? undefined : undefined
 
@@ -222,17 +234,23 @@ export function useAtendimento() {
 
   useEffect(() => {
     // setCarregandoLista fica só na troca de aba/busca/canal (via este bootstrap),
-    // nunca no polling de 6s abaixo — daí o carregamento inicial ficar isolado
+    // nunca no poll de segurança abaixo — daí o carregamento inicial ficar isolado
     // num callback próprio em vez de uma chamada direta no corpo do efeito.
     void (async () => {
       setCarregandoLista(true)
       await Promise.all([carregarLista(), carregarContadores()])
     })()
-    const t = setInterval(() => {
-      void carregarLista()
-      void carregarContadores()
-    }, 6000)
-    return () => clearInterval(t)
+    // Realtime é o caminho principal (efeito abaixo); este poll de 30s é só a
+    // rede de segurança (fato 3: mensagem enviada por outro atendente no
+    // Chatwoot não gera evento) e respeita a Page Visibility API.
+    return pollingVisivel(
+      () => {
+        void carregarLista()
+        void carregarContadores()
+      },
+      30_000,
+      { imediato: false },
+    )
   }, [carregarLista, carregarContadores])
 
   useEffect(() => {
@@ -247,30 +265,66 @@ export function useAtendimento() {
       await carregarMeta(selecionada.id, contactId)
       await carregarDadosContato(selecionada.id, contactId)
     })()
-    const t = setInterval(() => void carregarThread(selecionada.id, { silencioso: true }), 6000)
-    return () => clearInterval(t)
+    // Idem: rede de segurança, o Realtime é quem mantém a thread em dia.
+    return pollingVisivel(() => void carregarThread(selecionada.id, { silencioso: true }), 30_000, { imediato: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selecionada?.id])
 
-  // Realtime: novo evento do engine → refresca lista/thread aberta.
+  // Realtime: novo evento do engine → refresca lista/thread aberta. Ticks e
+  // reações (sem conversation_id no payload) refazem a thread só quando o
+  // chatwoot_message_id pertence à thread aberta, com debounce (vários juntos).
+  const accountId = canaisAtendimento.conta?.chatwootAccountId ?? null
+  // Refs, não deps: `carregarLista` muda a cada tecla da busca (deps aba/busca/
+  // canal) — como dep do efeito, cada letra derrubava e recriava o canal.
+  // O canal assina UMA vez por conta e chama sempre a versão atual.
+  const carregarListaRef = useRef(carregarLista)
+  const carregarThreadRef = useRef(carregarThread)
   useEffect(() => {
+    carregarListaRef.current = carregarLista
+    carregarThreadRef.current = carregarThread
+  }, [carregarLista, carregarThread])
+  useEffect(() => {
+    if (!accountId) return
     const supabase = createClient()
+    const carregarLista = () => carregarListaRef.current()
+    const carregarThread = (id: number, opts: { silencioso?: boolean }) => carregarThreadRef.current(id, opts)
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    const refetchThreadDebounced = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null
+        if (selecionadaIdRef.current) void carregarThread(selecionadaIdRef.current, { silencioso: true })
+      }, 400)
+    }
     // Nome único por montagem: dock e /conversas montam este hook ao mesmo tempo,
     // e o supabase-js reaproveita canal de mesmo nome (o 2º .on() após subscribe lança).
     const canal = supabase
       .channel(`chat-eventos-atendimento-${Math.random().toString(36).slice(2, 10)}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_eventos' }, (payload) => {
-        const ev = payload.new as { payload?: { conversation_id?: number } }
-        void carregarLista()
-        if (selecionadaIdRef.current && ev.payload?.conversation_id === selecionadaIdRef.current) {
-          void carregarThread(selecionadaIdRef.current, { silencioso: true })
-        }
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_eventos', filter: `chatwoot_account_id=eq.${accountId}` },
+        (payload) => {
+          const ev = payload.new as { payload?: { conversation_id?: number } }
+          void carregarLista()
+          if (selecionadaIdRef.current && ev.payload?.conversation_id === selecionadaIdRef.current) {
+            void carregarThread(selecionadaIdRef.current, { silencioso: true })
+          }
+        },
+      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mensagem_status' }, (payload) => {
+        const row = payload.new as { chatwoot_message_id?: number }
+        if (row.chatwoot_message_id !== undefined && mensagensIdsRef.current.has(row.chatwoot_message_id)) refetchThreadDebounced()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mensagem_reacoes' }, (payload) => {
+        const row = payload.new as { chatwoot_message_id?: number }
+        if (row.chatwoot_message_id !== undefined && mensagensIdsRef.current.has(row.chatwoot_message_id)) refetchThreadDebounced()
       })
       .subscribe()
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
       supabase.removeChannel(canal)
     }
-  }, [carregarLista, carregarThread])
+  }, [accountId])
 
   const selecionarConversa = useCallback((c: ConversaAtendimento | null) => {
     setSelecionada(c)
