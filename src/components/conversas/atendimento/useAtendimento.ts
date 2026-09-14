@@ -437,38 +437,47 @@ export function useAtendimento() {
     }
   }
 
+  /** Otimista (Messenger M0 frente e): aplica no estado ANTES do await, pro cabeçalho/composer
+   * refletirem na hora (transferir fecha modal já mostrando o novo atendente); erro do servidor
+   * restaura o valor anterior (guardado fora do setState — não dá pra ler `selecionada` de dentro
+   * do próprio updater com segurança de tipo aqui). */
   async function transferir(input: { departamentoId: string; agenteId?: number | null; comentario?: string }) {
     if (!selecionada) return
+    const anterior = selecionada
+    const departamento = departamentos.find((d) => d.id === input.departamentoId)
+    const agente = input.agenteId ? agentes.find((a) => a.id === input.agenteId) : null
+    setSelecionada((prev) =>
+      prev
+        ? {
+            ...prev,
+            meta: { ...prev.meta, assignee: agente ? { id: agente.id, name: agente.name } : null, team: departamento ? { id: departamento.chatwootTeamId || 0, name: departamento.nome } : prev.meta.team },
+          }
+        : prev,
+    )
     try {
       await transferirConversa(selecionada.id, input)
-      const departamento = departamentos.find((d) => d.id === input.departamentoId)
-      const agente = input.agenteId ? agentes.find((a) => a.id === input.agenteId) : null
-      setSelecionada((prev) =>
-        prev
-          ? {
-              ...prev,
-              meta: { ...prev.meta, assignee: agente ? { id: agente.id, name: agente.name } : null, team: departamento ? { id: departamento.chatwootTeamId || 0, name: departamento.nome } : prev.meta.team },
-            }
-          : prev,
-      )
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
+      setSelecionada(anterior)
       setErro(mensagem(err, 'Falha ao transferir conversa.'))
       throw err
     }
   }
 
-  /** Atribuição rápida (troca só o atendente, mantém o departamento — usada no select "Atendente" do painel). */
+  /** Atribuição rápida (troca só o atendente, mantém o departamento — usada no select "Atendente" do
+   * painel e no botão "Assumir para mim" da thread). Otimista, mesmo padrão de `transferir`. */
   async function atribuirAgente(agenteId: number | null) {
     if (!selecionada) return
+    const anterior = selecionada
+    const agente = agenteId ? agentes.find((a) => a.id === agenteId) : null
+    setSelecionada((prev) => (prev ? { ...prev, meta: { ...prev.meta, assignee: agente || null } } : prev))
     try {
       await assumirConversa(selecionada.id, agenteId)
-      const agente = agenteId ? agentes.find((a) => a.id === agenteId) : null
-      setSelecionada((prev) => (prev ? { ...prev, meta: { ...prev.meta, assignee: agente || null } } : prev))
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
+      setSelecionada(anterior)
       setErro(mensagem(err, 'Falha ao atribuir atendente.'))
       throw err
     }

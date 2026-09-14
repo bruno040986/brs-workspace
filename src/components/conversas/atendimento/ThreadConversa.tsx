@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ArrowDown,
   ArrowLeft,
   Check,
   CheckCheck,
@@ -18,14 +19,35 @@ import {
   StickyNote,
   Trash2,
   UserCog,
+  UserPlus,
   X,
 } from 'lucide-react'
 import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
+import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
-import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
+import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
 
 const MIME_ANEXO_ACEITOS = '.pdf,.png,.jpg,.jpeg,.webp,.mp3,.ogg,.opus,.mp4,.xlsx,.csv'
+
+/** Função top-level (referencialmente estável entre renders — exigência do useRolagemThread). */
+function chaveMensagem(m: MensagemComExtras): string {
+  return String(m.id)
+}
+
+// Uma resolução por carregamento de página, não por conversa aberta: cada
+// chamada é uma server action + GET /agents no Chatwoot, e a thread monta a
+// cada troca de conversa. O agente do usuário logado não muda na sessão.
+let meuAgentePromise: Promise<{ id: number; name: string } | null> | null = null
+function resolverMeuAgente() {
+  if (!meuAgentePromise) {
+    meuAgentePromise = getMeuAgente().catch(() => {
+      meuAgentePromise = null
+      return null
+    })
+  }
+  return meuAgentePromise
+}
 
 type Props = {
   conversa: ConversaAtendimento
@@ -110,32 +132,77 @@ export default function ThreadConversa({
   const [transfDepartamentoId, setTransfDepartamentoId] = useState('')
   const [transfAgenteId, setTransfAgenteId] = useState('')
   const [transfComentario, setTransfComentario] = useState('')
-  const [transferindo, setTransferindo] = useState(false)
   const [popoverEncerrar, setPopoverEncerrar] = useState(false)
   const [motivoEncerrar, setMotivoEncerrar] = useState('')
   const [gravando, setGravando] = useState<'idle' | 'gravando' | 'pronto'>('idle')
   const [duracaoMs, setDuracaoMs] = useState(0)
-  const fimRef = useRef<HTMLDivElement>(null)
+  // Feedback imediato de assumir/transferir (Messenger M0 frente e): o hook
+  // (useAtendimento.transferir/atribuirAgente) já é otimista — este estado é
+  // só o spinner/toast LOCAL do botão, nada de estado de negócio.
+  const [alterando, setAlterando] = useState<'assumindo' | 'transferindo' | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [meuAgente, setMeuAgente] = useState<{ id: number; name: string } | null | undefined>(undefined)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const gravacaoBlobRef = useRef<Blob | null>(null)
   const cronometroRef = useRef<number | null>(null)
   const inicioGravacaoRef = useRef(0)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Assumir para mim (frente e): resolução usuário logado → agente Chatwoot é
+  // a mesma usada pela presença (getMinhaDisponibilidade), por e-mail — já
+  // existe no servidor, então não há mapeamento novo pra inventar aqui.
   useEffect(() => {
-    requestAnimationFrame(() => fimRef.current?.scrollIntoView({ block: 'end' }))
-  }, [conversa.id])
+    let vivo = true
+    void resolverMeuAgente().then((r) => {
+      if (vivo) setMeuAgente(r)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [])
 
-  useEffect(() => {
-    if (!buscaAberta) requestAnimationFrame(() => fimRef.current?.scrollIntoView({ block: 'end' }))
-  }, [mensagens.length, buscaAberta])
+  function exibirToast(texto: string) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    setToast(texto)
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000)
+  }
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+  }, [])
 
   const mensagensFiltradas = useMemo(() => {
     if (!buscaAberta || !buscaTexto.trim()) return mensagens
     const alvo = buscaTexto.trim().toLowerCase()
     return mensagens.filter((m) => (m.content || '').toLowerCase().includes(alvo))
   }, [mensagens, buscaAberta, buscaTexto])
+
+  // Rolagem (frente d — useRolagemThread): com a busca aberta, o thread fica
+  // CONGELADO na foto de quando ela abriu — nenhuma mensagem nova durante a
+  // busca dispara scroll/"N nova(s)"; ao fechar a busca, volta a ler
+  // `mensagens` ao vivo (comportamento atual preservado: "com buscaAberta,
+  // não rolar"). Captura a foto no exato instante em que `buscaAberta` VIRA
+  // true — padrão "ajustar state durante o render" dos docs do React (não
+  // efeito: um efeito rodaria um commit depois, e o React Compiler deste
+  // projeto proíbe tanto ler `ref.current` durante o render quanto chamar
+  // setState dentro de um efeito sem uma razão externa).
+  const [mensagensCongeladas, setMensagensCongeladas] = useState<MensagemComExtras[]>(mensagens)
+  const [buscaAbertaAnterior, setBuscaAbertaAnterior] = useState(buscaAberta)
+  if (buscaAberta !== buscaAbertaAnterior) {
+    setBuscaAbertaAnterior(buscaAberta)
+    if (buscaAberta) setMensagensCongeladas(mensagens)
+  }
+  const threadRolagem = buscaAberta ? mensagensCongeladas : mensagens
+  // Destructuring (não `const rolagem = useRolagemThread(...)` + `rolagem.x`)
+  // por exigência do React Compiler deste projeto: o objeto retornado carrega
+  // `containerRef` (useRef) e um acesso via propriedade encadeada (`rolagem.x`)
+  // faz o compiler tratar TODO o retorno como valor de ref, mesmo os campos
+  // que não são refs — proibindo leitura durante o render ("Cannot access ref
+  // value during render"). Desestruturar no ponto de chamada (mesmo padrão do
+  // CRM AlvoConsig) evita o falso positivo.
+  const { containerRef, novasNaoLidas, aoRolarMensagens, irParaOFim, irParaMensagemEnviada, aoMidiaCarregar } = useRolagemThread(threadRolagem, chaveMensagem)
 
   const mensagensPorId = useMemo(() => new Map(mensagens.map((m) => [m.id, m])), [mensagens])
 
@@ -154,7 +221,7 @@ export default function ThreadConversa({
   function usarResposta(r: { id: string; conteudo: string; arquivoPath: string | null }) {
     if (r.arquivoPath) {
       setTexto('')
-      void onEnviarRespostaRapida(r.id)
+      void onEnviarRespostaRapida(r.id).then(() => irParaMensagemEnviada())
       return
     }
     setTexto((prev) => (prev && !prev.trim().startsWith('/') ? `${prev} ${r.conteudo}` : r.conteudo))
@@ -170,6 +237,47 @@ export default function ThreadConversa({
   const grupo = ehGrupo(conversa)
   const entidade = conversa.atendimentoMeta?.entidade
 
+  // "Assumir para mim" (frente e): reaproveita onTransferir (departamento
+  // ATUAL + novo atendente, sem comentário — transferirConversa só grava
+  // nota quando há comentário, então isto equivale a um atribuirAgente
+  // silencioso) em vez de exigir um prop novo só pra este botão. Só aparece
+  // quando dá pra resolver os dois lados: o agente Chatwoot do usuário
+  // logado (getMeuAgente, e-mail — mesma resolução da presença) E o
+  // departamento local correspondente ao time atual da conversa no Chatwoot.
+  const departamentoAtualId = departamentos.find((d) => d.chatwootTeamId != null && d.chatwootTeamId === (conversa.meta.team?.id ?? null))?.id
+  const podeAssumirParaMim = Boolean(meuAgente && departamentoAtualId && conversa.meta.assignee?.id !== meuAgente.id)
+
+  async function assumirParaMim() {
+    if (!meuAgente || !departamentoAtualId || alterando) return
+    setAlterando('assumindo')
+    try {
+      await onTransferir({ departamentoId: departamentoAtualId, agenteId: meuAgente.id })
+      exibirToast('Atendimento assumido')
+    } catch {
+      // erro do servidor já vira banner via at.erro (AtendimentoCompleto/Compacto);
+      // a restauração do atendente anterior é feita pelo hook (transferir), otimista.
+    } finally {
+      setAlterando(null)
+    }
+  }
+
+  async function salvarTransferencia() {
+    if (!transfDepartamentoId || alterando) return
+    setModalTransferir(false)
+    setAlterando('transferindo')
+    const departamentoNome = departamentos.find((d) => d.id === transfDepartamentoId)?.nome
+    const agenteNome = transfAgenteId ? agentes.find((a) => String(a.id) === transfAgenteId)?.name : null
+    try {
+      await onTransferir({ departamentoId: transfDepartamentoId, agenteId: transfAgenteId ? Number(transfAgenteId) : null, comentario: transfComentario.trim() || undefined })
+      setTransfComentario('')
+      exibirToast(agenteNome ? `Transferido para ${agenteNome}` : `Transferido para ${departamentoNome || 'o departamento'}`)
+    } catch {
+      // idem: erro já vira banner; hook restaura o atendente/departamento anteriores.
+    } finally {
+      setAlterando(null)
+    }
+  }
+
   async function enviar() {
     const valor = texto.trim()
     if (!valor) return
@@ -177,6 +285,7 @@ export default function ThreadConversa({
     try {
       if (notaInterna) await onEnviarNota(valor)
       else await onEnviarTexto(valor)
+      irParaMensagemEnviada()
     } catch {
       setTexto(valor)
     }
@@ -197,6 +306,7 @@ export default function ThreadConversa({
       return
     }
     await onEnviarAnexo(file)
+    irParaMensagemEnviada()
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -244,11 +354,12 @@ export default function ThreadConversa({
     setGravando('idle')
     setDuracaoMs(0)
     await onEnviarAudio(blob)
+    irParaMensagemEnviada()
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: 'var(--msn-surface)' }}>
-      <div className="brs-messenger-chat-head" style={{ height: 'auto', minHeight: 36, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px' }}>
+      <div className="brs-messenger-chat-head" style={{ position: 'relative', height: 'auto', minHeight: 36, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px' }}>
         {compacto && onVoltar && (
           <button type="button" onClick={onVoltar} className="brs-messenger-toolbar-btn" style={{ padding: 6 }}>
             <ArrowLeft size={14} />
@@ -269,6 +380,24 @@ export default function ThreadConversa({
             <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--msn-meta-text)' }}>{conversa.meta.assignee ? `↳ ${conversa.meta.assignee.name}` : 'sem atendente'}</span>
           </div>
         </div>
+        {toast && (
+          <div style={{ position: 'absolute', top: 4, left: '50%', transform: 'translateX(-50%)', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, background: 'var(--msn-accent)', color: '#fff', zIndex: 70, whiteSpace: 'nowrap' }}>
+            {toast}
+          </div>
+        )}
+        {podeAssumirParaMim && (
+          <button
+            type="button"
+            onClick={() => void assumirParaMim()}
+            disabled={Boolean(alterando)}
+            title="Assumir para mim"
+            className="brs-messenger-pill-btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', opacity: alterando ? 0.7 : 1 }}
+          >
+            {alterando === 'assumindo' ? <Loader2 size={13} className="spinner" /> : <UserPlus size={13} />}
+            {alterando === 'assumindo' ? 'Assumindo…' : 'Assumir para mim'}
+          </button>
+        )}
         <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
           <Search size={18} />
         </button>
@@ -281,10 +410,17 @@ export default function ThreadConversa({
             setModalTransferir(true)
           }}
           title="Transferir"
+          disabled={Boolean(alterando)}
           className="brs-messenger-toolbar-btn"
-          style={{ width: 34, height: 34 }}
+          style={{ width: alterando === 'transferindo' ? 'auto' : 34, height: 34, padding: alterando === 'transferindo' ? '0 8px' : undefined, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', opacity: alterando ? 0.7 : 1 }}
         >
-          <UserCog size={18} />
+          {alterando === 'transferindo' ? (
+            <>
+              <Loader2 size={14} className="spinner" /> Transferindo…
+            </>
+          ) : (
+            <UserCog size={18} />
+          )}
         </button>
         <div style={{ position: 'relative' }}>
           <button type="button" onClick={() => setPopoverEncerrar((v) => !v)} title="Encerrar" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34 }}>
@@ -335,96 +471,113 @@ export default function ThreadConversa({
         </div>
       )}
 
-      <div className="brs-messenger-chat-scroll" style={{ flex: 1, overflowY: 'auto', padding: 12, background: 'var(--msn-shell-bg)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {carregando ? (
-          <div style={{ textAlign: 'center', padding: 20 }}>
-            <Loader2 size={16} className="spinner" />
-          </div>
-        ) : mensagensFiltradas.length === 0 ? (
-          <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--msn-muted)', padding: 20 }}>Nenhuma mensagem.</div>
-        ) : (
-          mensagensFiltradas.map((m) => {
-            if (m.message_type === 2) {
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div
+          ref={containerRef}
+          onScroll={aoRolarMensagens}
+          className="brs-messenger-chat-scroll"
+          style={{ height: '100%', overflowY: 'auto', padding: 12, background: 'var(--msn-shell-bg)', display: 'flex', flexDirection: 'column', gap: 6 }}
+        >
+          {carregando ? (
+            <div style={{ textAlign: 'center', padding: 20 }}>
+              <Loader2 size={16} className="spinner" />
+            </div>
+          ) : mensagensFiltradas.length === 0 ? (
+            <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--msn-muted)', padding: 20 }}>Nenhuma mensagem.</div>
+          ) : (
+            mensagensFiltradas.map((m) => {
+              const atributoChave = { [ATRIBUTO_CHAVE_ROLAGEM]: chaveMensagem(m) }
+              if (m.message_type === 2) {
+                return (
+                  <div key={m.id} {...atributoChave} style={{ alignSelf: 'center', fontSize: 11, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 12, padding: '3px 12px', margin: '4px 0', maxWidth: '85%', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }}>
+                    {m.content}
+                  </div>
+                )
+              }
+              const saida = m.message_type === 1 || m.message_type === 3
+              const nota = Boolean(m.private)
+              const aparelho = m.content_attributes?.origem === 'aparelho'
+              const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
+              const conteudo = remetente ? remetente.conteudo : m.content
+              const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
+              const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
               return (
-                <div key={m.id} style={{ alignSelf: 'center', fontSize: 11, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 12, padding: '3px 12px', margin: '4px 0', maxWidth: '85%', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }}>
-                  {m.content}
+                <div key={m.id} {...atributoChave} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3 }}>
+                  {!saida && (
+                    <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
+                      <Reply size={12} />
+                    </button>
+                  )}
+                  <div className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}>
+                    {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
+                    {inReplyTo && (
+                      <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
+                      </div>
+                    )}
+                    {m.attachments?.map((a) =>
+                      a.file_type === 'image' ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={a.id} src={a.data_url} alt="" onLoad={aoMidiaCarregar} style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block' }} />
+                      ) : a.file_type === 'audio' ? (
+                        <audio key={a.id} controls src={a.data_url} onLoadedData={aoMidiaCarregar} style={{ maxWidth: '100%', marginBottom: 4 }} />
+                      ) : (
+                        <a key={a.id} href={a.data_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4, color: 'var(--msn-link)' }}>
+                          <Download size={12} /> anexo
+                        </a>
+                      ),
+                    )}
+                    {conteudo && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{conteudo}</div>}
+                    {m.reacoes.length > 0 && (
+                      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+                        {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
+                          <span key={emoji} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
+                            {emoji}
+                            {qtd > 1 ? ` ${qtd}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
+                      {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
+                      {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
+                      {horaCurta(m.created_at)}
+                      {nota ? ' · nota interna' : ''}
+                      {saida && !nota && (
+                        <>
+                          {m.status === 'falhou' ? (
+                            <span style={{ color: '#dc2626' }} title="Falhou">
+                              !
+                            </span>
+                          ) : m.status === 'lido' || m.status === 'entregue' ? (
+                            <CheckCheck size={12} style={{ color: m.status === 'lido' ? 'var(--msn-accent)' : undefined }} />
+                          ) : (
+                            <Check size={12} />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {saida && (
+                    <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
+                      <Reply size={12} />
+                    </button>
+                  )}
                 </div>
               )
-            }
-            const saida = m.message_type === 1 || m.message_type === 3
-            const nota = Boolean(m.private)
-            const aparelho = m.content_attributes?.origem === 'aparelho'
-            const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
-            const conteudo = remetente ? remetente.conteudo : m.content
-            const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
-            const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
-            return (
-              <div key={m.id} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3 }}>
-                {!saida && (
-                  <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
-                    <Reply size={12} />
-                  </button>
-                )}
-                <div className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}>
-                  {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
-                  {inReplyTo && (
-                    <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
-                    </div>
-                  )}
-                  {m.attachments?.map((a) =>
-                    a.file_type === 'image' ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={a.id} src={a.data_url} alt="" style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block' }} />
-                    ) : a.file_type === 'audio' ? (
-                      <audio key={a.id} controls src={a.data_url} style={{ maxWidth: '100%', marginBottom: 4 }} />
-                    ) : (
-                      <a key={a.id} href={a.data_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4, color: 'var(--msn-link)' }}>
-                        <Download size={12} /> anexo
-                      </a>
-                    ),
-                  )}
-                  {conteudo && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{conteudo}</div>}
-                  {m.reacoes.length > 0 && (
-                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
-                      {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
-                        <span key={emoji} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
-                          {emoji}
-                          {qtd > 1 ? ` ${qtd}` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
-                    {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
-                    {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
-                    {horaCurta(m.created_at)}
-                    {nota ? ' · nota interna' : ''}
-                    {saida && !nota && (
-                      <>
-                        {m.status === 'falhou' ? (
-                          <span style={{ color: '#dc2626' }} title="Falhou">
-                            !
-                          </span>
-                        ) : m.status === 'lido' || m.status === 'entregue' ? (
-                          <CheckCheck size={12} style={{ color: m.status === 'lido' ? 'var(--msn-accent)' : undefined }} />
-                        ) : (
-                          <Check size={12} />
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                {saida && (
-                  <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
-                    <Reply size={12} />
-                  </button>
-                )}
-              </div>
-            )
-          })
+            })
+          )}
+        </div>
+        {novasNaoLidas > 0 && (
+          <button
+            type="button"
+            onClick={() => irParaOFim(true)}
+            className="brs-messenger-primary-button"
+            style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 99, boxShadow: '0 4px 12px rgba(0,0,0,.18)' }}
+          >
+            <ArrowDown size={13} /> {novasNaoLidas === 1 ? '1 nova' : `${novasNaoLidas} novas`}
+          </button>
         )}
-        <div ref={fimRef} />
       </div>
 
       {chipsResposta.length > 0 && (
@@ -583,20 +736,12 @@ export default function ThreadConversa({
                 </button>
                 <button
                   type="button"
-                  disabled={!transfDepartamentoId || transferindo}
-                  onClick={async () => {
-                    setTransferindo(true)
-                    try {
-                      await onTransferir({ departamentoId: transfDepartamentoId, agenteId: transfAgenteId ? Number(transfAgenteId) : null, comentario: transfComentario.trim() || undefined })
-                      setModalTransferir(false)
-                    } finally {
-                      setTransferindo(false)
-                    }
-                  }}
+                  disabled={!transfDepartamentoId || Boolean(alterando)}
+                  onClick={() => void salvarTransferencia()}
                   className="brs-messenger-primary-button"
                   style={{ padding: '6px 14px' }}
                 >
-                  {transferindo ? 'Salvando…' : 'Salvar'}
+                  Salvar
                 </button>
               </div>
             </div>

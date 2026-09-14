@@ -1207,6 +1207,24 @@ export async function getMinhaDisponibilidade(): Promise<'online' | 'busy' | 'of
   }
 }
 
+/** Resolução usuário logado → agente Chatwoot (mesmo par e-mail usado pela presença acima), pro
+ * botão "Assumir para mim" (Messenger M0 frente e). Null quando o usuário ainda não está
+ * sincronizado como agente — quem chama deve esconder o botão nesse caso, nunca inventar um id. */
+export async function getMeuAgente(): Promise<{ id: number; name: string } | null> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const user = await requireCurrentUser()
+    const cli = await clienteChatwootBrs()
+    const email = await meuEmail(user.id)
+    if (!cli || !email) return null
+    const agentes = await cli.agentes()
+    const agente = agentes.find((a) => String(a.email || '').toLowerCase() === email.toLowerCase())
+    return agente ? { id: agente.id, name: agente.name } : null
+  } catch {
+    return null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Contatos (aba "Contatos" da lista — Digisac). Busca via /contacts/search.
 // ---------------------------------------------------------------------------
