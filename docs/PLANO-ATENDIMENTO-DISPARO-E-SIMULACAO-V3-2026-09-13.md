@@ -534,3 +534,65 @@ documentado deles, no mesmo padrão do client do Workspace.
 
 **Pendente do plano:** só §6 (conversa única por lead + checkpoint de troca
 de número) — Opus, revisão Fable, por último e com teste em conta de teste.
+
+## 12. §6 — conversa única por lead (Opus, 14/09) — PLANO CONCLUÍDO
+
+Commit `brs-alvoconsig` `2bc0ef4`. typecheck limpo, 288/288 testes (11 novos),
+lint limpo nos arquivos do CRM. Deploys verdes: Railway `SUCCESS` (engine
+subiu 15:18 e reconectou as 7 instâncias com sessão salva, sem erro) e Vercel
+`READY`.
+
+**A regra:** `garantirConversa` (engine) passa a decidir por
+`decidirConversaDoJid` (`conversa-unica.ts`, pura, 7 testes):
+
+1. Linha da PRÓPRIA instância existe? Vence sempre. É o que mantém as
+   conversas duplicadas ANTIGAS funcionando como antes (§6 já previa: "as
+   antigas ficam") e o que garante que a adoção nunca esbarre na chave única
+   `(instancia_id, jid)` — só adotamos quando a instância atual comprovadamente
+   não tem linha nenhuma pra aquele jid.
+2. Senão, a conversa 1:1 mais recente do mesmo jid na MESMA conta Chatwoot é
+   ADOTADA: `chat_conversas.instancia_id` vira a instância atual e a thread
+   continua a mesma.
+3. Senão, cria — como sempre foi.
+
+Grupo continua chaveado por instância. Cada adoção grava
+`chat_conversa_checkpoints` + publica comentário interno na própria conversa
+do Chatwoot; nada disso pode derrubar a entrega (`registrarTrocaDeNumero`
+nunca lança). Corrida na chave única: refaz a busca e usa a linha que ganhou.
+
+**O ponto de risco já estava certo:** `outboundDoChatwoot` sempre resolveu o
+remetente por `chat_conversas.instancia_id`, nunca pelo inbox — responder
+pela instância ATUAL já era o comportamento; a adoção só mantém esse campo
+atualizado. Aquele caminho não foi tocado, de propósito.
+
+**CRM:** o número exibido em `getConversasAtendimento` passa a vir da LINHA
+(depois de uma adoção o inbox continua sendo o do número original e deixou de
+ser fonte de verdade; `instPorInbox` segue como fallback e como filtro de
+posse); `listarCheckpointsDaConversa` + rota + `ConversaCentro` renderizam
+cada troca inline na thread, escondendo o comentário interno equivalente do
+Chatwoot pra não duplicar o aviso.
+
+**Rótulo:** os avisos usam o NOME da instância, não `numero` formatado — o
+WhatsApp devolve o E.164 sem o nono dígito em vários números brasileiros (a
+4435 chega como 556192664435), e formatá-lo mostraria "(61) 9266-4435", que
+não bate com nenhum rótulo da tela.
+
+### Pendência operacional (não é código)
+
+O teste em conta de teste que este §6 exige — envio cruzado real e resposta
+pela instância atual, com dois números de verdade — **não foi feito**: não há
+conta de teste pareada no ambiente de desenvolvimento. É o passo que valida
+em campo o único caminho que não dá pra provar por teste automatizado.
+
+Sugestão de roteiro, com 2 números de disparo e 1 número pessoal:
+1. Disparar para o número pessoal pelo número A e responder do celular.
+2. Disparar para o MESMO número pessoal pelo número B.
+3. Conferir: continua UMA conversa no Atendimento, com o marcador "Conversa
+   continuou por B — antes A", e o cabeçalho mostrando B.
+4. Responder pelo Atendimento e confirmar no celular que a mensagem chegou
+   **pelo número B** (é o que prova a regra de envio).
+
+### Estado do plano
+
+§1, §2.1-§2.4, §3.1-§3.5, §4, §5 e §6: todos no ar. O plano v3 está
+concluído; o que resta é homologação em uso real.
