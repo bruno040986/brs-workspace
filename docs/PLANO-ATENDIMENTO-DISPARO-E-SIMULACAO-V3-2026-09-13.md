@@ -403,3 +403,42 @@ e decifrar `api_key_enc` — o cofre do CRM (`lib/crm/cofre.ts`) só tem a
 variante JSON; acrescentar `decifrarTexto` com o MESMO primitivo
 (aes-256-gcm, `base64(iv(12)||ct||tag(16))`, chave `CRM_CREDENTIALS_KEY`),
 que é exatamente o `cifrarTexto` do Workspace.
+
+## 10. Etapa do Opus — feita em 13/09 (noite)
+
+Commit `brs-alvoconsig` (main): "Disparo: número recém-pareado não entra no
+rodízio, campanha pausa sozinha quando o número cai, e conversa de disparo
+nasce atribuída". Typecheck limpo, 245/245 testes, lint no baseline.
+
+**Feito (§1 P0, §2.2, §3.2):**
+- `avaliarElegibilidadeDisparo` (função pura, 8 testes) usada pela composição
+  da campanha, pelo cron do Next.js (caminho ativo) e pelo worker do engine.
+  Aquecimento de 48 h por parceiro (`crm_parceiro_config.disparo_aquecimento_horas`),
+  liberação antecipada registrada (`disparo_liberado_em/por` + evento), e
+  restrição da Meta como bloqueio não-liberável.
+- Fail-closed nos dois caminhos de execução: transitória devolve o item sem
+  gastar tentativa (+2 min); o resto pausa a campanha com `pausa_motivo` e
+  devolve (+15 min). `rerotearPendentesDaCampanha` redistribui os pendentes
+  ao retomar, com o template do número de destino; retomar limpa o motivo.
+- Eventos em `chat_instancia_eventos`: `conexao`, `numero_divergente`
+  (sinaliza, não bloqueia), `desconexao_externa` (401/device_removed e
+  logout) e `desconexao_sistema` (botão). O motivo da desconexão externa
+  continua sendo do humano, na tela (§3.3).
+- Atribuição automática da conversa de disparo ao atendente do lead
+  (`atribuirConversaAoAtendente`, agente criado sob demanda pelo e-mail
+  determinístico). `contatoId` viaja fila → engine → rota de envio.
+- `getProgressoDisparo` passa a devolver `status`, `pausaMotivo` e as
+  instâncias da campanha com situação; `getComposicaoDisponivel` devolve
+  TODAS as de disparo com `elegibilidade` + `rotulo` (a tela decide o que
+  mostrar/oferecer). Nova action `liberarInstanciaParaDisparo`.
+
+**Não entra nesta etapa:** §6 (conversa única por lead + checkpoint de troca
+de número) — o plano já previa que viesse depois dos três blocos acima e com
+teste em conta de teste. Continua sendo do **Opus**.
+
+**Próximo — Sonnet, worktree `crm/v3-crm-telas`:** §2.1 (regra única de
+responder), §2.3 (abas Meus/Fila/Campanha), §2.4 (separador de dia +
+data/hora no balão, remover templates), §3.3-3.5 (reconexão com motivo,
+cadastro número/operadora/plano, card frente/verso com recargas e histórico,
+botão "Liberar para disparo" consumindo a action nova), §4 (simulação v3) e
+§5 (figurinhas + GIPHY lendo `giphy_config`).
