@@ -100,162 +100,267 @@ campanha de teste hoje custa um número.
 - Janela de horário e opt-out (Passo 2 do plano de 11/09) continuam
   pendentes e continuam relevantes para risco de bloqueio.
 
-## 2. P1 — Uma conversa por lead, com checkpoint de troca de número
+## Decisões do Bruno (13/09, 20h) que fecham este plano
 
-Desenho (arquitetura minha; migration minha):
+- **Meus**: lead que respondeu ao disparo aparece em "Meus" **já
+  atribuído** ao atendente da campanha (não em Fila, não em Campanha).
+- **Fila**: só **receptivos** (conversa que NÃO nasceu de disparo, de
+  qualquer instância) ainda sem atendente — não assumidos, não
+  transferidos, não atribuídos.
+- **Campanha**: reaproveita a aba existente para listar os **disparados
+  do atendente aguardando resposta** (não cria aba nova; não há espaço).
+- **Aquecimento de 48 h** aprovado, como **sinalizador**, não bloqueio
+  duro: "Instância em aquecimento" + botão "Liberar para disparo" com
+  confirmação de risco. Tudo registrado para medir a qualidade de cada
+  número.
+- **Ciclo de vida da instância**: motivo obrigatório ao reconectar depois
+  de desconexão externa; número informado × número detectado; tipo de
+  número; operadora (cadastro no Workspace com logotipo 500×500); tipo de
+  plano com controle de recargas (pré-pago); histórico de conexões por
+  instância com campanhas/disparos/respostas.
+- **Datas**: separador de dia entre as mensagens (como o WhatsApp) **e**
+  data+hora em cada balão ("13/09/2026 17:55").
+- **GIF**: Tenor foi descontinuado pelo Google (30/06/2026). Usar
+  **GIPHY** — conta já criada (`@brspromotora`); chave em
+  developers.giphy.com → Create an App → tipo **API** (chave beta sai na
+  hora; a de produção pede aprovação do app). Chave fica no ambiente da
+  Vercel, nunca no navegador.
 
-- **Chave da conversa passa a ser (conta Chatwoot, jid)** para conversa
-  1:1; grupo continua por instância. `chat_conversas.instancia_id` passa
-  a significar **"instância atual"** — a última que falou com o lead.
-- `garantirConversa(inst, rem, origem)`: busca a conversa mais recente da
-  **conta** para o jid (nova `conversaPorJidNaConta(contaId, jid)`).
-  Se existir e `instancia_id !== inst.id`: atualiza `instancia_id`,
-  grava checkpoint e espelha no Chatwoot um **comentário interno** na
-  própria conversa: "Conversa continuou pelo número (61) 99266-4435 —
-  antes: (61) 99678-5009". Não cria conversa nova no Chatwoot: a thread é
-  a mesma (mesma `chatwoot_conversation_id`, inbox antiga — o inbox do
-  Chatwoot deixa de ser fonte de verdade pra "qual número").
-- Nova tabela `chat_conversa_checkpoints (id, conversa_id, de_instancia_id,
-  para_instancia_id, motivo text, created_at)` — é o que a tela do
-  Atendimento renderiza inline como marcador ("— continuou pelo número
-  X —"), e é o dado do enum `instancia_trocada` que nunca foi usado. Não
-  reaproveitar `chat_historico_checkpoints` (pertence ao histórico
-  paralelo desligado, chave é `timeline_id`).
-- **Envio pela conversa usa `chat_conversas.instancia_id`**, nunca o
-  `inbox_id` do Chatwoot: `responderConversaParceiro` (CRM) e o webhook
-  de saída do engine (`server.ts`, resolve por `conversaPorChatwoot`) já
-  chegam à linha; falta garantir que o `POST /instancias/:id/enviar` use
-  a instância da linha. `getConversasAtendimento` deriva
-  `instanciaNome/instanciaNumero/instanciaPapel` da linha, não de
-  `instPorInbox` (hoje `atendimento-actions.ts:415,458`).
-- **Dados existentes:** não há como fundir conversas já criadas no
-  Chatwoot. Regra de transição: a busca por (conta, jid) devolve a mais
-  recente; as antigas ficam como estão (o cliente que responder nelas
-  ainda aparece — o engine trata inbound pela `(instancia, jid)` da
-  mensagem, e essa linha antiga existe). Opcional: script único que
-  resolve no Chatwoot as duplicadas mais antigas dos 6 leads de teste.
-- **Índice**: hoje `onConflict: 'instancia_id,jid'` (`db.ts:176`) — segue
-  válido (1:1 nunca terá duas linhas na mesma instância); acrescenta índice
-  `(jid, updated_at desc)` para a busca por conta.
-- Alias LID (`chat_contato_alias`, por instância) não muda: a sessão
-  Signal é por instância mesmo.
-- Riscos a testar: Chatwoot exige `contact_inbox` do inbox da conversa
-  para aceitar mensagem — como espelhamos via API de mensagens da
-  conversa (não via canal), funciona; confirmar no primeiro envio real
-  cruzado. Webhook `conversation_updated` do Chatwoot continua sendo
-  ignorado.
+## 2. P1 — Atendimento: abas, atribuição e permissão de resposta
 
-## 3. P2 — Atendente responde o que é dele
+### 2.1 Regra única de "é minha" (CRM, Sonnet)
+`podeResponderConversa` (`lib/chat/actions.ts:46-51`) passa a usar a MESMA
+função de `podeLerConversa` (`autorizacao.ts:22-35`): atribuído no Chatwoot
+**ou** atendente do lead. Extrair para `podeAgirNaConversa(...)` em
+`autorizacao.ts` (pura, testada) e chamar nos dois lugares. Some o "só
+posso responder conversas atribuídas a mim" para quem é dono do lead.
 
-- **A.** `podeResponderConversa` (`lib/chat/actions.ts`) passa a usar a
-  MESMA regra de `podeLerConversa`: atribuído no Chatwoot **ou** atendente
-  do lead. Uma função, dois usos — hoje são duas.
-- **B.** Atribuição automática no Chatwoot: quando a conversa nasce por
-  **disparo** (engine, `garantirConversa` com `origem='disparo'`), o item
-  da fila tem `contato_id` → `crm_contatos.atendente_id` → atribui no
-  Chatwoot pelo e-mail determinístico (`lib/chat/agentes.ts`). E no CRM,
-  `resolverLeadsDasConversas` (roda a cada carga da lista) atribui quando
-  vincula um lead com atendente a uma conversa ainda sem atribuído. Assim
-  "Responsável" na tela e a permissão passam a bater com a distribuição
-  da campanha.
-- **C.** Decisão de produto (Bruno): mostrar ao atendente os disparos
-  DELE ainda sem resposta? Proposta: manter fora de "Meus"/"Fila" (regra
-  de 03/09 continua certa) e acrescentar um contador/aba **"Disparados
-  (aguardando resposta)"** só com os leads do próprio atendente, sem
-  entrar no fluxo de atendimento até responderem.
+### 2.2 Atribuição automática (engine Opus + CRM Sonnet)
+- Engine: `garantirConversa` com `origem='disparo'` recebe `contatoId` do
+  item da fila → lê `crm_contatos.atendente_id` → atribui a conversa no
+  Chatwoot ao agente do atendente (e-mail determinístico,
+  `lib/chat/agentes.ts`; o engine já tem `ChatwootConta`). Se o agente
+  não existir no Chatwoot ainda, cria sob demanda (mesma rotina que o
+  CRM usa em `atribuirConversa`).
+- CRM: `resolverLeadsDasConversas` atribui no Chatwoot quando vincula um
+  lead com atendente a uma conversa sem atribuído (cobre orgânicas e o
+  legado).
+- Resultado: "Responsável: Isabelly" na tela e a permissão passam a
+  bater com a distribuição da campanha sem passo manual.
 
-## 4. P3 — Tela de Atendimento
+### 2.3 Abas com o significado decidido (CRM, Sonnet)
+Em `getConversasAtendimento` (`atendimento-actions.ts:442-483`):
+- **Meus** = `ehMeu` (como hoje) — disparo respondido entra aqui, já
+  atribuído por 2.2.
+- **Fila** = `row.origem !== 'disparo'` **e** sem atribuído **e** lead sem
+  atendente (hoje não olha origem: `:455`).
+- **Campanha** = a aba já existe para campanha manual de ligação
+  (`FilaConversas.tsx:14-18,148-157`). Ganha uma segunda seção
+  **"Disparos aguardando resposta"**: itens de `crm_campanha_disparo_fila`
+  com `status='enviado'`, do atendente da sessão (via `crm_contatos.
+  atendente_id`), cuja conversa ainda tem `respondida=false`; cada item
+  abre o lead (que mostra a conversa do disparo, como hoje). A regra
+  "disparo sem resposta fora de Meus/Fila" (`:449`) continua.
+- Contadores das abas refletem o mesmo critério.
 
-- Data + hora em todo balão e evento: `dataHoraBr` no lugar de `horaBr`
-  em `ConversaCentro.tsx` (formato "13/09/2026 17:55" já é o da função).
-  Sugestão de leitura: separador de dia ("Hoje", "Ontem", "11/09/2026")
-  entre grupos + hora no balão — decide o Bruno; o pedido literal é
-  data+hora no balão e é o que se faz por padrão.
-- Remover a faixa de templates (`ConversaCentro.tsx:665-669` e o
-  `getTemplates` que a alimenta) do Atendimento para todos os papéis. A
-  gestão de templates continua em Configurações › WhatsApp não oficial,
-  usada só pelo disparo.
+### 2.4 Datas (CRM, Sonnet)
+`ConversaCentro.tsx`: separador de dia entre grupos ("Hoje", "Ontem",
+"11/09/2026") **e** `dataHoraBr` em cada balão/evento no lugar de
+`horaBr`. Remover a faixa de templates (`:665-669` + `getTemplates`).
 
-## 5. P4 — Solicitar simulação v3 (retorno do Bruno)
+## 3. P2 — Ciclo de vida da instância de WhatsApp
 
-Sobre `SolicitarSimulacaoModal.tsx` (v2, `462a51c`):
+Tudo em cima de `chat_instancias` (colunas hoje: nome, papel, provedor,
+status, numero [detectado pelo engine no `open`], nome_perfil,
+conectada_em, ultimo_envio_em, ordem…). Migrations minhas.
 
-1. **Lead da carteira**: ao clicar no campo já abre a lista rolável dos
-   leads do atendente (sem exigir 2 caracteres); digitar filtra.
-   `getLeads` já é escopado (`leads.ver_meus` → `atendente_id = eu`) e já
-   devolve `margem_novo/rmc/rcc` e `cpf`; falta incluir `nascimento` no
-   select. Selecionou → preenche **CPF** e **Data de nascimento**
-   (somente leitura) e carrega as **3 margens** (Novo / Cartão RMC /
-   Cartão RCC) em cards como no painel do lead. Mesmos campos de
+### 3.1 Schema (Fable)
+```
+alter table chat_instancias add column
+  numero_informado text,            -- E.164 digitado no cadastro (+55 (61) 90000-0000 ou fixo)
+  tipo_numero text check (tipo_numero in ('celular','fixo','virtual')),
+  operadora_id uuid references operadoras_telefonia(id),
+  tipo_plano text check (tipo_plano in ('pre_pago','pos_pago','virtual')),
+  disparo_liberado_em timestamptz,  -- liberação antecipada do aquecimento (vale pro pareamento atual)
+  disparo_liberado_por uuid references crm_usuarios(id),
+  restrito_ate timestamptz;         -- restrição da Meta informada na reconexão
+
+create table chat_instancia_eventos (
+  id uuid pk, instancia_id uuid not null, agente_parceiro_id uuid not null,
+  tipo text not null check (tipo in ('conexao','desconexao_sistema','desconexao_externa',
+    'reconexao','liberacao_antecipada','numero_divergente','restricao','banimento')),
+  motivo text check (motivo in ('banimento','restricao_meta','desconexao_manual',
+    'desconexao_aparelho','mudanca_aparelho','mudanca_aplicativo','outro')),
+  prazo_horas int, observacao text, numero_detectado text,
+  origem text not null check (origem in ('engine','usuario')),
+  autor_crm_usuario_id uuid, created_at timestamptz default now()
+);
+create table chat_instancia_recargas (
+  id uuid pk, instancia_id uuid not null, agente_parceiro_id uuid not null,
+  data_recarga date not null, valor numeric(10,2) not null,
+  proxima_recarga date not null,
+  check (proxima_recarga > data_recarga and proxima_recarga <= data_recarga + 60),
+  autor_crm_usuario_id uuid, created_at timestamptz default now()
+);
+```
+`operadoras_telefonia (id, nome, logo_url, ativo, created_at)` é
+**cadastro do Workspace** (divisão Cadastros), com logotipo quadrado
+500×500 no bucket público de logos — tela e permissões pela **sessão do
+Workspace** (regra dos 4 pontos: SYSTEM_MODULES, divisoes.ts,
+permissions.ts, seed). O CRM só lê. Recado curto para aquela sessão sai
+junto com a migration.
+
+### 3.2 Engine grava os eventos (Opus)
+- `open` → evento `conexao` com `numero_detectado`; se `numero_informado`
+  existe e diverge (comparação por `normalizarTelefone`) → evento
+  `numero_divergente` + `ultimo_erro` informativo ("número conectado
+  difere do cadastrado") — **não bloqueia**, sinaliza no card.
+- `close` com 401 `device_removed`/`loggedOut` → `desconexao_externa`
+  (`codigo`, `conflito` no `observacao`). Botão "Desconectar" do sistema →
+  `desconexao_sistema`. Mesmo ponto onde hoje só se loga
+  `conflito de sessão` (`baileys.ts`).
+- O engine nunca pede motivo — isso é do usuário (3.3).
+
+### 3.3 Reconexão com motivo (CRM, Sonnet)
+Se o último evento da instância é `desconexao_externa` sem `reconexao`
+depois, o botão **Conectar** abre antes o modal **"Por que este número
+desconectou?"** (obrigatório): Banimento · Restrição da Meta (habilita
+"prazo em horas" → grava `restrito_ate = now() + horas` e evento
+`restricao`) · Desconexão manual · Desconexão do aparelho · Mudança de
+aparelho · Mudança de aplicativo · Outro (observação). Grava `reconexao`
+e só então mostra o QR. Instância `restrito_ate > now()` aparece
+"Restrita até 13/09 23:02" e não é elegível para disparo.
+
+### 3.4 Cadastro e card (CRM, Sonnet)
+- Formulário da instância ganha: Número (máscara celular/fixo, salvo
+  E.164 em `numero_informado`), Tipo de número, Operadora (select com
+  logotipo, vindo de `operadoras_telefonia` ativas), Tipo de plano.
+- **Frente do card**: logotipo da operadora, número informado (e o
+  detectado, se divergir, em âmbar), selo do plano, **mostradores**:
+  disparos (fila `enviado`), enviadas/recebidas (`chat_mensagens_mapa`
+  por `instancia_id`, `from_me`), desconexões externas, reconexões,
+  restrições, banimentos (de `chat_instancia_eventos`), e o **contador
+  de dias para a próxima recarga** (pré-pago) — vermelho piscando nos 5
+  últimos dias.
+- **Verso do card** (botão "virar"): tabela de recargas — Data da
+  recarga · Valor · Próxima recarga (sugerida = data + 60 dias; o usuário
+  pode antecipar, nunca adiar — a check do banco garante). Só aparece
+  com `tipo_plano='pre_pago'`.
+- Botão **"Histórico de conexões"** junto dos mostradores → janela
+  sobreposta com os eventos tabulados (data, tipo, motivo, prazo, autor,
+  número detectado) e, abaixo, as campanhas em que o número entrou
+  (`crm_campanha_disparo_instancias`) com disparos, respondidos e sem
+  resposta (fila × `chat_conversas.respondida`).
+
+### 3.5 Aquecimento e liberação (CRM Sonnet + engine Opus)
+Elegível para disparo = `conectada` **e** `restrito_ate` vazio ou vencido
+**e** (`conectada_em <= now() - 48 h` **ou** `disparo_liberado_em >=
+conectada_em`). O aquecimento é por parceiro em `crm_parceiro_config.
+disparo_aquecimento_horas` (padrão 48). Card mostra "Em aquecimento
+(faltam 31 h)" + botão **"Liberar para disparo"** → modal "Este número foi
+pareado há Xh. Liberar antes do aquecimento aumenta o risco de restrição
+ou banimento pela Meta. Você assume esse risco?" → grava
+`disparo_liberado_em/por` + evento `liberacao_antecipada`. Composição de
+campanha e worker (`disparo-shared.ts:30`, `disparo-worker.ts:101`) usam
+a mesma função de elegibilidade (pura, testada).
+
+## 4. P3 — Solicitar simulação v3 (Sonnet)
+
+Sobre `SolicitarSimulacaoModal.tsx` (v2):
+1. **Lead da carteira**: clicar no campo abre a lista rolável dos leads
+   do atendente (sem exigir 2 caracteres; digitar filtra). `getLeads` já
+   é escopado por `atendente_id`; acrescentar `nascimento` ao select.
+   Selecionar preenche **CPF** e **Data de nascimento** (só leitura) e
+   carrega os **3 cards de margem** (Novo / RMC / RCC). Mesmos campos de
    identidade nos dois modos.
-2. **Forma de simulação**: seletor "Parcela desejada" | "Valor liberado".
-   - Parcela desejada: ao escolher (ou ao trocar o produto), pré-preenche
-     com a margem do produto (novo → margem novo, cartão RMC → RMC,
-     cartão RCC → RCC; refin não tem margem → vazio). Valor maior que a
-     margem **não bloqueia**, mostra aviso "acima da margem do produto
-     (R$ X)".
-   - Valor liberado: campo "Valor liberado desejado (R$)".
-   - Payload/registro ganham `formaSimulacao: 'parcela'|'valor_liberado'`
-     e `valorLiberadoDesejado` (jsonb, sem migration).
-3. **Máscara monetária** ("R$ 1.234,56") em parcela e valor liberado —
-   mesma máscara nos modais de responder.
-4. **"Banco preferido" → "Instituição Financeira"**: select com as
-   instituições **ativas** do Workspace (`financial_institutions`,
-   `is_active and deleted_at is null`, 52 hoje; `name` é o nome
-   comercial — "Banco BMG", "Banco C6 Bank"). Nova action
-   `listarInstituicoesFinanceirasAtivas()` (leitura, cache de 5 min no
-   servidor). Grava `instituicaoPreferidaId` + nome no payload
-   (`bancoPreferido` continua sendo preenchido com o nome, pra painel e
-   cartão do chat não mudarem).
-5. Validação de CPF/nascimento do modo "Cliente sem cadastro" já existe
-   (`validarCpf`/`validarNascimento`); no modo "Lead" os dois campos vêm do
-   lead e não são editáveis.
+2. **Forma de simulação**: "Parcela desejada" | "Valor liberado".
+   Parcela → pré-preenche com a margem do produto (novo/RMC/RCC; refin não
+   tem margem → vazio); acima da margem **avisa, não bloqueia**. Valor
+   liberado → campo "Valor liberado desejado (R$)". Payload ganha
+   `formaSimulacao` e `valorLiberadoDesejado` (jsonb, sem migration).
+3. **Máscara monetária** ("R$ 1.234,56") em parcela e valor liberado, aqui
+   e nos modais de responder.
+4. **"Instituição Financeira"** no lugar de "Banco preferido": select das
+   ativas do Workspace (`financial_institutions`, `is_active and
+   deleted_at is null`, 52 hoje; `name` é o nome comercial) via nova
+   action `listarInstituicoesFinanceirasAtivas()` (cache 5 min). Grava
+   `instituicaoPreferidaId` + nome (`bancoPreferido` segue preenchido com
+   o nome pra painel/cartão não mudarem).
 
-## 6. P5 — Biblioteca de figurinhas (e GIF)
+## 5. P4 — Biblioteca de figurinhas e GIFs (Sonnet; migration Fable)
 
-Hoje "figurinha" = escolher um arquivo. O pedido é uma biblioteca como a
-do WhatsApp.
+- `crm_chat_figurinhas (id, agente_parceiro_id, path, mime, largura,
+  altura, criado_por, usos int default 0, ultimo_uso_em, created_at,
+  deleted_at)`; bucket `parceiro-midias`, path
+  `figurinhas/<agente_parceiro_id>/<uuid>.<ext>`. Biblioteca do
+  **parceiro** (todos usam; remove quem enviou ou o master).
+- Botão de figurinha abre popover com **duas abas**: **Figurinhas**
+  (grade: recentes → mais usadas → todas; "＋ Adicionar" sobe webp/png/gif
+  ≤ 1 MB e já envia; clicar reenvia **sem novo upload** — a mensagem
+  referencia o `path` da biblioteca, `assinarAnexoInterno` aceita o
+  prefixo `figurinhas/<tenant>/`, `usos++`) e **GIF** (busca GIPHY).
+- **GIPHY**: proxy no servidor (`buscarGifs(q)`, `GIPHY_API_KEY` na
+  Vercel, cache 10 min, "Powered by GIPHY" no popover — exigência dos
+  termos). Ao escolher, o servidor baixa o GIF (≤ 2 MB, magic bytes
+  GIF89a/GIF87a) e grava na biblioteca do parceiro — a mensagem fica
+  igual a qualquer figurinha, sem depender do GIPHY depois. O
+  classificador (`classificarAnexoChat`) passa a aceitar GIF como
+  imagem/figurinha; render `<img>` animado.
 
-- **Migration (minha)**: `crm_chat_figurinhas (id, agente_parceiro_id,
-  path, mime, largura, altura, criado_por, usos int default 0,
-  ultimo_uso_em, created_at, deleted_at)`. Bucket `parceiro-midias`,
-  path `figurinhas/<agente_parceiro_id>/<uuid>.webp|png`. Biblioteca é
-  **do parceiro** (todos os usuários veem e usam); só quem enviou ou o
-  master remove.
-- **UI**: o botão de figurinha abre um popover em grade (recentes → mais
-  usadas → todas), busca não; "＋ Adicionar" sobe webp/png (≤ 1 MB,
-  magic bytes — `classificarAnexoChat` já valida) e já envia. Clicar numa
-  figurinha envia **sem novo upload**: a mensagem referencia o mesmo
-  `path` da biblioteca (`assinarAnexoInterno` passa a aceitar o prefixo
-  `figurinhas/<tenant>/` além de `chat-interno/<tenant>/`), incrementa
-  `usos`.
-- **GIF**: busca de GIF como no WhatsApp exige provedor externo (Tenor/
-  GIPHY, chave de API, chamadas do navegador liberadas na CSP). Fase 2,
-  só com a chave em mãos. Sem a chave: GIF animado entra pela mesma
-  biblioteca (upload de `.gif` — hoje recusado pelo classificador, que
-  aceita só PNG/JPG/WebP por magic bytes; acrescentar GIF89a/GIF87a).
+## 6. P5 — Uma conversa por lead, com checkpoint de troca de número (Opus; migration e revisão Fable)
+
+- Chave da conversa 1:1 passa a ser **(conta Chatwoot, jid)**; grupo
+  continua por instância. `chat_conversas.instancia_id` = **instância
+  atual** (a última que falou com o lead).
+- `garantirConversa`: nova `conversaPorJidNaConta(contaId, jid)` (mais
+  recente); se existe e `instancia_id !== inst.id` → atualiza
+  `instancia_id`, grava checkpoint, espelha no Chatwoot um **comentário
+  interno** na mesma conversa ("Conversa continuou pelo número (61)
+  99266-4435 — antes (61) 99678-5009"). Não cria conversa nova no
+  Chatwoot; o inbox deixa de ser fonte de verdade de "qual número".
+- Nova `chat_conversa_checkpoints (id, conversa_id, de_instancia_id,
+  para_instancia_id, motivo, created_at)` — a tela renderiza inline como
+  marcador. (Não reaproveitar `chat_historico_checkpoints`: pertence ao
+  histórico paralelo desligado.)
+- **Envio pela conversa usa `chat_conversas.instancia_id`**, nunca
+  `inbox_id`: `responderConversaParceiro` (CRM), webhook de saída do
+  engine (`server.ts`, `conversaPorChatwoot`) e `getConversasAtendimento`
+  (`instanciaNome/Numero/Papel` da linha, não de `instPorInbox`,
+  `:415,458`).
+- Dados existentes: não há como fundir conversas já criadas no Chatwoot;
+  a busca devolve a mais recente e as antigas ficam (inbound nelas
+  continua funcionando pela `(instancia, jid)` da mensagem). Opcional:
+  resolver no Chatwoot as duplicadas antigas dos 6 leads de teste.
+- Índice `(jid, updated_at desc)`; `onConflict: 'instancia_id,jid'`
+  continua válido. Alias LID por instância não muda.
+- Testar em conta de teste antes: envio cruzado (mensagem espelhada numa
+  conversa cujo inbox é de outra instância) e resposta pela instância
+  atual.
 
 ## 7. Fora deste plano (já decidido)
-
-- "Aguardando" no número comercial do Bruno: caso isolado da sessão
-  Signal (10-11/09). Decisão de 11/09: esperar uma semana com a trava de
-  persistência antes de resetar. Reavaliar em 18/09.
-- Tráfego técnico, janela de horário e opt-out: continuam no
-  `PLANO-DISPAROS-OPERACAO-2026-09-11.md`, Passos 2-3.
+- "Aguardando" no número comercial do Bruno: reavaliar em 18/09.
+- Tráfego técnico, janela de horário e opt-out: `PLANO-DISPAROS-OPERACAO-
+  2026-09-11.md`, Passos 2-3. Janela e opt-out continuam importando para
+  o risco de bloqueio.
 
 ## 8. Ordem e quem executa
 
-| # | Bloco | Executor | Depende de |
+| # | Bloco | Executor | Pré-requisito |
 |---|---|---|---|
-| 1 | P0 código (aquecimento, fail-closed, re-rota, aviso) | **Opus** (engine `disparo-worker.ts` + CRM `disparo-shared.ts`/tela) | migration `disparo_aquecimento_horas` (Fable) |
-| 2 | P2-A (regra única de responder) + P3 (data/hora, tirar templates) | **Sonnet** | nada |
-| 3 | P2-B (atribuição automática no Chatwoot) | **Opus** (engine) + Sonnet (CRM) | nada |
-| 4 | P4 (simulação v3) | **Sonnet** | nada |
-| 5 | P5 (figurinhas) | **Sonnet** | migration `crm_chat_figurinhas` (Fable) |
-| 6 | P1 (conversa única + checkpoint) | **Opus** (engine + CRM), revisão Fable | migration `chat_conversa_checkpoints` (Fable); testar em conta de teste antes |
+| 1 | §1 P0 código: elegibilidade (48 h + liberação + restrição), fail-closed, re-rota, aviso | **Opus** (engine `disparo-worker.ts`, CRM `disparo-shared.ts`) | migrations §3.1 (Fable) |
+| 2 | §2.1 regra única de responder + §2.4 datas/templates | **Sonnet** | nada |
+| 3 | §2.2 atribuição automática + §2.3 abas (Meus/Fila/Campanha) | **Opus** (engine) + **Sonnet** (CRM) | nada |
+| 4 | §3.2 eventos no engine | **Opus** | migrations §3.1 |
+| 5 | §3.3-3.5 reconexão com motivo, cadastro, card (frente/verso), histórico | **Sonnet** | §3.1 + tela de Operadoras (sessão Workspace) — o card pode nascer com operadora opcional |
+| 6 | §4 simulação v3 | **Sonnet** | nada |
+| 7 | §5 figurinhas + GIPHY | **Sonnet** | migration figurinhas (Fable) + `GIPHY_API_KEY` na Vercel (Bruno) |
+| 8 | §6 conversa única + checkpoint | **Opus**, revisão Fable | migration checkpoints (Fable); teste em conta de teste |
 
-P1 é o maior e o mais delicado (mexe em como toda conversa nasce e por
-onde se responde) — por isso vai por último e com teste real controlado;
-P0 vem primeiro porque sem ele cada teste queima um número. Decisões que
-só o Bruno fecha antes de começar: aquecimento (48 h?), aba "Disparados",
-separador de dia, GIF com Tenor (sim/não).
+Recomendação de sessão: Opus abre uma worktree só para engine (1, 3-engine,
+4, 8); Sonnet outra para CRM (2, 3-CRM, 5, 6, 7). As migrations saem todas
+de uma vez, antes, pela pasta principal do `brs-workspace` — eu as escrevo
+e o Bruno aplica (`echo Y | npx supabase db push`), como hoje.
+
+Até tudo isto estar no ar: **não disparar com número pareado há menos de
+48 h, não repetir o mesmo texto para os mesmos números, e não reconectar
+a 5009 antes do fim da restrição.**
