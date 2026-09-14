@@ -442,3 +442,24 @@ data/hora no balão, remover templates), §3.3-3.5 (reconexão com motivo,
 cadastro número/operadora/plano, card frente/verso com recargas e histórico,
 botão "Liberar para disparo" consumindo a action nova), §4 (simulação v3) e
 §5 (figurinhas + GIPHY lendo `giphy_config`).
+
+### 10.1 Correção logo em seguida: `pareada_em` (14/09, 01:40)
+
+O commit acima media o aquecimento por `chat_instancias.conectada_em`. Aquele
+carimbo é o token de posse do socket e o engine o reescreve a cada abertura de
+conexão — o próprio deploy das 01:13 pôs os seis números de disparo em
+"aquecimento (faltam 48 h)" de uma vez, e a liberação manual morria na
+primeira reconexão.
+
+Corrigido em `0788bc2` + migration `20260913221955` (aplicada): coluna
+`chat_instancias.pareada_em`, carimbada só quando a credencial nasce (QR lido,
+via `tinhaSessao` do `authStateDoBanco`) e zerada quando o 401 apaga a
+credencial. Sem backfill — NULL significa pareamento desconhecido e é tratado
+como LIBERADO, porque aquecimento é sinalizador e não bloqueio. Efeito
+prático: os números que já estavam pareados voltaram a disparar normalmente, e
+o aquecimento passa a valer de verdade para quem for pareado daqui pra frente.
+
+Para a etapa do Sonnet: o card da instância deve mostrar `pareada_em` (não
+`conectada_em`) como "pareado em", e o botão "Liberar para disparo" chama
+`liberarInstanciaParaDisparo`, que já existe.
+
