@@ -123,8 +123,13 @@ campanha de teste hoje custa um número.
 - **GIF**: Tenor foi descontinuado pelo Google (30/06/2026). Usar
   **GIPHY** — conta já criada (`@brspromotora`); chave em
   developers.giphy.com → Create an App → tipo **API** (chave beta sai na
-  hora; a de produção pede aprovação do app). Chave fica no ambiente da
-  Vercel, nunca no navegador.
+  hora; a de produção pede aprovação do app). **A chave NÃO fica na Vercel**:
+  vai no Workspace, Configurações › Provedores e APIs › card
+  **"Figurinhas/GIFs (GIPHY)"**, no mesmo molde dos outros provedores
+  (tabela `giphy_config` id=1, `api_key_enc` no cofre AES com
+  `CRM_CREDENTIALS_KEY`), uma chave para todo o grupo. O CRM lê
+  `giphy_config` pelo service role e decifra com o cofre dele (mesma
+  chave e mesmo formato `base64(iv||ct||tag)`).
 
 ## 2. P1 — Atendimento: abas, atribuição e permissão de resposta
 
@@ -203,12 +208,12 @@ create table chat_instancia_recargas (
   autor_crm_usuario_id uuid, created_at timestamptz default now()
 );
 ```
-`operadoras_telefonia (id, nome, logo_url, ativo, created_at)` é
-**cadastro do Workspace** (divisão Cadastros), com logotipo quadrado
-500×500 no bucket público de logos — tela e permissões pela **sessão do
-Workspace** (regra dos 4 pontos: SYSTEM_MODULES, divisoes.ts,
-permissions.ts, seed). O CRM só lê. Recado curto para aquela sessão sai
-junto com a migration.
+`operadoras_telefonia (id, nome, logo_url, is_active, deleted_at, …)` é
+**cadastro do Workspace** (Cadastros › Operadoras de Telefonia) — **FEITO
+pelo Fable em 13/09** nesta mesma rodada (tela, actions, 4 pontos de
+permissão `workspace-operadoras-telefonia`, logotipo 500×500 em data URL
+como as averbadoras). O CRM só lê (`select id, nome, logo_url … where
+is_active and deleted_at is null`).
 
 ### 3.2 Engine grava os eventos (Opus)
 - `open` → evento `conexao` com `numero_detectado`; se `numero_informado`
@@ -364,3 +369,37 @@ e o Bruno aplica (`echo Y | npx supabase db push`), como hoje.
 Até tudo isto estar no ar: **não disparar com número pareado há menos de
 48 h, não repetir o mesmo texto para os mesmos números, e não reconectar
 a 5009 antes do fim da restrição.**
+
+## 9. Estado em 13/09 (noite) — parte do Fable feita
+
+Commit no `brs-workspace` (esta rodada):
+- Migrations, na ordem: `20260913213348_operadoras_telefonia`,
+  `20260913213349_chat_instancias_ciclo_vida`, `20260913213350_crm_chat_figurinhas`,
+  `20260913213351_chat_conversa_checkpoints`, `20260913213844_giphy_config`.
+- Workspace: cadastro **Operadoras de Telefonia** (`/operadoras-telefonia`)
+  e card **Figurinhas/GIFs (GIPHY)** em Provedores e APIs
+  (`/rh/parceiros/config/provedores/figurinhas-gifs`), com Testar conexão.
+  `tsc --noEmit` limpo; lint limpo nos arquivos novos.
+
+### Handoff — próximo modelo: **Opus** (engine primeiro)
+
+Worktree própria no `brs-alvoconsig` (`crm/v3-engine-protecao`). Nesta ordem:
+1. §1 P0 no engine + `disparo-shared.ts`: função pura
+   `instanciaElegivelParaDisparo({status, conectada_em, disparo_liberado_em,
+   restrito_ate, aquecimentoHoras, agora})` (testada) usada pela composição
+   e pelo worker; fail-closed (`conectando` → pendente sem gastar tentativa
+   +2 min; `desconectada` → pausa a campanha com `pausa_motivo` e re-roteia
+   os itens pendentes daquela instância ao retomar); evento na tela.
+2. §3.2 eventos em `chat_instancia_eventos` (open → `conexao` +
+   `numero_divergente`; close 401 → `desconexao_externa`; Desconectar do
+   sistema → `desconexao_sistema`).
+3. §2.2 atribuição automática no Chatwoot na criação da conversa de
+   disparo (contato → `crm_contatos.atendente_id` → agente por e-mail).
+4. §6 conversa única + checkpoint — só depois dos 3 acima, em conta de
+   teste.
+Depois, **Sonnet** no CRM (`crm/v3-crm-telas`): §2.1, §2.3, §2.4, §3.3-3.5,
+§4, §5. Para o GIPHY no CRM: ler `giphy_config` (id=1) com o client admin
+e decifrar `api_key_enc` — o cofre do CRM (`lib/crm/cofre.ts`) só tem a
+variante JSON; acrescentar `decifrarTexto` com o MESMO primitivo
+(aes-256-gcm, `base64(iv(12)||ct||tag(16))`, chave `CRM_CREDENTIALS_KEY`),
+que é exatamente o `cifrarTexto` do Workspace.
