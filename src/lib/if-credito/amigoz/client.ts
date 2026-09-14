@@ -159,7 +159,9 @@ function sanitizar(valor: unknown): unknown {
   if (!ehObjeto(valor)) return valor
   const copia: Json = {}
   for (const [k, v] of Object.entries(valor)) {
-    copia[k] = CHAVE_SENSIVEL.test(k) ? '***' : sanitizar(v)
+    // Chave sensível só mascara texto: flags como `senha_servidor: true`
+    // (convênio exige senha do servidor) são dado de negócio, não segredo.
+    copia[k] = CHAVE_SENSIVEL.test(k) && typeof v === 'string' ? '***' : sanitizar(v)
   }
   return copia
 }
