@@ -463,3 +463,74 @@ Para a etapa do Sonnet: o card da instância deve mostrar `pareada_em` (não
 `conectada_em`) como "pareado em", e o botão "Liberar para disparo" chama
 `liberarInstanciaParaDisparo`, que já existe.
 
+
+## 11. Etapa do Sonnet — feita em 14/09 (madrugada)
+
+8 commits no `brs-alvoconsig` (main, `e8d986a`…`8e25a05`), cada um com
+typecheck+testes+lint verificados antes do próximo. Deploy Vercel
+`dpl_7e955Zv8VzyES7ceCojRYnDKq5Jd` (commit `8e25a05`) `READY`. 277/277
+testes no fim da etapa (30 novos desde o início dela).
+
+**§2.1 — regra única de "é minha" (`e8d986a`):** `podeAgirNaConversa`
+(autorizacao.ts, pura) é agora a única definição — `podeLerConversa` e
+`podeResponderConversa` chamam a mesma função. Resolve o "só posso responder
+conversas atribuídas a mim" do relato de 13/09: antes, ler aceitava "sou o
+atendente do lead" mas responder só aceitava "estou atribuído no Chatwoot".
+
+**§2.3 — abas Meus/Fila/Campanha (`1e1cc58`):** Fila passa a exigir
+`origem !== 'disparo'` (`ehConversaDeFila`, atendimento-shared.ts) — um
+disparo sem atribuição automática (best-effort, pode falhar) não se disfarça
+mais de receptivo novo. Campanha ganha a seção "Disparos aguardando
+resposta": o que a campanha já entregou aos MEUS leads sem resposta ainda
+(`getDisparosAguardandoResposta`, cruza `crm_disparo_fila` com
+`chat_conversas`), clicar abre a conversa exata.
+
+**§2.4 — datas e templates (`e8d986a`):** separador de dia no thread
+("Hoje"/"Ontem"/data, `rotuloDiaBr`) + `dataHoraBr` em todo balão/evento no
+lugar de só a hora. Tira de vez a tira de templates do Atendimento (decisão
+do Bruno: não faz sentido lá).
+
+**§3.3-3.5 — ciclo de vida da instância (`77ec9e0` backend + `670e75f`
+tela):** botão Conectar exige motivo (banimento/restrição da Meta com
+prazo/desconexão manual/do aparelho/mudança de aparelho/aplicativo/outro)
+quando a última desconexão foi externa (`conectarComMotivo`); cadastro do
+chip (número/tipo/operadora/plano) no form de criação e num modal de edição;
+card com logotipo da operadora, número informado × detectado (aviso âmbar se
+diverge), mostradores (enviadas/recebidas/disparos/desconexões/reconexões/
+restrições/banimentos), contador de dias pra próxima recarga (pré-pago,
+pisca nos últimos 5 dias); verso do card com histórico de recargas; botão
+"Histórico de conexões" (eventos + participação em campanhas); chip de
+elegibilidade de disparo com botão "Liberar para disparo" (`avaliarElegibilidadeDisparo`,
+a MESMA função do backend — a tela nunca acha elegível o que o disparo
+recusaria).
+
+**§4 — simulação v3 (`a8ca8bd`):** lista de leads do atendente sem exigir 2
+caracteres (clicar já abre, digitar filtra); CPF/nascimento e 3 cards de
+margem ao selecionar; "Forma de simulação" (Parcela desejada × Valor
+liberado), pré-preenchendo a parcela pela margem do produto (refin fica
+vazio) e AVISANDO — nunca bloqueando — acima da margem; máscara monetária
+"R$ 1.234,56" em todos os campos de valor, no pedido e nos dois modais de
+resposta; "Instituição Financeira" (select das ativas do Workspace,
+`listarInstituicoesFinanceirasAtivas`, cache 5 min) no lugar do texto livre
+"Banco preferido" — corrige de quebra os modais de resposta, que antes só
+listavam instituições de ofertas ANTERIORES do lead e caíam num campo de ID
+digitado à mão pra lead novo.
+
+**§5 — figurinhas + GIPHY (`533c2f9` backend + `8e25a05` tela):** o botão de
+figurinha deixou de abrir diálogo de arquivo — agora é um popover com duas
+abas. Figurinhas: biblioteca do parceiro (recentes → mais usadas → todas),
+clicar reenvia sem novo upload, "+ Adicionar" sobe e já envia, remover é só
+quem enviou ou o master. GIF: busca no GIPHY (chave lida de `giphy_config` no
+Workspace, decifrada com `decifrarTexto` novo no cofre do CRM — nunca uma
+chave na Vercel), escolher baixa o GIF no servidor (só domínio do GIPHY,
+≤2MB, magic bytes conferidos) e copia pra dentro da biblioteca do parceiro
+antes de mandar — a mensagem nunca aponta pra CDN externa. `classificarAnexoChat`
+passa a aceitar GIF como imagem/figurinha (função à parte do detector de
+foto/logo, que continua só png/jpg/webp).
+
+**Não testado ao vivo:** a integração real com a API do GIPHY (sem chave
+configurada neste ambiente) — implementada sobre o contrato estável e
+documentado deles, no mesmo padrão do client do Workspace.
+
+**Pendente do plano:** só §6 (conversa única por lead + checkpoint de troca
+de número) — Opus, revisão Fable, por último e com teste em conta de teste.
