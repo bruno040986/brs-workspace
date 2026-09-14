@@ -144,12 +144,22 @@ async function guardarTokens(instituicaoId: string, access: string, refresh: str
   await admin.from('if_credito_config').update(row).eq('instituicao_financeira_id', instituicaoId)
 }
 
-/** Remove das requisições gravadas qualquer campo sensível. */
-function sanitizar(body: unknown): unknown {
-  if (!ehObjeto(body)) return body
+const CHAVE_SENSIVEL = /senha|password|token|refresh|secret|^access$|authorization/i
+const PARECE_JWT = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+
+/**
+ * Remove do que vai pro registro qualquer campo sensível — pela chave
+ * (senha, token, refresh, access…) E pelo valor (qualquer string com cara
+ * de JWT), em qualquer profundidade. Incidente 14/09: o `access` do login
+ * escapou do filtro por chave e foi gravado em claro.
+ */
+function sanitizar(valor: unknown): unknown {
+  if (typeof valor === 'string') return PARECE_JWT.test(valor) ? '***' : valor
+  if (Array.isArray(valor)) return valor.map(sanitizar)
+  if (!ehObjeto(valor)) return valor
   const copia: Json = {}
-  for (const [k, v] of Object.entries(body)) {
-    copia[k] = /senha|password|token|refresh|secret/i.test(k) ? '***' : v
+  for (const [k, v] of Object.entries(valor)) {
+    copia[k] = CHAVE_SENSIVEL.test(k) ? '***' : sanitizar(v)
   }
   return copia
 }
@@ -195,8 +205,8 @@ export async function chamarAmigoz(
   const duracaoMs = Date.now() - inicio
   const ok = status >= 200 && status < 300
 
-  // Login/refresh/seleciona-corban devolvem token: não gravar a resposta crua.
-  const respostaGravada = /login/.test(caminho) ? sanitizar(corpo) : corpo
+  // Toda resposta passa pelo sanitizador (token pode vir em qualquer rota).
+  const respostaGravada = sanitizar(corpo)
   const admin = await createAdminClient()
   await admin.from('if_credito_chamadas').insert({
     instituicao_financeira_id: cfg.instituicaoId,
