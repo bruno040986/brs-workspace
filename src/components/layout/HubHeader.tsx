@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ThemePreference, UserProfile } from '@/types'
 import { createClient } from '@/lib/supabase/client'
+import { pollingVisivel } from '@/lib/polling-visivel'
 import { getMyEffectivePermissions } from '@/lib/auth/actions'
 import {
   hasAnyPermission,
@@ -215,9 +216,9 @@ export default function HubHeader({ user }: HubHeaderProps) {
     }
     window.addEventListener('praise:refresh', handler)
     window.addEventListener('comunicados:refresh', handler)
-    const interval = window.setInterval(() => refreshPraiseBadge(), 30000)
-    const intervalComunicados = window.setInterval(() => refreshComunicadoBadge(), 30000)
-    const intervalWorkspace = window.setInterval(() => refreshWorkspaceBadge(), 30000)
+    // Os três badges chegam por Realtime (elogios, avisos e comunicados, abaixo);
+    // este poll é só rede de segurança — 5 min, pausado com a aba oculta.
+    const pararPoll = pollingVisivel(handler, 5 * 60_000, { imediato: false })
     const onFocus = () => {
       refreshPraiseBadge()
       refreshComunicadoBadge()
@@ -228,10 +229,26 @@ export default function HubHeader({ user }: HubHeaderProps) {
       window.removeEventListener('praise:refresh', handler)
       window.removeEventListener('comunicados:refresh', handler)
       window.removeEventListener('focus', onFocus)
-      window.clearInterval(interval)
-      window.clearInterval(intervalComunicados)
-      window.clearInterval(intervalWorkspace)
+      pararPoll()
     }
+  }, [user?.id])
+
+  // Comunicados: a tabela é publicada no Realtime (13/09/2026); qualquer
+  // publicação/alteração refaz o badge. Sem filtro por usuário — a regra de
+  // "é pra mim?" continua no servidor (/api/comunicados/notifications).
+  useEffect(() => {
+    if (!user?.id) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`comunicados-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comunicados' }, () => {
+        void refreshComunicadoBadge()
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
   useEffect(() => {
@@ -349,7 +366,7 @@ export default function HubHeader({ user }: HubHeaderProps) {
   return (
     <header className="hub-header">
       <div className="hub-header-left">
-        <Link href="/">
+        <Link href="/" prefetch={false}>
           <Image 
             key={isDarkTheme ? 'workspace-dark' : 'workspace-light'}
             src={
@@ -552,9 +569,10 @@ export default function HubHeader({ user }: HubHeaderProps) {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
                     {filteredSystemApps.map((app) => (
-                      <Link 
-                        key={app.label} 
+                      <Link
+                        key={app.label}
                         href={app.href}
+                        prefetch={false}
                         className="app-item"
                         onClick={() => setShowApps(false)}
                         style={{ padding: '0.75rem 0.25rem' }}
@@ -640,9 +658,10 @@ export default function HubHeader({ user }: HubHeaderProps) {
                   </select>
                 </div>
                 {canView('sistema-usuarios-root') && (
-                  <Link 
-                    href="/usuarios" 
-                    className="btn btn-outline" 
+                  <Link
+                    href="/usuarios"
+                    prefetch={false}
+                    className="btn btn-outline"
                     style={{
                       borderRadius: '100px',
                       padding: '0.6rem',

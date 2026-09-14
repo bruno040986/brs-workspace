@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageSquareText, UserPlus } from 'lucide-react'
 import { useMessengerDock } from '@/components/layout/MessengerDockContext'
+import { createClient } from '@/lib/supabase/client'
+import { deriveChatStatus, type ChatPresenceRecord } from '@/lib/chat/presence'
+import { pollingVisivel } from '@/lib/polling-visivel'
 
 type ChatStatus = 'online' | 'offline' | 'busy' | 'away'
 
@@ -224,11 +227,55 @@ export function MessengerNotificationBridge() {
 
   useEffect(() => {
     void bootstrap()
-    const conversationsInterval = window.setInterval(() => void refreshConversations(), 8000)
-    const contactsInterval = window.setInterval(() => void refreshContacts(), 12000)
+
+    // 13/09/2026: era poll de 8 s / 12 s para todo usuário logado, em toda
+    // tela (maior origem de custo de Observability na Vercel). Agora a
+    // novidade chega por Realtime (RLS já limita às conversas de que o
+    // usuário participa); o poll vira rede de segurança de 60 s, pausado
+    // com a aba oculta — e ainda cobre o "ficou offline" por inatividade,
+    // que não gera evento nenhum.
+    const pararConversas = pollingVisivel(() => refreshConversations(), 60_000, { imediato: false })
+    const pararContatos = pollingVisivel(() => refreshContacts(), 60_000, { imediato: false })
+
+    const supabase = createClient()
+    let meuId = ''
+    void supabase.auth.getUser().then(({ data }) => {
+      meuId = data.user?.id || ''
+    })
+
+    // Heartbeat de presença de cada colega gera UPDATE a cada minuto; só
+    // refaz a lista quando o status DERIVADO muda (online/ausente/ocupado).
+    let contatosTimer: number | null = null
+    const agendarContatos = () => {
+      if (contatosTimer) return
+      contatosTimer = window.setTimeout(() => {
+        contatosTimer = null
+        void refreshContacts()
+      }, 1500)
+    }
+
+    const canal = supabase
+      .channel(`interno-bridge-${Math.random().toString(36).slice(2, 10)}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workspace_chat_messages' }, (payload) => {
+        const nova = payload.new as { sender_id?: string }
+        if (nova.sender_id && nova.sender_id === meuId) return
+        void refreshConversations()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workspace_chat_user_profiles' }, (payload) => {
+        const perfil = payload.new as ChatPresenceRecord & { user_id?: string }
+        if (!perfil.user_id || perfil.user_id === meuId) return
+        const derivado = deriveChatStatus(perfil, Date.now())
+        const anterior = contactStatusRef.current[perfil.user_id]
+        if (anterior !== undefined && anterior === derivado) return
+        agendarContatos()
+      })
+      .subscribe()
+
     return () => {
-      window.clearInterval(conversationsInterval)
-      window.clearInterval(contactsInterval)
+      pararConversas()
+      pararContatos()
+      if (contatosTimer) window.clearTimeout(contatosTimer)
+      supabase.removeChannel(canal)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

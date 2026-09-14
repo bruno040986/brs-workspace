@@ -75,7 +75,7 @@ export default function WorkspaceSidebar() {
             <span className="ws-soon-badge">breve</span>
           </span>
         ) : (
-          <Link href={item.href} className={`ws-nav-item${ativo ? ' is-active' : ''}`}>
+          <Link href={item.href} prefetch={false} className={`ws-nav-item${ativo ? ' is-active' : ''}`}>
             {item.label}
           </Link>
         )}
@@ -85,6 +85,7 @@ export default function WorkspaceSidebar() {
               <Link
                 key={c.href}
                 href={c.href}
+                prefetch={false}
                 className={`ws-nav-item ws-nav-child${pathname === c.href || pathname.startsWith(`${c.href}/`) ? ' is-active' : ''}`}
               >
                 {c.label}
@@ -141,7 +142,11 @@ export default function WorkspaceSidebar() {
       <aside className={`workspace-sidebar${mobileOpen ? ' is-mobile-open' : ''}`}>
         <nav className="ws-sidebar-nav">
           {/* Home fixo acima das divisões — visível em toda tela (e no trilho) */}
-          <Link href="/" className={`ws-home-link${pathname === '/' ? ' is-active' : ''}`} title="Home">
+          {/* prefetch={false} em todo link de menu (13/09/2026): o menu inteiro fica no
+              viewport, e o Next pré-buscava cada item a cada navegação/hover — milhares
+              de requisições/dia sem clique (custo de Observability na Vercel). Sem
+              loading.tsx a pré-busca nem entregava a página. */}
+          <Link href="/" prefetch={false} className={`ws-home-link${pathname === '/' ? ' is-active' : ''}`} title="Home">
             <span className="ws-group-icon">
               <House size={18} />
             </span>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { pollingVisivel } from '@/lib/polling-visivel'
 
 type BoardComunicado = {
   id: string
@@ -26,12 +27,13 @@ export function ComunicadosBoardWidget() {
   }
 
   useEffect(() => {
-    void loadItems()
-    const interval = window.setInterval(() => void loadItems(), 30000)
+    // Comunicado novo chega pelo evento 'comunicados:refresh' (HubHeader, via
+    // Realtime); o poll é rede de segurança de 2 min, pausado com a aba oculta.
+    const pararPoll = pollingVisivel(loadItems, 2 * 60_000)
     const onRefresh = () => void loadItems()
     window.addEventListener('comunicados:refresh', onRefresh)
     return () => {
-      window.clearInterval(interval)
+      pararPoll()
       window.removeEventListener('comunicados:refresh', onRefresh)
     }
   }, [])

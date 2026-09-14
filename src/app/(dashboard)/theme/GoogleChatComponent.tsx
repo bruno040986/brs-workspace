@@ -8,6 +8,8 @@ import { deriveChatStatus, normalizeManualStatus, type ChatStatus } from '@/lib/
 import { getMinhaAssinatura, setMinhaAssinatura } from '@/lib/central-conversas/actions'
 import { enviarMensagemInterno, getCanaisInterno, getMensagensInterno, type CanalInterno, type MensagemInterno } from '@/lib/interno-chat/actions'
 import { getIaIdentidade } from '@/lib/ia/actions'
+import { pollingVisivel } from '@/lib/polling-visivel'
+import { createClient } from '@/lib/supabase/client'
 
 // Mesmo prefixo de src/lib/interno-chat/data.ts (PREFIXO_LEMBRETE) — duplicado
 // aqui de propósito: aquele módulo usa o admin client e não pode ser
@@ -143,14 +145,9 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   const audioChunksRef = useRef<Blob[]>([])
   const [enviandoFixo, setEnviandoFixo] = useState(false)
   const [assinatura, setAssinatura] = useState('')
-  const canaisFixosPollRef = useRef<number | null>(null)
-  const canalFixoPollRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const heartbeatRef = useRef<number | null>(null)
-  const conversationPollRef = useRef<number | null>(null)
-  const messagesPollRef = useRef<number | null>(null)
-  const contactsPollRef = useRef<number | null>(null)
   const presenceSyncRef = useRef<Promise<void> | null>(null)
   const lastPresenceSyncAtRef = useRef(0)
   const presenceStateRef = useRef<{
@@ -162,6 +159,8 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   } | null>(null)
   const activeTabRef = useRef<1 | 2 | 3>(1)
   const selectedConversationIdRef = useRef<string | null>(null)
+  const canalFixoIdRef = useRef<string | null>(null)
+  const meuIdRef = useRef<string | null>(null)
   const initializedContactsRef = useRef(false)
   const initializedConversationsRef = useRef(false)
   const lastContactStatusRef = useRef<Record<string, ChatStatus>>({})
@@ -185,11 +184,6 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     bootstrap()
     return () => {
       if (heartbeatRef.current) window.clearInterval(heartbeatRef.current)
-      if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
-      if (messagesPollRef.current) window.clearInterval(messagesPollRef.current)
-      if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
-      if (canaisFixosPollRef.current) window.clearInterval(canaisFixosPollRef.current)
-      if (canalFixoPollRef.current) window.clearInterval(canalFixoPollRef.current)
     }
   }, [])
 
@@ -213,6 +207,14 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   useEffect(() => {
     selectedConversationIdRef.current = messengerDock.activeConversation?.id || null
   }, [messengerDock.activeConversation?.id])
+
+  useEffect(() => {
+    canalFixoIdRef.current = canalFixoAberto?.id || null
+  }, [canalFixoAberto?.id])
+
+  useEffect(() => {
+    meuIdRef.current = myProfile.user?.id || null
+  }, [myProfile.user?.id])
 
   useEffect(() => {
     const onScrollToBottom = () => {
@@ -241,59 +243,82 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     return () => container.removeEventListener('scroll', updateStickiness)
   }, [selectedConversation?.id, canalFixoAberto?.id, activeTab])
 
+  // Polling agora é só rede de segurança — o efeito de Realtime abaixo é o
+  // caminho principal. pollingVisivel pausa com a aba em segundo plano e
+  // refaz uma vez ao voltar (13/09/2026, custo de Observability na Vercel).
   useEffect(() => {
-    if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
-    // O Bridge global (layout do dashboard) já faz esse mesmo polling em
-    // background; com o painel aberto só precisamos de uma cadência curta
-    // pra UI, sem duplicar a carga do Bridge com o mesmo intervalo.
-    const interval = hasGlobalMessengerNotifier() ? 5000 : 3000
-    conversationPollRef.current = window.setInterval(() => void fetchConversations(), interval)
-    return () => {
-      if (conversationPollRef.current) window.clearInterval(conversationPollRef.current)
-    }
+    return pollingVisivel(() => void fetchConversations(), 30000, { imediato: false })
   }, [])
 
   useEffect(() => {
-    if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
-    const interval = hasGlobalMessengerNotifier() ? 6000 : 4000
-    contactsPollRef.current = window.setInterval(() => void fetchContacts(), interval)
-    return () => {
-      if (contactsPollRef.current) window.clearInterval(contactsPollRef.current)
-    }
+    return pollingVisivel(() => void fetchContacts(), 30000, { imediato: false })
   }, [])
 
   useEffect(() => {
-    if (messagesPollRef.current) window.clearInterval(messagesPollRef.current)
     if (!selectedConversation) return
-    messagesPollRef.current = window.setInterval(() => {
-      void loadMessages(selectedConversation.id, true)
-    }, 2000)
-    return () => {
-      if (messagesPollRef.current) window.clearInterval(messagesPollRef.current)
-    }
+    // imediato:false — openConversation já carrega ao abrir; aqui é só segurança.
+    return pollingVisivel(() => void loadMessages(selectedConversation.id, true), 15000, { imediato: false })
   }, [selectedConversation?.id])
 
   // "Você" e "Equipe BRS" fixos no topo da lista (kinds 'self'/'equipe' —
   // não aparecem em /api/chat/conversations, que só lista 'direct').
   useEffect(() => {
-    if (canaisFixosPollRef.current) window.clearInterval(canaisFixosPollRef.current)
-    const interval = hasGlobalMessengerNotifier() ? 8000 : 6000
-    canaisFixosPollRef.current = window.setInterval(() => void fetchCanaisFixos(), interval)
-    return () => {
-      if (canaisFixosPollRef.current) window.clearInterval(canaisFixosPollRef.current)
-    }
+    return pollingVisivel(() => void fetchCanaisFixos(), 30000, { imediato: false })
   }, [])
 
   useEffect(() => {
-    if (canalFixoPollRef.current) window.clearInterval(canalFixoPollRef.current)
     if (!canalFixoAberto) return
-    canalFixoPollRef.current = window.setInterval(() => {
-      void loadMensagensFixo(canalFixoAberto.id, true)
-    }, 3000)
-    return () => {
-      if (canalFixoPollRef.current) window.clearInterval(canalFixoPollRef.current)
-    }
+    return pollingVisivel(() => void loadMensagensFixo(canalFixoAberto.id, true), 15000, { imediato: false })
   }, [canalFixoAberto?.id])
+
+  // Push via Supabase Realtime: workspace_chat_messages e
+  // workspace_chat_participants estão na publicação supabase_realtime, com
+  // RLS restrita a participantes (só chega evento de conversa da qual o
+  // usuário participa). Refs, não state: o callback do canal é registrado
+  // uma única vez (deps []) e não pode fechar sobre estado obsoleto — o
+  // dock pode montar este componente mais de uma vez, daí o nome de canal
+  // aleatório (13/09/2026).
+  useEffect(() => {
+    const supabase = createClient()
+    const canal = supabase
+      .channel(`interno-chat-${Math.random().toString(36).slice(2, 10)}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'workspace_chat_messages' },
+        (payload) => {
+          const nova = payload.new
+          const conversationId = selectedConversationIdRef.current
+          const canalId = canalFixoIdRef.current
+          if (conversationId && nova.conversation_id === conversationId) {
+            void loadMessages(nova.conversation_id, true)
+          } else if (canalId && nova.conversation_id === canalId) {
+            void loadMensagensFixo(nova.conversation_id, true)
+          }
+          // Mensagem própria já entra otimista via sendMessage/enviarMensagemFixo
+          // — só refaz as listas (preview/não-lidas) quando é o outro lado.
+          if (nova.sender_id !== meuIdRef.current) {
+            void fetchConversations()
+            void fetchCanaisFixos()
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'workspace_chat_participants' },
+        (payload) => {
+          const atualizado = payload.new
+          const conversationId = selectedConversationIdRef.current
+          if (conversationId && atualizado.conversation_id === conversationId && atualizado.user_id !== meuIdRef.current) {
+            void loadMessages(conversationId, true)
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
