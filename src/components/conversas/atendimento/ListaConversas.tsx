@@ -264,7 +264,7 @@ export default function ListaConversas({
         )}
       </div>
 
-      <div style={{ overflowY: 'auto', flex: 1 }}>
+      <div style={{ overflowY: 'auto', overflowX: 'hidden', flex: 1, minWidth: 0 }}>
         {aba === 'contatos' ? (
           carregandoContatos ? (
             <div style={{ padding: '2rem', textAlign: 'center' }}>
@@ -393,13 +393,13 @@ const ItemConversa = memo(function ItemConversa({
       />
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-          <strong style={{ fontSize: 13, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <strong style={{ minWidth: 0, flex: 1, fontSize: 13, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {c.meta.sender?.name || 'Sem nome'}
           </strong>
           <span style={{ fontSize: 10.5, color: 'var(--msn-meta-text)', flexShrink: 0 }}>{c.last_activity_at ? horaCurta(c.last_activity_at) : ''}</span>
         </span>
         <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 12, color: 'var(--msn-muted)' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previaConversa(c)}</span>
+          <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previaConversa(c)}</span>
           {c.unread_count > 0 && (
             <span style={{ background: 'var(--msn-accent)', color: '#fff', borderRadius: 99, padding: '0 6px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
               {c.unread_count}
