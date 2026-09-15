@@ -137,6 +137,40 @@ export async function salvarDepartamento(input: {
   }
 }
 
+/**
+ * Cria o Time no Chatwoot pra um departamento que nunca passou por
+ * `salvarDepartamento` (ex.: os 7 seedados por migration em 06/09/2026, que
+ * nasceram só no espelho — INSERT direto em SQL não fala com a API do
+ * Chatwoot). Reusa exatamente os campos já salvos, sem reabrir o formulário.
+ * Idempotente: se já tiver `chatwoot_team_id`, não faz nada.
+ */
+export async function sincronizarDepartamentoChatwoot(departamentoId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requirePermission('central-conversas', 'can_edit')
+    const admin = await createAdminClient()
+    const { data: depto, error: buscaErro } = await admin
+      .from('chat_departamentos')
+      .select('nome, distribuicao_automatica, chatwoot_team_id')
+      .eq('id', departamentoId)
+      .maybeSingle()
+    if (buscaErro) throw buscaErro
+    if (!depto) throw new Error('Departamento não encontrado.')
+    if (depto.chatwoot_team_id) return { success: true }
+
+    const cli = await clienteChatwootBrs()
+    if (!cli) throw new Error('Chatwoot não provisionado.')
+    const team = await cli.criarTeam({ nome: depto.nome, distribuicaoAutomatica: depto.distribuicao_automatica })
+
+    const { error } = await admin.from('chat_departamentos').update({ chatwoot_team_id: team.id, updated_at: new Date().toISOString() }).eq('id', departamentoId)
+    if (error) throw error
+
+    revalidatePath('/central-conversas/departamentos')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
 export async function setMembrosDepartamento(departamentoId: string, userIds: string[]): Promise<{ success: boolean; error?: string }> {
   try {
     await requirePermission('central-conversas', 'can_edit')

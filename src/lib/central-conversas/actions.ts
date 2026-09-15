@@ -841,20 +841,33 @@ export async function addNotaInterna(conversationId: number, texto: string): Pro
  * fila do departamento (desatribuída) — nunca fica presa com o atendente
  * anterior depois de transferida.
  */
-export async function transferirConversa(conversationId: number, input: { departamentoId: string; agenteId?: number | null; comentario?: string }): Promise<{ ok: true }> {
-  await requirePermission('conversas', 'can_view')
-  const cli = await clienteChatwootBrs()
-  if (!cli) throw new Error('Chatwoot não provisionado.')
-  const admin = await createAdminClient()
-  const { data: depto } = await admin.from('chat_departamentos').select('nome, chatwoot_team_id').eq('id', input.departamentoId).maybeSingle()
-  if (!depto?.chatwoot_team_id) throw new Error('Departamento sem sincronização com o Chatwoot ainda.')
+/**
+ * Retorna `{ok:false,error}` em vez de lançar (achado 15/09/2026): uma Server
+ * Action que lança `Error` em produção tem a MENSAGEM apagada pelo Next.js
+ * antes de chegar no navegador ("omitted in production builds"), viram
+ * só o texto genérico + digest — foi assim que "departamento sem Time no
+ * Chatwoot" virou um erro ilegível na tela. O resto do arquivo mistura os
+ * dois estilos; este e os outros pontos tocados na mesma investigação foram
+ * corrigidos, os demais ainda têm o mesmo risco (não veio nesta rodada).
+ */
+export async function transferirConversa(conversationId: number, input: { departamentoId: string; agenteId?: number | null; comentario?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const cli = await clienteChatwootBrs()
+    if (!cli) throw new Error('Chatwoot não provisionado.')
+    const admin = await createAdminClient()
+    const { data: depto } = await admin.from('chat_departamentos').select('nome, chatwoot_team_id').eq('id', input.departamentoId).maybeSingle()
+    if (!depto?.chatwoot_team_id) throw new Error('Este departamento ainda não está sincronizado com o Chatwoot — sincronize em Configurações › Comunicação › Departamentos antes de transferir pra ele.')
 
-  const comentario = String(input.comentario || '').trim()
-  if (comentario) {
-    await cli.notaInterna(conversationId, `🔁 Transferido para ${depto.nome}: ${comentario}`)
+    const comentario = String(input.comentario || '').trim()
+    if (comentario) {
+      await cli.notaInterna(conversationId, `🔁 Transferido para ${depto.nome}: ${comentario}`)
+    }
+    await cli.atribuir(conversationId, { teamId: depto.chatwoot_team_id, assigneeId: input.agenteId ?? null })
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err.message }
   }
-  await cli.atribuir(conversationId, { teamId: depto.chatwoot_team_id, assigneeId: input.agenteId ?? null })
-  return { ok: true }
 }
 
 /** Encerra (resolve). Com motivo, registra nota interna "Encerrado: <motivo>" antes. */
