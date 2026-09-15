@@ -7,12 +7,13 @@
  * único por conta. Permissão: central-conversas.
  */
 import { useEffect, useState } from 'react'
-import { Loader2, Pencil, Plus, Users, X } from 'lucide-react'
+import { Loader2, Pencil, Plus, RefreshCw, TriangleAlert, Users, X } from 'lucide-react'
 import {
   listarDepartamentos,
   listarUsuariosParaDepartamento,
   salvarDepartamento,
   setMembrosDepartamento,
+  sincronizarDepartamentoChatwoot,
   type DepartamentoRow,
   type UsuarioParaDepartamento,
 } from '@/lib/central-conversas/departamentos-actions'
@@ -27,6 +28,7 @@ export default function DepartamentosClient() {
   const [editando, setEditando] = useState<Editando | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [buscaMembro, setBuscaMembro] = useState('')
+  const [sincronizandoId, setSincronizandoId] = useState<string | null>(null)
 
   async function carregar() {
     setCarregando(true)
@@ -81,6 +83,29 @@ export default function DepartamentosClient() {
     }
   }
 
+  /**
+   * Departamentos seedados direto por migration (SQL puro) nunca passaram
+   * por `salvarDepartamento` — que é quem cria o Time no Chatwoot — então
+   * ficaram com `chatwootTeamId` nulo pra sempre (achado 15/09/2026:
+   * "transferir" falhava pra TODOS os departamentos, sem nenhum aviso
+   * visível — a mensagem real ficava redigida pelo Next.js em produção).
+   * Este botão roda só a criação do Time, sem precisar reabrir o formulário.
+   */
+  async function sincronizar(d: DepartamentoRow) {
+    if (sincronizandoId) return
+    setSincronizandoId(d.id)
+    setErro('')
+    try {
+      const res = await sincronizarDepartamentoChatwoot(d.id)
+      if (!res.success) throw new Error(res.error)
+      await carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao sincronizar com o Chatwoot.')
+    } finally {
+      setSincronizandoId(null)
+    }
+  }
+
   function toggleMembro(id: string) {
     if (!editando) return
     const tem = editando.membroIds.includes(id)
@@ -119,13 +144,14 @@ export default function DepartamentosClient() {
                 <th>Distribuição automática</th>
                 <th>Recebe grupos</th>
                 <th>Status</th>
+                <th>Chatwoot</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {departamentos.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--brs-gray-400)' }}>Nenhum departamento cadastrado.</td>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--brs-gray-400)' }}>Nenhum departamento cadastrado.</td>
                 </tr>
               ) : (
                 departamentos.map((d) => (
@@ -139,10 +165,35 @@ export default function DepartamentosClient() {
                     <td>
                       <span className={`badge ${d.ativo ? 'badge-success' : 'badge-gray'}`}>{d.ativo ? 'Ativo' : 'Inativo'}</span>
                     </td>
+                    <td>
+                      {d.chatwootTeamId ? (
+                        <span className="badge badge-success">Sincronizado</span>
+                      ) : (
+                        <span
+                          className="badge badge-danger"
+                          title="Sem Time no Chatwoot — transferir para este departamento vai falhar até sincronizar."
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <TriangleAlert size={12} /> Sem Chatwoot
+                        </span>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="btn btn-ghost btn-icon" title="Editar" onClick={() => editar(d)}>
-                        <Pencil size={15} />
-                      </button>
+                      <div style={{ display: 'inline-flex', gap: 4 }}>
+                        {!d.chatwootTeamId && (
+                          <button
+                            className="btn btn-ghost btn-icon"
+                            title="Sincronizar com o Chatwoot (cria o Time)"
+                            onClick={() => sincronizar(d)}
+                            disabled={sincronizandoId === d.id}
+                          >
+                            {sincronizandoId === d.id ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                          </button>
+                        )}
+                        <button className="btn btn-ghost btn-icon" title="Editar" onClick={() => editar(d)}>
+                          <Pencil size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

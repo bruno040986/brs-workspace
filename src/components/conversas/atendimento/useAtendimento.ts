@@ -455,7 +455,8 @@ export function useAtendimento() {
         : prev,
     )
     try {
-      await transferirConversa(selecionada.id, input)
+      const res = await transferirConversa(selecionada.id, input)
+      if (!res.ok) throw new Error(res.error)
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
