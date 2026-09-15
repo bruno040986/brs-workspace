@@ -25,16 +25,19 @@ export default function AtendimentoCompleto() {
         <ListaConversas
           aba={at.aba}
           onAbaChange={at.setAba}
+          onAlternarContatos={at.alternarContatos}
           filaCount={at.filaCount}
           contadores={at.contadores}
           busca={at.busca}
           onBuscaChange={at.setBusca}
           canais={at.canaisAtendimento}
-          canalId={at.canalId}
-          onCanalChange={at.setCanalId}
+          canalIds={at.canalIds}
+          onAlternarCanal={at.alternarCanal}
+          onLimparCanais={at.limparCanais}
           departamentos={at.departamentos}
-          departamentoId={at.departamentoId}
-          onDepartamentoChange={at.setDepartamentoId}
+          departamentoIds={at.departamentoIds}
+          onAlternarDepartamento={at.alternarDepartamentoFiltro}
+          onLimparDepartamentos={at.limparDepartamentosFiltro}
           ehSupervisor={at.ehSupervisor}
           presenca={at.presenca}
           onPresencaChange={at.mudarPresenca}
