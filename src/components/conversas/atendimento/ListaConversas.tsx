@@ -1,12 +1,14 @@
 'use client'
 
-import { memo, useMemo, useReducer, useState } from 'react'
+import { memo, useEffect, useMemo, useReducer, useState } from 'react'
 import { Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
 import AvatarContato from './AvatarContato'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
 import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
+import { buscarContatosConexao, criarGrupo } from '@/lib/central-conversas/grupos-actions'
+import type { ContatoConexao } from '@/lib/central-conversas/engine'
 
 type Presenca = 'online' | 'busy' | 'offline' | null
 
@@ -70,6 +72,7 @@ export default function ListaConversas({
   const [modalAberto, setModalAberto] = useState(false)
   const [prefillModal, setPrefillModal] = useState<{ telefone: string; nome: string } | null>(null)
   const [menuPresencaAberto, setMenuPresencaAberto] = useState(false)
+  const [modalGrupoAberto, setModalGrupoAberto] = useState(false)
 
   const ABAS = useMemo(() => {
     const base: Array<{ id: AbaAtendimento; rotulo: string; Icone: typeof MessageCircle; badge?: number }> = [
@@ -318,13 +321,17 @@ export default function ListaConversas({
         </button>
         <button
           type="button"
-          title="Em breve"
-          disabled
-          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '8px 0', fontSize: 12, fontWeight: 700, color: 'var(--msn-muted)', background: 'none', border: 'none', borderLeft: '1px solid var(--msn-border)', cursor: 'not-allowed', opacity: 0.7 }}
+          onClick={() => setModalGrupoAberto(true)}
+          disabled={!disponivel}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '8px 0', fontSize: 12, fontWeight: 700, color: 'var(--msn-accent)', background: 'none', border: 'none', borderLeft: '1px solid var(--msn-border)', cursor: disponivel ? 'pointer' : 'not-allowed' }}
         >
-          <UsersRound size={13} /> Criar grupo
+          <UsersRound size={13} /> Novo grupo
         </button>
       </div>
+
+      {modalGrupoAberto && (
+        <NovoGrupoModal instancias={canais.instancias} onFechar={() => setModalGrupoAberto(false)} />
+      )}
 
       {modalAberto && (
         <NovaConversaModal
@@ -553,6 +560,140 @@ function NovaConversaModal({
               {enviando ? 'Enviando…' : fase === 'incerto' ? 'Repetir esta operação (mesma chave)' : 'Iniciar'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Modal "Novo grupo" (Fase C, frente d) — Conexão (só instâncias
+ * `provedor='baileys'` e `status='conectada'`, NUNCA filtrar por `papel`),
+ * Nome, Participantes (busca + números avulsos), Mensagem inicial opcional.
+ */
+function NovoGrupoModal({ instancias, onFechar }: { instancias: InstanciaAtendimento[]; onFechar: () => void }) {
+  const conectadasBaileys = useMemo(() => instancias.filter((i) => i.provedor === 'baileys' && i.status === 'conectada'), [instancias])
+  const [instanciaId, setInstanciaId] = useState(conectadasBaileys[0]?.id || '')
+  const [nome, setNome] = useState('')
+  const [busca, setBusca] = useState('')
+  const [itens, setItens] = useState<ContatoConexao[]>([])
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [numeroAvulso, setNumeroAvulso] = useState('')
+  const [mensagemInicial, setMensagemInicial] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [criado, setCriado] = useState(false)
+
+  useEffect(() => {
+    if (!instanciaId) return
+    const t = setTimeout(() => {
+      void buscarContatosConexao(instanciaId, busca || undefined)
+        .then((r) => setItens(r.ok ? r.itens : []))
+        .catch(() => setItens([]))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [busca, instanciaId])
+
+  function alternar(jid: string) {
+    setSelecionados((prev) => {
+      const novo = new Set(prev)
+      if (novo.has(jid)) novo.delete(jid)
+      else novo.add(jid)
+      return novo
+    })
+  }
+
+  async function confirmar() {
+    setErro(null)
+    if (!instanciaId) return setErro('Escolha uma conexão conectada (Baileys).')
+    if (!nome.trim()) return setErro('Dê um nome ao grupo.')
+    const participantes = [...selecionados]
+    const avulso = numeroAvulso.trim()
+    if (avulso) participantes.push(avulso)
+    if (!participantes.length) return setErro('Selecione ao menos um participante.')
+    setSalvando(true)
+    try {
+      const r = await criarGrupo({ instanciaId, nome: nome.trim(), participantes, mensagemInicial: mensagemInicial.trim() || undefined })
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      setCriado(true)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao criar o grupo.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'grid', placeItems: 'center', zIndex: 400 }} data-brs-messenger-ignore-close="true">
+      <div className="brs-messenger" style={{ width: 380, maxWidth: '92vw', borderRadius: 6, overflow: 'hidden' }} data-brs-messenger-ignore-close="true">
+        <div className="brs-messenger-titlebar">
+          <span>Novo grupo</span>
+        </div>
+        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--msn-surface)' }}>
+          {criado ? (
+            <>
+              <div style={{ fontSize: 12.5, color: 'var(--msn-text)' }}>Grupo criado. O grupo aparece na lista quando alguém mandar a primeira mensagem.</div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={onFechar} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
+                  Fechar
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Conexão
+                <select className="brs-messenger-select" style={{ width: '100%', marginTop: 4 }} value={instanciaId} onChange={(e) => setInstanciaId(e.target.value)}>
+                  {conectadasBaileys.length === 0 && <option value="">Nenhuma conexão Baileys conectada</option>}
+                  {conectadasBaileys.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Nome do grupo
+                <input className="brs-messenger-profile-input" style={{ width: '100%', marginTop: 4 }} value={nome} onChange={(e) => setNome(e.target.value)} />
+              </label>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)', marginBottom: 4 }}>Participantes</div>
+                <div style={{ position: 'relative', marginBottom: 6 }}>
+                  <Search size={13} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--msn-muted)' }} />
+                  <input className="brs-messenger-search-input" style={{ width: '100%', paddingLeft: 26 }} placeholder="Buscar contato…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                </div>
+                <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {itens.map((c) => (
+                    <label key={c.jid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 12, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={selecionados.has(c.jid)} onChange={() => alternar(c.jid)} />
+                      {c.nome || c.numero}
+                    </label>
+                  ))}
+                  {!itens.length && <div style={{ fontSize: 11, color: 'var(--msn-muted)' }}>Digite pra buscar contatos da conexão.</div>}
+                </div>
+              </div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Número avulso (DDI+DDD+número)
+                <input className="brs-messenger-profile-input" style={{ width: '100%', marginTop: 4 }} placeholder="Ex.: 5511999999999" value={numeroAvulso} onChange={(e) => setNumeroAvulso(e.target.value)} />
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
+                Mensagem inicial (opcional)
+                <textarea className="brs-messenger-composer-input" style={{ width: '100%', marginTop: 4, minHeight: 60 }} value={mensagemInicial} onChange={(e) => setMensagemInicial(e.target.value)} />
+              </label>
+              {erro && <div style={{ fontSize: 12, color: '#b91c1c' }}>{erro}</div>}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={onFechar} disabled={salvando} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
+                  Cancelar
+                </button>
+                <button type="button" onClick={() => void confirmar()} disabled={salvando} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
+                  {salvando ? 'Criando…' : 'Criar grupo'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -85,6 +85,50 @@ async function chamar<T>(path: string, init?: { method?: string; body?: unknown;
   }
 }
 
+// ---------------------------------------------------------------------------
+// Grupos de WhatsApp (Fase C, docs/ROTEIRO-BRS-MESSENGER-FASE-C.md +
+// docs/RECADO-ENGINE-GRUPOS-BRS-MESSENGER.md). Mesma `chamar()` acima — os
+// erros de domínio (`{ erro, codigo }`) já viram `EngineErro`.
+// ---------------------------------------------------------------------------
+
+/** Mapa `codigo → mensagem` em PT, lugar único reutilizado pelas actions/UI. */
+export const MENSAGEM_POR_CODIGO_ENGINE: Record<string, string> = {
+  NAO_MEMBRO: 'Esta conexão não está mais neste grupo.',
+  NAO_ADMIN: 'Só administradores do grupo podem fazer isso.',
+  INSTANCIA_DESCONECTADA: 'Conexão desconectada — reconecte em Canais.',
+  PROVEDOR_NAO_SUPORTADO: 'Gestão de grupo só em conexões Baileys.',
+  GRUPO_NAO_PERMITIDO: 'Grupo não permitido nesta conexão.',
+  FALHA_WHATSAPP: 'O WhatsApp não respondeu; tente de novo.',
+}
+
+/** Traduz um `EngineErro` (ou erro genérico) pra mensagem em PT pronta pra UI. */
+export function mensagemErroEngine(err: unknown): string {
+  if (err instanceof EngineErro) return MENSAGEM_POR_CODIGO_ENGINE[err.codigo] || err.message
+  return err instanceof Error ? err.message : 'Falha ao falar com o engine.'
+}
+
+export type MembroGrupo = { jid: string; numero: string; nome: string | null; admin: boolean; eu: boolean }
+export type DetalheGrupo = { jid: string; nome: string; descricao?: string; foto?: string; criado_em?: string; dono?: string; membros: MembroGrupo[] }
+export type ContatoConexao = { jid: string; numero: string; nome: string | null; foto?: string }
+export type AcaoParticipante = 'add' | 'remove' | 'promote' | 'demote'
+
+export const engineGrupos = {
+  grupo: (instanciaId: string, jid: string) => chamar<DetalheGrupo>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}`),
+  contatos: (instanciaId: string, params?: { q?: string; page?: number; limit?: number }) => {
+    const s = new URLSearchParams()
+    if (params?.q) s.set('q', params.q)
+    if (params?.page) s.set('page', String(params.page))
+    s.set('limit', String(Math.min(params?.limit ?? 50, 200)))
+    return chamar<{ itens: ContatoConexao[]; total: number; page: number }>(`/instancias/${instanciaId}/contatos?${s.toString()}`)
+  },
+  criarGrupo: (instanciaId: string, input: { nome: string; participantes: string[] }) =>
+    chamar<{ jid: string; nome: string }>(`/instancias/${instanciaId}/grupos`, { method: 'POST', body: input }),
+  participantesGrupo: (instanciaId: string, jid: string, input: { acao: AcaoParticipante; jids: string[] }) =>
+    chamar<{ ok: boolean; resultado: Array<{ jid: string; status: string }> }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/participantes`, { method: 'POST', body: input }),
+  convite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite`),
+  sairGrupo: (instanciaId: string, jid: string) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/sair`, { method: 'POST', body: {} }),
+}
+
 type CorpoErro = { erro?: string; error?: string; codigo?: string; code?: string; message?: string }
 
 function parseJson(text: string): CorpoErro | null {

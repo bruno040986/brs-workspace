@@ -347,12 +347,12 @@ export function useAtendimento() {
     })()
   }, [departamentos])
 
-  async function enviarTexto(texto: string) {
+  async function enviarTexto(texto: string, mentions?: string[]) {
     if (!selecionada || !texto.trim()) return
     setEnviando(true)
     setErro(null)
     try {
-      await responderConversa(selecionada.id, texto.trim(), citacao?.id)
+      await responderConversa(selecionada.id, texto.trim(), citacao?.id, mentions)
       setCitacao(null)
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()

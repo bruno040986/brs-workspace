@@ -755,7 +755,7 @@ export async function getMensagens(conversationId: number, before?: number): Pro
  * mandar como `quoted` de verdade no WhatsApp (ver
  * docs/RECADO-ENGINE-ACK-REACAO-APARELHO.md).
  */
-export async function responderConversa(conversationId: number, content: string, inReplyTo?: number) {
+export async function responderConversa(conversationId: number, content: string, inReplyTo?: number, mentions?: string[]) {
   await requirePermission('conversas', 'can_view')
   const user = await requireCurrentUser()
   const cli = await clienteChatwootBrs()
@@ -765,7 +765,10 @@ export async function responderConversa(conversationId: number, content: string,
   // Toda mensagem de WhatsApp da equipe sai assinada *Nome:*\n (mesma
   // convenção do CRM AlvoConsig). Nota interna NUNCA passa por aqui.
   const assinatura = await assinaturaDoUsuario(user.id)
-  return cli.enviarMensagem(conversationId, assinar(assinatura, texto), false, inReplyTo ? { in_reply_to: inReplyTo } : undefined)
+  const contentAttributes: Record<string, unknown> = {}
+  if (inReplyTo) contentAttributes.in_reply_to = inReplyTo
+  if (mentions?.length) contentAttributes.mentions = mentions
+  return cli.enviarMensagem(conversationId, assinar(assinatura, texto), false, Object.keys(contentAttributes).length ? contentAttributes : undefined)
 }
 
 // Allowlist de anexos do composer (contrato BRS Messenger fase 1).

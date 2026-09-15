@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, CalendarClock, Check, Copy, History, Images, MailOpen, Plus, Search, Trash2, X } from 'lucide-react'
+import { Bell, BellOff, CalendarClock, Check, ChevronDown, Copy, History, Images, LogOut, MailOpen, Plus, Search, Shield, ShieldOff, Trash2, UserMinus, X } from 'lucide-react'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
+import { alterarParticipantes, buscarContatosConexao, getGrupo, linkConvite, sairDoGrupo, type GrupoDetalhado } from '@/lib/central-conversas/grupos-actions'
+import type { ContatoConexao } from '@/lib/central-conversas/engine'
 import AvatarContato from './AvatarContato'
 import {
   VINCULO_COR,
@@ -56,13 +58,6 @@ type Props = {
   onCancelarAgendamento: (id: string) => Promise<void>
   onReagendarAcao: (id: string, novaData: string) => Promise<void>
   buscarEntidades: BuscarEntidadesFn
-  /**
-   * Participantes do grupo — payload do Chatwoot/engine não expõe isso ainda
-   * nesta fase (nenhuma action do contrato retorna participantes de grupo).
-   * A aba Membros só aparece quando esta lista existir e não for vazia;
-   * enquanto ninguém alimentar essa prop, fica oculta (regra do contrato).
-   */
-  membros?: Array<{ id: string; nome: string }>
 }
 
 const TIPOS: EntidadeTipo[] = ['parceiro', 'instituicao', 'promotora']
@@ -212,7 +207,6 @@ export default function PainelContato({
   onCancelarAgendamento,
   onReagendarAcao,
   buscarEntidades,
-  membros,
 }: Props) {
   const [aba, setAba] = useState<Aba>('geral')
   const [silenciada, setSilenciada] = useState(false)
@@ -368,7 +362,7 @@ export default function PainelContato({
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--msn-border)' }}>
         {(['geral', 'membros'] as Aba[]).map((id) =>
-          id === 'membros' && !membros?.length ? null : (
+          id === 'membros' && !grupo ? null : (
             <button
               key={id}
               type="button"
@@ -617,14 +611,7 @@ export default function PainelContato({
             </section>
           </>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {(membros || []).map((m) => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--msn-text)' }}>
-                <AvatarContato nome={m.nome} tamanho={26} fontSize={11} />
-                {m.nome}
-              </div>
-            ))}
-          </div>
+          <AbaMembros conversationId={conversa.id} onSaiu={onFechar} />
         )}
       </div>
 
@@ -770,6 +757,321 @@ export default function PainelContato({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Aba Membros do painel de grupo (Fase C) — busca sob demanda, com "Atualizar". */
+function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu?: () => void }) {
+  const [grupo, setGrupo] = useState<GrupoDetalhado | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [ocupado, setOcupado] = useState<string | null>(null)
+  const [modalAdicionar, setModalAdicionar] = useState(false)
+  const [linkCopiado, setLinkCopiado] = useState(false)
+  const [confirmarSaida, setConfirmarSaida] = useState(false)
+
+  async function carregar() {
+    setCarregando(true)
+    setErro(null)
+    try {
+      const r = await getGrupo(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      setGrupo(r.grupo)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao carregar o grupo.')
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  useEffect(() => {
+    void carregar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId])
+
+  async function acaoParticipante(jid: string, acao: 'remove' | 'promote' | 'demote') {
+    setOcupado(jid)
+    try {
+      const r = await alterarParticipantes(conversationId, acao, [jid])
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      await carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha na ação.')
+    } finally {
+      setOcupado(null)
+    }
+  }
+
+  async function copiarLink() {
+    try {
+      const r = await linkConvite(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      await navigator.clipboard.writeText(r.link)
+      setLinkCopiado(true)
+      setTimeout(() => setLinkCopiado(false), 1500)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao obter o link.')
+    }
+  }
+
+  async function confirmarSairGrupo() {
+    setOcupado('__sair__')
+    try {
+      const r = await sairDoGrupo(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        setOcupado(null)
+        return
+      }
+      setConfirmarSaida(false)
+      onSaiu?.()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao sair do grupo.')
+      setOcupado(null)
+    }
+  }
+
+  if (carregando) return <div style={{ fontSize: 12, color: 'var(--msn-muted)' }}>Carregando…</div>
+
+  if (erro && !grupo) return <div style={{ fontSize: 12, color: '#b91c1c' }}>{erro}</div>
+
+  if (!grupo) return null
+
+  if (grupo.provedor !== 'baileys') {
+    return <div style={{ fontSize: 12, color: 'var(--msn-muted)' }}>Gestão de grupo só em conexões Baileys.</div>
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {erro && <div style={{ fontSize: 11.5, color: '#b91c1c' }}>{erro}</div>}
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--msn-text)' }}>{grupo.nome}</div>
+        {grupo.descricao && <div style={{ fontSize: 11.5, color: 'var(--msn-muted)', marginTop: 2 }}>{grupo.descricao}</div>}
+        <div style={{ fontSize: 11, color: 'var(--msn-muted)', marginTop: 4, display: 'flex', gap: 6, alignItems: 'center' }}>
+          {grupo.membros.length} membros
+          {grupo.souAdmin && (
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(0,120,215,0.14)', color: '#0f4c81' }}>Você é admin</span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {grupo.souAdmin && (
+          <button type="button" onClick={() => setModalAdicionar(true)} className="brs-messenger-pill-btn">
+            <Plus size={12} /> Adicionar membros
+          </button>
+        )}
+        <button type="button" onClick={() => void copiarLink()} className="brs-messenger-pill-btn">
+          <Copy size={12} /> {linkCopiado ? 'Copiado!' : 'Copiar link de convite'}
+        </button>
+        <button type="button" onClick={() => setConfirmarSaida(true)} className="brs-messenger-pill-btn" style={{ color: '#b91c1c' }}>
+          <LogOut size={12} /> Sair do grupo
+        </button>
+        <button type="button" onClick={() => void carregar()} className="brs-messenger-toolbar-btn" style={{ padding: '4px 8px', fontSize: 10.5 }}>
+          Atualizar
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {grupo.membros.map((m) => (
+          <div key={m.jid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 12.5, color: 'var(--msn-text)' }}>
+            <AvatarContato nome={m.nome || m.numero} tamanho={26} fontSize={11} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.nome || m.numero}</div>
+            </div>
+            {m.admin && (
+              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(22,163,74,0.14)', color: '#15803d' }}>Admin</span>
+            )}
+            {m.eu && <span style={{ fontSize: 9.5, color: 'var(--msn-muted)' }}>você</span>}
+            {grupo.souAdmin && !m.eu && (
+              <MenuMembro ocupado={ocupado === m.jid} admin={m.admin} onAcao={(acao) => void acaoParticipante(m.jid, acao)} />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {modalAdicionar && (
+        <ModalAdicionarMembros
+          instanciaId={grupo.instanciaId}
+          conversationId={conversationId}
+          onFechar={() => setModalAdicionar(false)}
+          onAdicionado={async () => {
+            setModalAdicionar(false)
+            await carregar()
+          }}
+        />
+      )}
+
+      {confirmarSaida && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 210 }} onClick={() => setConfirmarSaida(false)}>
+          <div style={{ background: 'var(--msn-surface)', borderRadius: 10, padding: 16, width: 'min(360px, 92vw)', border: '1px solid var(--msn-border)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--msn-text)', marginBottom: 8 }}>Sair do grupo?</div>
+            <div style={{ fontSize: 12, color: 'var(--msn-muted)', marginBottom: 14 }}>Esta conexão sai do grupo e a conversa é encerrada. Continuar?</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => setConfirmarSaida(false)} className="brs-messenger-toolbar-btn" style={{ flex: 1, padding: '7px 0' }}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmarSairGrupo()}
+                disabled={ocupado === '__sair__'}
+                className="brs-messenger-pill-btn"
+                style={{ flex: 1, justifyContent: 'center', background: '#b91c1c', color: '#fff' }}
+              >
+                Sair
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MenuMembro({ admin, ocupado, onAcao }: { admin: boolean; ocupado: boolean; onAcao: (acao: 'remove' | 'promote' | 'demote') => void }) {
+  const [aberto, setAberto] = useState(false)
+  return (
+    <div style={{ position: 'relative' }}>
+      <button type="button" disabled={ocupado} onClick={() => setAberto((v) => !v)} className="brs-messenger-toolbar-btn" style={{ padding: 4 }}>
+        <ChevronDown size={12} />
+      </button>
+      {aberto && (
+        <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, background: 'var(--msn-surface)', border: '1px solid var(--msn-border)', borderRadius: 8, boxShadow: '0 4px 14px rgba(0,0,0,.15)', minWidth: 160, overflow: 'hidden' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setAberto(false)
+              onAcao(admin ? 'demote' : 'promote')
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', fontSize: 11.5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)' }}
+          >
+            {admin ? <ShieldOff size={12} /> : <Shield size={12} />} {admin ? 'Rebaixar de admin' : 'Promover a admin'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAberto(false)
+              if (confirm('Remover este membro do grupo?')) onAcao('remove')
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '7px 10px', fontSize: 11.5, background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c' }}
+          >
+            <UserMinus size={12} /> Remover do grupo
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Modal "Adicionar membros" — busca em buscarContatosConexao (paginada,
+ * multi-seleção) + campo de número avulso E.164. Reusa a resolução de
+ * instância pela conversa (a action deriva jid/instancia do lado do
+ * servidor); aqui só precisamos do conversationId.
+ */
+function ModalAdicionarMembros({
+  instanciaId,
+  conversationId,
+  onFechar,
+  onAdicionado,
+}: {
+  instanciaId: string
+  conversationId: number
+  onFechar: () => void
+  onAdicionado: () => Promise<void>
+}) {
+  const [busca, setBusca] = useState('')
+  const [itens, setItens] = useState<ContatoConexao[]>([])
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [numeroAvulso, setNumeroAvulso] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void buscarContatosConexao(instanciaId, busca || undefined)
+        .then((r) => setItens(r.ok ? r.itens : []))
+        .catch(() => setItens([]))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [busca, instanciaId])
+
+  function alternar(jid: string) {
+    setSelecionados((prev) => {
+      const novo = new Set(prev)
+      if (novo.has(jid)) novo.delete(jid)
+      else novo.add(jid)
+      return novo
+    })
+  }
+
+  async function confirmar() {
+    setErro(null)
+    const jids = [...selecionados]
+    const avulso = numeroAvulso.trim()
+    if (avulso) jids.push(avulso)
+    if (!jids.length) return
+    setSalvando(true)
+    try {
+      const r = await alterarParticipantes(conversationId, 'add', jids)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      await onAdicionado()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao adicionar.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 210 }} onClick={onFechar}>
+      <div style={{ background: 'var(--msn-surface)', borderRadius: 10, padding: 16, width: 'min(420px, 92vw)', maxHeight: '80vh', overflowY: 'auto', border: '1px solid var(--msn-border)' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--msn-text)' }}>Adicionar membros</div>
+          <button type="button" onClick={onFechar} className="brs-messenger-toolbar-btn" style={{ padding: 5 }}>
+            <X size={13} />
+          </button>
+        </div>
+        {erro && <div style={{ fontSize: 11.5, color: '#b91c1c', marginBottom: 8 }}>{erro}</div>}
+        <div style={{ position: 'relative', marginBottom: 8 }}>
+          <Search size={13} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--msn-muted)' }} />
+          <input className="brs-messenger-search-input" style={{ width: '100%', paddingLeft: 26 }} placeholder="Buscar contato…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        </div>
+        <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
+          {itens.map((c) => (
+            <label key={c.jid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selecionados.has(c.jid)} onChange={() => alternar(c.jid)} />
+              <AvatarContato nome={c.nome || c.numero} tamanho={22} fontSize={10} />
+              {c.nome || c.numero}
+            </label>
+          ))}
+          {!itens.length && <div style={{ fontSize: 11, color: 'var(--msn-muted)' }}>Digite pra buscar contatos da conexão.</div>}
+        </div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--msn-muted)', marginBottom: 4 }}>Número avulso (DDI+DDD+número)</div>
+        <input className="brs-messenger-search-input" style={{ width: '100%', marginBottom: 12 }} placeholder="Ex.: 5511999999999" value={numeroAvulso} onChange={(e) => setNumeroAvulso(e.target.value)} />
+        <button
+          type="button"
+          onClick={() => void confirmar()}
+          disabled={salvando || (!selecionados.size && !numeroAvulso.trim())}
+          className="brs-messenger-pill-btn"
+          style={{ width: '100%', justifyContent: 'center' }}
+        >
+          {salvando ? 'Adicionando…' : 'Adicionar'}
+        </button>
+      </div>
     </div>
   )
 }
