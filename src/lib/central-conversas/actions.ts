@@ -404,30 +404,26 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   const cli = await clienteChatwootBrs()
   if (!cli) return { disponivel: false as const, conversas: [], meta: {} }
   const assigneeType = params.aba === 'meus' ? 'me' : params.aba === 'fila' ? 'unassigned' : 'all'
-  const data = await cli.listarConversas({ status: 'open', assigneeType, q: params.q, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
+  const status = params.aba === 'geral' ? 'all' : 'open'
+  const data = await cli.listarConversas({ status, assigneeType, q: params.q, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
 
   const conta = await contaBrs()
   let payload = data.payload || []
 
   // Permissão por departamento: filiação ao Team = permissão (spec §6). Quem
   // não tem `central-conversas` (supervisor) só vê conversas dos SEUS
-  // departamentos; a aba "Geral" (visão de supervisão) fica vazia pra eles —
-  // a UI já esconde essa aba de quem não é supervisor.
+  // departamentos.
   const { ehSupervisor, departamentos } = await meusDepartamentosInterno(user.id)
   if (!ehSupervisor) {
-    if (params.aba === 'geral') {
-      payload = []
-    } else {
-      const idsPermitidos = new Set(departamentos.map((d) => d.chatwootTeamId).filter((x): x is number => x !== null))
-      payload = payload.filter((c) => {
-        const teamId = c.meta?.team?.id
-        // Sem team ainda (conversa nova, roteamento automático pendente):
-        // mostra — falha-aberto pra não esconder trabalho de ninguém antes do
-        // roteamento rodar. Ver §0/§6 da spec.
-        if (teamId === undefined || teamId === null) return true
-        return idsPermitidos.has(teamId)
-      })
-    }
+    const idsPermitidos = new Set(departamentos.map((d) => d.chatwootTeamId).filter((x): x is number => x !== null))
+    payload = payload.filter((c) => {
+      const teamId = c.meta?.team?.id
+      // Sem team ainda (conversa nova, roteamento automático pendente):
+      // mostra — falha-aberto pra não esconder trabalho de ninguém antes do
+      // roteamento rodar. Ver §0/§6 da spec.
+      if (teamId === undefined || teamId === null) return true
+      return idsPermitidos.has(teamId)
+    })
   }
 
   if (conta) void atribuirDepartamentosAutomaticos(cli, conta.id, payload)

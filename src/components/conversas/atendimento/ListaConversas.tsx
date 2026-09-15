@@ -111,7 +111,13 @@ export default function ListaConversas({
 
   const opcoesDepartamento = useMemo(() => departamentos.map((d) => ({ id: d.id, rotulo: d.nome })), [departamentos])
 
-  const listaOrdenada = useMemo(() => [...conversas].sort((a, b) => (b.last_activity_at || 0) - (a.last_activity_at || 0)), [conversas])
+  const listaOrdenada = useMemo(() => {
+    const arr = [...conversas]
+    if (aba === 'fila') {
+      return arr.sort((a, b) => (a.last_activity_at || 0) - (b.last_activity_at || 0))
+    }
+    return arr.sort((a, b) => (b.last_activity_at || 0) - (a.last_activity_at || 0))
+  }, [conversas, aba])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: 'var(--msn-surface)' }}>
@@ -263,8 +269,16 @@ export default function ListaConversas({
             Não existem conversas abertas{aba === 'meus' ? ' para você' : ''}.
           </div>
         ) : (
-          listaOrdenada.map((c) => (
-            <ItemConversa key={c.id} conversa={c} selecionada={selecionadaId === c.id} onSelecionar={onSelecionar} nomeInstancia={nomeInstanciaPorInbox.get(c.inbox_id)} />
+          listaOrdenada.map((c, idx) => (
+            <ItemConversa
+              key={c.id}
+              conversa={c}
+              selecionada={selecionadaId === c.id}
+              onSelecionar={onSelecionar}
+              nomeInstancia={nomeInstanciaPorInbox.get(c.inbox_id)}
+              aba={aba}
+              posicaoFila={aba === 'fila' ? idx + 1 : undefined}
+            />
           ))
         )}
       </div>
@@ -420,15 +434,20 @@ const ItemConversa = memo(function ItemConversa({
   selecionada: ativa,
   onSelecionar,
   nomeInstancia,
+  aba,
+  posicaoFila,
 }: {
   conversa: ConversaAtendimento
   selecionada: boolean
   onSelecionar: (c: ConversaAtendimento) => void
   nomeInstancia?: string
+  aba?: AbaAtendimento
+  posicaoFila?: number
 }) {
   const grupo = ehGrupo(c)
   const departamento = c.meta.team?.name || null
   const entidade = c.atendimentoMeta?.entidade
+  const ehEncerrada = c.status === 'resolved'
   return (
     <button
       type="button"
@@ -455,11 +474,32 @@ const ItemConversa = memo(function ItemConversa({
         iconeAlternativo={grupo ? <UsersRound size={16} /> : undefined}
       />
       <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+        <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'center' }}>
           <strong style={{ minWidth: 0, flex: 1, fontSize: 13, color: 'var(--msn-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {c.meta.sender?.name || 'Sem nome'}
           </strong>
-          <span style={{ fontSize: 10.5, color: 'var(--msn-meta-text)', flexShrink: 0 }}>{c.last_activity_at ? horaCurta(c.last_activity_at) : ''}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {aba === 'fila' && posicaoFila !== undefined && (
+              <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 99, background: '#f59e0b', color: '#fff' }}>
+                #{posicaoFila}
+              </span>
+            )}
+            {aba === 'geral' && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 99,
+                  background: ehEncerrada ? '#64748b' : '#22c55e',
+                  color: '#fff',
+                }}
+              >
+                {ehEncerrada ? 'Encerrada' : 'Aberta'}
+              </span>
+            )}
+            <span style={{ fontSize: 10.5, color: 'var(--msn-meta-text)' }}>{c.last_activity_at ? horaCurta(c.last_activity_at) : ''}</span>
+          </span>
         </span>
         <span style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 12, color: 'var(--msn-muted)' }}>
           <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previaConversa(c)}</span>
