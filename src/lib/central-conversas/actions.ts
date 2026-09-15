@@ -223,7 +223,10 @@ async function resolverNomesEntidades(rows: MetaRow[]): Promise<Map<string, stri
   const parceiros = porTipo.get('parceiro')
   if (parceiros?.length) {
     const { data } = await admin.from('agentes_parceiros').select('id, fantasy_name, name, arw_code').in('id', parceiros)
-    for (const p of data || []) nomes.set(`parceiro:${p.id}`, String(p.fantasy_name || p.name || p.arw_code || 'Parceiro'))
+    for (const p of data || []) {
+      const rotulo = p.arw_code ? `ARW ${p.arw_code}` : String(p.fantasy_name || p.name || 'Parceiro')
+      nomes.set(`parceiro:${p.id}`, rotulo)
+    }
   }
   const instituicoes = porTipo.get('instituicao')
   if (instituicoes?.length) {
@@ -448,7 +451,23 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   } catch {
     // meta é acessório da listagem: falha aqui não derruba o atendimento
   }
-  const conversas = payload.map((c) => ({ ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }))
+  const conversas = payload.map((c) => {
+    // Sanitização de contatos que ficaram salvos com o nome 'Bruno Rodrigues'
+    if (c.meta?.sender?.name && c.meta.sender.name.toLowerCase().includes('bruno rodrigues')) {
+      const rawPhone = c.meta.sender.phone_number || (c.meta.sender.identifier ? String(c.meta.sender.identifier).split(':').pop()?.replace('@s.whatsapp.net', '') : '') || ''
+      const limpo = rawPhone.replace(/\D/g, '')
+      // Evita alterar se o telefone for de fato o do próprio Bruno (ex: 5561999551641 / 556199551641)
+      const ehDono = limpo.endsWith('999551641') || limpo.endsWith('99551641')
+      if (limpo && !ehDono) {
+        const telefoneFormatado = limpo.length >= 10 ? limpo.replace(/^55/, '').replace(/^(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3') : limpo
+        c.meta.sender.name = telefoneFormatado
+        if (cli && c.meta.sender.id) {
+          void cli.atualizarContato(c.meta.sender.id, { name: telefoneFormatado }).catch(() => undefined)
+        }
+      }
+    }
+    return { ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }
+  })
   return { disponivel: true as const, conversas, meta: data.meta }
 }
 

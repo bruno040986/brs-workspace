@@ -447,6 +447,7 @@ const ItemConversa = memo(function ItemConversa({
   const grupo = ehGrupo(c)
   const departamento = c.meta.team?.name || null
   const entidade = c.atendimentoMeta?.entidade
+  const atendente = c.meta?.assignee?.name || null
   const ehEncerrada = c.status === 'resolved'
   return (
     <button
@@ -470,7 +471,6 @@ const ItemConversa = memo(function ItemConversa({
         nome={c.meta.sender?.name}
         tamanho={36}
         fontSize={13}
-        quadrado={grupo}
         iconeAlternativo={grupo ? <UsersRound size={16} /> : undefined}
       />
       <span style={{ minWidth: 0, flex: 1 }}>
@@ -509,10 +509,15 @@ const ItemConversa = memo(function ItemConversa({
             </span>
           )}
         </span>
-        {(entidade || departamento || nomeInstancia) && (
+        {(entidade || departamento || nomeInstancia || atendente) && (
           <span style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
             {nomeInstancia && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(37,99,235,0.12)', color: '#1d4ed8' }}>{nomeInstancia}</span>
+            )}
+            {atendente && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(168,85,247,0.14)', color: '#7e22ce' }}>
+                👤 {atendente}
+              </span>
             )}
             {entidade && (
               <span
@@ -525,7 +530,7 @@ const ItemConversa = memo(function ItemConversa({
                   color: VINCULO_COR[entidade.tipo].text,
                 }}
               >
-                {VINCULO_LABEL[entidade.tipo]}
+                {entidade.nome || VINCULO_LABEL[entidade.tipo]}
               </span>
             )}
             {departamento && (

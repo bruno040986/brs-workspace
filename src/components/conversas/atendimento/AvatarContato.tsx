@@ -44,7 +44,7 @@ export default function AvatarContato({ thumbnail, nome, tamanho, fontSize, quad
       style={{
         width: tamanho,
         height: tamanho,
-        borderRadius: raio ?? (quadrado ? 10 : 99),
+        borderRadius: raio ?? 99,
         background: 'var(--msn-avatar-bg)',
         color: 'var(--msn-avatar-text)',
         display: 'grid',
