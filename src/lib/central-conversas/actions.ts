@@ -67,20 +67,24 @@ export async function getCentralConversasView() {
     ? await admin.from('chat_instancias').select(COLS_VIEW).eq('conta_id', conta.id).is('deleted_at', null).order('ordem').order('created_at')
     : { data: [] as InstanciaView[] }
 
-  let inboxes: Array<{ id: number; name: string; channel_type: string; website_token?: string; phone_number?: string }> = []
-  if (conta) {
-    try {
-      const cli = await clienteChatwootBrs()
-      inboxes = (await cli?.listarInboxes()) || []
-    } catch {
-      inboxes = []
-    }
-  }
+  // Saúde do engine (timeout 6s) e listagem de inboxes do Chatwoot são
+  // chamadas de rede independentes — rodavam em série (achado 14/09/2026:
+  // "tela muito lenta" em /central-conversas), somando os dois piores casos
+  // a cada carregamento da página. Em paralelo.
+  const [inboxes, engineOk] = await Promise.all([
+    conta
+      ? clienteChatwootBrs()
+          .then((cli) => cli?.listarInboxes())
+          .then((r) => r || [])
+          .catch(() => [] as Array<{ id: number; name: string; channel_type: string; website_token?: string; phone_number?: string }>)
+      : Promise.resolve([] as Array<{ id: number; name: string; channel_type: string; website_token?: string; phone_number?: string }>),
+    engineConfigurado() ? engine.saude() : Promise.resolve(false),
+  ])
 
   return {
     can_edit: canEdit,
     cofreOk: cofreConfigurado(),
-    engineOk: engineConfigurado() ? await engine.saude() : false,
+    engineOk,
     chatwootUrl: String(process.env.CHATWOOT_URL || 'https://chat.brspromotora.com.br'),
     conta: conta ? { nome: String(conta.nome), chatwootAccountId: Number(conta.chatwoot_account_id) } : null,
     instancias: (instancias || []) as InstanciaView[],
