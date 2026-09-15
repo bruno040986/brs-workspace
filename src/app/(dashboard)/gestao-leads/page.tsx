@@ -6,7 +6,7 @@
  * parte técnica: saúde, eventos e erros das integrações).
  */
 import Link from 'next/link'
-import { Database, Megaphone, Rocket, UserCog, Users, FileSpreadsheet, GraduationCap, UserPlus } from 'lucide-react'
+import { Database, Megaphone, Rocket, UserCog, Users, FileSpreadsheet, GraduationCap, UserPlus, Landmark } from 'lucide-react'
 import { requireAnyPermission, getCurrentUserEffectivePermissions } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
 import { redirect } from 'next/navigation'
@@ -25,6 +25,7 @@ export default async function GestaoLeadsPage() {
   const permissions = await getCurrentUserEffectivePermissions()
   const veAlvo = hasPermission(permissions, 'alvoconsig-gestao', 'can_view')
   const veCentral = hasPermission(permissions, 'central-integracoes', 'can_view')
+  const veHigienizacaoAmigoz = hasPermission(permissions, 'alvoconsig-higienizacao-amigoz', 'can_view')
 
   const cards = [
     veAlvo && {
@@ -50,6 +51,12 @@ export default async function GestaoLeadsPage() {
       titulo: 'Importações',
       desc: 'Margens, REFIN e Elegibilidade — nunca cadastra ou atualiza lead, só oportunidade/margem.',
       Icone: FileSpreadsheet,
+    },
+    veHigienizacaoAmigoz && {
+      href: '/gestao-leads/higienizacao-amigoz',
+      titulo: 'Higienização Amigoz',
+      desc: 'Margem de crédito via API do Amigoz — unitária, por planilha ou selecionando contatos do WeSales.',
+      Icone: Landmark,
     },
     veCentral && {
       href: '/central-integracoes/bases',
