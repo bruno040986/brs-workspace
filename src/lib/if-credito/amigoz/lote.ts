@@ -246,6 +246,7 @@ export type ItemResumo = {
   ofertasErro: string | null
   ofertasConsultadasEm: string | null
   wesalesOfertasEm: string | null
+  ofertasDadosFicticios: boolean | null
 }
 
 function mapItem(row: Record<string, unknown>): ItemResumo {
@@ -275,6 +276,7 @@ function mapItem(row: Record<string, unknown>): ItemResumo {
     ofertasErro: row.ofertas_erro ? String(row.ofertas_erro) : null,
     ofertasConsultadasEm: row.ofertas_consultadas_em ? String(row.ofertas_consultadas_em) : null,
     wesalesOfertasEm: row.wesales_ofertas_em ? String(row.wesales_ofertas_em) : null,
+    ofertasDadosFicticios: row.ofertas_dados_ficticios === null || row.ofertas_dados_ficticios === undefined ? null : Boolean(row.ofertas_dados_ficticios),
   }
 }
 

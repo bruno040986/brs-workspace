@@ -45,9 +45,11 @@ import {
   listarVariantesAction,
   obterLoteAction,
   pausarLoteAction,
+  prepararOfertasUnitariaAction,
   removerVarianteAction,
   retomarLoteAction,
   type ConvenioBrs,
+  type PreparoOfertasUnitaria,
   type ResultadoUnitario,
 } from './actions'
 import type { ConvenioAmigoz, VarianteConvenio } from '@/lib/if-credito/amigoz/convenios'
@@ -525,6 +527,12 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
   const [resultado, setResultado] = useState<ResultadoUnitario | null>(null)
   const [erro, setErro] = useState('')
   const [buscandoOfertas, setBuscandoOfertas] = useState(false)
+  const [preparando, setPreparando] = useState(false)
+  const [preparo, setPreparo] = useState<PreparoOfertasUnitaria | null>(null)
+  const [mostrarFormDados, setMostrarFormDados] = useState(false)
+  const [telefoneManual, setTelefoneManual] = useState('')
+  const [nascimentoManual, setNascimentoManual] = useState('')
+  const [dadosReais, setDadosReais] = useState<'real' | 'ficticio' | ''>('')
   const [ofertasResultado, setOfertasResultado] = useState<{ ofertas: OfertaNormalizada[]; status: string; mensagem: string | null } | null>(null)
 
   const exigeMatricula = variantes.some((v) => v.exigeMatricula)
@@ -539,6 +547,9 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
     setErro('')
     setResultado(null)
     setOfertasResultado(null)
+    setPreparo(null)
+    setMostrarFormDados(false)
+    setDadosReais('')
     try {
       const res = await consultarUnitariaAction({ convenioId, cpf, matricula: matricula || undefined, senhaServidor: senhaServidor || undefined })
       if (!res.success) throw new Error(res.error)
@@ -550,20 +561,48 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
     }
   }
 
-  async function buscarOfertas() {
+  async function executarBusca(manual?: { telefone?: string; nascimento?: string; dadosReais?: boolean }) {
     if (!resultado) return
     setBuscandoOfertas(true)
     setOfertasResultado(null)
     try {
-      const res = await buscarOfertasUnitariaAction(resultado.itemId)
+      const res = await buscarOfertasUnitariaAction(resultado.itemId, manual)
       if (!res.success) throw new Error(res.error)
       setOfertasResultado(res.data)
+      if (res.data.status !== 'faltam_dados') setMostrarFormDados(false)
     } catch (err) {
       setOfertasResultado({ ofertas: [], status: 'erro', mensagem: err instanceof Error ? err.message : 'Erro ao buscar ofertas.' })
     } finally {
       setBuscandoOfertas(false)
     }
   }
+
+  async function iniciarBuscaOfertas() {
+    if (!resultado) return
+    setOfertasResultado(null)
+    setPreparando(true)
+    try {
+      const res = await prepararOfertasUnitariaAction(resultado.itemId)
+      if (!res.success) throw new Error(res.error)
+      setPreparo(res.data)
+      setTelefoneManual(res.data.telefone || '')
+      setNascimentoManual(res.data.nascimentoIso || '')
+      setDadosReais('')
+      if (res.data.telefoneOrigem && res.data.nascimentoOrigem) {
+        // Já achou telefone e nascimento (entrada/IF ou WeSales) — busca direto, sem pedir nada.
+        setMostrarFormDados(false)
+        await executarBusca()
+      } else {
+        setMostrarFormDados(true)
+      }
+    } catch (err) {
+      setOfertasResultado({ ofertas: [], status: 'erro', mensagem: err instanceof Error ? err.message : 'Erro ao preparar a busca.' })
+    } finally {
+      setPreparando(false)
+    }
+  }
+
+  const faltaEscolherFlag = Boolean(preparo && (!preparo.telefoneOrigem || !preparo.nascimentoOrigem))
 
   return (
     <div className="card" style={{ padding: '1rem' }}>
@@ -621,9 +660,64 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
 
           {resultado.margem.temOportunidade && (
             <div style={{ marginTop: '0.7rem' }}>
-              <button className="btn btn-outline btn-sm" onClick={buscarOfertas} disabled={buscandoOfertas} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {buscandoOfertas ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar ofertas
+              <button className="btn btn-outline btn-sm" onClick={iniciarBuscaOfertas} disabled={preparando || buscandoOfertas} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {preparando || buscandoOfertas ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar ofertas
               </button>
+
+              {mostrarFormDados && preparo && (
+                <div style={{ marginTop: '0.6rem', padding: '0.7rem 0.9rem', borderRadius: 8, background: 'var(--brs-gray-50, #f8fafc)' }}>
+                  <p style={{ fontSize: '0.76rem', color: 'var(--brs-gray-500)', margin: '0 0 0.6rem' }}>
+                    A API do Amigoz exige telefone e data de nascimento pra criar o cliente — confirme ou preencha abaixo.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.7rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.25rem' }}>
+                        Telefone {preparo.telefoneOrigem === 'wesales' ? '(cadastro WeSales)' : ''}
+                      </label>
+                      <input
+                        className="form-control"
+                        value={telefoneManual}
+                        onChange={(e) => setTelefoneManual(e.target.value)}
+                        readOnly={preparo.telefoneOrigem === 'wesales'}
+                        placeholder="(00) 00000-0000"
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.25rem' }}>
+                        Data de nascimento {preparo.nascimentoOrigem === 'wesales' ? '(cadastro WeSales)' : ''}
+                      </label>
+                      <input
+                        className="form-control"
+                        type="date"
+                        value={nascimentoManual}
+                        onChange={(e) => setNascimentoManual(e.target.value)}
+                        readOnly={preparo.nascimentoOrigem === 'wesales'}
+                      />
+                    </div>
+                  </div>
+                  {faltaEscolherFlag && (
+                    <div style={{ display: 'flex', gap: '1.2rem', marginTop: '0.7rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
+                        <input type="radio" name="ofertaDadosReais" checked={dadosReais === 'real'} onChange={() => setDadosReais('real')} /> Dados reais
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
+                        <input type="radio" name="ofertaDadosReais" checked={dadosReais === 'ficticio'} onChange={() => setDadosReais('ficticio')} /> Dados fictícios (só simulação)
+                      </label>
+                    </div>
+                  )}
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ marginTop: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    disabled={buscandoOfertas || !telefoneManual.trim() || !nascimentoManual.trim() || (faltaEscolherFlag && !dadosReais)}
+                    onClick={() => executarBusca({ telefone: telefoneManual, nascimento: nascimentoManual, dadosReais: dadosReais === 'real' })}
+                  >
+                    {buscandoOfertas ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Confirmar e buscar
+                  </button>
+                </div>
+              )}
+
+              {ofertasResultado?.status === 'faltam_dados' && <p style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--brs-danger)' }}>{ofertasResultado.mensagem}</p>}
               {ofertasResultado?.status === 'erro' && <p style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--brs-danger)' }}>{ofertasResultado.mensagem}</p>}
               {ofertasResultado?.status === 'sem_oferta' && <p style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--brs-gray-400)' }}>Nenhuma oferta encontrada.</p>}
               {ofertasResultado && ofertasResultado.ofertas.length > 0 && (

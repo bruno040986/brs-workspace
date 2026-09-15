@@ -57,13 +57,23 @@ function extrairClienteId(corpo: unknown): string | null {
   return id !== undefined && id !== null && id !== '' ? String(id) : null
 }
 
+/** "AAAA-MM-DD" (ex.: <input type=date>) ou "DD/MM/AAAA" → "DD/MM/AAAA" (formato que o Amigoz exige). */
+export function normalizarDataBrParaAmigoz(v: string | null | undefined): string | null {
+  const texto = String(v ?? '').trim()
+  if (!texto) return null
+  const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
+  const br = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  return br ? texto : null
+}
+
 export type ItemParaOferta = {
   cpf: string
   nome: string | null // nome de entrada (CSV/WeSales) — fallback se nomeIf vazio
   nomeIf: string | null
-  nascimentoIf: string | null // dd/mm/aaaa (como a consulta de margem devolveu)
+  nascimentoIf: string | null // dd/mm/aaaa (como a consulta de margem devolveu, ou manual/WeSales já resolvido)
   matriculaIf: string | null
-  telefone: string | null // telefone de entrada
+  telefone: string | null // telefone de entrada (ou manual/WeSales já resolvido)
   wesalesContactId: string | null
   convenioExternoUsado: string | null
   margemConsignado: number | null
@@ -72,24 +82,67 @@ export type ItemParaOferta = {
   clienteExternoId: string | null
 }
 
+export type OrigemDado = 'entrada' | 'wesales' | null
+
+export type DadosClienteResolvidos = {
+  telefone: string | null
+  telefoneOrigem: OrigemDado
+  nascimento: string | null // dd/mm/aaaa
+  nascimentoOrigem: OrigemDado
+}
+
+/**
+ * Resolve telefone/data de nascimento pra criar o cliente no Amigoz: usa o que
+ * já veio na entrada (CSV/WeSales) ou da própria IF (nascimento devolvido na
+ * consulta de margem); se faltar algo, cai pro cadastro do WeSales pelo CPF
+ * (`wesalesContactId` quando já souber, senão busca por CPF). Não inventa
+ * nada — quando falta e o WeSales também não tem, devolve `null` (quem chama
+ * decide: erro no lote automático, ou pedir o dado na tela na unitária).
+ */
+export async function resolverDadosClienteAmigoz(item: Pick<ItemParaOferta, 'cpf' | 'telefone' | 'nascimentoIf' | 'wesalesContactId'>): Promise<DadosClienteResolvidos> {
+  let telefone = digitsOuNull(item.telefone)
+  let telefoneOrigem: OrigemDado = telefone ? 'entrada' : null
+  let nascimento = item.nascimentoIf?.trim() || null
+  let nascimentoOrigem: OrigemDado = nascimento ? 'entrada' : null
+
+  if (!telefone || !nascimento) {
+    const contato = item.wesalesContactId ? await getContact(item.wesalesContactId) : await findContactByCpf(item.cpf)
+    if (contato) {
+      if (!telefone) {
+        const t = digitsOuNull(contato.phone)
+        if (t) {
+          telefone = t
+          telefoneOrigem = 'wesales'
+        }
+      }
+      if (!nascimento && contato.dateOfBirth) {
+        const convertido = normalizarDataBrParaAmigoz(String(contato.dateOfBirth))
+        if (convertido) {
+          nascimento = convertido
+          nascimentoOrigem = 'wesales'
+        }
+      }
+    }
+  }
+
+  return { telefone, telefoneOrigem, nascimento, nascimentoOrigem }
+}
+
 export type ResultadoGarantirCliente = { ok: true; clienteExternoId: string } | { ok: false; mensagem: string }
 
 /**
  * Cria o cliente no Amigoz se `item.clienteExternoId` ainda não existir.
  * Escolhe o produto RCC (compra+saque, tipo_produto 7) quando há margem de
  * benefício; senão RMC (tipo_produto 15) — são os dois payloads reais que a
- * descoberta confirmou funcionar. Nunca cria sem telefone (obrigatório na IF).
+ * descoberta confirmou funcionar. Nunca cria sem telefone/nascimento
+ * (obrigatórios na IF) — resolve pelo WeSales antes de desistir.
  */
 export async function garantirClienteAmigoz(cfg: ConfigAmigoz, item: ItemParaOferta, criadoPor?: string | null): Promise<ResultadoGarantirCliente> {
   if (item.clienteExternoId) return { ok: true, clienteExternoId: item.clienteExternoId }
 
-  let telefone = digitsOuNull(item.telefone)
-  if (!telefone) {
-    const contato = item.wesalesContactId ? await getContact(item.wesalesContactId) : await findContactByCpf(item.cpf)
-    telefone = digitsOuNull(contato?.phone ?? null)
-  }
+  const { telefone, nascimento } = await resolverDadosClienteAmigoz(item)
   if (!telefone) return { ok: false, mensagem: 'Sem telefone (nem na entrada, nem no contato do WeSales) — obrigatório pra criar o cliente no Amigoz.' }
-  if (!item.nascimentoIf) return { ok: false, mensagem: 'Sem data de nascimento (a IF não devolveu na consulta de margem).' }
+  if (!nascimento) return { ok: false, mensagem: 'Sem data de nascimento (a IF não devolveu na consulta de margem, nem o WeSales tem cadastrada).' }
   if (!item.convenioExternoUsado) return { ok: false, mensagem: 'Sem convênio do Amigoz resolvido para este item (rode a consulta de margem primeiro).' }
 
   const usaRcc = Number(item.margemBeneficioCompra) > 0
@@ -101,7 +154,7 @@ export async function garantirClienteAmigoz(cfg: ConfigAmigoz, item: ItemParaOfe
     cpf: item.cpf,
     nome_cliente: item.nomeIf || item.nome || '',
     telefone,
-    data_nascimento: item.nascimentoIf,
+    data_nascimento: nascimento,
     escolaridade: ESCOLARIDADE_PADRAO,
     convenio_id: convenio,
     numero_matricula: item.matriculaIf || null,

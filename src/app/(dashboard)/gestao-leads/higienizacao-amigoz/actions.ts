@@ -23,7 +23,7 @@ import {
   type VarianteConvenio,
 } from '@/lib/if-credito/amigoz/convenios'
 import { consultarMargemComVariantes } from '@/lib/if-credito/amigoz/margem'
-import { garantirClienteAmigoz, simularOfertasAmigoz, type ItemParaOferta } from '@/lib/if-credito/amigoz/ofertas'
+import { garantirClienteAmigoz, normalizarDataBrParaAmigoz, resolverDadosClienteAmigoz, simularOfertasAmigoz, type ItemParaOferta, type OrigemDado } from '@/lib/if-credito/amigoz/ofertas'
 import type { OfertaNormalizada } from '@/lib/if-credito/ofertas'
 import {
   adicionarItens,
@@ -459,11 +459,67 @@ export async function buscarOfertasDoLoteAction(loteId: string): Promise<ActionR
   }
 }
 
+function brParaIso(v: string | null): string | null {
+  const m = String(v ?? '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null
+}
+
+export type PreparoOfertasUnitaria = {
+  telefone: string | null
+  telefoneOrigem: OrigemDado
+  nascimentoIso: string | null
+  nascimentoOrigem: OrigemDado
+}
+
+/**
+ * Antes de "Buscar ofertas" chamar a API de verdade: resolve telefone/
+ * nascimento pela entrada/IF/WeSales, pra tela decidir se pede os campos
+ * (e com qual origem mostrar — editável se veio do WeSales, os dois vazios
+ * se não achou em lugar nenhum).
+ */
+export async function prepararOfertasUnitariaAction(itemId: string): Promise<ActionResult<PreparoOfertasUnitaria>> {
+  try {
+    await requirePermission(RESOURCE, 'can_include')
+    const admin = await createAdminClient()
+    const { data: item, error } = await admin.from('if_higienizacao_itens').select('cpf, telefone, nascimento_if, wesales_contact_id').eq('id', itemId).maybeSingle()
+    if (error) throw error
+    if (!item) throw new Error('Item não encontrado.')
+
+    const resolvido = await resolverDadosClienteAmigoz({
+      cpf: String(item.cpf),
+      telefone: item.telefone ? String(item.telefone) : null,
+      nascimentoIf: item.nascimento_if ? String(item.nascimento_if) : null,
+      wesalesContactId: item.wesales_contact_id ? String(item.wesales_contact_id) : null,
+    })
+    return {
+      success: true,
+      data: {
+        telefone: resolvido.telefone,
+        telefoneOrigem: resolvido.telefoneOrigem,
+        nascimentoIso: brParaIso(resolvido.nascimento),
+        nascimentoOrigem: resolvido.nascimentoOrigem,
+      },
+    }
+  } catch (err) {
+    return erro(err)
+  }
+}
+
 /**
  * Aba 1 (unitária): depois da margem, roda cliente + simulação NA HORA (sem
  * passar pelo worker de lote — é 1 item só) e devolve as ofertas pra tela.
+ *
+ * `manual` só é usado quando `prepararOfertasUnitariaAction` não achou
+ * telefone/nascimento em lugar nenhum — a tela pediu os campos pro operador
+ * com a flag "Dados Reais"/"Dados Fictícios". Dado marcado REAL é gravado no
+ * item (nunca sobrescreve o que já existia); dado FICTÍCIO nunca é gravado
+ * nas colunas de telefone/nascimento — só fica registrado em
+ * `ofertas_dados_ficticios` (a oferta em si é real, só o cadastro é de teste).
  */
-export async function buscarOfertasUnitariaAction(itemId: string): Promise<ActionResult<{ ofertas: OfertaNormalizada[]; status: string; mensagem: string | null }>> {
+export async function buscarOfertasUnitariaAction(
+  itemId: string,
+  manual?: { telefone?: string; nascimento?: string; dadosReais?: boolean },
+): Promise<ActionResult<{ ofertas: OfertaNormalizada[]; status: string; mensagem: string | null }>> {
   try {
     const { user } = await requirePermission(RESOURCE, 'can_include')
     const admin = await createAdminClient()
@@ -472,14 +528,45 @@ export async function buscarOfertasUnitariaAction(itemId: string): Promise<Actio
     if (!item) throw new Error('Item não encontrado.')
     if (!item.tem_oportunidade) throw new Error('Este item não tem margem de cartão (RCC/RMC).')
 
-    const cfg = await carregarConfigAmigoz()
+    const resolvido = await resolverDadosClienteAmigoz({
+      cpf: String(item.cpf),
+      telefone: item.telefone ? String(item.telefone) : null,
+      nascimentoIf: item.nascimento_if ? String(item.nascimento_if) : null,
+      wesalesContactId: item.wesales_contact_id ? String(item.wesales_contact_id) : null,
+    })
+
+    const telefoneManual = manual?.telefone ? manual.telefone.replace(/\D/g, '') || null : null
+    const nascimentoManual = manual?.nascimento ? normalizarDataBrParaAmigoz(manual.nascimento) : null
+    const usouTelefoneManual = !resolvido.telefoneOrigem && Boolean(telefoneManual)
+    const usouNascimentoManual = !resolvido.nascimentoOrigem && Boolean(nascimentoManual)
+    const usouDadoManual = usouTelefoneManual || usouNascimentoManual
+
+    const telefoneFinal = resolvido.telefone || telefoneManual
+    const nascimentoFinal = resolvido.nascimento || nascimentoManual
+
+    if (!telefoneFinal || !nascimentoFinal) {
+      const mensagem = !telefoneFinal && !nascimentoFinal ? 'Informe telefone e data de nascimento.' : !telefoneFinal ? 'Informe o telefone.' : 'Informe a data de nascimento.'
+      return { success: true, data: { ofertas: [], status: 'faltam_dados', mensagem } }
+    }
+
+    // Persistência do dado manual: só quando confirmado como REAL, e só nas colunas ainda vazias (nunca sobrescreve dado já existente).
+    const patchDadosReais: Record<string, unknown> = {}
+    if (usouDadoManual && manual?.dadosReais) {
+      if (usouTelefoneManual && !item.telefone) patchDadosReais.telefone = telefoneFinal
+      if (usouNascimentoManual && !item.nascimento_if) patchDadosReais.nascimento_if = nascimentoFinal
+    }
+    if (Object.keys(patchDadosReais).length > 0) {
+      await admin.from('if_higienizacao_itens').update(patchDadosReais).eq('id', itemId)
+    }
+    const ofertasDadosFicticios = usouDadoManual ? !manual?.dadosReais : null
+
     const dados: ItemParaOferta = {
       cpf: String(item.cpf),
       nome: item.nome ? String(item.nome) : null,
       nomeIf: item.nome_if ? String(item.nome_if) : null,
-      nascimentoIf: item.nascimento_if ? String(item.nascimento_if) : null,
+      nascimentoIf: nascimentoFinal,
       matriculaIf: item.matricula_if ? String(item.matricula_if) : null,
-      telefone: item.telefone ? String(item.telefone) : null,
+      telefone: telefoneFinal,
       wesalesContactId: item.wesales_contact_id ? String(item.wesales_contact_id) : null,
       convenioExternoUsado: item.convenio_externo_usado ? String(item.convenio_externo_usado) : null,
       margemConsignado: item.margem_consignado === null ? null : Number(item.margem_consignado),
@@ -488,11 +575,17 @@ export async function buscarOfertasUnitariaAction(itemId: string): Promise<Actio
       clienteExternoId: item.cliente_externo_id ? String(item.cliente_externo_id) : null,
     }
 
+    const cfg = await carregarConfigAmigoz()
     const clienteResultado = await garantirClienteAmigoz(cfg, dados, user.id)
     if (!clienteResultado.ok) {
       await admin
         .from('if_higienizacao_itens')
-        .update({ ofertas_status: 'erro', ofertas_erro: clienteResultado.mensagem.slice(0, 500), ofertas_consultadas_em: new Date().toISOString() })
+        .update({
+          ofertas_status: 'erro',
+          ofertas_erro: clienteResultado.mensagem.slice(0, 500),
+          ofertas_consultadas_em: new Date().toISOString(),
+          ofertas_dados_ficticios: ofertasDadosFicticios,
+        })
         .eq('id', itemId)
       revalidatePath(PATH_TELA)
       return { success: true, data: { ofertas: [], status: 'erro', mensagem: clienteResultado.mensagem } }
@@ -511,6 +604,7 @@ export async function buscarOfertasUnitariaAction(itemId: string): Promise<Actio
         ofertas_status: status,
         ofertas_erro: status === 'erro' ? (simulacao.algumErro || '').slice(0, 500) : null,
         ofertas_consultadas_em: new Date().toISOString(),
+        ofertas_dados_ficticios: ofertasDadosFicticios,
       })
       .eq('id', itemId)
     // Lote unitário tem sempre 1 item — não precisa incrementar, só refletir o resultado deste.
