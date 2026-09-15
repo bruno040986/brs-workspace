@@ -11,7 +11,7 @@
  * nós, ids diferentes lá) — o worker tenta todas em sequência por CPF, então
  * a tela deixa vincular quantas forem precisas, sem duplicar convênio.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   Download,
@@ -30,10 +30,13 @@ import {
 import {
   adicionarVarianteAction,
   atualizarWesalesAction,
+  buscarOfertasDoLoteAction,
+  buscarOfertasUnitariaAction,
   cancelarLoteAction,
   consultarUnitariaAction,
   contarWesalesPorFiltroAction,
   criarLoteWesalesAction,
+  enviarOfertasParaWesalesAction,
   enviarParaNvtiAction,
   listarConveniosAmigozAction,
   listarConveniosBrsAction,
@@ -49,6 +52,7 @@ import {
 } from './actions'
 import type { ConvenioAmigoz, VarianteConvenio } from '@/lib/if-credito/amigoz/convenios'
 import type { ItemResumo, LoteResumo } from '@/lib/if-credito/amigoz/lote'
+import type { OfertaNormalizada } from '@/lib/if-credito/ofertas'
 
 type Aba = 'unitaria' | 'csv' | 'wesales' | 'historico'
 
@@ -259,6 +263,54 @@ function VinculoConvenio({
 }
 
 // ---------------------------------------------------------------------------
+// Ofertas (Fatia 3 — simulação em tempo real) — cards no estilo da tela do Amigoz
+// ---------------------------------------------------------------------------
+
+const PRODUTO_OFERTA_LABEL: Record<string, string> = {
+  cartao_rmc: 'Cartão RMC',
+  cartao_rcc: 'Cartão RCC',
+  saque_complementar: 'Saque Complementar',
+  novo: 'Novo',
+  refin: 'REFIN',
+}
+
+function CardsOfertas({ ofertas }: { ofertas: OfertaNormalizada[] }) {
+  if (ofertas.length === 0) return null
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.6rem' }}>
+      {ofertas.map((o, i) => (
+        <div key={`${o.produto}-${o.tabelaCodigo ?? i}`} className="card" style={{ padding: '0.7rem 0.9rem', fontSize: '0.78rem' }}>
+          <p style={{ fontWeight: 700, margin: '0 0 0.4rem' }}>
+            {PRODUTO_OFERTA_LABEL[o.produto] || o.produto} — {o.instituicaoNome}
+          </p>
+          {o.limitePreAprovado !== null && (
+            <p style={{ margin: '0.15rem 0' }}>
+              Limite pré-aprovado: <strong>{formatMoney(o.limitePreAprovado)}</strong>
+            </p>
+          )}
+          {o.valorSaque !== null && (
+            <p style={{ margin: '0.15rem 0' }}>
+              Saque: <strong>{formatMoney(o.valorSaque)}</strong>
+              {o.numParcelas !== null && o.valorParcela !== null ? ` em ${o.numParcelas}x de ${formatMoney(o.valorParcela)}` : ''}
+            </p>
+          )}
+          {(o.taxaMes !== null || o.cetMes !== null) && (
+            <p style={{ margin: '0.15rem 0', color: 'var(--brs-gray-500)' }}>
+              {o.taxaMes !== null ? `Taxa ${o.taxaMes.toLocaleString('pt-BR')}% a.m.` : ''}
+              {o.taxaMes !== null && o.cetMes !== null ? ' · ' : ''}
+              {o.cetMes !== null ? `CET ${o.cetMes.toLocaleString('pt-BR')}% a.m.` : ''}
+            </p>
+          )}
+          {o.primeiroVencimento && (
+            <p style={{ margin: '0.15rem 0', color: 'var(--brs-gray-400)' }}>1º vencimento: {new Date(`${o.primeiroVencimento}T00:00:00`).toLocaleDateString('pt-BR')}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Progresso do lote (compartilhado por CSV/WeSales/histórico)
 // ---------------------------------------------------------------------------
 
@@ -266,6 +318,7 @@ function LoteProgress({ loteId, onFechar }: { loteId: string; onFechar?: () => v
   const [lote, setLote] = useState<LoteResumo | null>(null)
   const [itens, setItens] = useState<ItemResumo[]>([])
   const [mostrarItens, setMostrarItens] = useState(false)
+  const [itemExpandido, setItemExpandido] = useState<string | null>(null)
   const [acaoEmCurso, setAcaoEmCurso] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState('')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -381,6 +434,20 @@ function LoteProgress({ loteId, onFechar }: { loteId: string; onFechar?: () => v
         <button className="btn btn-outline btn-sm" disabled={acaoEmCurso === 'wesales'} onClick={() => executar('wesales', () => atualizarWesalesAction(loteId))} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {acaoEmCurso === 'wesales' ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Atualizar WeSales
         </button>
+        {lote.status === 'concluido' && !lote.buscarOfertas && lote.itensComMargem > 0 && (
+          <button className="btn btn-outline btn-sm" disabled={acaoEmCurso === 'buscar-ofertas'} onClick={() => executar('buscar-ofertas', () => buscarOfertasDoLoteAction(loteId))} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {acaoEmCurso === 'buscar-ofertas' ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar ofertas
+          </button>
+        )}
+        <button
+          className="btn btn-outline btn-sm"
+          disabled={acaoEmCurso === 'enviar-ofertas' || lote.itensComOferta === 0}
+          onClick={() => executar('enviar-ofertas', () => enviarOfertasParaWesalesAction(loteId))}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          title={lote.itensComOferta === 0 ? 'Nenhuma oferta encontrada ainda' : ''}
+        >
+          {acaoEmCurso === 'enviar-ofertas' ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Enviar ofertas ao WeSales
+        </button>
         <button className="btn btn-outline btn-sm" onClick={carregarItens}>{mostrarItens ? 'Ocultar itens' : 'Ver itens'}</button>
       </div>
 
@@ -395,21 +462,49 @@ function LoteProgress({ loteId, onFechar }: { loteId: string; onFechar?: () => v
                 <th style={{ padding: '0.3rem 0.4rem' }}>RCC</th>
                 <th style={{ padding: '0.3rem 0.4rem' }}>Novo</th>
                 <th style={{ padding: '0.3rem 0.4rem' }}>Variante</th>
+                <th style={{ padding: '0.3rem 0.4rem' }}>Ofertas</th>
                 <th style={{ padding: '0.3rem 0.4rem' }}>Erro</th>
               </tr>
             </thead>
             <tbody>
-              {itens.map((it) => (
-                <tr key={it.id} style={{ borderTop: '1px solid var(--brs-gray-100, #f1f5f9)' }}>
-                  <td style={{ padding: '0.3rem 0.4rem' }}>{it.cpf}</td>
-                  <td style={{ padding: '0.3rem 0.4rem' }}>{it.status}</td>
-                  <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemConsignado)}</td>
-                  <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemBeneficio)}</td>
-                  <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemEmprestimo)}</td>
-                  <td style={{ padding: '0.3rem 0.4rem' }}>{it.convenioExternoUsado || ''}</td>
-                  <td style={{ padding: '0.3rem 0.4rem', color: 'var(--brs-danger)' }}>{it.erro || ''}</td>
-                </tr>
-              ))}
+              {itens.map((it) => {
+                const temOfertas = Boolean(it.ofertas && it.ofertas.length > 0)
+                const ofertasBadge =
+                  it.ofertasStatus === 'ok' ? `${it.ofertas?.length ?? 0} oferta(s)` : it.ofertasStatus === 'sem_oferta' ? 'sem oferta' : it.ofertasStatus === 'erro' ? 'erro' : ''
+                return (
+                  <Fragment key={it.id}>
+                    <tr style={{ borderTop: '1px solid var(--brs-gray-100, #f1f5f9)' }}>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>{it.cpf}</td>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>{it.status}</td>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemConsignado)}</td>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemBeneficio)}</td>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemEmprestimo)}</td>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>{it.convenioExternoUsado || ''}</td>
+                      <td style={{ padding: '0.3rem 0.4rem' }}>
+                        {ofertasBadge ? (
+                          <button
+                            onClick={() => setItemExpandido(itemExpandido === it.id ? null : it.id)}
+                            disabled={!temOfertas}
+                            style={{ border: 0, background: 'none', cursor: temOfertas ? 'pointer' : 'default', padding: 0, fontSize: '0.74rem', fontWeight: 700, color: temOfertas ? 'var(--brs-navy)' : 'var(--brs-gray-400)' }}
+                          >
+                            {ofertasBadge}
+                          </button>
+                        ) : (
+                          ''
+                        )}
+                      </td>
+                      <td style={{ padding: '0.3rem 0.4rem', color: 'var(--brs-danger)' }}>{it.erro || it.ofertasErro || ''}</td>
+                    </tr>
+                    {itemExpandido === it.id && temOfertas && (
+                      <tr>
+                        <td colSpan={8} style={{ padding: '0.5rem 0.4rem 0.8rem', background: 'var(--brs-gray-50, #f8fafc)' }}>
+                          <CardsOfertas ofertas={it.ofertas || []} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -429,6 +524,8 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
   const [consultando, setConsultando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoUnitario | null>(null)
   const [erro, setErro] = useState('')
+  const [buscandoOfertas, setBuscandoOfertas] = useState(false)
+  const [ofertasResultado, setOfertasResultado] = useState<{ ofertas: OfertaNormalizada[]; status: string; mensagem: string | null } | null>(null)
 
   const exigeMatricula = variantes.some((v) => v.exigeMatricula)
   const exigeSenhaServidor = variantes.some((v) => v.exigeSenhaServidor)
@@ -441,6 +538,7 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
     setConsultando(true)
     setErro('')
     setResultado(null)
+    setOfertasResultado(null)
     try {
       const res = await consultarUnitariaAction({ convenioId, cpf, matricula: matricula || undefined, senhaServidor: senhaServidor || undefined })
       if (!res.success) throw new Error(res.error)
@@ -449,6 +547,21 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
       setErro(err instanceof Error ? err.message : 'Erro na consulta.')
     } finally {
       setConsultando(false)
+    }
+  }
+
+  async function buscarOfertas() {
+    if (!resultado) return
+    setBuscandoOfertas(true)
+    setOfertasResultado(null)
+    try {
+      const res = await buscarOfertasUnitariaAction(resultado.itemId)
+      if (!res.success) throw new Error(res.error)
+      setOfertasResultado(res.data)
+    } catch (err) {
+      setOfertasResultado({ ofertas: [], status: 'erro', mensagem: err instanceof Error ? err.message : 'Erro ao buscar ofertas.' })
+    } finally {
+      setBuscandoOfertas(false)
     }
   }
 
@@ -505,6 +618,22 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
           <p style={{ fontSize: '0.78rem', color: resultado.margem.temOportunidade ? 'var(--brs-success)' : 'var(--brs-gray-400)', fontWeight: 600, margin: '0.6rem 0 0' }}>
             {resultado.margem.temOportunidade ? 'Tem oportunidade.' : 'Sem oportunidade nesta consulta.'}
           </p>
+
+          {resultado.margem.temOportunidade && (
+            <div style={{ marginTop: '0.7rem' }}>
+              <button className="btn btn-outline btn-sm" onClick={buscarOfertas} disabled={buscandoOfertas} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {buscandoOfertas ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar ofertas
+              </button>
+              {ofertasResultado?.status === 'erro' && <p style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--brs-danger)' }}>{ofertasResultado.mensagem}</p>}
+              {ofertasResultado?.status === 'sem_oferta' && <p style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--brs-gray-400)' }}>Nenhuma oferta encontrada.</p>}
+              {ofertasResultado && ofertasResultado.ofertas.length > 0 && (
+                <div style={{ marginTop: '0.6rem' }}>
+                  <CardsOfertas ofertas={ofertasResultado.ofertas} />
+                </div>
+              )}
+            </div>
+          )}
+
           <LoteProgress loteId={resultado.loteId} />
         </div>
       )}
@@ -519,6 +648,7 @@ function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes:
 function AbaCsv({ convenioId, variantes }: { convenioId: string; variantes: VarianteConvenio[] }) {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [pausaMs, setPausaMs] = useState(1500)
+  const [buscarOfertas, setBuscarOfertas] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
   const [loteId, setLoteId] = useState<string | null>(null)
@@ -546,6 +676,7 @@ function AbaCsv({ convenioId, variantes }: { convenioId: string; variantes: Vari
       formData.append('file', arquivo)
       formData.append('convenio_id', convenioId)
       formData.append('pausa_ms', String(pausaMs))
+      if (buscarOfertas) formData.append('buscar_ofertas', '1')
       const res = await fetch('/api/if-higienizacao/upload', { method: 'POST', body: formData })
       const json = await res.json()
       if (!res.ok || !json.ok) throw new Error(json.error || 'Falha no upload.')
@@ -573,6 +704,9 @@ function AbaCsv({ convenioId, variantes }: { convenioId: string; variantes: Vari
           <input className="form-control" type="number" min={500} max={60000} value={pausaMs} onChange={(e) => setPausaMs(Number(e.target.value) || 1500)} />
         </div>
       </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', marginTop: '0.8rem' }}>
+        <input type="checkbox" checked={buscarOfertas} onChange={(e) => setBuscarOfertas(e.target.checked)} /> Buscar ofertas após a margem
+      </label>
       <button className="btn btn-primary btn-sm" onClick={enviar} disabled={enviando || !arquivo} style={{ marginTop: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {enviando ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Iniciar lote
       </button>
@@ -592,6 +726,7 @@ function AbaWesales({ convenioId, variantes }: { convenioId: string; variantes: 
   const [tagsTexto, setTagsTexto] = useState('')
   const [limite, setLimite] = useState(500)
   const [pausaMs, setPausaMs] = useState(1500)
+  const [buscarOfertas, setBuscarOfertas] = useState(false)
   const [contando, setContando] = useState(false)
   const [total, setTotal] = useState<number | null>(null)
   const [gerando, setGerando] = useState(false)
@@ -628,7 +763,7 @@ function AbaWesales({ convenioId, variantes }: { convenioId: string; variantes: 
     setErro('')
     setLoteId(null)
     try {
-      const res = await criarLoteWesalesAction({ convenioId, tagsExtras, limite, pausaMs })
+      const res = await criarLoteWesalesAction({ convenioId, tagsExtras, limite, pausaMs, buscarOfertas })
       if (!res.success) throw new Error(res.error)
       setLoteId(res.data.loteId)
     } catch (err) {
@@ -658,6 +793,10 @@ function AbaWesales({ convenioId, variantes }: { convenioId: string; variantes: 
           <input className="form-control" type="number" min={500} max={60000} value={pausaMs} onChange={(e) => setPausaMs(Number(e.target.value) || 1500)} />
         </div>
       </div>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', marginTop: '0.8rem' }}>
+        <input type="checkbox" checked={buscarOfertas} onChange={(e) => setBuscarOfertas(e.target.checked)} /> Buscar ofertas após a margem
+      </label>
 
       <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.9rem', alignItems: 'center' }}>
         <button className="btn btn-outline btn-sm" onClick={contar} disabled={contando || !convenioId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

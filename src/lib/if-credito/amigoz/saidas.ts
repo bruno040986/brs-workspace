@@ -18,8 +18,22 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { kickNvtiWorker } from '@/lib/nvti/worker'
 import { gravarConvenioDoLoteSeVazio, type ConvenioDoLote } from '@/lib/nvti/convenio-lote'
 import { WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { MARGEM_FIELD_KEYS, MARGEM_FIELD_LABELS } from '@/lib/alvoconsig/ofertas-wesales'
-import { customFieldEntry, customFieldValue, findContactByCpf, getContact, resolveCustomField, updateContact, type CustomFieldDef } from '@/lib/wesales/client'
+import { ETAPA_DISPONIVEL, MARGEM_FIELD_KEYS, MARGEM_FIELD_LABELS, OFERTA_FIELD_KEYS, OFERTA_FIELD_LABELS, nomeOportunidade, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
+import {
+  createOpportunity,
+  customFieldEntry,
+  customFieldValue,
+  ensureCustomField,
+  findContactByCpf,
+  findOpportunitiesByContactDetalhadas,
+  getContact,
+  opportunityFieldValue,
+  resolveCustomField,
+  updateContact,
+  updateOpportunity,
+  type CustomFieldDef,
+} from '@/lib/wesales/client'
+import type { OfertaNormalizada } from '../ofertas'
 import { obterLote } from './lote'
 
 export async function gerarPlanilhaLote(loteId: string): Promise<Buffer> {
@@ -209,4 +223,109 @@ export async function atualizarWesalesLote(loteId: string): Promise<{ atualizado
   }
 
   return { atualizados, semContato }
+}
+
+function formatarTaxaMes(taxaMes: number | null): string | null {
+  if (taxaMes === null) return null
+  return `${taxaMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
+}
+
+/**
+ * Ofertas encontradas (Fatia 3, `ofertas_status='ok'`) → Oportunidade no
+ * pipeline "Ofertas de Crédito", MESMO mecanismo do REFIN
+ * (src/app/api/alvoconsig/upload/route.ts, tipo='refin'): idempotência por
+ * tipoOferta+instituicaoId+tabelaCodigo (atualiza valor/campos sem mexer na
+ * etapa; cria só oferta inédita). Nunca cria contato — só itens já vinculados
+ * (`wesales_contact_id`) ou achados por CPF (quem cria é a NVTI). Best-effort
+ * por item: erro de um não trava o lote.
+ */
+export async function enviarOfertasParaWesales(loteId: string): Promise<{ enviados: number; semContato: number }> {
+  const admin = await createAdminClient()
+
+  const { data: itens, error } = await admin
+    .from('if_higienizacao_itens')
+    .select('id, cpf, wesales_contact_id, ofertas')
+    .eq('lote_id', loteId)
+    .eq('ofertas_status', 'ok')
+    .is('wesales_ofertas_em', null)
+  if (error) throw new Error(error.message)
+  if (!itens || itens.length === 0) return { enviados: 0, semContato: 0 }
+
+  const entradasOferta = Object.entries(OFERTA_FIELD_KEYS) as Array<[keyof typeof OFERTA_FIELD_KEYS, string]>
+  const resolvidos = await Promise.all(entradasOferta.map(([campo, key]) => ensureCustomField(key, OFERTA_FIELD_LABELS[campo], 'opportunity')))
+  const ofertaFieldDefs: Record<string, CustomFieldDef> = {}
+  entradasOferta.forEach(([, key], i) => { ofertaFieldDefs[key] = resolvidos[i] })
+  const fCampo = (campo: keyof typeof OFERTA_FIELD_KEYS) => ofertaFieldDefs[OFERTA_FIELD_KEYS[campo]].id
+
+  const pipelineOfertas = await resolverPipelineOfertas()
+  const stageDisponivelId = pipelineOfertas.stages[ETAPA_DISPONIVEL]?.id
+  const pipelineId = pipelineOfertas.pipeline.id
+
+  let enviados = 0
+  let semContato = 0
+
+  for (const item of itens) {
+    const ofertas = Array.isArray(item.ofertas) ? (item.ofertas as OfertaNormalizada[]) : []
+    if (ofertas.length === 0) continue
+
+    try {
+      const contato = item.wesales_contact_id ? await getContact(String(item.wesales_contact_id)) : await findContactByCpf(String(item.cpf))
+      if (!contato) {
+        semContato += 1
+        continue
+      }
+
+      const existentesNoPipeline = await findOpportunitiesByContactDetalhadas(contato.id, pipelineId)
+      const usadosNestaRodada = new Set<string>()
+
+      for (const oferta of ofertas) {
+        const alvo = existentesNoPipeline.find((op) => {
+          if (usadosNestaRodada.has(op.id)) return false
+          if (opportunityFieldValue(op, fCampo('tipoOferta')) !== oferta.produto) return false
+          if (opportunityFieldValue(op, fCampo('instituicaoId')) !== oferta.instituicaoId) return false
+          const tabelaOp = opportunityFieldValue(op, fCampo('tabelaCodigo'))
+          return (tabelaOp || null) === (oferta.tabelaCodigo || null)
+        })
+
+        const customFields: Array<{ id: string; fieldValue: string }> = [
+          { id: fCampo('tipoOferta'), fieldValue: oferta.produto },
+          { id: fCampo('instituicaoId'), fieldValue: oferta.instituicaoId },
+          { id: fCampo('instituicao'), fieldValue: oferta.instituicaoNome },
+        ]
+        if (oferta.numParcelas !== null) customFields.push({ id: fCampo('prazo'), fieldValue: String(oferta.numParcelas) })
+        if (oferta.valorParcela !== null) customFields.push({ id: fCampo('parcela'), fieldValue: String(oferta.valorParcela) })
+        const taxaFormatada = formatarTaxaMes(oferta.taxaMes)
+        if (taxaFormatada) customFields.push({ id: fCampo('taxa'), fieldValue: taxaFormatada })
+        if (oferta.tabelaCodigo) customFields.push({ id: fCampo('tabelaCodigo'), fieldValue: oferta.tabelaCodigo })
+
+        const monetaryValue = oferta.valorSaque ?? 0
+        if (alvo) {
+          usadosNestaRodada.add(alvo.id)
+          // Só valor/campos — NUNCA mexe na etapa (preserva progresso do atendimento).
+          await updateOpportunity(alvo.id, { monetaryValue, customFields })
+        } else {
+          const nova = await createOpportunity({
+            contactId: contato.id,
+            pipelineId,
+            pipelineStageId: stageDisponivelId,
+            name: nomeOportunidade(oferta.produto, oferta.instituicaoNome, oferta.tabelaCodigo),
+            monetaryValue,
+            customFields,
+          })
+          existentesNoPipeline.push(nova)
+          usadosNestaRodada.add(nova.id)
+        }
+      }
+
+      await admin
+        .from('if_higienizacao_itens')
+        .update({ wesales_ofertas_em: new Date().toISOString(), wesales_contact_id: contato.id })
+        .eq('id', item.id)
+      enviados += 1
+    } catch (err) {
+      console.warn(`[if-higienizacao] falha ao enviar ofertas ao WeSales do item ${item.id}:`, err instanceof Error ? err.message : err)
+    }
+  }
+
+  return { enviados, semContato }
 }

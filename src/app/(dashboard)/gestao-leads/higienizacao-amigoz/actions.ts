@@ -23,8 +23,11 @@ import {
   type VarianteConvenio,
 } from '@/lib/if-credito/amigoz/convenios'
 import { consultarMargemComVariantes } from '@/lib/if-credito/amigoz/margem'
+import { garantirClienteAmigoz, simularOfertasAmigoz, type ItemParaOferta } from '@/lib/if-credito/amigoz/ofertas'
+import type { OfertaNormalizada } from '@/lib/if-credito/ofertas'
 import {
   adicionarItens,
+  buscarOfertasDoLote,
   cancelarLote,
   criarLote,
   iniciarLote,
@@ -37,7 +40,7 @@ import {
   type ItemResumo,
   type LoteResumo,
 } from '@/lib/if-credito/amigoz/lote'
-import { atualizarWesalesLote, enviarParaNvti } from '@/lib/if-credito/amigoz/saidas'
+import { atualizarWesalesLote, enviarOfertasParaWesales, enviarParaNvti } from '@/lib/if-credito/amigoz/saidas'
 import { normalizeCpf, validateCpf } from '@/lib/import/columnMap'
 import { WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { customFieldValue, resolveCustomField, searchContactsAte, countContacts, type ContactSearchFilter } from '@/lib/wesales/client'
@@ -302,6 +305,7 @@ export async function criarLoteWesalesAction(input: {
   tagsExtras: string[]
   limite: number
   pausaMs: number
+  buscarOfertas?: boolean
 }): Promise<ActionResult<{ loteId: string; total: number }>> {
   try {
     const { user } = await requirePermission(RESOURCE, 'can_include')
@@ -330,6 +334,7 @@ export async function criarLoteWesalesAction(input: {
       averbadoraExterna: variantes[0].averbadoraExterna,
       pausaMs: input.pausaMs,
       filtroWesales: { convenioId: input.convenioId, tagsExtras: input.tagsExtras, limite },
+      buscarOfertas: input.buscarOfertas ?? false,
       criadoPor: user.id,
     })
     const { inseridos } = await adicionarItens(loteId, itens)
@@ -422,6 +427,97 @@ export async function atualizarWesalesAction(loteId: string): Promise<ActionResu
     const resultado = await atualizarWesalesLote(loteId)
     revalidatePath(PATH_TELA)
     return { success: true, data: resultado }
+  } catch (err) {
+    return erro(err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fatia 3 — ofertas disponíveis (simulação em tempo real) → Oportunidade
+// ---------------------------------------------------------------------------
+
+export async function enviarOfertasParaWesalesAction(loteId: string): Promise<ActionResult<{ enviados: number; semContato: number }>> {
+  try {
+    await requirePermission(RESOURCE, 'can_include')
+    const resultado = await enviarOfertasParaWesales(loteId)
+    revalidatePath(PATH_TELA)
+    return { success: true, data: resultado }
+  } catch (err) {
+    return erro(err)
+  }
+}
+
+/** Reabre um lote CONCLUÍDO (sem `buscar_ofertas` na criação) pra buscar ofertas dos itens já `ok`. */
+export async function buscarOfertasDoLoteAction(loteId: string): Promise<ActionResult<null>> {
+  try {
+    await requirePermission(RESOURCE, 'can_include')
+    await buscarOfertasDoLote(loteId)
+    revalidatePath(PATH_TELA)
+    return { success: true, data: null }
+  } catch (err) {
+    return erro(err)
+  }
+}
+
+/**
+ * Aba 1 (unitária): depois da margem, roda cliente + simulação NA HORA (sem
+ * passar pelo worker de lote — é 1 item só) e devolve as ofertas pra tela.
+ */
+export async function buscarOfertasUnitariaAction(itemId: string): Promise<ActionResult<{ ofertas: OfertaNormalizada[]; status: string; mensagem: string | null }>> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_include')
+    const admin = await createAdminClient()
+    const { data: item, error } = await admin.from('if_higienizacao_itens').select('*').eq('id', itemId).maybeSingle()
+    if (error) throw error
+    if (!item) throw new Error('Item não encontrado.')
+    if (!item.tem_oportunidade) throw new Error('Este item não tem margem de cartão (RCC/RMC).')
+
+    const cfg = await carregarConfigAmigoz()
+    const dados: ItemParaOferta = {
+      cpf: String(item.cpf),
+      nome: item.nome ? String(item.nome) : null,
+      nomeIf: item.nome_if ? String(item.nome_if) : null,
+      nascimentoIf: item.nascimento_if ? String(item.nascimento_if) : null,
+      matriculaIf: item.matricula_if ? String(item.matricula_if) : null,
+      telefone: item.telefone ? String(item.telefone) : null,
+      wesalesContactId: item.wesales_contact_id ? String(item.wesales_contact_id) : null,
+      convenioExternoUsado: item.convenio_externo_usado ? String(item.convenio_externo_usado) : null,
+      margemConsignado: item.margem_consignado === null ? null : Number(item.margem_consignado),
+      margemBeneficioCompra: item.margem_beneficio_compra === null ? null : Number(item.margem_beneficio_compra),
+      margemBeneficioSaque: item.margem_beneficio_saque === null ? null : Number(item.margem_beneficio_saque),
+      clienteExternoId: item.cliente_externo_id ? String(item.cliente_externo_id) : null,
+    }
+
+    const clienteResultado = await garantirClienteAmigoz(cfg, dados, user.id)
+    if (!clienteResultado.ok) {
+      await admin
+        .from('if_higienizacao_itens')
+        .update({ ofertas_status: 'erro', ofertas_erro: clienteResultado.mensagem.slice(0, 500), ofertas_consultadas_em: new Date().toISOString() })
+        .eq('id', itemId)
+      revalidatePath(PATH_TELA)
+      return { success: true, data: { ofertas: [], status: 'erro', mensagem: clienteResultado.mensagem } }
+    }
+    if (!dados.clienteExternoId) {
+      await admin.from('if_higienizacao_itens').update({ cliente_externo_id: clienteResultado.clienteExternoId }).eq('id', itemId)
+    }
+
+    const PAUSA_MS_UNITARIA = 1500 // 1 item só, fora do lote — usa o mesmo piso padrão do lote
+    const simulacao = await simularOfertasAmigoz(cfg, dados, PAUSA_MS_UNITARIA, user.id)
+    const status = simulacao.ofertas.length > 0 ? 'ok' : simulacao.algumErro ? 'erro' : 'sem_oferta'
+    await admin
+      .from('if_higienizacao_itens')
+      .update({
+        ofertas: simulacao.ofertas as never,
+        ofertas_status: status,
+        ofertas_erro: status === 'erro' ? (simulacao.algumErro || '').slice(0, 500) : null,
+        ofertas_consultadas_em: new Date().toISOString(),
+      })
+      .eq('id', itemId)
+    // Lote unitário tem sempre 1 item — não precisa incrementar, só refletir o resultado deste.
+    await admin.from('if_higienizacao_lotes').update({ itens_com_oferta: status === 'ok' ? 1 : 0 }).eq('id', item.lote_id)
+
+    revalidatePath(PATH_TELA)
+    return { success: true, data: { ofertas: simulacao.ofertas, status, mensagem: simulacao.algumErro } }
   } catch (err) {
     return erro(err)
   }

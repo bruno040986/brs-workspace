@@ -26,7 +26,7 @@ export const ETAPA_FORMALIZACAO = 'Formalização'
 export const ETAPA_LIBERADA = 'Liberada p/ Pagamento'
 export const ETAPA_PAGA = 'Proposta Paga'
 
-export type TipoOferta = 'refin' | 'novo' | 'cartao_rmc' | 'cartao_rcc'
+export type TipoOferta = 'refin' | 'novo' | 'cartao_rmc' | 'cartao_rcc' | 'saque_complementar'
 
 /** Campos de OPORTUNIDADE (modelo 'opportunity') — um conjunto só, reaproveitado por todo tipo de oferta. */
 export const OFERTA_FIELD_KEYS = {
@@ -90,9 +90,16 @@ export const MARGEM_FIELD_LABELS: Record<keyof typeof MARGEM_FIELD_KEYS, string>
   rccData: 'Cartão RCC Margem Data',
 } as const
 
+const ROTULO_TIPO_OFERTA: Record<TipoOferta, string> = {
+  refin: 'REFIN',
+  novo: 'Novo',
+  cartao_rmc: 'Cartão RMC',
+  cartao_rcc: 'Cartão RCC',
+  saque_complementar: 'Saque Complementar',
+}
+
 export function nomeOportunidade(tipo: TipoOferta, instituicaoNome: string, tabelaNome: string | null): string {
-  const rotuloTipo = tipo === 'refin' ? 'REFIN' : tipo === 'novo' ? 'Novo' : tipo === 'cartao_rmc' ? 'Cartão RMC' : 'Cartão RCC'
-  const partes = [rotuloTipo, instituicaoNome, tabelaNome].filter(Boolean)
+  const partes = [ROTULO_TIPO_OFERTA[tipo], instituicaoNome, tabelaNome].filter(Boolean)
   return partes.join(' — ')
 }
 
