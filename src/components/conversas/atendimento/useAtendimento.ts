@@ -69,9 +69,12 @@ function mensagem(err: unknown, fallback: string) {
 
 export function useAtendimento() {
   const [aba, setAba] = useState<AbaAtendimento>('meus')
+  const [abaAnterior, setAbaAnterior] = useState<AbaAtendimento>('meus')
   const [busca, setBusca] = useState('')
-  const [canalId, setCanalId] = useState<number | null>(null)
-  const [departamentoId, setDepartamentoId] = useState<string | null>(null)
+  // Conjunto vazio = "Todos" (sem filtro). Multi-seleção: marcar um ou vários
+  // canais/departamentos ao mesmo tempo.
+  const [canalIds, setCanalIds] = useState<Set<number>>(() => new Set())
+  const [departamentoIds, setDepartamentoIds] = useState<Set<string>>(() => new Set())
   const [departamentos, setDepartamentos] = useState<DepartamentoResumo[]>([])
   const [ehSupervisor, setEhSupervisor] = useState(false)
   const [disponivel, setDisponivel] = useState(true)
@@ -118,13 +121,23 @@ export function useAtendimento() {
     mensagensIdsRef.current = new Set(mensagens.map((m) => m.id))
   }, [mensagens])
 
-  const teamIdFiltro = departamentoId ? departamentos.find((d) => d.id === departamentoId)?.chatwootTeamId ?? undefined : undefined
+  // Com 1 único selecionado dá pra empurrar o filtro pro servidor (mais
+  // eficiente); com 0 (= Todos) ou 2+ (multi-seleção) o Chatwoot só aceita um
+  // inbox_id/team_id por chamada, então busca tudo e filtra no cliente abaixo.
+  const canalIdServidor = canalIds.size === 1 ? [...canalIds][0] : undefined
+  const teamIdFiltro =
+    departamentoIds.size === 1 ? departamentos.find((d) => departamentoIds.has(d.id))?.chatwootTeamId ?? undefined : undefined
 
   const carregarLista = useCallback(async (): Promise<ConversaAtendimento[]> => {
     if (aba === 'contatos') return []
     try {
-      const r = await getConversas({ aba, q: busca || undefined, inboxId: canalId ?? undefined, teamId: teamIdFiltro ?? undefined })
-      const lista = (r.conversas || []) as ConversaAtendimento[]
+      const r = await getConversas({ aba, q: busca || undefined, inboxId: canalIdServidor, teamId: teamIdFiltro ?? undefined })
+      let lista = (r.conversas || []) as ConversaAtendimento[]
+      if (canalIds.size > 1) lista = lista.filter((c) => canalIds.has(c.inbox_id))
+      if (departamentoIds.size > 1) {
+        const teamsAlvo = new Set(departamentos.filter((d) => departamentoIds.has(d.id)).map((d) => d.chatwootTeamId).filter((x): x is number => x !== null))
+        lista = lista.filter((c) => c.meta?.team && teamsAlvo.has(c.meta.team.id))
+      }
       setDisponivel(r.disponivel)
       setConversas(lista)
       // Mantém a conversa aberta em dia com a lista (atendente, última mensagem):
@@ -142,7 +155,7 @@ export function useAtendimento() {
     } finally {
       setCarregandoLista(false)
     }
-  }, [aba, busca, canalId, teamIdFiltro])
+  }, [aba, busca, canalIds, departamentoIds, departamentos, canalIdServidor, teamIdFiltro])
 
   const carregarContadores = useCallback(async () => {
     try {
@@ -325,6 +338,33 @@ export function useAtendimento() {
       supabase.removeChannel(canal)
     }
   }, [accountId])
+
+  // Aba "Contatos" virou um ícone à parte (não fica misturado com Chats/Fila/
+  // Geral, que são visões de conversa): guarda a aba de conversa anterior pra
+  // voltar pra ela ao fechar o painel de contatos.
+  useEffect(() => {
+    if (aba !== 'contatos') setAbaAnterior(aba)
+  }, [aba])
+  const alternarContatos = useCallback(() => {
+    setAba((atual) => (atual === 'contatos' ? abaAnterior : 'contatos'))
+  }, [abaAnterior])
+
+  const alternarCanal = useCallback((id: number) => {
+    setCanalIds((prev) => {
+      const novo = new Set(prev)
+      if (novo.has(id)) novo.delete(id)
+      else novo.add(id)
+      return novo
+    })
+  }, [])
+  const alternarDepartamentoFiltro = useCallback((id: string) => {
+    setDepartamentoIds((prev) => {
+      const novo = new Set(prev)
+      if (novo.has(id)) novo.delete(id)
+      else novo.add(id)
+      return novo
+    })
+  }, [])
 
   const selecionarConversa = useCallback((c: ConversaAtendimento | null) => {
     setSelecionada(c)
@@ -697,12 +737,15 @@ export function useAtendimento() {
   return {
     aba,
     setAba,
+    alternarContatos,
     busca,
     setBusca,
-    canalId,
-    setCanalId,
-    departamentoId,
-    setDepartamentoId,
+    canalIds,
+    alternarCanal,
+    limparCanais: () => setCanalIds(new Set()),
+    departamentoIds,
+    alternarDepartamentoFiltro,
+    limparDepartamentosFiltro: () => setDepartamentoIds(new Set()),
     departamentos,
     ehSupervisor,
     contadores,

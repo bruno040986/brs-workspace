@@ -340,13 +340,17 @@ async function atribuirDepartamentosAutomaticos(cli: ChatwootConta, contaId: str
       ]),
     ] as string[]
     let teamPorDepto = new Map<string, number>()
+    let agentePadraoPorDepto = new Map<string, number>()
     if (deptoIds.length) {
-      const { data: deps } = await admin.from('chat_departamentos').select('id, chatwoot_team_id').in('id', deptoIds)
+      const { data: deps } = await admin.from('chat_departamentos').select('id, chatwoot_team_id, atendente_padrao_chatwoot_id').in('id', deptoIds)
       teamPorDepto = new Map((deps || []).filter((d: any) => d.chatwoot_team_id).map((d: any) => [String(d.id), Number(d.chatwoot_team_id)]))
+      agentePadraoPorDepto = new Map((deps || []).filter((d: any) => d.atendente_padrao_chatwoot_id).map((d: any) => [String(d.id), Number(d.atendente_padrao_chatwoot_id)]))
     }
     const teamPorInbox = new Map<number, number>()
+    const deptoIdPorInbox = new Map<number, string>()
     for (const i of instancias || []) {
       const team = i.departamento_id ? teamPorDepto.get(i.departamento_id) : undefined
+      if (i.chatwoot_inbox_id && i.departamento_id) deptoIdPorInbox.set(Number(i.chatwoot_inbox_id), i.departamento_id)
       if (i.chatwoot_inbox_id && team) teamPorInbox.set(Number(i.chatwoot_inbox_id), team)
     }
     const metaPorContato = new Map((contatoMetas || []).map((m: any) => [Number(m.chatwoot_contact_id), m]))
@@ -360,13 +364,27 @@ async function atribuirDepartamentosAutomaticos(cli: ChatwootConta, contaId: str
       } else {
         const contactId = c.meta?.sender?.id
         const metaContato = contactId ? metaPorContato.get(contactId) : undefined
+        let deptoAlvoId: string | null = null
         if (metaContato?.departamento_padrao_id && teamPorDepto.has(metaContato.departamento_padrao_id)) {
+          deptoAlvoId = metaContato.departamento_padrao_id
           teamAlvo = teamPorDepto.get(metaContato.departamento_padrao_id) || null
           if (metaContato.atendente_padrao_chatwoot_id) agenteAlvo = Number(metaContato.atendente_padrao_chatwoot_id)
         } else {
+          deptoAlvoId = deptoIdPorInbox.get(c.inbox_id) ?? null
           teamAlvo = teamPorInbox.get(c.inbox_id) ?? null
         }
+        // Sem atendente padrão do CONTATO: cai pro atendente padrão do
+        // DEPARTAMENTO alvo (fecha o ciclo do "Departamento padrão" já
+        // existente por conexão/instância).
+        if (agenteAlvo === undefined && deptoAlvoId) agenteAlvo = agentePadraoPorDepto.get(deptoAlvoId)
       }
+      // Conversa já tem atendente (atribuição manual, ou de uma rodada
+      // anterior deste próprio roteamento): preserva o atendente atual ao
+      // setar o team, mesmo que exista atendente padrão do contato — nunca
+      // reatribui silenciosamente uma conversa que já tem dono. Isso também
+      // fecha a janela entre as duas chamadas do atribuir() em que o
+      // "Default Policy" do Chatwoot poderia assumir a conversa sozinho.
+      if (c.meta?.assignee?.id) agenteAlvo = c.meta.assignee.id
       if (teamAlvo) {
         try {
           await cli.atribuir(c.id, { teamId: teamAlvo, ...(agenteAlvo !== undefined ? { assigneeId: agenteAlvo } : {}) })

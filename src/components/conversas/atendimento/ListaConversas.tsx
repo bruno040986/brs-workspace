@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useEffect, useMemo, useReducer, useState } from 'react'
-import { Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound } from 'lucide-react'
+import { ChevronDown, Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound, X } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
 import AvatarContato from './AvatarContato'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
@@ -15,16 +15,19 @@ type Presenca = 'online' | 'busy' | 'offline' | null
 type Props = {
   aba: AbaAtendimento
   onAbaChange: (aba: AbaAtendimento) => void
+  onAlternarContatos: () => void
   filaCount: number
   contadores: { mine: number; unassigned: number; all: number }
   busca: string
   onBuscaChange: (v: string) => void
   canais: { inboxes: InboxAtendimento[]; instancias: InstanciaAtendimento[] }
-  canalId: number | null
-  onCanalChange: (id: number | null) => void
+  canalIds: Set<number>
+  onAlternarCanal: (id: number) => void
+  onLimparCanais: () => void
   departamentos: DepartamentoResumo[]
-  departamentoId: string | null
-  onDepartamentoChange: (id: string | null) => void
+  departamentoIds: Set<string>
+  onAlternarDepartamento: (id: string) => void
+  onLimparDepartamentos: () => void
   ehSupervisor: boolean
   presenca: Presenca
   onPresencaChange: (status: 'online' | 'busy' | 'offline') => void
@@ -47,16 +50,19 @@ const PRESENCA_INFO: Record<NonNullable<Presenca>, { cor: string; rotulo: string
 export default function ListaConversas({
   aba,
   onAbaChange,
+  onAlternarContatos,
   filaCount,
   contadores,
   busca,
   onBuscaChange,
   canais,
-  canalId,
-  onCanalChange,
+  canalIds,
+  onAlternarCanal,
+  onLimparCanais,
   departamentos,
-  departamentoId,
-  onDepartamentoChange,
+  departamentoIds,
+  onAlternarDepartamento,
+  onLimparDepartamentos,
   ehSupervisor,
   presenca,
   onPresencaChange,
@@ -78,29 +84,30 @@ export default function ListaConversas({
     const base: Array<{ id: AbaAtendimento; rotulo: string; Icone: typeof MessageCircle; badge?: number }> = [
       { id: 'meus', rotulo: 'Chats', Icone: MessageCircle, badge: contadores.mine },
       { id: 'fila', rotulo: 'Fila', Icone: Inbox, badge: contadores.unassigned },
-      { id: 'contatos', rotulo: 'Contatos', Icone: Contact },
     ]
     if (ehSupervisor) base.push({ id: 'geral', rotulo: 'Geral', Icone: Users })
     return base
   }, [ehSupervisor, contadores])
 
-  const chipsCanal = useMemo(() => {
+  const opcoesCanal = useMemo(() => {
     const vistos = new Set<number>()
-    const chips: Array<{ id: number; nome: string }> = []
+    const chips: Array<{ id: number; rotulo: string; status?: string }> = []
     for (const i of canais.instancias) {
       if (i.inboxId && !vistos.has(i.inboxId)) {
         vistos.add(i.inboxId)
-        chips.push({ id: i.inboxId, nome: i.nome })
+        chips.push({ id: i.inboxId, rotulo: i.nome, status: i.status })
       }
     }
     for (const i of canais.inboxes) {
       if (!vistos.has(i.id)) {
         vistos.add(i.id)
-        chips.push({ id: i.id, nome: i.nome })
+        chips.push({ id: i.id, rotulo: i.nome })
       }
     }
     return chips
   }, [canais])
+
+  const opcoesDepartamento = useMemo(() => departamentos.map((d) => ({ id: d.id, rotulo: d.nome })), [departamentos])
 
   const listaOrdenada = useMemo(() => [...conversas].sort((a, b) => (b.last_activity_at || 0) - (a.last_activity_at || 0)), [conversas])
 
@@ -118,6 +125,23 @@ export default function ListaConversas({
               onChange={(e) => onBuscaChange(e.target.value)}
             />
           </div>
+          <button
+            type="button"
+            onClick={onAlternarContatos}
+            title="Contatos"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              border: `1px solid ${aba === 'contatos' ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
+              borderRadius: 99,
+              padding: 6,
+              background: aba === 'contatos' ? 'var(--msn-item-active)' : 'transparent',
+              color: aba === 'contatos' ? 'var(--msn-accent)' : 'var(--msn-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            <Contact size={14} />
+          </button>
           <div style={{ position: 'relative' }}>
             <button
               type="button"
@@ -187,82 +211,14 @@ export default function ListaConversas({
             </button>
           ))}
         </div>
-        {aba !== 'contatos' && chipsCanal.length > 0 && (
+        {aba !== 'contatos' && (opcoesCanal.length > 0 || opcoesDepartamento.length > 0) && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-            <button
-              type="button"
-              onClick={() => onCanalChange(null)}
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                padding: '3px 9px',
-                borderRadius: 99,
-                border: `1px solid ${canalId === null ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
-                background: canalId === null ? 'var(--msn-item-active)' : 'transparent',
-                color: canalId === null ? 'var(--msn-accent)' : 'var(--msn-muted)',
-                cursor: 'pointer',
-              }}
-            >
-              Todos
-            </button>
-            {chipsCanal.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onCanalChange(canalId === c.id ? null : c.id)}
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '3px 9px',
-                  borderRadius: 99,
-                  border: `1px solid ${canalId === c.id ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
-                  background: canalId === c.id ? 'var(--msn-item-active)' : 'transparent',
-                  color: canalId === c.id ? 'var(--msn-accent)' : 'var(--msn-muted)',
-                  cursor: 'pointer',
-                }}
-              >
-                {c.nome}
-              </button>
-            ))}
-          </div>
-        )}
-        {aba !== 'contatos' && departamentos.length > 0 && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            <button
-              type="button"
-              onClick={() => onDepartamentoChange(null)}
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                padding: '3px 9px',
-                borderRadius: 99,
-                border: `1px solid ${departamentoId === null ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
-                background: departamentoId === null ? 'var(--msn-item-active)' : 'transparent',
-                color: departamentoId === null ? 'var(--msn-accent)' : 'var(--msn-muted)',
-                cursor: 'pointer',
-              }}
-            >
-              Todos deptos.
-            </button>
-            {departamentos.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => onDepartamentoChange(departamentoId === d.id ? null : d.id)}
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '3px 9px',
-                  borderRadius: 99,
-                  border: `1px solid ${departamentoId === d.id ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
-                  background: departamentoId === d.id ? 'var(--msn-item-active)' : 'transparent',
-                  color: departamentoId === d.id ? 'var(--msn-accent)' : 'var(--msn-muted)',
-                  cursor: 'pointer',
-                }}
-              >
-                {d.nome}
-              </button>
-            ))}
+            {opcoesCanal.length > 0 && (
+              <FiltroMultiSelect rotulo="Instâncias" opcoes={opcoesCanal} selecionados={canalIds} onAlternar={onAlternarCanal} onLimpar={onLimparCanais} comStatus />
+            )}
+            {opcoesDepartamento.length > 0 && (
+              <FiltroMultiSelect rotulo="Departamentos" opcoes={opcoesDepartamento} selecionados={departamentoIds} onAlternar={onAlternarDepartamento} onLimpar={onLimparDepartamentos} />
+            )}
           </div>
         )}
       </div>
@@ -350,6 +306,98 @@ export default function ListaConversas({
             return r
           }}
         />
+      )}
+    </div>
+  )
+}
+
+const STATUS_COR_INSTANCIA: Record<string, string> = {
+  conectada: '#22c55e',
+  conectando: '#eab308',
+  aguardando_qr: '#eab308',
+  desconectada: '#ef4444',
+  erro: '#ef4444',
+}
+
+/**
+ * Filtro de instância/departamento da lista: dropdown com checkboxes
+ * (multi-seleção — conjunto vazio = "Todos"). Substituiu os chips de
+ * seleção única; `comStatus` liga a bolinha verde/amarela/vermelha de
+ * conexão (só faz sentido pras instâncias de WhatsApp).
+ */
+function FiltroMultiSelect<T extends string | number>({
+  rotulo,
+  opcoes,
+  selecionados,
+  onAlternar,
+  onLimpar,
+  comStatus,
+}: {
+  rotulo: string
+  opcoes: Array<{ id: T; rotulo: string; status?: string }>
+  selecionados: Set<T>
+  onAlternar: (id: T) => void
+  onLimpar: () => void
+  comStatus?: boolean
+}) {
+  const [aberto, setAberto] = useState(false)
+  const rotuloBotao =
+    selecionados.size === 0
+      ? `${rotulo}: Todos`
+      : selecionados.size === 1
+        ? opcoes.find((o) => selecionados.has(o.id))?.rotulo || rotulo
+        : `${rotulo} (${selecionados.size})`
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          fontSize: 11,
+          fontWeight: 700,
+          padding: '3px 9px',
+          borderRadius: 99,
+          border: `1px solid ${selecionados.size > 0 ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
+          background: selecionados.size > 0 ? 'var(--msn-item-active)' : 'transparent',
+          color: selecionados.size > 0 ? 'var(--msn-accent)' : 'var(--msn-muted)',
+          cursor: 'pointer',
+          maxWidth: 180,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotuloBotao}</span>
+        <ChevronDown size={11} style={{ flexShrink: 0 }} />
+      </button>
+      {aberto && (
+        <div
+          className="brs-messenger"
+          style={{ position: 'absolute', left: 0, top: '110%', zIndex: 60, minWidth: 210, maxWidth: 260, borderRadius: 6, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }}
+          data-brs-messenger-ignore-close="true"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid var(--msn-soft-border)' }}>
+            <button
+              type="button"
+              onClick={onLimpar}
+              style={{ fontSize: 11, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', color: selecionados.size === 0 ? 'var(--msn-accent)' : 'var(--msn-muted)' }}
+            >
+              Marcar todos
+            </button>
+            <button type="button" onClick={() => setAberto(false)} title="Fechar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-muted)', display: 'flex' }}>
+              <X size={13} />
+            </button>
+          </div>
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {opcoes.map((o) => (
+              <label key={String(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--msn-text)' }}>
+                <input type="checkbox" checked={selecionados.has(o.id)} onChange={() => onAlternar(o.id)} />
+                {comStatus && <span title={o.status} style={{ width: 8, height: 8, borderRadius: 99, background: STATUS_COR_INSTANCIA[o.status || ''] || '#94a3b8', flexShrink: 0 }} />}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.rotulo}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

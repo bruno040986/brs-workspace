@@ -21,6 +21,7 @@ export type DepartamentoRow = {
   distribuicaoAutomatica: boolean
   ehGrupos: boolean
   chatwootTeamId: number | null
+  atendentePadraoChatwootId: number | null
   membroIds: string[]
 }
 
@@ -31,7 +32,11 @@ export async function listarDepartamentos(): Promise<{ success: boolean; data?: 
     const conta = await contaBrs()
     if (!conta) return { success: true, data: [] }
     const [{ data: deps, error }, { data: membros }] = await Promise.all([
-      admin.from('chat_departamentos').select('id, nome, ordem, ativo, distribuicao_automatica, eh_grupos, chatwoot_team_id').eq('conta_id', conta.id).order('ordem'),
+      admin
+        .from('chat_departamentos')
+        .select('id, nome, ordem, ativo, distribuicao_automatica, eh_grupos, chatwoot_team_id, atendente_padrao_chatwoot_id')
+        .eq('conta_id', conta.id)
+        .order('ordem'),
       admin.from('chat_departamento_membros').select('departamento_id, user_id'),
     ])
     if (error) throw error
@@ -49,11 +54,27 @@ export async function listarDepartamentos(): Promise<{ success: boolean; data?: 
       distribuicaoAutomatica: Boolean(d.distribuicao_automatica),
       ehGrupos: Boolean(d.eh_grupos),
       chatwootTeamId: d.chatwoot_team_id === null ? null : Number(d.chatwoot_team_id),
+      atendentePadraoChatwootId: d.atendente_padrao_chatwoot_id === null ? null : Number(d.atendente_padrao_chatwoot_id),
       membroIds: membrosPorDepto.get(String(d.id)) || [],
     }))
     return { success: true, data }
   } catch (err: any) {
     return { success: false, error: err.message }
+  }
+}
+
+export type AgenteParaDepartamento = { id: number; nome: string }
+
+/** Agentes do Chatwoot pro seletor "Atendente padrão" do departamento. */
+export async function listarAgentesParaDepartamento(): Promise<AgenteParaDepartamento[]> {
+  try {
+    await requirePermission('central-conversas', 'can_view')
+    const cli = await clienteChatwootBrs()
+    if (!cli) return []
+    const agentes = await cli.agentes()
+    return agentes.map((a) => ({ id: a.id, nome: a.name })).sort((a, b) => a.nome.localeCompare(b.nome))
+  } catch {
+    return []
   }
 }
 
@@ -85,6 +106,7 @@ export async function salvarDepartamento(input: {
   ativo: boolean
   distribuicaoAutomatica: boolean
   ehGrupos: boolean
+  atendentePadraoChatwootId?: number | null
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requirePermission('central-conversas', 'can_edit')
@@ -118,6 +140,7 @@ export async function salvarDepartamento(input: {
       distribuicao_automatica: Boolean(input.distribuicaoAutomatica),
       eh_grupos: Boolean(input.ehGrupos),
       chatwoot_team_id: chatwootTeamId,
+      atendente_padrao_chatwoot_id: input.atendentePadraoChatwootId ?? null,
       updated_at: new Date().toISOString(),
     }
 

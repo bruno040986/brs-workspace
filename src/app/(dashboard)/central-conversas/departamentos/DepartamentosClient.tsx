@@ -9,21 +9,33 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Pencil, Plus, RefreshCw, TriangleAlert, Users, X } from 'lucide-react'
 import {
+  listarAgentesParaDepartamento,
   listarDepartamentos,
   listarUsuariosParaDepartamento,
   salvarDepartamento,
   setMembrosDepartamento,
   sincronizarDepartamentoChatwoot,
+  type AgenteParaDepartamento,
   type DepartamentoRow,
   type UsuarioParaDepartamento,
 } from '@/lib/central-conversas/departamentos-actions'
 
-type Editando = { id?: string; nome: string; ordem: number; ativo: boolean; distribuicaoAutomatica: boolean; ehGrupos: boolean; membroIds: string[] }
+type Editando = {
+  id?: string
+  nome: string
+  ordem: number
+  ativo: boolean
+  distribuicaoAutomatica: boolean
+  ehGrupos: boolean
+  atendentePadraoChatwootId: number | null
+  membroIds: string[]
+}
 
 export default function DepartamentosClient() {
   const [carregando, setCarregando] = useState(true)
   const [departamentos, setDepartamentos] = useState<DepartamentoRow[]>([])
   const [usuarios, setUsuarios] = useState<UsuarioParaDepartamento[]>([])
+  const [agentes, setAgentes] = useState<AgenteParaDepartamento[]>([])
   const [erro, setErro] = useState('')
   const [editando, setEditando] = useState<Editando | null>(null)
   const [salvando, setSalvando] = useState(false)
@@ -34,10 +46,11 @@ export default function DepartamentosClient() {
     setCarregando(true)
     setErro('')
     try {
-      const [res, us] = await Promise.all([listarDepartamentos(), listarUsuariosParaDepartamento()])
+      const [res, us, ag] = await Promise.all([listarDepartamentos(), listarUsuariosParaDepartamento(), listarAgentesParaDepartamento()])
       if (!res.success) throw new Error(res.error)
       setDepartamentos(res.data || [])
       setUsuarios(us)
+      setAgentes(ag)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao carregar departamentos.')
     } finally {
@@ -50,11 +63,20 @@ export default function DepartamentosClient() {
   }, [])
 
   function novo() {
-    setEditando({ nome: '', ordem: (departamentos.at(-1)?.ordem || 0) + 1, ativo: true, distribuicaoAutomatica: false, ehGrupos: false, membroIds: [] })
+    setEditando({ nome: '', ordem: (departamentos.at(-1)?.ordem || 0) + 1, ativo: true, distribuicaoAutomatica: false, ehGrupos: false, atendentePadraoChatwootId: null, membroIds: [] })
   }
 
   function editar(d: DepartamentoRow) {
-    setEditando({ id: d.id, nome: d.nome, ordem: d.ordem, ativo: d.ativo, distribuicaoAutomatica: d.distribuicaoAutomatica, ehGrupos: d.ehGrupos, membroIds: d.membroIds })
+    setEditando({
+      id: d.id,
+      nome: d.nome,
+      ordem: d.ordem,
+      ativo: d.ativo,
+      distribuicaoAutomatica: d.distribuicaoAutomatica,
+      ehGrupos: d.ehGrupos,
+      atendentePadraoChatwootId: d.atendentePadraoChatwootId,
+      membroIds: d.membroIds,
+    })
   }
 
   async function salvar() {
@@ -235,6 +257,24 @@ export default function DepartamentosClient() {
             </div>
             <p style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', margin: '0 0 0.9rem' }}>
               Distribuição automática desligada = o atendente assume manualmente da fila (padrão da BRS). Só um departamento pode "receber grupos".
+            </p>
+
+            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)' }}>Atendente padrão</label>
+            <select
+              className="form-control"
+              value={editando.atendentePadraoChatwootId ?? ''}
+              onChange={(e) => setEditando({ ...editando, atendentePadraoChatwootId: e.target.value ? Number(e.target.value) : null })}
+              style={{ margin: '0.3rem 0 0.5rem' }}
+            >
+              <option value="">Sem padrão</option>
+              {agentes.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.nome}
+                </option>
+              ))}
+            </select>
+            <p style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', margin: '0 0 0.9rem' }}>
+              Usado no primeiro vínculo automático das conversas que caem neste departamento (pela conexão) — só entra quando o contato não tem um atendente padrão próprio.
             </p>
 
             <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)' }}>
