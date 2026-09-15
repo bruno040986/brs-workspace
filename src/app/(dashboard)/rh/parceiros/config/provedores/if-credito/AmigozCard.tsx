@@ -27,14 +27,14 @@ const MODELOS: Record<OperacaoDescoberta, { rotulo: string; payload: string; dic
   convenios: { rotulo: 'Convênios do corban (GET)', payload: '', dica: 'Sem parâmetros.' },
   'consulta-margem': {
     rotulo: 'Consulta de margem (POST)',
-    payload: '{\n  "cpf": "00000000000",\n  "averbadora": 5,\n  "convenio": 0,\n  "numero_matricula": null,\n  "senha_servidor": null\n}',
+    payload: '{\n  "cpf": "00000000000",\n  "averbadora": 1,\n  "convenio": 25\n}',
     dica: 'Averbadoras: 1 FACIL · 2 ZETRASOFT · 3 QUANTUM · 5 DATAPREV · 6 SERPRO · 7 NEOCONSIG · 8 SAFECONSIG. O id do convênio vem da lista de convênios.',
   },
   cartoes: { rotulo: 'Limite e status do cartão (POST)', payload: '{\n  "cpf": "00000000000"\n}', dica: 'Só para CPF com cartão ativo no Amigoz.' },
   'simulacao-cartao': {
     rotulo: 'Simulação de novo cartão (POST)',
-    payload: '{\n  "cpf": "00000000000",\n  "convenio": 0,\n  "tipo_margem": 1,\n  "tipo_produto": 7,\n  "data_nascimento": "1980-01-01",\n  "margem": 0,\n  "margem_saque": 0\n}',
-    dica: 'tipo_produto: 7 Cartão Benefício · 15 Cartão Consignado. Só simula, não digita.',
+    payload: '{\n  "cpf": "00000000000",\n  "convenio": 0,\n  "tipo_margem": 1,\n  "tipo_produto": 7,\n  "data_nascimento": "01/01/1980",\n  "margem": 0,\n  "margem_saque": 0\n}',
+    dica: 'tipo_produto: 7 Cartão Benefício · 15 Cartão Consignado. Data em dd/mm/aaaa. Benefício: margem = limite (30%), margem_saque = saque (70%). AOS002 = cliente ainda não existe na processadora. Só simula, não digita.',
   },
   'simulacao-saque-v2': { rotulo: 'Simulação de saque complementar v2 (POST)', payload: '{\n  "cpf": "00000000000"\n}', dica: 'Cliente que já tem cartão.' },
   contratos: { rotulo: 'Listar contratos (GET)', payload: '{\n  "page": 1,\n  "items_per_page": 10\n}', dica: 'Filtros opcionais: cpf, status, tipo_produto.' },
