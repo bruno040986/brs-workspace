@@ -37,13 +37,24 @@
 
 ## 1. Regras de negócio fixadas
 
-| tipoMargem | idProduto | Nome canônico BRS            | Observação                       |
+| tipoMargem | idProduto | Nome canônico BRS            | Campo WeSales (JÁ EXISTE)        |
 |-----------:|----------:|------------------------------|----------------------------------|
-| 3          | 15        | Cartão Consignado — margem única |                              |
-| 2          | 7         | Cartão Benefício — saque (70%)   | Bruno: 70% da margem vira saque |
-| 1          | 7         | Cartão Benefício — compra (30%)  | Bruno: 30% vira limite do cartão|
-| 5          | 13        | Empréstimo consignado (aninhado) | vem em `emprestimos[]`          |
+| 3          | 15        | Cartão Consignado (RMC) — margem única | **Cartão RMC Margem**  |
+| 2          | 7         | Cartão Benefício (RCC) — saque (70%)   | **Cartão RCC Margem** (somar) |
+| 1          | 7         | Cartão Benefício (RCC) — compra (30%)  | **Cartão RCC Margem** (somar) |
+| 5          | 13        | Empréstimo consignado (aninhado) | **Novo Margem**                |
 
+- **Margem é dado do cliente, não da IF** (decisão do Bruno, 15/09): o Amigoz só nos dá
+  ACESSO às margens; elas vão para os campos de margem que o WeSales JÁ TEM e que outras
+  IFs também usam. NÃO criar campos `amigoz_*`. Regras de gravação:
+  - `Novo Margem` ← margem do empréstimo (`emprestimos[].margem_atual`, tipoMargem 5).
+  - `Cartão RMC Margem` ← cartão consignado (idProduto 15). Se a IF devolver o RMC
+    dividido em mais de uma linha (compra + saque), **somar** para gravar 100%.
+  - `Cartão RCC Margem` ← cartão benefício (idProduto 7): **somar** as linhas tipoMargem 1
+    (compra, 30%) + tipoMargem 2 (saque, 70%) e gravar o total (100%) no mesmo campo.
+  - O detalhamento 30/70 fica só no nosso banco (`if_higienizacao_itens`) e na planilha.
+  - Resolver as chaves pelo NOME do campo via `resolveCustomField` na inicialização e
+    guardar; se algum não existir, parar e perguntar (nunca criar).
 - "Tem oportunidade" = qualquer `margem_atual > 0` nas linhas acima.
 - Ritmo da API: **1 consulta por vez, sem paralelismo**, pausa mínima configurável
   (padrão 1500 ms) entre consultas; a API leva 1–7 s e às vezes 30 s. Respeitar
@@ -156,11 +167,11 @@ Card novo na hub `gestao-leads/page.tsx`.
     `gravarConvenioDoLoteSeVazio`; carimba `nvti_enviado_em`. NVTI é quem cadastra no
     WeSales (já faz hoje via `syncNvtiResultadoParaWesales`).
   - `atualizarWesales(loteId)` → só itens com `wesales_contact_id` OU contato achado por
-    `findContactByCpf`; grava custom fields (criar chaves via `ensureCustomField` seguindo a
-    regra: **código nunca cria campo — usar as chaves que o Bruno criar**; até lá, pedir
-    as chaves: sugestão `amigoz_margem_consignado`, `amigoz_margem_beneficio_saque`,
-    `amigoz_margem_beneficio_compra`, `amigoz_margem_emprestimo`, `amigoz_consultado_em`,
-    `amigoz_matricula`) e cria 1 oportunidade por item com oportunidade no pipeline
+    `findContactByCpf`; grava nos campos de margem EXISTENTES do WeSales conforme a tabela
+    do §1 (`Novo Margem`, `Cartão RMC Margem`, `Cartão RCC Margem` — RCC = soma 30%+70%;
+    chaves resolvidas pelo nome via `resolveCustomField`, **nunca `ensureCustomField`**),
+    mais matrícula/nascimento nos campos correspondentes se já existirem (se não existirem,
+    não gravar — não criar campo) e cria 1 oportunidade por item com oportunidade no pipeline
     "AC-Oferta" (resolver com `resolvePipeline`/`resolvePipelineStage`; se não existir
     estágio combinado, parar e perguntar). Idempotente: não duplicar oportunidade aberta
     do mesmo contato+produto (usar `findOpportunitiesByContact`).
