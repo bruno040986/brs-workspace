@@ -203,6 +203,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Importações', href: '/alvoconsig/importacoes', perms: [view('alvoconsig-gestao')] },
           { label: 'Alocação de Leads', href: '/alvoconsig/alocacao', perms: [view('alvoconsig-gestao')] },
           { label: 'Certificação', href: '/alvoconsig/certificacao', perms: [view('alvoconsig-certificacao')] },
+          { label: 'Higienização Amigoz', href: '/gestao-leads/higienizacao-amigoz', perms: [view('alvoconsig-higienizacao-amigoz')] },
           { label: 'Contatos', href: '/alvoconsig/contatos', perms: [view('alvoconsig-gestao')] },
           { label: 'Perfis de Usuário', href: '/alvoconsig/perfis', perms: [view('alvoconsig-gestao')] },
           { label: 'Ações Manuais', href: '/central-integracoes/acoes', perms: [view('central-integracoes')] },

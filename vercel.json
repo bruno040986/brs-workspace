@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/convenio-pesquisas",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/if-higienizacao",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
