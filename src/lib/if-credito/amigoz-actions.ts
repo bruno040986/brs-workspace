@@ -135,11 +135,17 @@ export async function testarConexaoAmigoz(): Promise<{ success: boolean; data?: 
   }
 }
 
-/** Operações de descoberta permitidas — só leitura e simulação. */
+/**
+ * Operações de descoberta permitidas. Leitura e simulação, mais UMA escrita
+ * liberada pelo Bruno em 14/09: 'criar-cliente' (POST /api/cliente) — o
+ * painel do Amigoz cria o cliente na processadora ANTES de simular, e sem
+ * isso a simulação devolve AOS002. Continua proibido criar contrato.
+ */
 export type OperacaoDescoberta =
   | 'convenios'
   | 'consulta-margem'
   | 'cartoes'
+  | 'criar-cliente'
   | 'simulacao-cartao'
   | 'simulacao-saque-v2'
   | 'contratos'
@@ -148,6 +154,7 @@ const OPERACOES: Record<OperacaoDescoberta, { metodo: 'GET' | 'POST'; caminho: s
   convenios: { metodo: 'GET', caminho: '/api/cliente/convenios' },
   'consulta-margem': { metodo: 'POST', caminho: '/api/consulta-margem' },
   cartoes: { metodo: 'POST', caminho: '/api/cliente/cartoes' },
+  'criar-cliente': { metodo: 'POST', caminho: '/api/cliente' },
   'simulacao-cartao': { metodo: 'POST', caminho: '/api/simulacao/cartao' },
   'simulacao-saque-v2': { metodo: 'POST', caminho: '/api/simulacao/v2/saque-complementar' },
   contratos: { metodo: 'GET', caminho: '/api/contratos/' },

@@ -31,6 +31,11 @@ const MODELOS: Record<OperacaoDescoberta, { rotulo: string; payload: string; dic
     dica: 'Averbadoras: 1 FACIL · 2 ZETRASOFT · 3 QUANTUM · 5 DATAPREV · 6 SERPRO · 7 NEOCONSIG · 8 SAFECONSIG. O id do convênio vem da lista de convênios.',
   },
   cartoes: { rotulo: 'Limite e status do cartão (POST)', payload: '{\n  "cpf": "00000000000"\n}', dica: 'Só para CPF com cartão ativo no Amigoz.' },
+  'criar-cliente': {
+    rotulo: 'Criar cliente (POST) — ESCRITA',
+    payload: '{\n  "cpf": "00000000000",\n  "nome_cliente": "NOME COMPLETO",\n  "telefone": "61987654321",\n  "data_nascimento": "01/01/1980",\n  "escolaridade": 1,\n  "convenio_id": 25,\n  "tipo_produto": 7,\n  "tipo_margem": 1,\n  "margem": 0,\n  "margem_saque": 0,\n  "numero_matricula": null\n}',
+    dica: 'ATENÇÃO: cria um cliente REAL no Amigoz (pré-requisito da simulação; sem ele vem AOS002). Use só CPF de teste. A resposta deve trazer o id_cliente_cartao para a simulação.',
+  },
   'simulacao-cartao': {
     rotulo: 'Simulação de novo cartão (POST)',
     payload: '{\n  "cpf": "00000000000",\n  "convenio": 0,\n  "tipo_margem": 1,\n  "tipo_produto": 7,\n  "data_nascimento": "01/01/1980",\n  "margem": 0,\n  "margem_saque": 0\n}',
