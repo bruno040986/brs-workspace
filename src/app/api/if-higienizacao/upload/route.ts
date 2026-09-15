@@ -102,6 +102,19 @@ export async function POST(request: NextRequest) {
     const temCabecalhoCpf = indicePorCampo.cpf !== undefined
     const linhasDeDados = temCabecalhoCpf ? linhas.slice(1) : linhas
 
+    // Buscar ofertas exige criar o cliente no Amigoz, e isso exige telefone —
+    // sem coluna reconhecida, todo item cairia em erro "sem telefone" depois
+    // de gastar a consulta de margem inteira. Barra aqui, antes de criar o lote.
+    if (buscarOfertas && indicePorCampo.telefone === undefined) {
+      return NextResponse.json(
+        {
+          error:
+            'Pra buscar ofertas, a planilha precisa ter uma coluna de telefone (cabeçalho "telefone" ou "celular") — é obrigatória pra criar o cliente no Amigoz. Adicione a coluna ou desmarque "Buscar ofertas após a margem".',
+        },
+        { status: 400 },
+      )
+    }
+
     if (linhasDeDados.length > MAX_LINHAS) {
       return NextResponse.json({ error: `Máximo de ${MAX_LINHAS.toLocaleString('pt-BR')} linhas por lote.` }, { status: 400 })
     }
