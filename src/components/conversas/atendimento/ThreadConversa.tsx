@@ -270,8 +270,8 @@ export default function ThreadConversa({
     if (!grupo) return
     let vivo = true
     void getGrupo(conversa.id)
-      .then((g) => {
-        if (vivo) setMembrosGrupo(g.membros)
+      .then((r) => {
+        if (vivo && r.ok) setMembrosGrupo(r.grupo.membros)
       })
       .catch(() => {})
     return () => {

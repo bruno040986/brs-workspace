@@ -588,7 +588,7 @@ function NovoGrupoModal({ instancias, onFechar }: { instancias: InstanciaAtendim
     if (!instanciaId) return
     const t = setTimeout(() => {
       void buscarContatosConexao(instanciaId, busca || undefined)
-        .then((r) => setItens(r.itens))
+        .then((r) => setItens(r.ok ? r.itens : []))
         .catch(() => setItens([]))
     }, 250)
     return () => clearTimeout(t)
@@ -613,7 +613,11 @@ function NovoGrupoModal({ instancias, onFechar }: { instancias: InstanciaAtendim
     if (!participantes.length) return setErro('Selecione ao menos um participante.')
     setSalvando(true)
     try {
-      await criarGrupo({ instanciaId, nome: nome.trim(), participantes, mensagemInicial: mensagemInicial.trim() || undefined })
+      const r = await criarGrupo({ instanciaId, nome: nome.trim(), participantes, mensagemInicial: mensagemInicial.trim() || undefined })
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
       setCriado(true)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao criar o grupo.')

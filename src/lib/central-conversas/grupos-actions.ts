@@ -89,48 +89,50 @@ async function enriquecerNomes(instanciaId: string, membros: MembroGrupo[]): Pro
   }
 }
 
-export async function getGrupo(conversationId: number): Promise<GrupoDetalhado> {
-  await requirePermission('conversas', 'can_view')
+export async function getGrupo(conversationId: number): Promise<{ ok: true; grupo: GrupoDetalhado } | { ok: false; error: string }> {
   try {
+    await requirePermission('conversas', 'can_view')
     const { instanciaId, jid } = await grupoDaConversa(conversationId)
     const inst = await instanciaDaConta(instanciaId)
     const detalhe = await engineGrupos.grupo(instanciaId, jid)
     const membros = await enriquecerNomes(instanciaId, detalhe.membros || [])
     const souAdmin = membros.some((m) => m.eu && m.admin)
-    return { ...detalhe, membros, souAdmin, provedor: inst.provedor, instanciaId }
+    return { ok: true, grupo: { ...detalhe, membros, souAdmin, provedor: inst.provedor, instanciaId } }
   } catch (err) {
-    throw new Error(mensagemErroEngine(err))
+    return { ok: false, error: mensagemErroEngine(err) }
   }
 }
 
-export async function alterarParticipantes(conversationId: number, acao: 'add' | 'remove' | 'promote' | 'demote', jids: string[]): Promise<{ ok: boolean; resultado: Array<{ jid: string; status: string }> }> {
-  await requirePermission('conversas', 'can_view')
+export async function alterarParticipantes(conversationId: number, acao: 'add' | 'remove' | 'promote' | 'demote', jids: string[]): Promise<{ ok: true; resultado: Array<{ jid: string; status: string }> } | { ok: false; error: string }> {
   try {
+    await requirePermission('conversas', 'can_view')
     const { instanciaId, jid } = await grupoDaConversa(conversationId)
     const normalizados = (jids || []).map(normalizarParticipante)
     if (!normalizados.length) throw new Error('Selecione ao menos um participante.')
-    return await engineGrupos.participantesGrupo(instanciaId, jid, { acao, jids: normalizados })
+    const resultado = await engineGrupos.participantesGrupo(instanciaId, jid, { acao, jids: normalizados })
+    return { ok: true, resultado: resultado.resultado }
   } catch (err) {
-    throw new Error(mensagemErroEngine(err))
+    return { ok: false, error: mensagemErroEngine(err) }
   }
 }
 
-export async function linkConvite(conversationId: number): Promise<{ link: string }> {
-  await requirePermission('conversas', 'can_view')
+export async function linkConvite(conversationId: number): Promise<{ ok: true; link: string } | { ok: false; error: string }> {
   try {
+    await requirePermission('conversas', 'can_view')
     const { instanciaId, jid } = await grupoDaConversa(conversationId)
-    return await engineGrupos.convite(instanciaId, jid)
+    const { link } = await engineGrupos.convite(instanciaId, jid)
+    return { ok: true, link }
   } catch (err) {
-    throw new Error(mensagemErroEngine(err))
+    return { ok: false, error: mensagemErroEngine(err) }
   }
 }
 
-export async function sairDoGrupo(conversationId: number): Promise<{ ok: true }> {
-  await requirePermission('conversas', 'can_view')
-  const user = await requireCurrentUser()
-  const cli = await clienteChatwootBrs()
-  if (!cli) throw new Error('Chatwoot não provisionado.')
+export async function sairDoGrupo(conversationId: number): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
+    await requirePermission('conversas', 'can_view')
+    const user = await requireCurrentUser()
+    const cli = await clienteChatwootBrs()
+    if (!cli) throw new Error('Chatwoot não provisionado.')
     const { instanciaId, jid } = await grupoDaConversa(conversationId)
     await engineGrupos.sairGrupo(instanciaId, jid)
     await cli.mudarStatus(conversationId, 'resolved')
@@ -139,24 +141,25 @@ export async function sairDoGrupo(conversationId: number): Promise<{ ok: true }>
     await cli.notaInterna(conversationId, `Saímos do grupo por ${assinatura || user.email || 'usuário'}`)
     return { ok: true }
   } catch (err) {
-    throw new Error(mensagemErroEngine(err))
+    return { ok: false, error: mensagemErroEngine(err) }
   }
 }
 
-export async function buscarContatosConexao(instanciaId: string, q?: string, page?: number): Promise<{ itens: ContatoConexao[]; total: number; page: number }> {
-  await requirePermission('conversas', 'can_view')
+export async function buscarContatosConexao(instanciaId: string, q?: string, page?: number): Promise<{ ok: true; itens: ContatoConexao[]; total: number; page: number } | { ok: false; error: string }> {
   try {
+    await requirePermission('conversas', 'can_view')
     await instanciaDaConta(instanciaId)
-    return await engineGrupos.contatos(instanciaId, { q, page, limit: 50 })
+    const resultado = await engineGrupos.contatos(instanciaId, { q, page, limit: 50 })
+    return { ok: true, ...resultado }
   } catch (err) {
-    throw new Error(mensagemErroEngine(err))
+    return { ok: false, error: mensagemErroEngine(err) }
   }
 }
 
-export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ jid: string; nome: string }> {
-  await requirePermission('conversas', 'can_view')
-  const user = await requireCurrentUser()
+export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ ok: true; jid: string; nome: string } | { ok: false; error: string }> {
   try {
+    await requirePermission('conversas', 'can_view')
+    const user = await requireCurrentUser()
     const inst = await instanciaDaConta(input.instanciaId)
     if (inst.provedor !== 'baileys') throw new Error('Gestão de grupo só em conexões Baileys.')
     const nome = String(input.nome || '').trim()
@@ -175,8 +178,8 @@ export async function criarGrupo(input: { instanciaId: string; nome: string; par
         // grupo já nasceu; a mensagem inicial é best-effort (fato 3 do roteiro)
       }
     }
-    return criado
+    return { ok: true, ...criado }
   } catch (err) {
-    throw new Error(mensagemErroEngine(err))
+    return { ok: false, error: mensagemErroEngine(err) }
   }
 }

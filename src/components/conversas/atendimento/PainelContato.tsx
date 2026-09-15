@@ -775,7 +775,12 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
     setCarregando(true)
     setErro(null)
     try {
-      setGrupo(await getGrupo(conversationId))
+      const r = await getGrupo(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      setGrupo(r.grupo)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao carregar o grupo.')
     } finally {
@@ -791,7 +796,11 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
   async function acaoParticipante(jid: string, acao: 'remove' | 'promote' | 'demote') {
     setOcupado(jid)
     try {
-      await alterarParticipantes(conversationId, acao, [jid])
+      const r = await alterarParticipantes(conversationId, acao, [jid])
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
       await carregar()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha na ação.')
@@ -802,8 +811,12 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
 
   async function copiarLink() {
     try {
-      const { link } = await linkConvite(conversationId)
-      await navigator.clipboard.writeText(link)
+      const r = await linkConvite(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      await navigator.clipboard.writeText(r.link)
       setLinkCopiado(true)
       setTimeout(() => setLinkCopiado(false), 1500)
     } catch (err) {
@@ -814,7 +827,12 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
   async function confirmarSairGrupo() {
     setOcupado('__sair__')
     try {
-      await sairDoGrupo(conversationId)
+      const r = await sairDoGrupo(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        setOcupado(null)
+        return
+      }
       setConfirmarSaida(false)
       onSaiu?.()
     } catch (err) {
@@ -982,7 +1000,7 @@ function ModalAdicionarMembros({
   useEffect(() => {
     const t = setTimeout(() => {
       void buscarContatosConexao(instanciaId, busca || undefined)
-        .then((r) => setItens(r.itens))
+        .then((r) => setItens(r.ok ? r.itens : []))
         .catch(() => setItens([]))
     }, 250)
     return () => clearTimeout(t)
@@ -1005,7 +1023,11 @@ function ModalAdicionarMembros({
     if (!jids.length) return
     setSalvando(true)
     try {
-      await alterarParticipantes(conversationId, 'add', jids)
+      const r = await alterarParticipantes(conversationId, 'add', jids)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
       await onAdicionado()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao adicionar.')
