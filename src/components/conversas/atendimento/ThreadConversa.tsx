@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
   ArrowLeft,
@@ -25,7 +25,7 @@ import {
 import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
-import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
+import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
 import { getGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { MembroGrupo } from '@/lib/central-conversas/engine'
@@ -61,6 +61,7 @@ type Props = {
   citacao: MensagemComExtras | null
   onCitar: (m: MensagemComExtras | null) => void
   departamento: string | null
+  nomeInstancia?: string
   departamentos: DepartamentoResumo[]
   enviando: boolean
   compacto?: boolean
@@ -131,6 +132,7 @@ export default function ThreadConversa({
   citacao,
   onCitar,
   departamento,
+  nomeInstancia,
   departamentos,
   enviando,
   compacto,
@@ -443,6 +445,9 @@ export default function ThreadConversa({
                 {membrosGrupo.length} membros
               </span>
             )}
+            {nomeInstancia && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(37,99,235,0.12)', color: '#1d4ed8' }}>{nomeInstancia}</span>
+            )}
             {departamento && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(22,163,74,0.14)', color: '#15803d' }}>{departamento}</span>
             )}
@@ -559,24 +564,39 @@ export default function ThreadConversa({
           ) : mensagensFiltradas.length === 0 ? (
             <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--msn-muted)', padding: 20 }}>Nenhuma mensagem.</div>
           ) : (
-            mensagensFiltradas.map((m) => {
-              const atributoChave = { [ATRIBUTO_CHAVE_ROLAGEM]: chaveMensagem(m) }
-              if (m.message_type === 2) {
-                return (
-                  <div key={m.id} {...atributoChave} style={{ alignSelf: 'center', fontSize: 11, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 12, padding: '3px 12px', margin: '4px 0', maxWidth: '85%', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }}>
-                    {m.content}
+            (() => {
+              let dataAnterior: string | null = null
+              return mensagensFiltradas.map((m) => {
+                const atributoChave = { [ATRIBUTO_CHAVE_ROLAGEM]: chaveMensagem(m) }
+                const dataMsg = dataCurta(m.created_at)
+                const separador = dataMsg !== dataAnterior
+                dataAnterior = dataMsg
+                const separadorEl = separador && (
+                  <div style={{ alignSelf: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '2px 10px', margin: '6px 0 2px' }}>
+                    {dataMsg}
                   </div>
                 )
-              }
-              const saida = m.message_type === 1 || m.message_type === 3
-              const nota = Boolean(m.private)
-              const aparelho = m.content_attributes?.origem === 'aparelho'
-              const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
-              const conteudo = remetente ? remetente.conteudo : m.content
-              const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
-              const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
-              return (
-                <div key={m.id} {...atributoChave} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3 }}>
+                if (m.message_type === 2) {
+                  return (
+                    <Fragment key={m.id}>
+                      {separadorEl}
+                      <div {...atributoChave} style={{ alignSelf: 'center', fontSize: 11, color: 'var(--msn-muted)', background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 12, padding: '3px 12px', margin: '4px 0', maxWidth: '85%', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }}>
+                        {m.content}
+                      </div>
+                    </Fragment>
+                  )
+                }
+                const saida = m.message_type === 1 || m.message_type === 3
+                const nota = Boolean(m.private)
+                const aparelho = m.content_attributes?.origem === 'aparelho'
+                const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
+                const conteudo = remetente ? remetente.conteudo : m.content
+                const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
+                const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
+                return (
+                  <Fragment key={m.id}>
+                    {separadorEl}
+                    <div {...atributoChave} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3 }}>
                   {!saida && (
                     <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
                       <Reply size={12} />
@@ -619,7 +639,7 @@ export default function ThreadConversa({
                     <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
                       {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
                       {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
-                      {horaCurta(m.created_at)}
+                      {dataHoraCompleta(m.created_at)}
                       {nota ? ' · nota interna' : ''}
                       {saida && !nota && (
                         <>
@@ -641,9 +661,11 @@ export default function ThreadConversa({
                       <Reply size={12} />
                     </button>
                   )}
-                </div>
-              )
-            })
+                    </div>
+                  </Fragment>
+                )
+              })
+            })()
           )}
         </div>
         {novasNaoLidas > 0 && (

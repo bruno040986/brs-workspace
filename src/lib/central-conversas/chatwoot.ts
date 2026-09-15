@@ -190,6 +190,16 @@ export class ChatwootConta {
     return this.req(`/conversations/${conversationId}/unread`, { method: 'POST', body: {} })
   }
 
+  /**
+   * Marca a conversa como lida (avança o "last seen" do agente pro agora).
+   * É o que o Chatwoot nativo faz sozinho ao abrir uma conversa na tela dele
+   * — aqui ninguém chamava isso, então `unread_count` ficava preso no valor
+   * de quando a mensagem chegou mesmo depois do atendente responder.
+   */
+  marcarLida(conversationId: number) {
+    return this.req(`/conversations/${conversationId}/update_last_seen`, { method: 'POST', body: {} })
+  }
+
   /** Respostas rápidas (canned responses) da conta. */
   respostasRapidas() {
     return this.req<Array<{ id: number; short_code: string; content: string }>>('/canned_responses')

@@ -57,6 +57,15 @@ export function horaCurta(ts: number) {
   return new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
+export function dataCurta(ts: number) {
+  return new Date(ts * 1000).toLocaleDateString('pt-BR')
+}
+
+/** Formato dd/mm/aaaa - hh:mm pro balão de cada mensagem na thread. */
+export function dataHoraCompleta(ts: number) {
+  return `${dataCurta(ts)} - ${horaCurta(ts)}`
+}
+
 export function iniciais(nome?: string | null) {
   const limpo = (nome || '?').trim()
   return limpo.slice(0, 1).toUpperCase() || '?'

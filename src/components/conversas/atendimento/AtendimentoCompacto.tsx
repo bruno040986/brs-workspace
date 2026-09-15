@@ -83,6 +83,7 @@ export default function AtendimentoCompacto() {
             citacao={at.citacao}
             onCitar={at.citar}
             departamento={departamento}
+            nomeInstancia={at.nomeInstanciaPorInbox.get(at.selecionada.inbox_id)}
             departamentos={at.departamentos}
             enviando={at.enviando}
             compacto
@@ -106,6 +107,7 @@ export default function AtendimentoCompacto() {
             busca={at.busca}
             onBuscaChange={at.setBusca}
             canais={at.canaisAtendimento}
+            nomeInstanciaPorInbox={at.nomeInstanciaPorInbox}
             canalIds={at.canalIds}
             onAlternarCanal={at.alternarCanal}
             onLimparCanais={at.limparCanais}

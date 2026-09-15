@@ -21,6 +21,7 @@ type Props = {
   busca: string
   onBuscaChange: (v: string) => void
   canais: { inboxes: InboxAtendimento[]; instancias: InstanciaAtendimento[] }
+  nomeInstanciaPorInbox: Map<number, string>
   canalIds: Set<number>
   onAlternarCanal: (id: number) => void
   onLimparCanais: () => void
@@ -56,6 +57,7 @@ export default function ListaConversas({
   busca,
   onBuscaChange,
   canais,
+  nomeInstanciaPorInbox,
   canalIds,
   onAlternarCanal,
   onLimparCanais,
@@ -257,9 +259,13 @@ export default function ListaConversas({
             <Loader2 size={18} className="spinner" />
           </div>
         ) : listaOrdenada.length === 0 ? (
-          <div style={{ padding: '2rem 1rem', textAlign: 'center', fontSize: 13, color: 'var(--msn-muted)' }}>Não existem conversas abertas</div>
+          <div style={{ padding: '2rem 1rem', textAlign: 'center', fontSize: 13, color: 'var(--msn-muted)' }}>
+            Não existem conversas abertas{aba === 'meus' ? ' para você' : ''}.
+          </div>
         ) : (
-          listaOrdenada.map((c) => <ItemConversa key={c.id} conversa={c} selecionada={selecionadaId === c.id} onSelecionar={onSelecionar} />)
+          listaOrdenada.map((c) => (
+            <ItemConversa key={c.id} conversa={c} selecionada={selecionadaId === c.id} onSelecionar={onSelecionar} nomeInstancia={nomeInstanciaPorInbox.get(c.inbox_id)} />
+          ))
         )}
       </div>
 
@@ -413,10 +419,12 @@ const ItemConversa = memo(function ItemConversa({
   conversa: c,
   selecionada: ativa,
   onSelecionar,
+  nomeInstancia,
 }: {
   conversa: ConversaAtendimento
   selecionada: boolean
   onSelecionar: (c: ConversaAtendimento) => void
+  nomeInstancia?: string
 }) {
   const grupo = ehGrupo(c)
   const departamento = c.meta.team?.name || null
@@ -461,8 +469,11 @@ const ItemConversa = memo(function ItemConversa({
             </span>
           )}
         </span>
-        {(entidade || departamento) && (
+        {(entidade || departamento || nomeInstancia) && (
           <span style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+            {nomeInstancia && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(37,99,235,0.12)', color: '#1d4ed8' }}>{nomeInstancia}</span>
+            )}
             {entidade && (
               <span
                 style={{

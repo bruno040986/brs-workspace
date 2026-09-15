@@ -31,6 +31,7 @@ export default function AtendimentoCompleto() {
           busca={at.busca}
           onBuscaChange={at.setBusca}
           canais={at.canaisAtendimento}
+          nomeInstanciaPorInbox={at.nomeInstanciaPorInbox}
           canalIds={at.canalIds}
           onAlternarCanal={at.alternarCanal}
           onLimparCanais={at.limparCanais}
@@ -63,6 +64,7 @@ export default function AtendimentoCompleto() {
             citacao={at.citacao}
             onCitar={at.citar}
             departamento={departamento}
+            nomeInstancia={at.nomeInstanciaPorInbox.get(at.selecionada.inbox_id)}
             departamentos={at.departamentos}
             enviando={at.enviando}
             onEnviarTexto={at.enviarTexto}

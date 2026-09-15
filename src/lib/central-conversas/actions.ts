@@ -1097,6 +1097,15 @@ export async function marcarNaoLidaConversa(conversationId: number): Promise<{ o
   return { ok: true }
 }
 
+/** Chamado ao abrir a conversa: zera o unread_count no Chatwoot (ver ChatwootConta.marcarLida). */
+export async function marcarConversaLida(conversationId: number): Promise<{ ok: true }> {
+  await requirePermission('conversas', 'can_view')
+  const cli = await clienteChatwootBrs()
+  if (!cli) throw new Error('Chatwoot não provisionado.')
+  await cli.marcarLida(conversationId)
+  return { ok: true }
+}
+
 /** Respostas rápidas (canned responses do Chatwoot) pros chips do composer. */
 export async function getRespostasRapidas(): Promise<Array<{ id: number; atalho: string; conteudo: string }>> {
   await requirePermission('conversas', 'can_view')

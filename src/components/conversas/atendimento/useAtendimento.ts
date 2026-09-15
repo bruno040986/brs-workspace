@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { pollingVisivel } from '@/lib/polling-visivel'
 import {
@@ -26,6 +26,7 @@ import {
   getTagsContato,
   iniciarConversaPorTelefone,
   listarContatos,
+  marcarConversaLida,
   marcarNaoLidaConversa,
   meusDepartamentos,
   responderConversa,
@@ -94,6 +95,16 @@ export function useAtendimento() {
     instancias: [],
     conta: null,
   })
+  // Nome da instância/inbox por id — pro "balãozinho" de instância na lista e
+  // no cabeçalho da conversa (paridade Digisac). Mesma fonte usada pelos
+  // chips de filtro, só reindexada por id em vez de lista.
+  const nomeInstanciaPorInbox = useMemo(() => {
+    const mapa = new Map<number, string>()
+    for (const i of canaisAtendimento.instancias) if (i.inboxId) mapa.set(i.inboxId, i.nome)
+    for (const i of canaisAtendimento.inboxes) if (!mapa.has(i.id)) mapa.set(i.id, i.nome)
+    return mapa
+  }, [canaisAtendimento])
+
   const [tagsConta, setTagsConta] = useState<TagConta[]>([])
   const [tagsConversa, setTagsConversaState] = useState<string[]>([])
   const [respostasRapidas, setRespostasRapidas] = useState<RespostaRapida[] | null>(null)
@@ -366,11 +377,20 @@ export function useAtendimento() {
     })
   }, [])
 
+  // Abrir a conversa marca como lida (zera o badge de não lidas): o Chatwoot
+  // nunca faz isso sozinho aqui, só quando alguém abre a conversa NA TELA
+  // NATIVA dele. Otimista nos dois estados (selecionada + item da lista) pra
+  // o badge sumir na hora, sem esperar o próximo poll/refresh.
   const selecionarConversa = useCallback((c: ConversaAtendimento | null) => {
-    setSelecionada(c)
+    const precisaMarcarLida = Boolean(c && c.unread_count > 0)
+    setSelecionada(c && precisaMarcarLida ? { ...c, unread_count: 0 } : c)
     setMensagens([])
     setTagsConversaState([])
     setCitacao(null)
+    if (c && precisaMarcarLida) {
+      setConversas((prev) => prev.map((x) => (x.id === c.id ? { ...x, unread_count: 0 } : x)))
+      void marcarConversaLida(c.id).catch(() => {})
+    }
   }, [])
 
   // Respostas rápidas cadastradas (Fase B §d), restritas ao(s) departamento(s) do
@@ -763,6 +783,7 @@ export function useAtendimento() {
     carregandoThread,
     agentes,
     canaisAtendimento,
+    nomeInstanciaPorInbox,
     tagsConta,
     tagsConversa,
     respostasRapidas,
