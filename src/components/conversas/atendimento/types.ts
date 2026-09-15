@@ -65,12 +65,24 @@ export function iniciais(nome?: string | null) {
 export function previaConversa(c: ChatwootConversa) {
   const ultima = c.last_non_activity_message
   if (!ultima) return ''
-  if (ultima.content) return ultima.content
-  if (ultima.attachments?.length) {
-    const tipo = ultima.attachments[0].file_type
-    return tipo === 'image' ? '📷 Foto' : tipo === 'audio' ? '🎤 Áudio' : '📎 Anexo'
+  const corpo = ultima.content
+    ? ultima.content
+    : ultima.attachments?.length
+      ? (() => {
+          const tipo = ultima.attachments![0].file_type
+          return tipo === 'image' ? '📷 Foto' : tipo === 'audio' ? '🎤 Áudio' : '📎 Anexo'
+        })()
+      : ''
+  if (!corpo) return ''
+  // Em grupo, prefixa com quem mandou (frente f) — sender vem como objeto no
+  // contrato do engine; sem ele, cai só no texto (mensagens da equipe já
+  // trazem o prefixo *Nome:* embutido no content).
+  if (ehGrupo(c)) {
+    const sender = ultima.content_attributes?.sender as { nome?: string; numero?: string } | undefined
+    const nome = sender?.nome || sender?.numero
+    if (nome) return `${nome}: ${corpo}`
   }
-  return ''
+  return corpo
 }
 
 /**

@@ -27,6 +27,8 @@ import AvatarContato from './AvatarContato'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
+import { getGrupo } from '@/lib/central-conversas/grupos-actions'
+import type { MembroGrupo } from '@/lib/central-conversas/engine'
 
 const MIME_ANEXO_ACEITOS = '.pdf,.png,.jpg,.jpeg,.webp,.mp3,.ogg,.opus,.mp4,.xlsx,.csv'
 
@@ -64,7 +66,7 @@ type Props = {
   compacto?: boolean
   onVoltar?: () => void
   onAbrirPainel?: () => void
-  onEnviarTexto: (texto: string) => Promise<void>
+  onEnviarTexto: (texto: string, mentions?: string[]) => Promise<void>
   onEnviarNota: (texto: string) => Promise<void>
   onEnviarAnexo: (file: File, legenda?: string) => Promise<void>
   onEnviarAudio: (blob: Blob) => Promise<void>
@@ -93,6 +95,25 @@ function remetenteDeGrupo(m: MensagemComExtras): { nome: string; conteudo: strin
   if (!nome) return null
   const tiraPrefixo = prefixo && (!s?.nome || prefixo[1] === s.nome)
   return { nome, conteudo: tiraPrefixo ? prefixo[2] : conteudo }
+}
+
+/** Destaca tokens `@algo` no texto — só visual, sem lookup (frente e). */
+function TextoComMencoes({ texto, temMencoes }: { texto: string; temMencoes: boolean }) {
+  if (!temMencoes) return <>{texto}</>
+  const partes = texto.split(/(@[^\s@]+)/g)
+  return (
+    <>
+      {partes.map((p, i) =>
+        p.startsWith('@') && p.length > 1 ? (
+          <strong key={i} style={{ color: 'var(--msn-accent)' }}>
+            {p}
+          </strong>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
+  )
 }
 
 function tempoGravacao(ms: number) {
@@ -142,6 +163,11 @@ export default function ThreadConversa({
   const [alterando, setAlterando] = useState<'assumindo' | 'transferindo' | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [meuAgente, setMeuAgente] = useState<{ id: number; name: string } | null | undefined>(undefined)
+  // @menção (frente e, só em grupo): membros carregados sob demanda ao digitar
+  // "@"; `mencoesAtuais` guarda jid por nome exibido no texto, zerado ao
+  // enviar/trocar de conversa.
+  const [membrosGrupo, setMembrosGrupo] = useState<MembroGrupo[]>([])
+  const [mencoesAtuais, setMencoesAtuais] = useState<Map<string, string>>(new Map())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -237,6 +263,45 @@ export default function ThreadConversa({
   const grupo = ehGrupo(conversa)
   const entidade = conversa.atendimentoMeta?.entidade
 
+  // Zera menções + recarrega membros ao trocar de conversa; só busca em grupo.
+  useEffect(() => {
+    setMencoesAtuais(new Map())
+    setMembrosGrupo([])
+    if (!grupo) return
+    let vivo = true
+    void getGrupo(conversa.id)
+      .then((g) => {
+        if (vivo) setMembrosGrupo(g.membros)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversa.id, grupo])
+
+  const termoMencao = useMemo(() => {
+    if (!grupo) return null
+    const m = texto.match(/(?:^|\s)@([^\s@]*)$/)
+    return m ? m[1] : null
+  }, [texto, grupo])
+
+  const sugestoesMencao = useMemo(() => {
+    if (termoMencao === null) return []
+    const alvo = termoMencao.toLowerCase()
+    return membrosGrupo.filter((m) => (m.nome || m.numero).toLowerCase().includes(alvo)).slice(0, 6)
+  }, [termoMencao, membrosGrupo])
+
+  function escolherMencao(m: MembroGrupo) {
+    const rotulo = m.nome || m.numero
+    setTexto((prev) => prev.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${rotulo} `))
+    setMencoesAtuais((prev) => {
+      const novo = new Map(prev)
+      novo.set(rotulo, m.jid)
+      return novo
+    })
+  }
+
   // "Assumir para mim" (frente e): reaproveita onTransferir (departamento
   // ATUAL + novo atendente, sem comentário — transferirConversa só grava
   // nota quando há comentário, então isto equivale a um atribuirAgente
@@ -281,10 +346,14 @@ export default function ThreadConversa({
   async function enviar() {
     const valor = texto.trim()
     if (!valor) return
+    // Só manda como menção o jid de nomes que sobreviveram no texto final
+    // (a pessoa pode apagar um "@Nome" depois de escolhido).
+    const mentions = [...mencoesAtuais.entries()].filter(([nome]) => valor.includes(`@${nome}`)).map(([, jid]) => jid)
     setTexto('')
+    setMencoesAtuais(new Map())
     try {
       if (notaInterna) await onEnviarNota(valor)
-      else await onEnviarTexto(valor)
+      else await onEnviarTexto(valor, mentions.length ? mentions : undefined)
       irParaMensagemEnviada()
     } catch {
       setTexto(valor)
@@ -369,6 +438,11 @@ export default function ThreadConversa({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+            {grupo && membrosGrupo.length > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', color: 'var(--msn-muted)' }}>
+                {membrosGrupo.length} membros
+              </span>
+            )}
             {departamento && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(22,163,74,0.14)', color: '#15803d' }}>{departamento}</span>
             )}
@@ -527,7 +601,11 @@ export default function ThreadConversa({
                         </a>
                       ),
                     )}
-                    {conteudo && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>{conteudo}</div>}
+                    {conteudo && (
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>
+                        <TextoComMencoes texto={conteudo} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
+                      </div>
+                    )}
                     {m.reacoes.length > 0 && (
                       <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
                         {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
@@ -681,10 +759,25 @@ export default function ThreadConversa({
             )}
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
+            {sugestoesMencao.length > 0 && (
+              <div className="brs-messenger" style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, borderRadius: 6, width: 220, zIndex: 60, padding: 4, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
+                {sugestoesMencao.map((m) => (
+                  <button
+                    key={m.jid}
+                    type="button"
+                    onClick={() => escolherMencao(m)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4 }}
+                  >
+                    <AvatarContato nome={m.nome || m.numero} tamanho={20} fontSize={9} />
+                    {m.nome || m.numero}
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
               className={`brs-messenger-composer-input ${notaInterna ? 'is-nota' : ''}`}
-              placeholder={notaInterna ? 'Escreva uma nota interna (não vai pro cliente)…' : 'Digite uma mensagem…'}
+              placeholder={notaInterna ? 'Escreva uma nota interna (não vai pro cliente)…' : grupo ? 'Digite uma mensagem… (@ para mencionar)' : 'Digite uma mensagem…'}
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
               onKeyDown={onKeyDown}

@@ -67,6 +67,7 @@ async function instanciaDaConta(instanciaId: string): Promise<{ id: string; prov
 
 export type GrupoDetalhado = {
   jid: string
+  instanciaId: string
   nome: string
   descricao?: string
   foto?: string
@@ -96,7 +97,7 @@ export async function getGrupo(conversationId: number): Promise<GrupoDetalhado> 
     const detalhe = await engineGrupos.grupo(instanciaId, jid)
     const membros = await enriquecerNomes(instanciaId, detalhe.membros || [])
     const souAdmin = membros.some((m) => m.eu && m.admin)
-    return { ...detalhe, membros, souAdmin, provedor: inst.provedor }
+    return { ...detalhe, membros, souAdmin, provedor: inst.provedor, instanciaId }
   } catch (err) {
     throw new Error(mensagemErroEngine(err))
   }
