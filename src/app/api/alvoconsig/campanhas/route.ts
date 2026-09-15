@@ -32,6 +32,7 @@ import {
   searchContactsAte,
   customFieldValue,
   type WesalesContact,
+  type WesalesOpportunity,
 } from '@/lib/wesales/client'
 import { codigoConvenioChave, indexarConveniosPorCodigo, tagBase, tagCampanha, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
@@ -39,7 +40,7 @@ import { calcularOfertas, resolverOfertasRefin, type OfertasContato, type RawOfe
 
 /** Linha de crm_ofertas ainda sem contato_id/campanha (preenchidos após o upsert do contato). */
 type LinhaOferta = {
-  produto: 'novo' | 'cartao_rmc' | 'cartao_rcc' | 'refin'
+  produto: 'novo' | 'cartao_rmc' | 'cartao_rcc' | 'saque_complementar' | 'refin'
   produto_nome: string
   instituicao_id: string | null
   instituicao_nome: string
@@ -61,6 +62,7 @@ const PRODUTO_NOME: Record<LinhaOferta['produto'], string> = {
   novo: 'Empréstimo Novo',
   cartao_rmc: 'Cartão RMC',
   cartao_rcc: 'Cartão RCC',
+  saque_complementar: 'Saque Complementar',
   refin: 'Refinanciamento',
 }
 
@@ -108,6 +110,50 @@ function montarLinhasOfertas(ofertas: OfertasContato): LinhaOferta[] {
       contrato: refin.contrato,
       // Oportunidade de origem no inventário ("Ofertas de Crédito") — só referência.
       dados: { origem: 'campanha', refin_opportunity_id: refin.opportunityId },
+    })
+  }
+  return linhas
+}
+
+const PRODUTOS_INVENTARIO_IF = new Set<LinhaOferta['produto']>(['cartao_rmc', 'cartao_rcc', 'saque_complementar'])
+
+/**
+ * Ofertas cartao_rmc/cartao_rcc/saque_complementar do INVENTÁRIO (Oportunidades
+ * já criadas pela Higienização Amigoz — Fatia 3, ver
+ * src/lib/if-credito/amigoz/saidas.ts) — mesma leitura do REFIN, nunca escreve.
+ * `tabela_comissao_id` fica null (não vem de coeficiente); a identidade natural
+ * usa `codigo_tabela_banco` (tabelaCodigo da IF), que já é estável por produto.
+ */
+function montarLinhasInventarioIf(oportunidades: WesalesOpportunity[], fCampo: (campo: keyof typeof OFERTA_FIELD_KEYS) => string | null): LinhaOferta[] {
+  const tipoCampo = fCampo('tipoOferta')
+  const instituicaoIdCampo = fCampo('instituicaoId')
+  const instituicaoCampo = fCampo('instituicao')
+  const tabelaCampo = fCampo('tabelaCodigo')
+  if (!tipoCampo) return []
+
+  const linhas: LinhaOferta[] = []
+  for (const op of oportunidades) {
+    const tipo = opportunityFieldValue(op, tipoCampo) as LinhaOferta['produto'] | null
+    if (!tipo || !PRODUTOS_INVENTARIO_IF.has(tipo)) continue
+    const tabelaCodigo = tabelaCampo ? opportunityFieldValue(op, tabelaCampo) : null
+    linhas.push({
+      produto: tipo,
+      produto_nome: PRODUTO_NOME[tipo],
+      instituicao_id: instituicaoIdCampo ? opportunityFieldValue(op, instituicaoIdCampo) : null,
+      instituicao_nome: (instituicaoCampo ? opportunityFieldValue(op, instituicaoCampo) : null) || 'Instituição não identificada',
+      tabela_comissao_id: null,
+      tabela_nome: tabelaCodigo || '-',
+      codigo_tabela_banco: tabelaCodigo,
+      com_seguro: null,
+      prazo: null,
+      coeficiente: null,
+      taxa: null,
+      margem: null,
+      parcela: null,
+      valor_liberado: op.monetaryValue ?? 0,
+      contrato: null,
+      // Oportunidade de origem no inventário (simulação real da IF) — só referência.
+      dados: { origem: 'inventario_if', opportunity_id: op.id },
     })
   }
   return linhas
@@ -333,7 +379,18 @@ export async function POST(request: NextRequest) {
 
       // Novo/RMC/RCC calculados agora + REFIN lido: 1 linha por oferta
       // (só roda de fato quando houver coeficientes pro convênio).
-      ofertasPorContato.set(contato.id, montarLinhasOfertas(ofertas))
+      const linhasCalculadas = montarLinhasOfertas(ofertas)
+
+      // cartao_rmc/cartao_rcc/saque_complementar do INVENTÁRIO (simulação real
+      // via API — Higienização Amigoz Fatia 3): oferta real vence a calculada
+      // por coeficiente do MESMO produto+instituição (nunca as duas juntas).
+      const linhasInventarioIf = montarLinhasInventarioIf(oportunidadesExistentes, fCampo)
+      const vencidasPorInventario = new Set(linhasInventarioIf.map((l) => `${l.produto}|${l.instituicao_id ?? ''}`))
+      const linhasSemDuplicarInventario = linhasCalculadas.filter(
+        (l) => !PRODUTOS_INVENTARIO_IF.has(l.produto) || !vencidasPorInventario.has(`${l.produto}|${l.instituicao_id ?? ''}`),
+      )
+
+      ofertasPorContato.set(contato.id, [...linhasSemDuplicarInventario, ...linhasInventarioIf])
 
       linhas.push({
         wesales_contact_id: contato.id,

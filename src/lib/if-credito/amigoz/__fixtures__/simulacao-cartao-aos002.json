@@ -1,0 +1,17 @@
+{
+  "_origem": "if_credito_chamadas, operacao=simulacao-cartao, 15/09/2026 (CPF anonimizado)",
+  "_atencao": "NÃO é um exemplo de sucesso — é o único formato de resposta que a descoberta obrigatória conseguiu observar (3 tentativas, produtos 7 e 15, todas AOS002). Guardado aqui só pra normalizarOfertaAmigoz saber reconhecer e descartar este caso; NÃO fixa o formato de OfertaNormalizada. Ver comentário no topo de amigoz/ofertas.ts.",
+  "requisicao": {
+    "cpf": "00000000000",
+    "margem": 70.12,
+    "convenio": 25,
+    "tipo_margem": 1,
+    "margem_saque": 163.62,
+    "tipo_produto": 7,
+    "data_nascimento": "29/06/1982"
+  },
+  "resposta": {
+    "detail": "AOS002 - Esse cliente não possui contrato com cartão criado na processadora"
+  },
+  "http_status": 400
+}

@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File | null
     const convenioId = String(formData.get('convenio_id') || '').trim()
     const pausaMs = Number(formData.get('pausa_ms') || 1500)
+    const buscarOfertas = String(formData.get('buscar_ofertas') || '') === '1'
 
     if (!file) return NextResponse.json({ error: 'Envie um arquivo.' }, { status: 400 })
     if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: 'Arquivo maior que 10MB.' }, { status: 400 })
@@ -136,6 +137,7 @@ export async function POST(request: NextRequest) {
       averbadoraExterna: variantes[0].averbadoraExterna,
       pausaMs,
       arquivoNome: file.name.slice(0, 200),
+      buscarOfertas,
       criadoPor: user.id,
     })
     const { inseridos, invalidos, duplicados } = await adicionarItens(loteId, itens)
