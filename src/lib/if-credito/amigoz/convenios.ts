@@ -1,6 +1,13 @@
 /**
- * Convênios do Amigoz + mapeamento com o convênio BRS (`if_convenio_mapeamento`,
+ * Convênios do Amigoz + vínculo com o convênio BRS (`if_convenio_mapeamento`,
  * genérico por IF — Fatia 2). SÓ servidor.
+ *
+ * Um convênio BRS pode ter VÁRIAS variantes na IF (achado do Bruno, 15/09:
+ * o Amigoz fatia "INSS" em "INSS" e "INSS - Aposentadoria por Invalidez",
+ * entre outros exemplos) — cada linha desta tabela é UMA variante; a
+ * unicidade é por variante (`instituicao_financeira_id, convenio_externo_id`),
+ * nunca por convênio BRS. `ordem` decide em que ordem o worker tenta as
+ * variantes quando o operador não sabe de antemão qual vale pra cada CPF.
  */
 import { createAdminClient } from '@/lib/supabase/server'
 import { chamarAmigozAutenticado, obterInstituicaoAmigoz, type ConfigAmigoz } from './client'
@@ -52,64 +59,78 @@ export async function listarConveniosAmigoz(cfg: ConfigAmigoz, criadoPor?: strin
   return dados
 }
 
-export type MapeamentoConvenio = {
+export type VarianteConvenio = {
+  id: string
   convenioId: string
   convenioExternoId: string
   convenioExternoNome: string | null
+  rotulo: string | null
   averbadoraExterna: number | null
   exigeMatricula: boolean
   exigeSenhaServidor: boolean
+  ordem: number
 }
 
-/** Todos os vínculos convênio BRS ↔ convênio Amigoz já salvos. */
-export async function listarMapeamentosAmigoz(): Promise<MapeamentoConvenio[]> {
+function mapVariante(row: Record<string, unknown>): VarianteConvenio {
+  return {
+    id: String(row.id),
+    convenioId: String(row.convenio_id),
+    convenioExternoId: String(row.convenio_externo_id),
+    convenioExternoNome: row.convenio_externo_nome ? String(row.convenio_externo_nome) : null,
+    rotulo: row.rotulo ? String(row.rotulo) : null,
+    averbadoraExterna: row.averbadora_externa === null ? null : Number(row.averbadora_externa),
+    exigeMatricula: Boolean(row.exige_matricula),
+    exigeSenhaServidor: Boolean(row.exige_senha_servidor),
+    ordem: Number(row.ordem) || 0,
+  }
+}
+
+/** Todas as variantes já vinculadas (de todos os convênios BRS), pra tela de vínculo. */
+export async function listarVariantesAmigoz(): Promise<VarianteConvenio[]> {
   const inst = await obterInstituicaoAmigoz()
   if (!inst) return []
   const admin = await createAdminClient()
   const { data, error } = await admin
     .from('if_convenio_mapeamento')
-    .select('convenio_id, convenio_externo_id, convenio_externo_nome, averbadora_externa, exige_matricula, exige_senha_servidor')
+    .select('id, convenio_id, convenio_externo_id, convenio_externo_nome, rotulo, averbadora_externa, exige_matricula, exige_senha_servidor, ordem')
     .eq('instituicao_financeira_id', inst.id)
+    .order('convenio_id', { ascending: true })
+    .order('ordem', { ascending: true })
   if (error) throw error
-  return (data || []).map((r) => ({
-    convenioId: String(r.convenio_id),
-    convenioExternoId: String(r.convenio_externo_id),
-    convenioExternoNome: r.convenio_externo_nome ? String(r.convenio_externo_nome) : null,
-    averbadoraExterna: r.averbadora_externa === null ? null : Number(r.averbadora_externa),
-    exigeMatricula: Boolean(r.exige_matricula),
-    exigeSenhaServidor: Boolean(r.exige_senha_servidor),
-  }))
+  return (data || []).map(mapVariante)
 }
 
-export async function obterMapeamentoAmigoz(convenioId: string): Promise<MapeamentoConvenio | null> {
+/** Variantes de UM convênio BRS, na ordem de tentativa. */
+export async function listarVariantesPorConvenio(convenioId: string): Promise<VarianteConvenio[]> {
   const inst = await obterInstituicaoAmigoz()
-  if (!inst) return null
+  if (!inst) return []
   const admin = await createAdminClient()
   const { data, error } = await admin
     .from('if_convenio_mapeamento')
-    .select('convenio_id, convenio_externo_id, convenio_externo_nome, averbadora_externa, exige_matricula, exige_senha_servidor')
+    .select('id, convenio_id, convenio_externo_id, convenio_externo_nome, rotulo, averbadora_externa, exige_matricula, exige_senha_servidor, ordem')
     .eq('instituicao_financeira_id', inst.id)
     .eq('convenio_id', convenioId)
-    .maybeSingle()
+    .order('ordem', { ascending: true })
+    .order('created_at', { ascending: true })
   if (error) throw error
-  if (!data) return null
-  return {
-    convenioId: String(data.convenio_id),
-    convenioExternoId: String(data.convenio_externo_id),
-    convenioExternoNome: data.convenio_externo_nome ? String(data.convenio_externo_nome) : null,
-    averbadoraExterna: data.averbadora_externa === null ? null : Number(data.averbadora_externa),
-    exigeMatricula: Boolean(data.exige_matricula),
-    exigeSenhaServidor: Boolean(data.exige_senha_servidor),
-  }
+  return (data || []).map(mapVariante)
 }
 
-export async function salvarMapeamentoAmigoz(input: {
+/**
+ * Vincula uma variante do Amigoz a um convênio BRS. Upsert por variante
+ * (instituicao_financeira_id + convenio_externo_id) — escolher de novo um
+ * convênio do Amigoz já vinculado MOVE o vínculo pro convênio BRS novo, não
+ * duplica linha.
+ */
+export async function adicionarVarianteAmigoz(input: {
   convenioId: string
   convenioExternoId: string
   convenioExternoNome: string | null
+  rotulo?: string | null
   averbadoraExterna: number | null
   exigeMatricula: boolean
   exigeSenhaServidor: boolean
+  ordem?: number
 }): Promise<void> {
   const inst = await obterInstituicaoAmigoz()
   if (!inst) throw new Error('Amigoz não está cadastrada em Instituições Financeiras.')
@@ -120,12 +141,34 @@ export async function salvarMapeamentoAmigoz(input: {
       convenio_id: input.convenioId,
       convenio_externo_id: input.convenioExternoId,
       convenio_externo_nome: input.convenioExternoNome,
+      rotulo: input.rotulo ?? null,
       averbadora_externa: input.averbadoraExterna,
       exige_matricula: input.exigeMatricula,
       exige_senha_servidor: input.exigeSenhaServidor,
+      ordem: input.ordem ?? 0,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'instituicao_financeira_id,convenio_id' }
+    { onConflict: 'instituicao_financeira_id,convenio_externo_id' }
   )
+  if (error) throw error
+}
+
+export async function atualizarVarianteAmigoz(
+  varianteId: string,
+  patch: { rotulo?: string | null; exigeMatricula?: boolean; exigeSenhaServidor?: boolean; ordem?: number }
+): Promise<void> {
+  const admin = await createAdminClient()
+  const row: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (patch.rotulo !== undefined) row.rotulo = patch.rotulo
+  if (patch.exigeMatricula !== undefined) row.exige_matricula = patch.exigeMatricula
+  if (patch.exigeSenhaServidor !== undefined) row.exige_senha_servidor = patch.exigeSenhaServidor
+  if (patch.ordem !== undefined) row.ordem = patch.ordem
+  const { error } = await admin.from('if_convenio_mapeamento').update(row).eq('id', varianteId)
+  if (error) throw error
+}
+
+export async function removerVarianteAmigoz(varianteId: string): Promise<void> {
+  const admin = await createAdminClient()
+  const { error } = await admin.from('if_convenio_mapeamento').delete().eq('id', varianteId)
   if (error) throw error
 }

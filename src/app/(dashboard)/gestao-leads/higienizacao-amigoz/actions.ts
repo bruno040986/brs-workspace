@@ -13,14 +13,16 @@ import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { carregarConfigAmigoz } from '@/lib/if-credito/amigoz/client'
 import {
+  adicionarVarianteAmigoz,
+  atualizarVarianteAmigoz,
   listarConveniosAmigoz,
-  listarMapeamentosAmigoz,
-  obterMapeamentoAmigoz,
-  salvarMapeamentoAmigoz,
+  listarVariantesAmigoz,
+  listarVariantesPorConvenio,
+  removerVarianteAmigoz,
   type ConvenioAmigoz,
-  type MapeamentoConvenio,
+  type VarianteConvenio,
 } from '@/lib/if-credito/amigoz/convenios'
-import { consultarMargemAmigoz } from '@/lib/if-credito/amigoz/margem'
+import { consultarMargemComVariantes } from '@/lib/if-credito/amigoz/margem'
 import {
   adicionarItens,
   cancelarLote,
@@ -68,10 +70,11 @@ export async function listarConveniosBrsAction(): Promise<ActionResult<ConvenioB
   }
 }
 
-export async function listarMapeamentosAction(): Promise<ActionResult<MapeamentoConvenio[]>> {
+/** Todas as variantes já vinculadas (de todos os convênios BRS) — a tela agrupa por convênio. */
+export async function listarVariantesAction(): Promise<ActionResult<VarianteConvenio[]>> {
   try {
     await requirePermission(RESOURCE)
-    return { success: true, data: await listarMapeamentosAmigoz() }
+    return { success: true, data: await listarVariantesAmigoz() }
   } catch (err) {
     return erro(err)
   }
@@ -87,7 +90,8 @@ export async function listarConveniosAmigozAction(): Promise<ActionResult<Conven
   }
 }
 
-export async function salvarMapeamentoAction(input: {
+/** Vincula UMA variante do Amigoz ao convênio BRS — um convênio pode ter várias (ex.: INSS e INSS - Aposentadoria por Invalidez). */
+export async function adicionarVarianteAction(input: {
   convenioId: string
   convenioExternoId: string
   convenioExternoNome: string | null
@@ -97,7 +101,34 @@ export async function salvarMapeamentoAction(input: {
 }): Promise<ActionResult<null>> {
   try {
     await requirePermission(RESOURCE, 'can_edit')
-    await salvarMapeamentoAmigoz(input)
+    const existentes = await listarVariantesPorConvenio(input.convenioId)
+    const proximaOrdem = existentes.length > 0 ? Math.max(...existentes.map((v) => v.ordem)) + 1 : 0
+    await adicionarVarianteAmigoz({ ...input, ordem: proximaOrdem })
+    revalidatePath(PATH_TELA)
+    return { success: true, data: null }
+  } catch (err) {
+    return erro(err)
+  }
+}
+
+export async function atualizarVarianteAction(
+  varianteId: string,
+  patch: { rotulo?: string | null; exigeMatricula?: boolean; exigeSenhaServidor?: boolean; ordem?: number }
+): Promise<ActionResult<null>> {
+  try {
+    await requirePermission(RESOURCE, 'can_edit')
+    await atualizarVarianteAmigoz(varianteId, patch)
+    revalidatePath(PATH_TELA)
+    return { success: true, data: null }
+  } catch (err) {
+    return erro(err)
+  }
+}
+
+export async function removerVarianteAction(varianteId: string): Promise<ActionResult<null>> {
+  try {
+    await requirePermission(RESOURCE, 'can_edit')
+    await removerVarianteAmigoz(varianteId)
     revalidatePath(PATH_TELA)
     return { success: true, data: null }
   } catch (err) {
@@ -137,17 +168,18 @@ export async function consultarUnitariaAction(input: {
     const cpf = normalizeCpf(input.cpf)
     if (!validateCpf(cpf)) throw new Error('CPF inválido.')
 
-    const mapeamento = await obterMapeamentoAmigoz(input.convenioId)
-    if (!mapeamento) throw new Error('Este convênio ainda não está vinculado a um convênio do Amigoz.')
-    if (mapeamento.averbadoraExterna === null) throw new Error('O vínculo deste convênio está sem averbadora — edite o vínculo.')
-    if (mapeamento.exigeMatricula && !input.matricula?.trim()) throw new Error('Este convênio exige matrícula.')
-    if (mapeamento.exigeSenhaServidor && !input.senhaServidor?.trim()) throw new Error('Este convênio exige senha do servidor.')
+    const variantes = await listarVariantesPorConvenio(input.convenioId)
+    if (variantes.length === 0) throw new Error('Este convênio ainda não está vinculado a um convênio do Amigoz.')
+    const semAverbadora = variantes.every((v) => v.averbadoraExterna === null)
+    if (semAverbadora) throw new Error('Nenhuma variante deste convênio tem averbadora configurada — edite o vínculo.')
+    if (variantes.some((v) => v.exigeMatricula) && !input.matricula?.trim()) throw new Error('Este convênio exige matrícula.')
+    if (variantes.some((v) => v.exigeSenhaServidor) && !input.senhaServidor?.trim()) throw new Error('Este convênio exige senha do servidor.')
 
     const loteId = await criarLote({
       origem: 'unitaria',
       convenioId: input.convenioId,
-      convenioExternoId: mapeamento.convenioExternoId,
-      averbadoraExterna: mapeamento.averbadoraExterna,
+      convenioExternoId: variantes[0].convenioExternoId,
+      averbadoraExterna: variantes[0].averbadoraExterna,
       criadoPor: user.id,
     })
     const item: ItemEntrada = { cpf, matricula: input.matricula || null, senhaServidor: input.senhaServidor || null }
@@ -159,9 +191,10 @@ export async function consultarUnitariaAction(input: {
     await admin.from('if_higienizacao_itens').update({ status: 'processando' }).eq('id', itemId)
 
     const cfg = await carregarConfigAmigoz()
-    const resultado = await consultarMargemAmigoz(
+    const resultado = await consultarMargemComVariantes(
       cfg,
-      { cpf, convenioExternoId: mapeamento.convenioExternoId, averbadora: mapeamento.averbadoraExterna, numeroMatricula: input.matricula, senhaServidor: input.senhaServidor },
+      input.convenioId,
+      { cpf, numeroMatricula: input.matricula, senhaServidor: input.senhaServidor },
       user.id
     )
 
@@ -183,6 +216,8 @@ export async function consultarUnitariaAction(input: {
           margem_emprestimo: m.margemEmprestimo,
           tem_oportunidade: m.temOportunidade,
           resposta_bruta: resultado.bruto as never,
+          convenio_externo_usado: resultado.varianteUsada?.convenioExternoId ?? null,
+          averbadora_usada: resultado.varianteUsada?.averbadoraExterna ?? null,
           consultado_em: new Date().toISOString(),
         })
         .eq('id', itemId)
@@ -211,7 +246,17 @@ export async function consultarUnitariaAction(input: {
       }
     }
 
-    await admin.from('if_higienizacao_itens').update({ status: 'erro', erro: resultado.mensagem.slice(0, 500), tentativas: 1, resposta_bruta: (resultado.bruto ?? null) as never }).eq('id', itemId)
+    await admin
+      .from('if_higienizacao_itens')
+      .update({
+        status: 'erro',
+        erro: resultado.mensagem.slice(0, 500),
+        tentativas: 1,
+        resposta_bruta: (resultado.bruto ?? null) as never,
+        convenio_externo_usado: resultado.varianteUsada?.convenioExternoId ?? null,
+        averbadora_usada: resultado.varianteUsada?.averbadoraExterna ?? null,
+      })
+      .eq('id', itemId)
     await admin.from('if_higienizacao_lotes').update({ status: 'concluido', itens_processados: 1, itens_erro: 1, concluido_em: new Date().toISOString() }).eq('id', loteId)
     revalidatePath(PATH_TELA)
     return { success: true, data: { loteId, itemId, ok: false, mensagem: resultado.mensagem } }
@@ -260,9 +305,9 @@ export async function criarLoteWesalesAction(input: {
 }): Promise<ActionResult<{ loteId: string; total: number }>> {
   try {
     const { user } = await requirePermission(RESOURCE, 'can_include')
-    const mapeamento = await obterMapeamentoAmigoz(input.convenioId)
-    if (!mapeamento) throw new Error('Este convênio ainda não está vinculado a um convênio do Amigoz.')
-    if (mapeamento.averbadoraExterna === null) throw new Error('O vínculo deste convênio está sem averbadora — edite o vínculo.')
+    const variantes = await listarVariantesPorConvenio(input.convenioId)
+    if (variantes.length === 0) throw new Error('Este convênio ainda não está vinculado a um convênio do Amigoz.')
+    if (variantes.every((v) => v.averbadoraExterna === null)) throw new Error('Nenhuma variante deste convênio tem averbadora configurada — edite o vínculo.')
 
     const limite = Math.min(Math.max(input.limite, 1), 5000)
     const { filtros } = await montarFiltrosWesales(input.convenioId, input.tagsExtras)
@@ -281,8 +326,8 @@ export async function criarLoteWesalesAction(input: {
     const loteId = await criarLote({
       origem: 'wesales',
       convenioId: input.convenioId,
-      convenioExternoId: mapeamento.convenioExternoId,
-      averbadoraExterna: mapeamento.averbadoraExterna,
+      convenioExternoId: variantes[0].convenioExternoId,
+      averbadoraExterna: variantes[0].averbadoraExterna,
       pausaMs: input.pausaMs,
       filtroWesales: { convenioId: input.convenioId, tagsExtras: input.tagsExtras, limite },
       criadoPor: user.id,

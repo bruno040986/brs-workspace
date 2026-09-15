@@ -43,6 +43,7 @@ export async function gerarPlanilhaLote(loteId: string): Promise<Buffer> {
     'Margem Benefício (Cartão RCC)': it.margem_beneficio ?? '',
     'Margem Empréstimo (Novo)': it.margem_emprestimo ?? '',
     'Tem oportunidade': it.tem_oportunidade === null ? '' : it.tem_oportunidade ? 'Sim' : 'Não',
+    'Variante do Amigoz usada': it.convenio_externo_usado || '',
     Status: it.status,
     Erro: it.erro || '',
     'Consultado em': it.consultado_em ? new Date(String(it.consultado_em)).toLocaleString('pt-BR') : '',
