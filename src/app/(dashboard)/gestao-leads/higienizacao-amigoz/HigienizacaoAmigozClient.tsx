@@ -3,25 +3,32 @@
 /**
  * Higienização Amigoz — 3 modos (consulta unitária, upload CSV/XLSX em lote,
  * seleção de leads/clientes do WeSales), mais o vínculo de convênio BRS ↔
- * convênio Amigoz e o histórico de lotes. Ver
+ * VARIANTES do Amigoz e o histórico de lotes. Ver
  * docs/ROTEIRO-AMIGOZ-FATIA-2-HIGIENIZACAO.md.
+ *
+ * Um convênio BRS pode ter mais de uma variante no Amigoz (achado do Bruno,
+ * 15/09: "INSS" e "INSS - Aposentadoria por Invalidez" são o mesmo INSS pra
+ * nós, ids diferentes lá) — o worker tenta todas em sequência por CPF, então
+ * a tela deixa vincular quantas forem precisas, sem duplicar convênio.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   Download,
   Landmark,
-  Link2,
   Loader2,
   Pause,
   Play,
+  Plus,
   Search,
+  Trash2,
   Upload,
   Users,
   X,
   XCircle,
 } from 'lucide-react'
 import {
+  adicionarVarianteAction,
   atualizarWesalesAction,
   cancelarLoteAction,
   consultarUnitariaAction,
@@ -32,15 +39,15 @@ import {
   listarConveniosBrsAction,
   listarItensLoteAction,
   listarLotesAction,
-  listarMapeamentosAction,
+  listarVariantesAction,
   obterLoteAction,
   pausarLoteAction,
+  removerVarianteAction,
   retomarLoteAction,
-  salvarMapeamentoAction,
   type ConvenioBrs,
   type ResultadoUnitario,
 } from './actions'
-import type { ConvenioAmigoz, MapeamentoConvenio } from '@/lib/if-credito/amigoz/convenios'
+import type { ConvenioAmigoz, VarianteConvenio } from '@/lib/if-credito/amigoz/convenios'
 import type { ItemResumo, LoteResumo } from '@/lib/if-credito/amigoz/lote'
 
 type Aba = 'unitaria' | 'csv' | 'wesales' | 'historico'
@@ -60,36 +67,42 @@ const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
 }
 
 // ---------------------------------------------------------------------------
-// Vínculo de convênio (compartilhado pelas 3 abas)
+// Vínculo de convênio (compartilhado pelas 3 abas) — 1 convênio BRS pode ter
+// N variantes no Amigoz; o worker tenta todas em sequência por CPF.
 // ---------------------------------------------------------------------------
 
 function VinculoConvenio({
   convenios,
-  mapeamentos,
+  variantes,
   onAtualizado,
   convenioId,
   onSelecionarConvenio,
 }: {
   convenios: ConvenioBrs[]
-  mapeamentos: MapeamentoConvenio[]
+  variantes: VarianteConvenio[]
   onAtualizado: () => void
   convenioId: string
   onSelecionarConvenio: (id: string) => void
 }) {
-  const [editando, setEditando] = useState(false)
+  const [adicionando, setAdicionando] = useState(false)
   const [conveniosAmigoz, setConveniosAmigoz] = useState<ConvenioAmigoz[]>([])
   const [carregandoAmigoz, setCarregandoAmigoz] = useState(false)
   const [convenioExternoId, setConvenioExternoId] = useState('')
   const [exigeMatricula, setExigeMatricula] = useState(false)
   const [exigeSenhaServidor, setExigeSenhaServidor] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [removendoId, setRemovendoId] = useState<string | null>(null)
   const [erro, setErro] = useState('')
 
-  const mapeamentoAtual = mapeamentos.find((m) => m.convenioId === convenioId) || null
+  const variantesDoConvenio = useMemo(() => variantes.filter((v) => v.convenioId === convenioId), [variantes, convenioId])
+  const idsJaVinculados = useMemo(() => new Set(variantes.map((v) => v.convenioExternoId)), [variantes])
 
-  async function abrirEdicao() {
+  async function abrirAdicao() {
     setErro('')
-    setEditando(true)
+    setAdicionando(true)
+    setConvenioExternoId('')
+    setExigeMatricula(false)
+    setExigeSenhaServidor(false)
     if (conveniosAmigoz.length === 0) {
       setCarregandoAmigoz(true)
       const res = await listarConveniosAmigozAction()
@@ -99,11 +112,6 @@ function VinculoConvenio({
         return
       }
       setConveniosAmigoz(res.data)
-    }
-    if (mapeamentoAtual) {
-      setConvenioExternoId(mapeamentoAtual.convenioExternoId)
-      setExigeMatricula(mapeamentoAtual.exigeMatricula)
-      setExigeSenhaServidor(mapeamentoAtual.exigeSenhaServidor)
     }
   }
 
@@ -125,22 +133,35 @@ function VinculoConvenio({
     setErro('')
     try {
       const convAmigoz = conveniosAmigoz.find((c) => c.id === convenioExternoId)
-      const averbadoraExterna = convAmigoz?.averbadora ?? null
-      const res = await salvarMapeamentoAction({
+      const res = await adicionarVarianteAction({
         convenioId,
         convenioExternoId,
         convenioExternoNome: convAmigoz?.nome ?? null,
-        averbadoraExterna,
+        averbadoraExterna: convAmigoz?.averbadora ?? null,
         exigeMatricula,
         exigeSenhaServidor,
       })
       if (!res.success) throw new Error(res.error)
-      setEditando(false)
+      setAdicionando(false)
       onAtualizado()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar.')
     } finally {
       setSalvando(false)
+    }
+  }
+
+  async function remover(varianteId: string) {
+    setRemovendoId(varianteId)
+    setErro('')
+    try {
+      const res = await removerVarianteAction(varianteId)
+      if (!res.success) throw new Error(res.error)
+      onAtualizado()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao remover.')
+    } finally {
+      setRemovendoId(null)
     }
   }
 
@@ -159,27 +180,45 @@ function VinculoConvenio({
           </select>
         </div>
         {convenioId && (
-          <button className="btn btn-outline btn-sm" onClick={abrirEdicao} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Link2 size={14} /> {mapeamentoAtual ? 'Editar vínculo' : 'Vincular ao Amigoz'}
+          <button className="btn btn-outline btn-sm" onClick={abrirAdicao} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={14} /> Vincular variante do Amigoz
           </button>
         )}
       </div>
 
-      {convenioId && !editando && (
-        <p style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', margin: '0.6rem 0 0' }}>
-          {mapeamentoAtual ? (
-            <>
-              Vinculado a <strong>{mapeamentoAtual.convenioExternoNome || mapeamentoAtual.convenioExternoId}</strong> no Amigoz
-              {mapeamentoAtual.averbadoraExterna === null ? ' — SEM averbadora (não é possível consultar).' : '.'}
-              {mapeamentoAtual.exigeMatricula ? ' Exige matrícula.' : ''} {mapeamentoAtual.exigeSenhaServidor ? ' Exige senha do servidor.' : ''}
-            </>
+      {convenioId && (
+        <div style={{ marginTop: '0.7rem' }}>
+          {variantesDoConvenio.length === 0 ? (
+            <p style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)', margin: 0 }}>Ainda não vinculado a nenhum convênio do Amigoz.</p>
           ) : (
-            'Ainda não vinculado a um convênio do Amigoz — clique em "Vincular ao Amigoz".'
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {variantesDoConvenio.map((v) => (
+                <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', padding: '0.4rem 0.6rem', borderRadius: 6, background: 'var(--brs-gray-50, #f8fafc)' }}>
+                  <strong>{v.rotulo || v.convenioExternoNome || v.convenioExternoId}</strong>
+                  {v.averbadoraExterna === null && <span style={{ color: 'var(--brs-danger)' }}>sem averbadora</span>}
+                  {v.exigeMatricula && <span style={{ color: 'var(--brs-gray-400)' }}>exige matrícula</span>}
+                  {v.exigeSenhaServidor && <span style={{ color: 'var(--brs-gray-400)' }}>exige senha do servidor</span>}
+                  <button
+                    onClick={() => remover(v.id)}
+                    disabled={removendoId === v.id}
+                    style={{ marginLeft: 'auto', border: 0, background: 'none', cursor: 'pointer', color: 'var(--brs-danger)', display: 'inline-flex', alignItems: 'center' }}
+                    title="Remover vínculo"
+                  >
+                    {removendoId === v.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  </button>
+                </div>
+              ))}
+              {variantesDoConvenio.length > 1 && (
+                <p style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', margin: '0.2rem 0 0' }}>
+                  Mais de uma variante vinculada: a consulta tenta todas em sequência por CPF até achar margem.
+                </p>
+              )}
+            </div>
           )}
-        </p>
+        </div>
       )}
 
-      {editando && (
+      {adicionando && (
         <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid var(--brs-gray-200)' }}>
           {erro && <div style={{ padding: '0.6rem 0.8rem', marginBottom: '0.7rem', borderRadius: 8, background: 'rgba(220,38,38,0.08)', color: 'var(--brs-danger)', fontSize: '0.78rem', fontWeight: 600 }}>{erro}</div>}
           {carregandoAmigoz ? (
@@ -193,7 +232,7 @@ function VinculoConvenio({
                 <option value="">Selecione…</option>
                 {conveniosAmigoz.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.nome} {c.averbadora === null ? '(sem averbadora)' : ''}
+                    {c.nome} {c.averbadora === null ? '(sem averbadora)' : ''} {idsJaVinculados.has(c.id) ? '— já vinculado (mover)' : ''}
                   </option>
                 ))}
               </select>
@@ -209,7 +248,7 @@ function VinculoConvenio({
                 <button className="btn btn-primary btn-sm" onClick={salvar} disabled={salvando}>
                   {salvando ? <Loader2 size={14} className="animate-spin" /> : 'Salvar vínculo'}
                 </button>
-                <button className="btn btn-outline btn-sm" onClick={() => setEditando(false)}>Cancelar</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setAdicionando(false)}>Cancelar</button>
               </div>
             </>
           )}
@@ -355,6 +394,7 @@ function LoteProgress({ loteId, onFechar }: { loteId: string; onFechar?: () => v
                 <th style={{ padding: '0.3rem 0.4rem' }}>RMC</th>
                 <th style={{ padding: '0.3rem 0.4rem' }}>RCC</th>
                 <th style={{ padding: '0.3rem 0.4rem' }}>Novo</th>
+                <th style={{ padding: '0.3rem 0.4rem' }}>Variante</th>
                 <th style={{ padding: '0.3rem 0.4rem' }}>Erro</th>
               </tr>
             </thead>
@@ -366,6 +406,7 @@ function LoteProgress({ loteId, onFechar }: { loteId: string; onFechar?: () => v
                   <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemConsignado)}</td>
                   <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemBeneficio)}</td>
                   <td style={{ padding: '0.3rem 0.4rem' }}>{formatMoney(it.margemEmprestimo)}</td>
+                  <td style={{ padding: '0.3rem 0.4rem' }}>{it.convenioExternoUsado || ''}</td>
                   <td style={{ padding: '0.3rem 0.4rem', color: 'var(--brs-danger)' }}>{it.erro || ''}</td>
                 </tr>
               ))}
@@ -381,13 +422,16 @@ function LoteProgress({ loteId, onFechar }: { loteId: string; onFechar?: () => v
 // Aba 1 — consulta unitária
 // ---------------------------------------------------------------------------
 
-function AbaUnitaria({ convenioId, mapeamento }: { convenioId: string; mapeamento: MapeamentoConvenio | null }) {
+function AbaUnitaria({ convenioId, variantes }: { convenioId: string; variantes: VarianteConvenio[] }) {
   const [cpf, setCpf] = useState('')
   const [matricula, setMatricula] = useState('')
   const [senhaServidor, setSenhaServidor] = useState('')
   const [consultando, setConsultando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoUnitario | null>(null)
   const [erro, setErro] = useState('')
+
+  const exigeMatricula = variantes.some((v) => v.exigeMatricula)
+  const exigeSenhaServidor = variantes.some((v) => v.exigeSenhaServidor)
 
   async function consultar() {
     if (!convenioId) {
@@ -415,13 +459,13 @@ function AbaUnitaria({ convenioId, mapeamento }: { convenioId: string; mapeament
           <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.3rem' }}>CPF</label>
           <input className="form-control" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" inputMode="numeric" />
         </div>
-        {mapeamento?.exigeMatricula && (
+        {exigeMatricula && (
           <div>
             <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.3rem' }}>Matrícula</label>
             <input className="form-control" value={matricula} onChange={(e) => setMatricula(e.target.value)} />
           </div>
         )}
-        {mapeamento?.exigeSenhaServidor && (
+        {exigeSenhaServidor && (
           <div>
             <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.3rem' }}>Senha do servidor</label>
             <input className="form-control" type="password" value={senhaServidor} onChange={(e) => setSenhaServidor(e.target.value)} autoComplete="off" />
@@ -472,7 +516,7 @@ function AbaUnitaria({ convenioId, mapeamento }: { convenioId: string; mapeament
 // Aba 2 — upload CSV/XLSX
 // ---------------------------------------------------------------------------
 
-function AbaCsv({ convenioId, mapeamento }: { convenioId: string; mapeamento: MapeamentoConvenio | null }) {
+function AbaCsv({ convenioId, variantes }: { convenioId: string; variantes: VarianteConvenio[] }) {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [pausaMs, setPausaMs] = useState(1500)
   const [enviando, setEnviando] = useState(false)
@@ -489,7 +533,7 @@ function AbaCsv({ convenioId, mapeamento }: { convenioId: string; mapeamento: Ma
       setErro('Escolha um arquivo.')
       return
     }
-    if (!mapeamento) {
+    if (variantes.length === 0) {
       setErro('Vincule este convênio a um convênio do Amigoz antes de subir o arquivo.')
       return
     }
@@ -544,7 +588,7 @@ function AbaCsv({ convenioId, mapeamento }: { convenioId: string; mapeamento: Ma
 // Aba 3 — seleção no WeSales
 // ---------------------------------------------------------------------------
 
-function AbaWesales({ convenioId, mapeamento }: { convenioId: string; mapeamento: MapeamentoConvenio | null }) {
+function AbaWesales({ convenioId, variantes }: { convenioId: string; variantes: VarianteConvenio[] }) {
   const [tagsTexto, setTagsTexto] = useState('')
   const [limite, setLimite] = useState(500)
   const [pausaMs, setPausaMs] = useState(1500)
@@ -576,7 +620,7 @@ function AbaWesales({ convenioId, mapeamento }: { convenioId: string; mapeamento
   }
 
   async function gerar() {
-    if (!mapeamento) {
+    if (variantes.length === 0) {
       setErro('Vincule este convênio a um convênio do Amigoz antes de gerar o lote.')
       return
     }
@@ -707,30 +751,30 @@ function AbaHistorico() {
 export function HigienizacaoAmigozClient() {
   const [aba, setAba] = useState<Aba>('unitaria')
   const [convenios, setConvenios] = useState<ConvenioBrs[]>([])
-  const [mapeamentos, setMapeamentos] = useState<MapeamentoConvenio[]>([])
+  const [variantes, setVariantes] = useState<VarianteConvenio[]>([])
   const [convenioId, setConvenioId] = useState('')
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
 
-  const carregarMapeamentos = useCallback(async () => {
-    const res = await listarMapeamentosAction()
-    if (res.success) setMapeamentos(res.data)
+  const carregarVariantes = useCallback(async () => {
+    const res = await listarVariantesAction()
+    if (res.success) setVariantes(res.data)
   }, [])
 
   useEffect(() => {
-    Promise.all([listarConveniosBrsAction(), listarMapeamentosAction()])
-      .then(([resConv, resMap]) => {
+    Promise.all([listarConveniosBrsAction(), listarVariantesAction()])
+      .then(([resConv, resVar]) => {
         if (!resConv.success) {
           setErro(resConv.error)
           return
         }
         setConvenios(resConv.data)
-        if (resMap.success) setMapeamentos(resMap.data)
+        if (resVar.success) setVariantes(resVar.data)
       })
       .finally(() => setCarregando(false))
   }, [])
 
-  const mapeamentoAtual = mapeamentos.find((m) => m.convenioId === convenioId) || null
+  const variantesDoConvenio = useMemo(() => variantes.filter((v) => v.convenioId === convenioId), [variantes, convenioId])
 
   const abas: Array<{ id: Aba; label: string }> = [
     { id: 'unitaria', label: 'Consulta unitária' },
@@ -759,7 +803,7 @@ export function HigienizacaoAmigozClient() {
       ) : (
         <>
           {aba !== 'historico' && (
-            <VinculoConvenio convenios={convenios} mapeamentos={mapeamentos} onAtualizado={carregarMapeamentos} convenioId={convenioId} onSelecionarConvenio={setConvenioId} />
+            <VinculoConvenio convenios={convenios} variantes={variantes} onAtualizado={carregarVariantes} convenioId={convenioId} onSelecionarConvenio={setConvenioId} />
           )}
 
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem', borderBottom: '1px solid var(--brs-gray-200)' }}>
@@ -783,9 +827,9 @@ export function HigienizacaoAmigozClient() {
             ))}
           </div>
 
-          {aba === 'unitaria' && <AbaUnitaria convenioId={convenioId} mapeamento={mapeamentoAtual} />}
-          {aba === 'csv' && <AbaCsv convenioId={convenioId} mapeamento={mapeamentoAtual} />}
-          {aba === 'wesales' && <AbaWesales convenioId={convenioId} mapeamento={mapeamentoAtual} />}
+          {aba === 'unitaria' && <AbaUnitaria convenioId={convenioId} variantes={variantesDoConvenio} />}
+          {aba === 'csv' && <AbaCsv convenioId={convenioId} variantes={variantesDoConvenio} />}
+          {aba === 'wesales' && <AbaWesales convenioId={convenioId} variantes={variantesDoConvenio} />}
           {aba === 'historico' && <AbaHistorico />}
         </>
       )}

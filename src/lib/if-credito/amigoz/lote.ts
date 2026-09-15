@@ -14,7 +14,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarTexto, decifrarTexto } from '@/lib/central-conversas/cofre'
 import { normalizeCpf, validateCpf } from '@/lib/import/columnMap'
 import { carregarConfigAmigoz, obterInstituicaoAmigoz } from './client'
-import { consultarMargemAmigoz } from './margem'
+import { consultarMargemComVariantes } from './margem'
 
 export type OrigemLote = 'unitaria' | 'csv' | 'wesales'
 export type StatusLote = 'pendente' | 'rodando' | 'pausado' | 'concluido' | 'erro' | 'cancelado'
@@ -33,7 +33,8 @@ export type LoteResumo = {
   origem: OrigemLote
   status: StatusLote
   convenioId: string | null
-  convenioExternoId: string
+  /** @deprecated informativo — desde que um convênio pode ter várias variantes, a resolução real é feita por item (ver `convenioExternoUsado` em ItemResumo). */
+  convenioExternoId: string | null
   averbadoraExterna: number | null
   totalItens: number
   itensProcessados: number
@@ -52,7 +53,7 @@ function mapLote(row: Record<string, unknown>): LoteResumo {
     origem: row.origem as OrigemLote,
     status: row.status as StatusLote,
     convenioId: row.convenio_id ? String(row.convenio_id) : null,
-    convenioExternoId: String(row.convenio_externo_id),
+    convenioExternoId: row.convenio_externo_id ? String(row.convenio_externo_id) : null,
     averbadoraExterna: row.averbadora_externa === null ? null : Number(row.averbadora_externa),
     totalItens: Number(row.total_itens) || 0,
     itensProcessados: Number(row.itens_processados) || 0,
@@ -66,12 +67,17 @@ function mapLote(row: Record<string, unknown>): LoteResumo {
   }
 }
 
-/** Cria o lote (sem itens ainda) já com o convênio/averbadora resolvidos. */
+/**
+ * Cria o lote (sem itens ainda), preso a um convênio BRS. A resolução de
+ * QUAL variante do Amigoz usar é feita pelo worker, item a item (o convênio
+ * pode ter várias — ver `consultarMargemComVariantes`). `convenioExternoId`/
+ * `averbadoraExterna` são só informativos (1ª variante, pra exibição).
+ */
 export async function criarLote(input: {
   origem: OrigemLote
-  convenioId: string | null
-  convenioExternoId: string
-  averbadoraExterna: number | null
+  convenioId: string
+  convenioExternoId?: string | null
+  averbadoraExterna?: number | null
   pausaMs?: number
   arquivoNome?: string | null
   filtroWesales?: Record<string, unknown> | null
@@ -85,8 +91,8 @@ export async function criarLote(input: {
     .insert({
       instituicao_financeira_id: inst.id,
       convenio_id: input.convenioId,
-      convenio_externo_id: input.convenioExternoId,
-      averbadora_externa: input.averbadoraExterna,
+      convenio_externo_id: input.convenioExternoId ?? null,
+      averbadora_externa: input.averbadoraExterna ?? null,
       origem: input.origem,
       pausa_ms: Math.min(Math.max(input.pausaMs ?? 1500, 500), 60_000),
       arquivo_nome: input.arquivoNome ?? null,
@@ -214,6 +220,7 @@ export type ItemResumo = {
   nvtiEnviadoEm: string | null
   wesalesAtualizadoEm: string | null
   consultadoEm: string | null
+  convenioExternoUsado: string | null
 }
 
 function mapItem(row: Record<string, unknown>): ItemResumo {
@@ -226,6 +233,7 @@ function mapItem(row: Record<string, unknown>): ItemResumo {
     erro: row.erro ? String(row.erro) : null,
     nomeIf: row.nome_if ? String(row.nome_if) : null,
     matriculaIf: row.matricula_if ? String(row.matricula_if) : null,
+    convenioExternoUsado: row.convenio_externo_usado ? String(row.convenio_externo_usado) : null,
     margemConsignado: row.margem_consignado === null ? null : Number(row.margem_consignado),
     margemBeneficioCompra: row.margem_beneficio_compra === null ? null : Number(row.margem_beneficio_compra),
     margemBeneficioSaque: row.margem_beneficio_saque === null ? null : Number(row.margem_beneficio_saque),
@@ -337,8 +345,7 @@ export async function runHigienizacaoAmigozWorker(options: { budgetMs?: number; 
     resumo.lotesTocados += 1
 
     const loteId = String(lote.id)
-    const convenioExternoId = String(lote.convenio_externo_id)
-    const averbadoraExterna = lote.averbadora_externa === null ? null : Number(lote.averbadora_externa)
+    const convenioId = lote.convenio_id ? String(lote.convenio_id) : null
     const pausaMs = Number(lote.pausa_ms) || 1500
     let itensProcessados = Number(lote.itens_processados) || 0
     let itensComMargem = Number(lote.itens_com_margem) || 0
@@ -347,14 +354,13 @@ export async function runHigienizacaoAmigozWorker(options: { budgetMs?: number; 
     let primeiroItem = true
     let interrompidoPor: StatusLote | null = null
 
-    if (averbadoraExterna === null) {
-      // Sem averbadora mapeada: nenhum item deste lote pode ser consultado.
+    if (!convenioId) {
       await admin
         .from('if_higienizacao_itens')
-        .update({ status: 'erro', erro: 'Convênio sem averbadora configurada no Amigoz.' })
+        .update({ status: 'erro', erro: 'Lote sem convênio.' })
         .eq('lote_id', loteId)
         .eq('status', 'pendente')
-      await liberarLote(admin, loteId, workerId, { status: 'erro', last_error: 'Convênio sem averbadora configurada no Amigoz.' })
+      await liberarLote(admin, loteId, workerId, { status: 'erro', last_error: 'Lote sem convênio.' })
       continue
     }
 
@@ -419,23 +425,13 @@ export async function runHigienizacaoAmigozWorker(options: { budgetMs?: number; 
 
       const senhaServidor = item.senha_servidor_enc ? decifrarTexto(item.senha_servidor_enc) : null
 
-      let resultado = await consultarMargemAmigoz(cfg, {
-        cpf: item.cpf,
-        convenioExternoId,
-        averbadora: averbadoraExterna,
-        numeroMatricula: item.matricula || undefined,
-        senhaServidor: senhaServidor || undefined,
-      })
-      if (!resultado.ok) {
-        await sleep(RETENTATIVA_MS)
-        resultado = await consultarMargemAmigoz(cfg, {
-          cpf: item.cpf,
-          convenioExternoId,
-          averbadora: averbadoraExterna,
-          numeroMatricula: item.matricula || undefined,
-          senhaServidor: senhaServidor || undefined,
-        })
-      }
+      const resultado = await consultarMargemComVariantes(
+        cfg,
+        convenioId,
+        { cpf: item.cpf, numeroMatricula: item.matricula || undefined, senhaServidor: senhaServidor || undefined },
+        undefined,
+        RETENTATIVA_MS
+      )
 
       if (resultado.ok) {
         const m = resultado.margem
@@ -456,6 +452,8 @@ export async function runHigienizacaoAmigozWorker(options: { budgetMs?: number; 
             margem_emprestimo: m.margemEmprestimo,
             tem_oportunidade: m.temOportunidade,
             resposta_bruta: resultado.bruto as never,
+            convenio_externo_usado: resultado.varianteUsada?.convenioExternoId ?? null,
+            averbadora_usada: resultado.varianteUsada?.averbadoraExterna ?? null,
             consultado_em: new Date().toISOString(),
           })
           .eq('id', item.id)
@@ -468,6 +466,8 @@ export async function runHigienizacaoAmigozWorker(options: { budgetMs?: number; 
             erro: resultado.mensagem.slice(0, 500),
             tentativas: 2,
             resposta_bruta: (resultado.bruto ?? null) as never,
+            convenio_externo_usado: resultado.varianteUsada?.convenioExternoId ?? null,
+            averbadora_usada: resultado.varianteUsada?.averbadoraExterna ?? null,
             consultado_em: new Date().toISOString(),
           })
           .eq('id', item.id)

@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import { normalizeCpf, validateCpf } from '@/lib/import/columnMap'
-import { obterMapeamentoAmigoz } from '@/lib/if-credito/amigoz/convenios'
+import { listarVariantesPorConvenio } from '@/lib/if-credito/amigoz/convenios'
 import { adicionarItens, criarLote, iniciarLote, type ItemEntrada } from '@/lib/if-credito/amigoz/lote'
 
 export const dynamic = 'force-dynamic'
@@ -77,12 +77,12 @@ export async function POST(request: NextRequest) {
     if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: 'Arquivo maior que 10MB.' }, { status: 400 })
     if (!convenioId) return NextResponse.json({ error: 'Selecione o convênio.' }, { status: 400 })
 
-    const mapeamento = await obterMapeamentoAmigoz(convenioId)
-    if (!mapeamento) {
+    const variantes = await listarVariantesPorConvenio(convenioId)
+    if (variantes.length === 0) {
       return NextResponse.json({ error: 'Este convênio ainda não está vinculado a um convênio do Amigoz — configure o vínculo na tela antes de subir o arquivo.' }, { status: 400 })
     }
-    if (mapeamento.averbadoraExterna === null) {
-      return NextResponse.json({ error: 'O vínculo deste convênio está sem averbadora — edite o vínculo antes de continuar.' }, { status: 400 })
+    if (variantes.every((v) => v.averbadoraExterna === null)) {
+      return NextResponse.json({ error: 'Nenhuma variante deste convênio tem averbadora configurada — edite o vínculo antes de continuar.' }, { status: 400 })
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
@@ -132,8 +132,8 @@ export async function POST(request: NextRequest) {
     const loteId = await criarLote({
       origem: 'csv',
       convenioId,
-      convenioExternoId: mapeamento.convenioExternoId,
-      averbadoraExterna: mapeamento.averbadoraExterna,
+      convenioExternoId: variantes[0].convenioExternoId,
+      averbadoraExterna: variantes[0].averbadoraExterna,
       pausaMs,
       arquivoNome: file.name.slice(0, 200),
       criadoPor: user.id,

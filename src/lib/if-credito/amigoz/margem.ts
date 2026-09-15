@@ -21,6 +21,7 @@
  * preservado (nunca derruba o item do lote).
  */
 import { chamarAmigozAutenticado, type ConfigAmigoz } from './client'
+import { listarVariantesPorConvenio, type VarianteConvenio } from './convenios'
 
 export type MargemNormalizadaAmigoz = {
   nomeIf: string | null
@@ -207,4 +208,68 @@ export async function consultarMargemAmigoz(
     return normalizarMargemAmigoz(r.corpo) // corpo do erro já tem detail/message na maioria dos casos
   }
   return normalizarMargemAmigoz(r.corpo)
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export type ResultadoComVariante = ResultadoConsultaMargem & { varianteUsada: VarianteConvenio | null }
+
+/**
+ * Consulta um convênio BRS tentando TODAS as suas variantes na IF em
+ * sequência (ordenadas por `ordem`) até achar oportunidade — decisão do
+ * Bruno (15/09): o operador não sabe de antemão qual variante (ex.: "INSS"
+ * vs "INSS - Aposentadoria por Invalidez") vale pra cada CPF. Variantes sem
+ * averbadora configurada são puladas. Se nenhuma achar margem, devolve o
+ * resultado da ÚLTIMA tentada (erro ou sem-margem) — nunca perde a
+ * informação de qual variante respondeu.
+ */
+export async function consultarMargemComVariantes(
+  cfg: ConfigAmigoz,
+  convenioId: string,
+  params: { cpf: string; numeroMatricula?: string | null; senhaServidor?: string | null },
+  criadoPor?: string | null,
+  retentativaMs = 0
+): Promise<ResultadoComVariante> {
+  const variantes = (await listarVariantesPorConvenio(convenioId)).filter((v) => v.averbadoraExterna !== null)
+  if (variantes.length === 0) {
+    return { ok: false, mensagem: 'Nenhuma variante deste convênio no Amigoz tem averbadora configurada.', bruto: null, varianteUsada: null }
+  }
+
+  let ultimoResultado: ResultadoConsultaMargem | null = null
+  let ultimaVariante: VarianteConvenio | null = null
+
+  for (const variante of variantes) {
+    let r = await consultarMargemAmigoz(
+      cfg,
+      {
+        cpf: params.cpf,
+        convenioExternoId: variante.convenioExternoId,
+        averbadora: variante.averbadoraExterna!,
+        numeroMatricula: params.numeroMatricula,
+        senhaServidor: params.senhaServidor,
+      },
+      criadoPor
+    )
+    if (!r.ok && retentativaMs > 0) {
+      await sleep(retentativaMs)
+      r = await consultarMargemAmigoz(
+        cfg,
+        {
+          cpf: params.cpf,
+          convenioExternoId: variante.convenioExternoId,
+          averbadora: variante.averbadoraExterna!,
+          numeroMatricula: params.numeroMatricula,
+          senhaServidor: params.senhaServidor,
+        },
+        criadoPor
+      )
+    }
+    ultimoResultado = r
+    ultimaVariante = variante
+    if (r.ok && r.margem.temOportunidade) return { ...r, varianteUsada: variante }
+  }
+
+  return { ...(ultimoResultado as ResultadoConsultaMargem), varianteUsada: ultimaVariante }
 }
