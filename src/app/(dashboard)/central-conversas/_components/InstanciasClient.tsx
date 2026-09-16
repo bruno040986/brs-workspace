@@ -1,9 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Calendar, DollarSign, Edit2, History, Loader2, MessageSquare, Plus, Power, QrCode, RefreshCw, Send, Trash2, Users, Wifi, WifiOff, X } from 'lucide-react'
 import {
+  BadgeCheck,
+  Calendar,
+  DollarSign,
+  Edit2,
+  Globe,
+  History,
+  Loader2,
+  Lock,
+  MessageSquare,
+  Plus,
+  Power,
+  QrCode,
+  RefreshCw,
+  Send,
+  Trash2,
+  Users,
+  Wifi,
+  WifiOff,
+  X,
+} from 'lucide-react'
+import {
+  conectar360dialog,
   conectarInstancia,
+  criarChatDeSite,
   criarInstanciaBrs,
   desconectarInstancia,
   excluirInstancia,
@@ -46,6 +68,24 @@ function TelegramLogo({ size = 36 }: { size?: number }) {
   )
 }
 
+function InstagramIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="2" width="20" height="20" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+function FacebookIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.3c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.3H7.3V14h2.8v8h3.4Z" />
+    </svg>
+  )
+}
+
 export default function InstanciasClient({ view }: { view: View }) {
   const [instancias, setInstancias] = useState<InstanciaView[]>(view.instancias)
   const [mensagem, setMensagem] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
@@ -65,6 +105,11 @@ export default function InstanciasClient({ view }: { view: View }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [departamentos, setDepartamentos] = useState<DepartamentoRow[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Estado 360dialog & Chat do site (Canais adicionais)
+  const [d360, setD360] = useState({ nome: 'WhatsApp Oficial', telefone: '', apiKey: '' })
+  const [site, setSite] = useState({ nome: 'Chat do site', siteUrl: 'https://brspromotora.com.br' })
+  const [snippet, setSnippet] = useState<string | null>(null)
 
   // Estado do Modal de Edição de Chip
   const [editandoChip, setEditandoChip] = useState<{
@@ -89,6 +134,8 @@ export default function InstanciasClient({ view }: { view: View }) {
   } | null>(null)
 
   const operadoras = view.operadoras || []
+  const inboxWhats = view.inboxes.filter((i) => i.channel_type === 'Channel::Whatsapp')
+  const inboxSite = view.inboxes.filter((i) => i.channel_type === 'Channel::WebWidget')
   const inboxTelegram = view.inboxes.filter((i) => i.channel_type === 'Channel::Telegram')
 
   useEffect(() => {
@@ -259,6 +306,38 @@ export default function InstanciasClient({ view }: { view: View }) {
     }
   }
 
+  async function salvar360(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy('360')
+    setMensagem(null)
+    try {
+      await conectar360dialog(d360)
+      setMensagem({ tipo: 'ok', texto: 'Número oficial conectado via 360dialog. As mensagens já caem no Chatwoot.' })
+      setD360({ ...d360, apiKey: '' })
+    } catch (err) {
+      setMensagem({ tipo: 'erro', texto: err instanceof Error ? err.message : 'Falha ao conectar.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function criarSite(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy('site')
+    setMensagem(null)
+    try {
+      const r = await criarChatDeSite(site)
+      setSnippet(
+        `<script>\n  (function(d,t){var BASE_URL="${view.chatwootUrl}";var g=d.createElement(t),s=d.getElementsByTagName(t)[0];g.src=BASE_URL+"/packs/js/sdk.js";g.defer=true;g.async=true;s.parentNode.insertBefore(g,s);g.onload=function(){window.chatwootSDK.run({websiteToken:"${r.websiteToken}",baseUrl:BASE_URL})}})(document,"script");\n</script>`,
+      )
+      setMensagem({ tipo: 'ok', texto: 'Chat do site criado. Cole o script abaixo antes do </body> do site.' })
+    } catch (err) {
+      setMensagem({ tipo: 'erro', texto: err instanceof Error ? err.message : 'Falha ao criar.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function acao(inst: InstanciaView, qual: 'conectar' | 'desconectar' | 'excluir') {
     if (qual === 'excluir' && !window.confirm(`Excluir a instância "${inst.nome}"? A sessão do WhatsApp será encerrada.`)) return
     setBusy(inst.id)
@@ -298,7 +377,7 @@ export default function InstanciasClient({ view }: { view: View }) {
 
   return (
     <div className="page-container">
-      {/* CABEÇALHO MODERNO SEGUINDO A IDENTIDADE DO WORKSPACE */}
+      {/* CABEÇALHO MODERNO: CANAIS DE COMUNICAÇÃO */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
           <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', display: 'grid', placeItems: 'center', color: '#fff', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)', flexShrink: 0 }}>
@@ -306,14 +385,14 @@ export default function InstanciasClient({ view }: { view: View }) {
           </div>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', color: 'var(--color-ink)' }}>
-              Instâncias WhatsApp
+              Canais de Comunicação
             </h1>
           </div>
         </div>
 
         {podeCriar && (
           <button type="button" className="btn btn-primary" style={{ padding: '0.55rem 1.1rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setMostrarForm((v) => !v)}>
-            <Plus size={16} /> Nova instância
+            <Plus size={16} /> Nova instância WhatsApp
           </button>
         )}
       </div>
@@ -322,7 +401,7 @@ export default function InstanciasClient({ view }: { view: View }) {
         <StatusChip ok={!!view.conta} label={view.conta ? `Chatwoot: ${view.conta.nome}` : 'Chatwoot ainda não provisionado'} />
         <StatusChip ok={view.engineOk} label={view.engineOk ? 'Engine no ar' : 'Engine fora do ar / não configurado'} />
         <StatusChip ok={view.cofreOk} label={view.cofreOk ? 'Cofre de credenciais ativo' : 'Cofre não configurado'} />
-        <span className="badge" style={{ marginLeft: 'auto' }}>{instancias.length} / {view.limite} instâncias</span>
+        <span className="badge" style={{ marginLeft: 'auto' }}>{instancias.length} / {view.limite} instâncias WhatsApp</span>
       </div>
 
       {mensagem && (
@@ -333,7 +412,7 @@ export default function InstanciasClient({ view }: { view: View }) {
 
       {mostrarForm && (
         <form onSubmit={handleCriar} className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <div style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: 14 }}>Dados Principais</div>
+          <div style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: 14 }}>Dados Principais da Instância</div>
           <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
             <label className="form-field">
               <span className="form-label">Nome da instância</span>
@@ -419,6 +498,7 @@ export default function InstanciasClient({ view }: { view: View }) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '1rem' }}>
+        {/* CARDS DAS INSTÂNCIAS WHATSAPP */}
         {instancias.map((inst) => {
           const conectada = inst.status === 'conectada'
           return (
@@ -580,8 +660,97 @@ export default function InstanciasClient({ view }: { view: View }) {
           )
         })}
 
+        {/* CARD: WHATSAPP OFICIAL (360DIALOG) */}
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'rgba(233,5,65,.10)', color: 'var(--color-primary)', flexShrink: 0 }}>
+              <BadgeCheck size={40} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25 }}>
+                WhatsApp Oficial (360dialog)
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                API Oficial Meta · Sem grupos
+              </div>
+              <div style={{ marginTop: 2 }}>
+                <span className={`badge ${inboxWhats.length > 0 ? 'badge-success' : ''}`} style={{ fontSize: 11, background: inboxWhats.length > 0 ? undefined : 'rgba(0,0,0,0.06)', color: inboxWhats.length > 0 ? undefined : 'var(--color-ink-subtle)' }}>
+                  {inboxWhats.length > 0 ? 'Conectado' : 'Não configurado'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {inboxWhats.length > 0 && (
+            <div className="alert alert-success" style={{ fontSize: 12 }}>
+              Conectado: {inboxWhats.map((i) => `${i.name}${i.phone_number ? ` (${i.phone_number})` : ''}`).join(', ')}
+            </div>
+          )}
+
+          {view.can_edit && view.conta && (
+            <form onSubmit={salvar360} style={{ display: 'grid', gap: '0.5rem', marginTop: 'auto' }}>
+              <label className="form-field" style={{ margin: 0 }}>
+                <span className="form-label" style={{ fontSize: 11 }}>Nome da caixa</span>
+                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} value={d360.nome} onChange={(e) => setD360({ ...d360, nome: e.target.value })} />
+              </label>
+              <label className="form-field" style={{ margin: 0 }}>
+                <span className="form-label" style={{ fontSize: 11 }}>Número (DDI+DDD+número)</span>
+                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} required placeholder="5511999999999" value={d360.telefone} onChange={(e) => setD360({ ...d360, telefone: e.target.value })} />
+              </label>
+              <label className="form-field" style={{ margin: 0 }}>
+                <span className="form-label" style={{ fontSize: 11 }}>API key 360dialog</span>
+                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} required type="password" value={d360.apiKey} onChange={(e) => setD360({ ...d360, apiKey: e.target.value })} />
+              </label>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={busy === '360'}>
+                {busy === '360' ? <Loader2 size={14} className="spinner" /> : <BadgeCheck size={14} />} Conectar 360dialog
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* CARD: CHAT DO SITE */}
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'rgba(16,185,129,.10)', color: '#059669', flexShrink: 0 }}>
+              <Globe size={40} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25 }}>
+                Chat do Site (Widget)
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                Widget Web · Site & Landing Pages
+              </div>
+              <div style={{ marginTop: 2 }}>
+                <span className={`badge ${inboxSite.length > 0 ? 'badge-success' : ''}`} style={{ fontSize: 11, background: inboxSite.length > 0 ? undefined : 'rgba(0,0,0,0.06)', color: inboxSite.length > 0 ? undefined : 'var(--color-ink-subtle)' }}>
+                  {inboxSite.length > 0 ? 'Ativo' : 'Pronto p/ criar'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {inboxSite.length > 0 && <div className="alert alert-success" style={{ fontSize: 12 }}>Ativo: {inboxSite.map((i) => i.name).join(', ')}</div>}
+
+          {view.can_edit && view.conta && (
+            <form onSubmit={criarSite} style={{ display: 'grid', gap: '0.5rem', marginTop: 'auto' }}>
+              <label className="form-field" style={{ margin: 0 }}>
+                <span className="form-label" style={{ fontSize: 11 }}>Nome</span>
+                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} value={site.nome} onChange={(e) => setSite({ ...site, nome: e.target.value })} />
+              </label>
+              <label className="form-field" style={{ margin: 0 }}>
+                <span className="form-label" style={{ fontSize: 11 }}>URL do site</span>
+                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} required value={site.siteUrl} onChange={(e) => setSite({ ...site, siteUrl: e.target.value })} />
+              </label>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={busy === 'site'}>
+                {busy === 'site' ? <Loader2 size={14} className="spinner" /> : <Globe size={14} />} Gerar script do widget
+              </button>
+            </form>
+          )}
+          {snippet && <pre style={{ marginTop: '0.5rem', fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: 'var(--color-surface-sunken)', padding: '0.5rem', borderRadius: 8 }}>{snippet}</pre>}
+        </div>
+
         {/* CARD PARA SINCRONIZAR TELEGRAM */}
-        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', border: '1px stroke var(--color-line)' }}>
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
             <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, #2AABEE 0%, #229ED9 100%)', color: '#fff', flexShrink: 0, boxShadow: '0 4px 12px rgba(42, 171, 238, 0.25)' }}>
               <TelegramLogo size={42} />
@@ -617,6 +786,56 @@ export default function InstanciasClient({ view }: { view: View }) {
             >
               <Send size={14} /> Sincronizar Telegram
             </a>
+          </div>
+        </div>
+
+        {/* CARD: INSTAGRAM DM (Aguardando Meta) */}
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', opacity: 0.8 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, #E1306C 0%, #C13584 100%)', color: '#fff', flexShrink: 0 }}>
+              <InstagramIcon size={38} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25 }}>
+                Instagram DM
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                Mensagens diretas do perfil profissional
+              </div>
+              <div style={{ marginTop: 2 }}>
+                <span className="badge" style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', color: 'var(--color-ink-subtle)' }}>
+                  Aguardando App Meta
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', fontSize: 11, color: 'var(--color-ink-muted)' }}>
+            <Lock size={14} /> Requer aprovação do App da BRS na Meta.
+          </div>
+        </div>
+
+        {/* CARD: FACEBOOK MESSENGER (Aguardando Meta) */}
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', opacity: 0.8 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, #0084FF 0%, #0066CC 100%)', color: '#fff', flexShrink: 0 }}>
+              <FacebookIcon size={38} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25 }}>
+                Facebook Messenger
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                Mensagens da Página oficial BRS
+              </div>
+              <div style={{ marginTop: 2 }}>
+                <span className="badge" style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', color: 'var(--color-ink-subtle)' }}>
+                  Aguardando App Meta
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', fontSize: 11, color: 'var(--color-ink-muted)' }}>
+            <Lock size={14} /> Requer aprovação do App da BRS na Meta.
           </div>
         </div>
       </div>
