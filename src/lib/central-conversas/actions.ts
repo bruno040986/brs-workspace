@@ -212,43 +212,64 @@ type MetaRow = {
 /** Resolve os nomes das entidades vinculadas (em lote, uma query por tipo). */
 async function resolverNomesEntidades(rows: MetaRow[]): Promise<Map<string, string>> {
   const admin = await createAdminClient()
-  const porTipo = new Map<EntidadeTipo, string[]>()
+  const porTipo = new Map<EntidadeTipo, Set<string>>()
   for (const r of rows) {
     if (!r.entidade_tipo || !r.entidade_id) continue
-    const ids = porTipo.get(r.entidade_tipo) || []
-    ids.push(r.entidade_id)
-    porTipo.set(r.entidade_tipo, ids)
+    const idLimpo = String(r.entidade_id).trim()
+    if (!idLimpo) continue
+    const set = porTipo.get(r.entidade_tipo) || new Set<string>()
+    set.add(idLimpo)
+    porTipo.set(r.entidade_tipo, set)
   }
   const nomes = new Map<string, string>()
-  const parceiros = porTipo.get('parceiro')
-  if (parceiros?.length) {
+
+  const parceiros = [...(porTipo.get('parceiro') || [])]
+  if (parceiros.length) {
     const { data } = await admin.from('agentes_parceiros').select('id, fantasy_name, name, arw_code').in('id', parceiros)
     for (const p of data || []) {
-      const rotulo = p.arw_code ? `ARW ${p.arw_code}` : String(p.fantasy_name || p.name || 'Parceiro')
-      nomes.set(`parceiro:${p.id}`, rotulo)
+      const rotulo = p.arw_code ? `ARW ${p.arw_code}` : String(p.fantasy_name || p.name || 'Parceiro').trim()
+      const idStr = String(p.id).trim()
+      nomes.set(`parceiro:${idStr}`, rotulo)
+      nomes.set(`parceiro:${idStr.toLowerCase()}`, rotulo)
     }
   }
-  const instituicoes = porTipo.get('instituicao')
-  if (instituicoes?.length) {
-    const { data } = await admin.from('financial_institutions').select('id, name').in('id', instituicoes)
-    for (const i of data || []) nomes.set(`instituicao:${i.id}`, String(i.name || 'Instituição'))
+
+  const instituicoes = [...(porTipo.get('instituicao') || [])]
+  if (instituicoes.length) {
+    const { data } = await admin.from('financial_institutions').select('id, name, razao_social').in('id', instituicoes)
+    for (const i of data || []) {
+      const rotulo = String(i.name || i.razao_social || 'Instituição').trim()
+      const idStr = String(i.id).trim()
+      nomes.set(`instituicao:${idStr}`, rotulo)
+      nomes.set(`instituicao:${idStr.toLowerCase()}`, rotulo)
+    }
   }
-  const promotoras = porTipo.get('promotora')
-  if (promotoras?.length) {
+
+  const promotoras = [...(porTipo.get('promotora') || [])]
+  if (promotoras.length) {
     const { data } = await admin.from('promotoras').select('id, nome_fantasia, razao_social').in('id', promotoras)
-    for (const p of data || []) nomes.set(`promotora:${p.id}`, String(p.nome_fantasia || p.razao_social || 'Promotora'))
+    for (const p of data || []) {
+      const rotulo = String(p.nome_fantasia || p.razao_social || 'Promotora').trim()
+      const idStr = String(p.id).trim()
+      nomes.set(`promotora:${idStr}`, rotulo)
+      nomes.set(`promotora:${idStr.toLowerCase()}`, rotulo)
+    }
   }
+
   return nomes
 }
 
 async function metaRowParaView(row: MetaRow, nomes?: Map<string, string>): Promise<ConversaMeta> {
   const resolvidos = nomes || (await resolverNomesEntidades([row]))
+  const idLimpo = row.entidade_id ? String(row.entidade_id).trim() : ''
+  const chave = row.entidade_tipo && idLimpo ? `${row.entidade_tipo}:${idLimpo}` : ''
+  const nomeResolvido = chave ? (resolvidos.get(chave) || resolvidos.get(chave.toLowerCase()) || '') : ''
   return {
     protocolo: String(row.protocolo || ''),
     observacoes: String(row.observacoes || ''),
     entidade:
-      row.entidade_tipo && row.entidade_id
-        ? { tipo: row.entidade_tipo, id: row.entidade_id, nome: resolvidos.get(`${row.entidade_tipo}:${row.entidade_id}`) || '' }
+      row.entidade_tipo && idLimpo
+        ? { tipo: row.entidade_tipo, id: idLimpo, nome: nomeResolvido }
         : null,
   }
 }
