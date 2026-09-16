@@ -291,15 +291,22 @@ export default function ThreadConversa({
   const sugestoesMencao = useMemo(() => {
     if (termoMencao === null) return []
     const alvo = termoMencao.toLowerCase()
-    return membrosGrupo.filter((m) => (m.nome || m.numero).toLowerCase().includes(alvo)).slice(0, 6)
+    return (membrosGrupo || [])
+      .filter((m) => {
+        if (!m) return false
+        const label = String(m.nome || m.numero || '')
+        return label.toLowerCase().includes(alvo)
+      })
+      .slice(0, 6)
   }, [termoMencao, membrosGrupo])
 
   function escolherMencao(m: MembroGrupo) {
-    const rotulo = m.nome || m.numero
+    if (!m) return
+    const rotulo = String(m.nome || m.numero || m.jid || 'membro')
     setTexto((prev) => prev.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${rotulo} `))
     setMencoesAtuais((prev) => {
       const novo = new Map(prev)
-      novo.set(rotulo, m.jid)
+      if (m.jid) novo.set(rotulo, m.jid)
       return novo
     })
   }
@@ -813,8 +820,8 @@ export default function ThreadConversa({
                     onClick={() => escolherMencao(m)}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4 }}
                   >
-                    <AvatarContato nome={m.nome || m.numero} tamanho={20} fontSize={9} />
-                    {m.nome || m.numero}
+                    <AvatarContato nome={String(m.nome || m.numero || '')} tamanho={20} fontSize={9} />
+                    {String(m.nome || m.numero || m.jid || 'Membro')}
                   </button>
                 ))}
               </div>

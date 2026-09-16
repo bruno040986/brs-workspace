@@ -460,33 +460,28 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
     const ids = payload.map((c) => c.id)
     if (conta && ids.length) {
       const admin = await createAdminClient()
-      const { data: rows } = await admin
-        .from('chat_conversa_meta')
-        .select('chatwoot_conversation_id, protocolo, observacoes, entidade_tipo, entidade_id')
-        .eq('conta_id', conta.id)
-        .in('chatwoot_conversation_id', ids)
-      const metaRows = (rows || []) as MetaRow[]
+      const contactIds = payload.map((c) => c.meta?.sender?.id).filter((x): x is number => typeof x === 'number')
 
-      // Para conversas sem vínculo na conversa, busca o vínculo padrão do contato
-      const contactIdsToFetch = payload
-        .filter((c) => {
-          const existing = metaRows.find((r) => r.chatwoot_conversation_id === c.id)
-          return !existing || !existing.entidade_tipo || !existing.entidade_id
-        })
-        .map((c) => c.meta?.sender?.id)
-        .filter((x): x is number => typeof x === 'number')
-
-      const contactMetaMap = new Map<number, { tipo: EntidadeTipo; id: string }>()
-      if (contactIdsToFetch.length) {
-        const { data: contactRows } = await admin
-          .from('chat_contato_meta')
-          .select('chatwoot_contact_id, entidade_tipo, entidade_id')
+      const [{ data: rows }, { data: contactRows }] = await Promise.all([
+        admin
+          .from('chat_conversa_meta')
+          .select('chatwoot_conversation_id, protocolo, observacoes, entidade_tipo, entidade_id')
           .eq('conta_id', conta.id)
-          .in('chatwoot_contact_id', contactIdsToFetch)
-        for (const cr of contactRows || []) {
-          if (cr.entidade_tipo && cr.entidade_id) {
-            contactMetaMap.set(Number(cr.chatwoot_contact_id), { tipo: cr.entidade_tipo as EntidadeTipo, id: String(cr.entidade_id) })
-          }
+          .in('chatwoot_conversation_id', ids),
+        contactIds.length
+          ? admin
+              .from('chat_contato_meta')
+              .select('chatwoot_contact_id, entidade_tipo, entidade_id')
+              .eq('conta_id', conta.id)
+              .in('chatwoot_contact_id', contactIds)
+          : Promise.resolve({ data: [] }),
+      ])
+
+      const metaRows = (rows || []) as MetaRow[]
+      const contactMetaMap = new Map<number, { tipo: EntidadeTipo; id: string }>()
+      for (const cr of contactRows || []) {
+        if (cr.entidade_tipo && cr.entidade_id) {
+          contactMetaMap.set(Number(cr.chatwoot_contact_id), { tipo: cr.entidade_tipo as EntidadeTipo, id: String(cr.entidade_id) })
         }
       }
 
@@ -521,47 +516,47 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   } catch {
     // meta é acessório da listagem: falha aqui não derruba o atendimento
   }
-  const conversas = await Promise.all(
-    payload.map(async (c) => {
-      // Sanitização de contatos salvos incorretamente com nome contendo 'Bruno'
-      const senderName = c.meta?.sender?.name || ''
-      if (senderName && /bruno/i.test(senderName)) {
-        let rawPhone = c.meta.sender?.phone_number || (c.meta.sender?.identifier ? String(c.meta.sender.identifier).split(':').pop()?.replace('@s.whatsapp.net', '') : '') || ''
-        if (!rawPhone && c.meta.sender?.id && cli) {
+
+  const conversas = payload.map((c) => {
+    // Sanitização síncrona/não-bloqueante de contatos salvos incorretamente com nome contendo 'Bruno'
+    const senderName = c.meta?.sender?.name || ''
+    if (senderName && /bruno/i.test(senderName)) {
+      const rawPhone = c.meta.sender?.phone_number || (c.meta.sender?.identifier ? String(c.meta.sender.identifier).split(':').pop()?.replace('@s.whatsapp.net', '') : '') || ''
+      const limpo = rawPhone.replace(/\D/g, '')
+      const ehDono = limpo.endsWith('999551641') || limpo.endsWith('99551641') || limpo.endsWith('999556019') || limpo.endsWith('99556019')
+      if (limpo && !ehDono) {
+        const digitsOnly = limpo.startsWith('55') && (limpo.length === 12 || limpo.length === 13) ? limpo.slice(2) : limpo
+        let telefoneFormatado = limpo
+        if (digitsOnly.length === 11) {
+          telefoneFormatado = digitsOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3')
+        } else if (digitsOnly.length === 10) {
+          telefoneFormatado = digitsOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3')
+        }
+        if (c.meta.sender) {
+          c.meta.sender.name = telefoneFormatado
+        }
+        if (cli && c.meta.sender?.id) {
+          const contactId = c.meta.sender.id
+          void cli.atualizarContato(contactId, { name: telefoneFormatado }).catch(() => {})
+        }
+      } else if (!limpo && cli && c.meta.sender?.id) {
+        const contactId = c.meta.sender.id
+        void (async () => {
           try {
-            const detalhe = await cli.detalharContato(c.meta.sender.id)
-            if (detalhe) {
-              rawPhone = detalhe.phone_number || detalhe.identifier || ''
+            const detalhe = await cli.detalharContato(contactId)
+            const p = detalhe?.phone_number || detalhe?.identifier || ''
+            const l = p.replace(/\D/g, '')
+            if (l && !l.endsWith('999551641') && !l.endsWith('99551641')) {
+              const dOnly = l.startsWith('55') && (l.length === 12 || l.length === 13) ? l.slice(2) : l
+              const fmt = dOnly.length === 11 ? dOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3') : dOnly.length === 10 ? dOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3') : l
+              await cli.atualizarContato(contactId, { name: fmt })
             }
-          } catch {
-            // falha na leitura do contato não bloqueia a conversa
-          }
-        }
-        const limpo = rawPhone.replace(/\D/g, '')
-        const ehDono = limpo.endsWith('999551641') || limpo.endsWith('99551641') || limpo.endsWith('999556019') || limpo.endsWith('99556019')
-        if (limpo && !ehDono) {
-          const digitsOnly = limpo.startsWith('55') && (limpo.length === 12 || limpo.length === 13) ? limpo.slice(2) : limpo
-          let telefoneFormatado = limpo
-          if (digitsOnly.length === 11) {
-            telefoneFormatado = digitsOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3')
-          } else if (digitsOnly.length === 10) {
-            telefoneFormatado = digitsOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3')
-          }
-          if (c.meta.sender) {
-            c.meta.sender.name = telefoneFormatado
-          }
-          if (cli && c.meta.sender?.id) {
-            try {
-              await cli.atualizarContato(c.meta.sender.id, { name: telefoneFormatado })
-            } catch (err) {
-              console.error('[conversas] erro ao atualizar contato no Chatwoot', err)
-            }
-          }
-        }
+          } catch {}
+        })()
       }
-      return { ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }
-    }),
-  )
+    }
+    return { ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }
+  })
   return { disponivel: true as const, conversas, meta: data.meta }
 }
 

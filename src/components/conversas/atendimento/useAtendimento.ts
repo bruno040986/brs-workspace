@@ -257,11 +257,11 @@ export function useAtendimento() {
   }, [])
 
   useEffect(() => {
-    // setCarregandoLista fica só na troca de aba/busca/canal (via este bootstrap),
-    // nunca no poll de segurança abaixo — daí o carregamento inicial ficar isolado
-    // num callback próprio em vez de uma chamada direta no corpo do efeito.
     void (async () => {
-      setCarregandoLista(true)
+      // Exibe spinner de lista completa só se a lista ainda estiver vazia
+      if (conversas.length === 0) {
+        setCarregandoLista(true)
+      }
       await Promise.all([carregarLista(), carregarContadores()])
     })()
     // Realtime é o caminho principal (efeito abaixo); este poll de 30s é só a
@@ -284,11 +284,11 @@ export function useAtendimento() {
   useEffect(() => {
     if (!selecionada) return
     const contactId = selecionada.meta?.sender?.id
-    void (async () => {
-      await carregarThread(selecionada.id)
-      await carregarMeta(selecionada.id, contactId)
-      await carregarDadosContato(selecionada.id, contactId)
-    })()
+    void Promise.all([
+      carregarThread(selecionada.id),
+      carregarMeta(selecionada.id, contactId),
+      carregarDadosContato(selecionada.id, contactId),
+    ])
     // Idem: rede de segurança, o Realtime é quem mantém a thread em dia.
     return pollingVisivel(() => void carregarThread(selecionada.id, { silencioso: true }), 30_000, { imediato: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
