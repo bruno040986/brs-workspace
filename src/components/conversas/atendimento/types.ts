@@ -74,26 +74,40 @@ export function iniciais(nome?: string | null) {
 export function previaConversa(c: ChatwootConversa) {
   const ultima = c.last_non_activity_message
   if (!ultima) return ''
-  let corpo = ultima.content
+  let corpo = ultima.content?.trim() || ''
   const reaction = ultima.content_attributes?.reaction as { emoji?: string } | undefined
   if (reaction?.emoji || (corpo && (corpo.startsWith('Reagiu ') || corpo.startsWith('Reagiu com ')))) {
     const emoji = reaction?.emoji || corpo?.replace(/^Reagiu\s*(com)?\s*/, '') || '❤️'
     corpo = `Reagiu com ${emoji}`
   } else if (ultima.content_attributes?.revoked || ultima.content_attributes?.deleted || (corpo && corpo.includes('🚫 Mensagem apagada'))) {
     corpo = '🚫 Mensagem apagada'
-  } else if (!corpo || corpo === '[sem conteúdo]') {
-    if (ultima.attachments?.length) {
-      const tipo = ultima.attachments[0].file_type
-      corpo = tipo === 'image' ? '📷 Foto' : tipo === 'audio' ? '🎤 Áudio' : '📎 Anexo'
-    } else {
+  } else {
+    const primeiroAnexo = ultima.attachments?.[0]
+    const ehAudioAnexo = primeiroAnexo?.file_type === 'audio' || primeiroAnexo?.file_type === 'voice'
+    const ehAudioTexto = /^audio\.(ogg|mp3|wav|m4a|opus)$/i.test(corpo) || /\.(ogg|mp3|wav|m4a|opus)$/i.test(corpo) || (corpo === '[sem conteúdo]' && ehAudioAnexo)
+
+    if (ehAudioAnexo || ehAudioTexto) {
+      corpo = 'Enviou um áudio'
+    } else if (primeiroAnexo?.file_type === 'image' || /^imagem\.(jpg|jpeg|png|webp|gif)$/i.test(corpo)) {
+      corpo = '📷 Foto'
+    } else if (primeiroAnexo?.file_type === 'video' || /^video\.(mp4|avi|mov|mkv|webm)$/i.test(corpo)) {
+      corpo = '🎥 Vídeo'
+    } else if (primeiroAnexo?.file_type === 'file' || primeiroAnexo?.file_type === 'document') {
+      corpo = '📎 Anexo'
+    } else if (!corpo || corpo === '[sem conteúdo]') {
       corpo = ''
     }
   }
+
   if (!corpo) return ''
+
+  const ehMinha = ultima.message_type === 1 || (ultima.message_type as unknown) === 'outgoing' || ultima.sender?.type === 'user' || (ultima as any).from_me === true
   if (ehGrupo(c)) {
     const sender = ultima.content_attributes?.sender as { nome?: string; numero?: string } | undefined
     const nome = sender?.nome || sender?.numero
     if (nome) return `${nome}: ${corpo}`
+  } else if (ehMinha) {
+    return `Você: ${corpo}`
   }
   return corpo
 }

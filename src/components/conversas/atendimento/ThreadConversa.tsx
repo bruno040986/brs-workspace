@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
+import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
 import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
@@ -612,6 +613,15 @@ export default function ThreadConversa({
                   conteudo = `${saida ? 'Você' : remetente?.nome || 'O contato'} reagiu com ${emoji}`
                 }
 
+                const temAudioAnexo = m.attachments?.some((a) => a.file_type === 'audio' || a.file_type === 'voice')
+                const ehNomeRawAudio =
+                  conteudo &&
+                  (/^audio\.(ogg|mp3|wav|m4a|opus)$/i.test(conteudo.trim()) ||
+                    /\.(ogg|mp3|wav|m4a|opus)$/i.test(conteudo.trim()) ||
+                    conteudo === '[sem conteúdo]' ||
+                    conteudo === 'audio')
+                const exibirTexto = conteudo && (!temAudioAnexo || !ehNomeRawAudio)
+
                 const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
                 const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
                 return (
@@ -642,17 +652,17 @@ export default function ThreadConversa({
                       a.file_type === 'image' ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img key={a.id} src={a.data_url} alt="" onLoad={aoMidiaCarregar} style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block', opacity: ehRevogada ? 0.4 : 1 }} />
-                      ) : a.file_type === 'audio' ? (
-                        <audio key={a.id} controls src={a.data_url} onLoadedData={aoMidiaCarregar} style={{ maxWidth: '100%', marginBottom: 4 }} />
+                      ) : a.file_type === 'audio' || a.file_type === 'voice' ? (
+                        <AudioPlayer key={a.id} src={a.data_url} onLoadedData={aoMidiaCarregar} isMine={saida} />
                       ) : (
                         <a key={a.id} href={a.data_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4, color: 'var(--msn-link)' }}>
                           <Download size={12} /> anexo
                         </a>
                       ),
                     )}
-                    {conteudo && (
+                    {exibirTexto && (
                       <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, textDecoration: ehRevogada ? 'line-through' : undefined }}>
-                        <TextoComMencoes texto={conteudo} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
+                        <TextoComMencoes texto={conteudo || ''} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
                       </div>
                     )}
                     {m.reacoes.length > 0 && (
