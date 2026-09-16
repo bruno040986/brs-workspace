@@ -12,7 +12,7 @@ alter table public.if_credito_config
   add column if not exists webhook_key text;
 
 update public.if_credito_config
-  set webhook_key = encode(gen_random_bytes(20), 'hex')
+  set webhook_key = replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '')
   where webhook_key is null;
 
 notify pgrst, 'reload schema';
