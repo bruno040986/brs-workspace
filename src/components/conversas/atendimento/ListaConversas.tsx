@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useReducer, useState } from 'react'
 import { ChevronDown, Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound, X } from 'lucide-react'
 import type { AbaAtendimento } from './useAtendimento'
-import AvatarContato from './AvatarContato'
+import AvatarContato, { IconeCanal } from './AvatarContato'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
 import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
@@ -93,17 +93,17 @@ export default function ListaConversas({
 
   const opcoesCanal = useMemo(() => {
     const vistos = new Set<number>()
-    const chips: Array<{ id: number; rotulo: string; status?: string }> = []
+    const chips: Array<{ id: number; rotulo: string; status?: string; canal?: string }> = []
     for (const i of canais.instancias) {
       if (i.inboxId && !vistos.has(i.inboxId)) {
         vistos.add(i.inboxId)
-        chips.push({ id: i.inboxId, rotulo: i.nome, status: i.status })
+        chips.push({ id: i.inboxId, rotulo: i.nome, status: i.status, canal: 'whatsapp' })
       }
     }
     for (const i of canais.inboxes) {
       if (!vistos.has(i.id)) {
         vistos.add(i.id)
-        chips.push({ id: i.id, rotulo: i.nome })
+        chips.push({ id: i.id, rotulo: i.nome, canal: i.tipo || 'whatsapp' })
       }
     }
     return chips
@@ -354,7 +354,7 @@ function FiltroMultiSelect<T extends string | number>({
   comStatus,
 }: {
   rotulo: string
-  opcoes: Array<{ id: T; rotulo: string; status?: string }>
+  opcoes: Array<{ id: T; rotulo: string; status?: string; canal?: string }>
   selecionados: Set<T>
   onAlternar: (id: T) => void
   onLimpar: () => void
@@ -413,6 +413,7 @@ function FiltroMultiSelect<T extends string | number>({
               <label key={String(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: 'var(--msn-text)' }}>
                 <input type="checkbox" checked={selecionados.has(o.id)} onChange={() => onAlternar(o.id)} />
                 {comStatus && <span title={o.status} style={{ width: 8, height: 8, borderRadius: 99, background: STATUS_COR_INSTANCIA[o.status || ''] || '#94a3b8', flexShrink: 0 }} />}
+                {o.canal && <IconeCanal canal={o.canal} tamanho={14} estilo={{ flexShrink: 0 }} />}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.rotulo}</span>
               </label>
             ))}
