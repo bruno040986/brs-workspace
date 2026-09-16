@@ -448,6 +448,7 @@ const ItemConversa = memo(function ItemConversa({
   const departamento = c.meta.team?.name || null
   const entidade = c.atendimentoMeta?.entidade
   const atendente = c.meta?.assignee?.name || null
+  const primeiroNomeAtendente = atendente ? atendente.trim().split(' ')[0] : null
   const ehEncerrada = c.status === 'resolved'
   return (
     <button
@@ -514,9 +515,9 @@ const ItemConversa = memo(function ItemConversa({
             {nomeInstancia && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(37,99,235,0.12)', color: '#1d4ed8' }}>{nomeInstancia}</span>
             )}
-            {atendente ? (
+            {primeiroNomeAtendente ? (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(168,85,247,0.14)', color: '#7e22ce' }}>
-                👤 {atendente}
+                👤 {primeiroNomeAtendente}
               </span>
             ) : aba === 'geral' ? (
               <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: 'var(--msn-surface-alt)', color: 'var(--msn-muted)', border: '1px solid var(--msn-soft-border)' }}>
@@ -534,7 +535,7 @@ const ItemConversa = memo(function ItemConversa({
                   color: VINCULO_COR[entidade.tipo].text,
                 }}
               >
-                {entidade.nome ? (entidade.tipo === 'parceiro' ? entidade.nome : `${VINCULO_LABEL[entidade.tipo]}: ${entidade.nome}`) : VINCULO_LABEL[entidade.tipo]}
+                {entidade.nome || VINCULO_LABEL[entidade.tipo]}
               </span>
             )}
             {departamento && (

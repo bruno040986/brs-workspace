@@ -284,6 +284,14 @@ export class ChatwootConta {
     return this.req<{ payload: Array<{ id: number; name: string; phone_number: string | null; email: string | null; thumbnail?: string }> }>(path).then((r) => r.payload || [])
   }
 
+  atualizarContato(contactId: number, input: { name?: string; email?: string; phone_number?: string }) {
+    return this.req(`/contacts/${contactId}`, { method: 'PUT', body: input })
+  }
+
+  detalharContato(contactId: number) {
+    return this.req<{ payload: { id: number; name: string; phone_number: string | null; identifier: string | null } }>(`/contacts/${contactId}`).then((r) => r.payload || null)
+  }
+
   perfil() {
     return fetch(`${base()}/api/v1/profile`, { headers: { api_access_token: this.token } }).then(async (r) => (r.ok ? ((await r.json()) as { id: number; name: string; email: string }) : null))
   }
