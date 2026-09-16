@@ -756,17 +756,19 @@ export default function ThreadConversa({
                           {dataHoraCompleta(m.created_at)}
                           {nota ? ' · nota interna' : ''}
                           {saida && !nota && (
-                            <>
+                            <span title={m.status === 'falhou' ? 'Falha no envio' : m.status === 'lido' ? 'Lido por todos' : m.status === 'entregue' ? 'Entregue' : 'Enviado'}>
                               {m.status === 'falhou' ? (
-                                <span style={{ color: '#dc2626' }} title="Falhou">
+                                <span style={{ color: '#dc2626', fontWeight: 700 }}>
                                   !
                                 </span>
-                              ) : m.status === 'lido' || m.status === 'entregue' ? (
-                                <CheckCheck size={12} style={{ color: m.status === 'lido' ? 'var(--msn-accent)' : undefined }} />
+                              ) : m.status === 'lido' ? (
+                                <CheckCheck size={13} style={{ color: '#53bdeb' }} />
+                              ) : m.status === 'entregue' ? (
+                                <CheckCheck size={13} style={{ color: 'var(--msn-meta-text, #8696a0)' }} />
                               ) : (
-                                <Check size={12} />
+                                <Check size={13} style={{ color: 'var(--msn-meta-text, #8696a0)' }} />
                               )}
-                            </>
+                            </span>
                           )}
                         </div>
                       </div>
