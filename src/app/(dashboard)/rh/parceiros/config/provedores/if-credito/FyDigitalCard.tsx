@@ -12,15 +12,14 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Copy, ExternalLink, FlaskConical, KeyRound, Link as LinkIcon, Loader2, PlugZap, Save } from 'lucide-react'
 import Link from 'next/link'
 import { lerConfigIF, salvarConfigIF, type InstituicaoConfigResumo } from '@/lib/if-credito/config-actions'
+import { OPERACOES_FYDIGITAL, type OperacaoDescobertaFyDigital } from '@/lib/if-credito/fydigital-operacoes'
 import {
-  OPERACOES_FYDIGITAL,
   executarDescobertaFyDigital,
   listarChamadasFyDigital,
   listarWebhooksFyDigital,
   obterWebhookUrlFyDigital,
   testarAutenticacaoFyDigital,
   type ChamadaResumoFyDigital,
-  type OperacaoDescobertaFyDigital,
   type RespostaDescobertaFyDigital,
   type WebhookEventoResumoFyDigital,
 } from '@/lib/if-credito/fydigital-actions'
