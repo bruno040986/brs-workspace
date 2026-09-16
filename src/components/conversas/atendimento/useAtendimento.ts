@@ -45,6 +45,7 @@ import {
   transferirConversa,
   type ContatoBusca,
   type DepartamentoResumo,
+  type ResultadoNovaConversa,
 } from '@/lib/central-conversas/actions'
 import { agendarAcao, cancelarAgendamento, listarAgendamentos, reagendar as reagendarAction } from '@/lib/central-conversas/agendamento-actions'
 import { enviarRespostaRapida, listarRespostasVisiveis } from '@/lib/central-conversas/respostas-rapidas-actions'
@@ -766,12 +767,27 @@ export function useAtendimento() {
   }
 
   /** `operationId` nasce no modal (uma chave por intenção — Lote 02B); aqui só passa adiante. Resultado 'incerto' volta pro modal, sem retry. */
-  async function novaConversa(input: { instanciaId: string; telefone: string; texto: string; operationId: string }) {
-    const r = await iniciarConversaPorTelefone(input)
-    const lista = await carregarLista()
-    if (r.resultado === 'confirmado' && r.conversationId) {
-      const encontrada = lista.find((c) => c.id === r.conversationId)
-      if (encontrada) selecionarConversa(encontrada)
+  async function novaConversa(input: { instanciaId: string; telefone: string; texto: string; operationId: string }): Promise<ResultadoNovaConversa> {
+    let r: ResultadoNovaConversa
+    try {
+      r = await iniciarConversaPorTelefone(input)
+    } catch (err) {
+      r = { resultado: 'incerto', mensagem: err instanceof Error ? err.message : 'Falha ao comunicar com o servidor.' }
+    }
+
+    if (r.resultado === 'confirmado') {
+      // Atualiza a lista e seleciona a nova conversa em segundo plano para não travar a UI nem o fechamento do modal
+      void (async () => {
+        try {
+          const lista = await carregarLista()
+          if (r.resultado === 'confirmado' && r.conversationId) {
+            const encontrada = lista.find((c) => c.id === r.conversationId)
+            if (encontrada) selecionarConversa(encontrada)
+          }
+        } catch (err) {
+          console.error('[novaConversa] Erro ao carregar lista em segundo plano:', err)
+        }
+      })()
     }
     return r
   }

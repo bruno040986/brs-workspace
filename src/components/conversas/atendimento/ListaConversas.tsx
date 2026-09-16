@@ -318,12 +318,16 @@ export default function ListaConversas({
             setPrefillModal(null)
           }}
           onEnviar={async (input) => {
-            const r = await onNovaConversa(input)
-            if (r.resultado === 'confirmado') {
-              setModalAberto(false)
-              setPrefillModal(null)
+            try {
+              const r = await onNovaConversa(input)
+              if (r.resultado === 'confirmado') {
+                setModalAberto(false)
+                setPrefillModal(null)
+              }
+              return r
+            } catch (err) {
+              return { resultado: 'incerto', mensagem: err instanceof Error ? err.message : 'Falha ao processar envio.' }
             }
-            return r
           }}
         />
       )}
@@ -607,8 +611,11 @@ function NovaConversaModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'grid', placeItems: 'center', zIndex: 400 }} data-brs-messenger-ignore-close="true">
       <div className="brs-messenger" style={{ width: 340, maxWidth: '92vw', borderRadius: 6, overflow: 'hidden' }} data-brs-messenger-ignore-close="true">
-        <div className="brs-messenger-titlebar">
+        <div className="brs-messenger-titlebar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Nova conversa</span>
+          <button type="button" onClick={onFechar} className="brs-messenger-toolbar-btn">
+            <X size={14} />
+          </button>
         </div>
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--msn-surface)' }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
@@ -659,7 +666,7 @@ function NovaConversaModal({
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <button type="button" onClick={onFechar} disabled={enviando} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
+            <button type="button" onClick={onFechar} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
               {fase === 'incerto' ? 'Fechar' : 'Cancelar'}
             </button>
             {fase === 'incerto' && (
