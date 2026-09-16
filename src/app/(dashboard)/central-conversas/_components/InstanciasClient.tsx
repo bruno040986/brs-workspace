@@ -1,13 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, Plus, Power, QrCode, RefreshCw, Trash2, Users, Wifi, WifiOff } from 'lucide-react'
+import { Calendar, DollarSign, Edit2, History, Loader2, Plus, Power, QrCode, RefreshCw, Trash2, Users, Wifi, WifiOff, X } from 'lucide-react'
 import {
   conectarInstancia,
   criarInstanciaBrs,
   desconectarInstancia,
   excluirInstancia,
+  listarRecargasInstancia,
+  registrarRecargaInstancia,
+  salvarChipInstancia,
   statusInstancia,
+  type InstanciaRecargaItem,
   type InstanciaView,
 } from '@/lib/central-conversas/actions'
 import { listarDepartamentos, setDepartamentoInstancia, type DepartamentoRow } from '@/lib/central-conversas/departamentos-actions'
@@ -22,15 +26,61 @@ const STATUS_LABEL: Record<string, string> = {
   erro: 'Erro',
 }
 
+const TIPO_NUMERO_LABEL: Record<string, string> = {
+  celular: 'Celular',
+  fixo: 'Fixo',
+  virtual: 'Virtual',
+}
+
+const TIPO_PLANO_LABEL: Record<string, string> = {
+  pre_pago: 'Pré-pago',
+  pos_pago: 'Pós-pago',
+  virtual: 'Virtual',
+}
+
 export default function InstanciasClient({ view }: { view: View }) {
   const [instancias, setInstancias] = useState<InstanciaView[]>(view.instancias)
   const [mensagem, setMensagem] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
   const [criando, setCriando] = useState(false)
-  const [novo, setNovo] = useState({ nome: '', provedor: 'baileys' as 'baileys' | 'zapi', instanceId: '', token: '', clientToken: '' })
+  const [novo, setNovo] = useState({
+    nome: '',
+    provedor: 'baileys' as 'baileys' | 'zapi',
+    numero_informado: '',
+    tipo_numero: '' as '' | 'celular' | 'fixo' | 'virtual',
+    operadora_id: '',
+    tipo_plano: '' as '' | 'pre_pago' | 'pos_pago' | 'virtual',
+    instanceId: '',
+    token: '',
+    clientToken: '',
+  })
   const [mostrarForm, setMostrarForm] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [departamentos, setDepartamentos] = useState<DepartamentoRow[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Estado do Modal de Edição de Chip
+  const [editandoChip, setEditandoChip] = useState<{
+    instanciaId: string
+    nome: string
+    numero_informado: string
+    tipo_numero: '' | 'celular' | 'fixo' | 'virtual'
+    operadora_id: string
+    tipo_plano: '' | 'pre_pago' | 'pos_pago' | 'virtual'
+  } | null>(null)
+  const [salvandoChip, setSalvandoChip] = useState(false)
+
+  // Estado do Modal de Controle de Recargas
+  const [modalRecarga, setModalRecarga] = useState<{
+    instancia: InstanciaView
+    historico: InstanciaRecargaItem[]
+    carregandoHistorico: boolean
+    dataRecarga: string
+    valor: string
+    proximaRecarga: string
+    salvando: boolean
+  } | null>(null)
+
+  const operadoras = view.operadoras || []
 
   useEffect(() => {
     listarDepartamentos().then((res) => res.success && setDepartamentos(res.data || []))
@@ -70,17 +120,132 @@ export default function InstanciasClient({ view }: { view: View }) {
       const res = await criarInstanciaBrs({
         nome: novo.nome,
         provedor: novo.provedor,
+        numero_informado: novo.numero_informado || null,
+        tipo_numero: novo.tipo_numero || null,
+        operadora_id: novo.operadora_id || null,
+        tipo_plano: novo.tipo_plano || null,
         zapi: novo.provedor === 'zapi' ? { instanceId: novo.instanceId, token: novo.token, clientToken: novo.clientToken } : undefined,
       })
       const nova = await statusInstancia(res.id)
       setInstancias((atual) => [...atual, nova])
-      setNovo({ nome: '', provedor: 'baileys', instanceId: '', token: '', clientToken: '' })
+      setNovo({
+        nome: '',
+        provedor: 'baileys',
+        numero_informado: '',
+        tipo_numero: '',
+        operadora_id: '',
+        tipo_plano: '',
+        instanceId: '',
+        token: '',
+        clientToken: '',
+      })
       setMostrarForm(false)
-      setMensagem({ tipo: 'ok', texto: 'Instância criada. Clique em "Conectar" pra gerar o QR Code.' })
+      setMensagem({ tipo: 'ok', texto: 'Instância criada com sucesso. Clique em "Conectar" pra gerar o QR Code.' })
     } catch (err) {
       setMensagem({ tipo: 'erro', texto: err instanceof Error ? err.message : 'Erro ao criar instância.' })
     } finally {
       setCriando(false)
+    }
+  }
+
+  async function handleSalvarChip(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editandoChip) return
+    setSalvandoChip(true)
+    setMensagem(null)
+    try {
+      await salvarChipInstancia({
+        instanciaId: editandoChip.instanciaId,
+        numero_informado: editandoChip.numero_informado || null,
+        tipo_numero: editandoChip.tipo_numero || null,
+        operadora_id: editandoChip.operadora_id || null,
+        tipo_plano: editandoChip.tipo_plano || null,
+      })
+      const atualizada = await statusInstancia(editandoChip.instanciaId)
+      setInstancias((atual) => atual.map((i) => (i.id === editandoChip.instanciaId ? atualizada : i)))
+      setEditandoChip(null)
+      setMensagem({ tipo: 'ok', texto: 'Dados do chip atualizados com sucesso.' })
+    } catch (err) {
+      setMensagem({ tipo: 'erro', texto: err instanceof Error ? err.message : 'Erro ao salvar dados do chip.' })
+    } finally {
+      setSalvandoChip(false)
+    }
+  }
+
+  async function handleAbrirModalRecarga(inst: InstanciaView) {
+    const hojeStr = new Date().toISOString().slice(0, 10)
+    const dRecarga = new Date()
+    dRecarga.setHours(0, 0, 0, 0)
+    const dProx = new Date(dRecarga)
+    dProx.setDate(dProx.getDate() + 60)
+    const proxStr = dProx.toISOString().slice(0, 10)
+
+    setModalRecarga({
+      instancia: inst,
+      historico: [],
+      carregandoHistorico: true,
+      dataRecarga: hojeStr,
+      valor: '',
+      proximaRecarga: proxStr,
+      salvando: false,
+    })
+
+    const res = await listarRecargasInstancia(inst.id)
+    if (res.success && res.recargas) {
+      setModalRecarga((m) => (m ? { ...m, historico: res.recargas || [], carregandoHistorico: false } : null))
+    } else {
+      setModalRecarga((m) => (m ? { ...m, carregandoHistorico: false } : null))
+    }
+  }
+
+  function handleDataRecargaChange(novaData: string) {
+    if (!modalRecarga) return
+    const dRec = new Date(novaData + 'T00:00:00')
+    if (!isNaN(dRec.getTime())) {
+      const dProx = new Date(dRec)
+      dProx.setDate(dProx.getDate() + 60)
+      const proxStr = dProx.toISOString().slice(0, 10)
+      setModalRecarga({ ...modalRecarga, dataRecarga: novaData, proximaRecarga: proxStr })
+    } else {
+      setModalRecarga({ ...modalRecarga, dataRecarga: novaData })
+    }
+  }
+
+  async function handleRegistrarRecarga(e: React.FormEvent) {
+    e.preventDefault()
+    if (!modalRecarga) return
+    const valClean = modalRecarga.valor.replace(',', '.')
+    const valNum = parseFloat(valClean)
+    if (isNaN(valNum) || valNum <= 0) {
+      alert('Informe um valor de recarga válido.')
+      return
+    }
+    setModalRecarga((m) => (m ? { ...m, salvando: true } : null))
+    try {
+      await registrarRecargaInstancia({
+        instanciaId: modalRecarga.instancia.id,
+        data_recarga: modalRecarga.dataRecarga,
+        valor: valNum,
+        proxima_recarga: modalRecarga.proximaRecarga,
+      })
+      const atualizada = await statusInstancia(modalRecarga.instancia.id)
+      setInstancias((atual) => atual.map((i) => (i.id === modalRecarga.instancia.id ? atualizada : i)))
+      const recs = await listarRecargasInstancia(modalRecarga.instancia.id)
+      setModalRecarga((m) =>
+        m
+          ? {
+              ...m,
+              instancia: atualizada,
+              historico: recs.recargas || [],
+              valor: '',
+              salvando: false,
+            }
+          : null
+      )
+      setMensagem({ tipo: 'ok', texto: 'Recarga registrada com sucesso!' })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao registrar recarga.')
+      setModalRecarga((m) => (m ? { ...m, salvando: false } : null))
     }
   }
 
@@ -113,6 +278,14 @@ export default function InstanciasClient({ view }: { view: View }) {
 
   const podeCriar = view.can_edit && instancias.length < view.limite && !!view.conta
 
+  const maxProxDateStr = (() => {
+    if (!modalRecarga?.dataRecarga) return ''
+    const d = new Date(modalRecarga.dataRecarga + 'T00:00:00')
+    if (isNaN(d.getTime())) return ''
+    d.setDate(d.getDate() + 60)
+    return d.toISOString().slice(0, 10)
+  })()
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -144,7 +317,8 @@ export default function InstanciasClient({ view }: { view: View }) {
 
       {mostrarForm && (
         <form onSubmit={handleCriar} className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
-          <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+          <div style={{ fontWeight: 600, marginBottom: '0.75rem', fontSize: 14 }}>Dados Principais</div>
+          <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
             <label className="form-field">
               <span className="form-label">Nome da instância</span>
               <input className="form-input" required placeholder="Ex.: Suporte, Financeiro, Comercial" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
@@ -173,6 +347,46 @@ export default function InstanciasClient({ view }: { view: View }) {
               </>
             )}
           </div>
+
+          <div style={{ borderTop: '1px solid var(--color-line)', paddingTop: '0.75rem', marginBottom: '0.75rem' }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-ink-subtle)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Cadastro do Chip <span style={{ fontSize: 11, fontWeight: 400, textTransform: 'none' }}>(Opcional agora, dá pra completar depois)</span>
+            </div>
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              <label className="form-field">
+                <span className="form-label">Número</span>
+                <input className="form-input" placeholder="(61) 90000-0000" value={novo.numero_informado} onChange={(e) => setNovo({ ...novo, numero_informado: e.target.value })} />
+              </label>
+              <label className="form-field">
+                <span className="form-label">Tipo de número</span>
+                <select className="form-input" value={novo.tipo_numero} onChange={(e) => setNovo({ ...novo, tipo_numero: e.target.value as any })}>
+                  <option value="">Selecione...</option>
+                  <option value="celular">Celular</option>
+                  <option value="fixo">Fixo</option>
+                  <option value="virtual">Virtual</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span className="form-label">Operadora</span>
+                <select className="form-input" value={novo.operadora_id} onChange={(e) => setNovo({ ...novo, operadora_id: e.target.value })}>
+                  <option value="">Selecione...</option>
+                  {operadoras.map((op) => (
+                    <option key={op.id} value={op.id}>{op.nome}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span className="form-label">Tipo de plano</span>
+                <select className="form-input" value={novo.tipo_plano} onChange={(e) => setNovo({ ...novo, tipo_plano: e.target.value as any })}>
+                  <option value="">Selecione...</option>
+                  <option value="pos_pago">Pós-Pago</option>
+                  <option value="pre_pago">Pré-Pago</option>
+                  <option value="virtual">Virtual</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
             <button type="submit" className="btn btn-primary" disabled={criando}>
               {criando ? <Loader2 size={16} className="spinner" /> : <Plus size={16} />} Criar
@@ -188,17 +402,28 @@ export default function InstanciasClient({ view }: { view: View }) {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '1rem' }}>
         {instancias.map((inst) => {
           const conectada = inst.status === 'conectada'
           return (
             <div key={inst.id} className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <span style={{ width: 40, height: 40, borderRadius: 12, display: 'grid', placeItems: 'center', background: conectada ? 'rgba(16,185,129,.12)' : 'rgba(10,17,40,.06)', color: conectada ? '#059669' : 'var(--color-ink-subtle)' }}>
-                  {conectada ? <Wifi size={20} /> : <WifiOff size={20} />}
-                </span>
+                {inst.operadora_logo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={inst.operadora_logo_url}
+                    alt={inst.operadora_nome || 'Operadora'}
+                    style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'contain', border: '1px solid var(--color-line)', background: '#fff', padding: 2 }}
+                  />
+                ) : (
+                  <span style={{ width: 40, height: 40, borderRadius: 12, display: 'grid', placeItems: 'center', background: conectada ? 'rgba(16,185,129,.12)' : 'rgba(10,17,40,.06)', color: conectada ? '#059669' : 'var(--color-ink-subtle)' }}>
+                    {conectada ? <Wifi size={20} /> : <WifiOff size={20} />}
+                  </span>
+                )}
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 700 }}>{inst.nome}</div>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.nome}</span>
+                  </div>
                   <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
                     {inst.provedor === 'zapi' ? 'Z-API' : 'Baileys'} · <Users size={12} style={{ verticalAlign: '-2px' }} /> grupos
                   </div>
@@ -206,7 +431,78 @@ export default function InstanciasClient({ view }: { view: View }) {
                 <span className={`badge ${conectada ? 'badge-success' : inst.status === 'erro' ? 'badge-danger' : ''}`}>{STATUS_LABEL[inst.status] || inst.status}</span>
               </div>
 
-              {inst.numero && <div style={{ fontSize: 13 }}>Número: <strong>+{inst.numero}</strong>{inst.nome_perfil ? ` · ${inst.nome_perfil}` : ''}</div>}
+              {/* Informações do Chip / Badges */}
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+                {inst.numero ? (
+                  <span style={{ fontWeight: 600 }}>+{inst.numero}</span>
+                ) : inst.numero_informado ? (
+                  <span style={{ fontWeight: 600 }}>{inst.numero_informado}</span>
+                ) : null}
+                {inst.operadora_nome && (
+                  <span className="badge" style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', color: 'var(--color-ink)' }}>
+                    {inst.operadora_nome}
+                  </span>
+                )}
+                {inst.tipo_numero && (
+                  <span className="badge" style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', color: 'var(--color-ink-muted)' }}>
+                    {TIPO_NUMERO_LABEL[inst.tipo_numero] || inst.tipo_numero}
+                  </span>
+                )}
+                {inst.tipo_plano && (
+                  <span className="badge" style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', color: 'var(--color-ink-muted)' }}>
+                    {TIPO_PLANO_LABEL[inst.tipo_plano] || inst.tipo_plano}
+                  </span>
+                )}
+                {view.can_edit && (
+                  <button
+                    type="button"
+                    style={{ background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer', color: 'var(--color-ink-subtle)', marginLeft: 'auto' }}
+                    title="Editar dados do chip"
+                    onClick={() =>
+                      setEditandoChip({
+                        instanciaId: inst.id,
+                        nome: inst.nome,
+                        numero_informado: inst.numero_informado || '',
+                        tipo_numero: inst.tipo_numero || '',
+                        operadora_id: inst.operadora_id || '',
+                        tipo_plano: inst.tipo_plano || '',
+                      })
+                    }
+                  >
+                    <Edit2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Controle de Recargas para Pré-Pago */}
+              {inst.tipo_plano === 'pre_pago' && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-bg-subtle, rgba(0,0,0,0.03))', padding: '0.5rem 0.75rem', borderRadius: 8, fontSize: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <RefreshCw size={14} style={{ color: inst.dias_para_recarga !== null && inst.dias_para_recarga <= 5 ? '#ef4444' : 'var(--color-ink-subtle)' }} />
+                    <span>
+                      {inst.dias_para_recarga === null ? (
+                        <em style={{ color: 'var(--color-ink-subtle)' }}>Sem recargas registradas</em>
+                      ) : inst.dias_para_recarga < 0 ? (
+                        <strong style={{ color: '#ef4444' }}>Recarga atrasada em {Math.abs(inst.dias_para_recarga)} dia(s)</strong>
+                      ) : inst.dias_para_recarga === 0 ? (
+                        <strong style={{ color: '#f59e0b' }}>Recarga HOJE!</strong>
+                      ) : (
+                        <strong style={{ color: inst.dias_para_recarga <= 7 ? '#f59e0b' : '#10b981' }}>Recarga em {inst.dias_para_recarga} dia(s)</strong>
+                      )}
+                    </span>
+                  </div>
+                  {view.can_edit && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      onClick={() => handleAbrirModalRecarga(inst)}
+                    >
+                      <Plus size={12} /> Recarga
+                    </button>
+                  )}
+                </div>
+              )}
 
               {view.can_edit && (
                 <label className="form-field" style={{ margin: 0 }}>
@@ -263,6 +559,197 @@ export default function InstanciasClient({ view }: { view: View }) {
           )
         })}
       </div>
+
+      {/* MODAL DE EDIÇÃO DOS DADOS DO CHIP */}
+      {editandoChip && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', zIndex: 999, padding: '1rem' }}>
+          <form onSubmit={handleSalvarChip} className="card" style={{ width: '100%', maxWidth: 480, padding: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Editar dados do chip — {editandoChip.nome}</h3>
+              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setEditandoChip(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              <label className="form-field">
+                <span className="form-label">Número do Chip</span>
+                <input
+                  className="form-input"
+                  placeholder="(61) 90000-0000"
+                  value={editandoChip.numero_informado}
+                  onChange={(e) => setEditandoChip({ ...editandoChip, numero_informado: e.target.value })}
+                />
+              </label>
+
+              <label className="form-field">
+                <span className="form-label">Tipo de número</span>
+                <select
+                  className="form-input"
+                  value={editandoChip.tipo_numero}
+                  onChange={(e) => setEditandoChip({ ...editandoChip, tipo_numero: e.target.value as any })}
+                >
+                  <option value="">Selecione...</option>
+                  <option value="celular">Celular</option>
+                  <option value="fixo">Fixo</option>
+                  <option value="virtual">Virtual</option>
+                </select>
+              </label>
+
+              <label className="form-field">
+                <span className="form-label">Operadora</span>
+                <select
+                  className="form-input"
+                  value={editandoChip.operadora_id}
+                  onChange={(e) => setEditandoChip({ ...editandoChip, operadora_id: e.target.value })}
+                >
+                  <option value="">Selecione...</option>
+                  {operadoras.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="form-field">
+                <span className="form-label">Tipo de plano</span>
+                <select
+                  className="form-input"
+                  value={editandoChip.tipo_plano}
+                  onChange={(e) => setEditandoChip({ ...editandoChip, tipo_plano: e.target.value as any })}
+                >
+                  <option value="">Selecione...</option>
+                  <option value="pos_pago">Pós-Pago</option>
+                  <option value="pre_pago">Pré-Pago</option>
+                  <option value="virtual">Virtual</option>
+                </select>
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditandoChip(null)}>
+                Cancelar
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={salvandoChip}>
+                {salvandoChip ? <Loader2 size={16} className="spinner" /> : 'Salvar Alterações'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL DE CONTROLE DE RECARGAS */}
+      {modalRecarga && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', zIndex: 999, padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: 540, padding: '1.5rem', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Controle de Recargas</h3>
+                <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                  {modalRecarga.instancia.nome} {modalRecarga.instancia.numero_informado ? `(${modalRecarga.instancia.numero_informado})` : ''}
+                </div>
+              </div>
+              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setModalRecarga(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Formulário de Nova Recarga */}
+            <form onSubmit={handleRegistrarRecarga} style={{ background: 'var(--color-bg-subtle, rgba(0,0,0,0.02))', padding: '1rem', borderRadius: 8, marginBottom: '1.25rem' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Plus size={14} /> Nova Recarga
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <label className="form-field">
+                  <span className="form-label">Data da Recarga</span>
+                  <input
+                    type="date"
+                    className="form-input"
+                    required
+                    value={modalRecarga.dataRecarga}
+                    onChange={(e) => handleDataRecargaChange(e.target.value)}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span className="form-label">Valor (R$)</span>
+                  <input
+                    type="text"
+                    className="form-input"
+                    required
+                    placeholder="30,00"
+                    value={modalRecarga.valor}
+                    onChange={(e) => setModalRecarga({ ...modalRecarga, valor: e.target.value })}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span className="form-label">Próxima Recarga</span>
+                  <input
+                    type="date"
+                    className="form-input"
+                    required
+                    min={modalRecarga.dataRecarga}
+                    max={maxProxDateStr}
+                    value={modalRecarga.proximaRecarga}
+                    onChange={(e) => setModalRecarga({ ...modalRecarga, proximaRecarga: e.target.value })}
+                  />
+                  <span style={{ fontSize: 10, color: 'var(--color-ink-subtle)', marginTop: 2 }}>Máx.: 60 dias após recarga</span>
+                </label>
+              </div>
+
+              <button type="submit" className="btn btn-primary btn-sm" disabled={modalRecarga.salvando} style={{ width: '100%' }}>
+                {modalRecarga.salvando ? <Loader2 size={14} className="spinner" /> : 'Registrar Recarga'}
+              </button>
+            </form>
+
+            {/* Histórico de Recargas */}
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <History size={14} /> Histórico de Recargas
+              </div>
+
+              {modalRecarga.carregandoHistorico ? (
+                <div style={{ textAlign: 'center', padding: '1rem', fontSize: 13, color: 'var(--color-ink-subtle)' }}>
+                  <Loader2 size={16} className="spinner" /> Carregando histórico...
+                </div>
+              ) : modalRecarga.historico.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '1rem', fontSize: 13, color: 'var(--color-ink-subtle)' }}>
+                  Nenhuma recarga registrada até o momento.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--color-line)', textAlign: 'left', color: 'var(--color-ink-subtle)' }}>
+                        <th style={{ padding: '6px 8px' }}>Data</th>
+                        <th style={{ padding: '6px 8px' }}>Valor</th>
+                        <th style={{ padding: '6px 8px' }}>Próxima Recarga</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modalRecarga.historico.map((item) => (
+                        <tr key={item.id} style={{ borderBottom: '1px solid var(--color-line)' }}>
+                          <td style={{ padding: '6px 8px' }}>
+                            {new Date(item.data_recarga + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          </td>
+                          <td style={{ padding: '6px 8px', fontWeight: 600 }}>
+                            R$ {item.valor.toFixed(2).replace('.', ',')}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            {new Date(item.proxima_recarga + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -274,3 +761,4 @@ function StatusChip({ ok, label }: { ok: boolean; label: string }) {
     </span>
   )
 }
+

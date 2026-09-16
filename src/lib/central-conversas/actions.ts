@@ -26,6 +26,20 @@ import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './c
 
 const LIMITE_INSTANCIAS_BRS = 3
 
+export type InstanciaRecargaItem = {
+  id: string
+  data_recarga: string
+  valor: number
+  proxima_recarga: string
+  created_at: string
+}
+
+export type OperadoraOption = {
+  id: string
+  nome: string
+  logo_url: string | null
+}
+
 export type InstanciaView = {
   id: string
   nome: string
@@ -34,6 +48,12 @@ export type InstanciaView = {
   permite_grupos: boolean
   status: string
   numero: string | null
+  numero_informado: string | null
+  tipo_numero: 'celular' | 'fixo' | 'virtual' | null
+  operadora_id: string | null
+  operadora_nome: string | null
+  operadora_logo_url: string | null
+  tipo_plano: 'pre_pago' | 'pos_pago' | 'virtual' | null
   nome_perfil: string | null
   ultimo_qr: string | null
   qr_atualizado_em: string | null
@@ -42,9 +62,11 @@ export type InstanciaView = {
   chatwoot_inbox_id: number | null
   ordem: number
   departamento_id: string | null
+  ultima_recarga: InstanciaRecargaItem | null
+  dias_para_recarga: number | null
 }
 
-const COLS_VIEW = 'id, nome, papel, provedor, permite_grupos, status, numero, nome_perfil, ultimo_qr, qr_atualizado_em, ultimo_erro, conectada_em, chatwoot_inbox_id, ordem, departamento_id'
+const COLS_VIEW = 'id, nome, papel, provedor, permite_grupos, status, numero, numero_informado, tipo_numero, operadora_id, tipo_plano, nome_perfil, ultimo_qr, qr_atualizado_em, ultimo_erro, conectada_em, chatwoot_inbox_id, ordem, departamento_id'
 
 export async function contaBrs() {
   const admin = await createAdminClient()
@@ -58,14 +80,83 @@ export async function clienteChatwootBrs(): Promise<ChatwootConta | null> {
   return new ChatwootConta(Number(conta.chatwoot_account_id), decifrarTexto(String(conta.token_cifrado)))
 }
 
+async function enrichInstancias(instancias: any[]): Promise<InstanciaView[]> {
+  if (!instancias.length) return []
+  const admin = await createAdminClient()
+
+  const operadoraIds = [...new Set(instancias.map((i) => i.operadora_id).filter(Boolean))] as string[]
+  let operadorasMap = new Map<string, { nome: string; logo_url: string | null }>()
+  if (operadoraIds.length) {
+    const { data: ops } = await admin.from('operadoras_telefonia').select('id, nome, logo_url').in('id', operadoraIds)
+    if (ops) {
+      operadorasMap = new Map(ops.map((o) => [o.id, { nome: String(o.nome), logo_url: o.logo_url ? String(o.logo_url) : null }]))
+    }
+  }
+
+  const instIds = instancias.map((i) => i.id)
+  const { data: recargas } = await admin
+    .from('chat_instancia_recargas')
+    .select('id, instancia_id, data_recarga, valor, proxima_recarga, created_at')
+    .in('instancia_id', instIds)
+    .order('data_recarga', { ascending: false })
+
+  const recargasPorInst = new Map<string, InstanciaRecargaItem>()
+  if (recargas) {
+    for (const r of recargas) {
+      if (!recargasPorInst.has(r.instancia_id)) {
+        recargasPorInst.set(r.instancia_id, {
+          id: String(r.id),
+          data_recarga: String(r.data_recarga),
+          valor: Number(r.valor),
+          proxima_recarga: String(r.proxima_recarga),
+          created_at: String(r.created_at),
+        })
+      }
+    }
+  }
+
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+
+  return instancias.map((i) => {
+    const op = i.operadora_id ? operadorasMap.get(i.operadora_id) : undefined
+    const recarga = recargasPorInst.get(i.id) || null
+    let dias_para_recarga: number | null = null
+    if (recarga?.proxima_recarga) {
+      const prox = new Date(recarga.proxima_recarga + 'T00:00:00')
+      const diffTime = prox.getTime() - hoje.getTime()
+      dias_para_recarga = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    }
+
+    return {
+      ...i,
+      operadora_nome: op?.nome || null,
+      operadora_logo_url: op?.logo_url || null,
+      ultima_recarga: recarga,
+      dias_para_recarga,
+    } as InstanciaView
+  })
+}
+
 export async function getCentralConversasView() {
   const { permissions } = await requirePermission('central-conversas', 'can_view')
   const canEdit = permissions.some((p) => p.resource_name === 'central-conversas' && Boolean(p.can_edit))
   const admin = await createAdminClient()
   const conta = await contaBrs()
-  const { data: instancias } = conta
+
+  const { data: instanciasRaw } = conta
     ? await admin.from('chat_instancias').select(COLS_VIEW).eq('conta_id', conta.id).is('deleted_at', null).order('ordem').order('created_at')
-    : { data: [] as InstanciaView[] }
+    : { data: [] }
+
+  const { data: operadorasRaw } = await admin
+    .from('operadoras_telefonia')
+    .select('id, nome, logo_url')
+    .eq('is_active', true)
+    .is('deleted_at', null)
+    .order('nome')
+
+  const operadoras = (operadorasRaw || []) as OperadoraOption[]
+  const instancias = await enrichInstancias(instanciasRaw || [])
 
   // Saúde do engine (timeout 6s) e listagem de inboxes do Chatwoot são
   // chamadas de rede independentes — rodavam em série (achado 14/09/2026:
@@ -87,13 +178,22 @@ export async function getCentralConversasView() {
     engineOk,
     chatwootUrl: String(process.env.CHATWOOT_URL || 'https://chat.brspromotora.com.br'),
     conta: conta ? { nome: String(conta.nome), chatwootAccountId: Number(conta.chatwoot_account_id) } : null,
-    instancias: (instancias || []) as InstanciaView[],
+    instancias,
+    operadoras,
     limite: LIMITE_INSTANCIAS_BRS,
     inboxes,
   }
 }
 
-export async function criarInstanciaBrs(input: { nome: string; provedor: 'baileys' | 'zapi'; zapi?: { instanceId: string; token: string; clientToken?: string } }) {
+export async function criarInstanciaBrs(input: {
+  nome: string
+  provedor: 'baileys' | 'zapi'
+  numero_informado?: string | null
+  tipo_numero?: 'celular' | 'fixo' | 'virtual' | null
+  operadora_id?: string | null
+  tipo_plano?: 'pre_pago' | 'pos_pago' | 'virtual' | null
+  zapi?: { instanceId: string; token: string; clientToken?: string }
+}) {
   await requirePermission('central-conversas', 'can_edit')
   const admin = await createAdminClient()
   const conta = await contaBrs()
@@ -112,6 +212,8 @@ export async function criarInstanciaBrs(input: { nome: string; provedor: 'bailey
     credencial = cifrarJson({ instanceId: z.instanceId.trim(), token: z.token.trim(), clientToken: (z.clientToken || '').trim() || undefined })
   }
 
+  const numInformado = input.numero_informado?.trim() || null
+
   const { data, error } = await admin
     .from('chat_instancias')
     .insert({
@@ -122,6 +224,10 @@ export async function criarInstanciaBrs(input: { nome: string; provedor: 'bailey
       provedor: input.provedor,
       permite_grupos: true,
       credencial_cifrada: credencial,
+      numero_informado: numInformado,
+      tipo_numero: input.tipo_numero || null,
+      operadora_id: input.operadora_id || null,
+      tipo_plano: input.tipo_plano || null,
       ordem: (count || 0) + 1,
     })
     .select('id')
@@ -129,6 +235,98 @@ export async function criarInstanciaBrs(input: { nome: string; provedor: 'bailey
   if (error) throw error
   revalidatePath('/central-conversas')
   return { id: String(data.id) }
+}
+
+export async function salvarChipInstancia(input: {
+  instanciaId: string
+  numero_informado?: string | null
+  tipo_numero?: 'celular' | 'fixo' | 'virtual' | null
+  operadora_id?: string | null
+  tipo_plano?: 'pre_pago' | 'pos_pago' | 'virtual' | null
+}) {
+  await requirePermission('central-conversas', 'can_edit')
+  const admin = await createAdminClient()
+
+  const row = {
+    numero_informado: input.numero_informado?.trim() || null,
+    tipo_numero: input.tipo_numero || null,
+    operadora_id: input.operadora_id || null,
+    tipo_plano: input.tipo_plano || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { error } = await admin.from('chat_instancias').update(row).eq('id', input.instanciaId)
+  if (error) throw error
+  revalidatePath('/central-conversas')
+  return { success: true }
+}
+
+export async function registrarRecargaInstancia(input: {
+  instanciaId: string
+  data_recarga: string
+  valor: number
+  proxima_recarga: string
+}) {
+  await requirePermission('central-conversas', 'can_edit')
+  const user = await requireCurrentUser()
+  const admin = await createAdminClient()
+
+  if (!input.instanciaId) throw new Error('ID da instância inválido.')
+  if (!input.data_recarga) throw new Error('Informe a data da recarga.')
+  if (!input.valor || Number(input.valor) <= 0) throw new Error('Informe um valor de recarga válido.')
+  if (!input.proxima_recarga) throw new Error('Informe a data da próxima recarga.')
+
+  const dRecarga = new Date(input.data_recarga + 'T00:00:00')
+  const dProxima = new Date(input.proxima_recarga + 'T00:00:00')
+
+  if (isNaN(dRecarga.getTime()) || isNaN(dProxima.getTime())) throw new Error('Datas inválidas.')
+
+  if (dProxima <= dRecarga) {
+    throw new Error('A próxima recarga deve ser posterior à data da recarga.')
+  }
+
+  const maxProxima = new Date(dRecarga)
+  maxProxima.setDate(maxProxima.getDate() + 60)
+
+  if (dProxima > maxProxima) {
+    throw new Error('A próxima recarga não pode ser agendada para além de 60 dias da data de recarga.')
+  }
+
+  const { error } = await admin.from('chat_instancia_recargas').insert({
+    instancia_id: input.instanciaId,
+    data_recarga: input.data_recarga,
+    valor: input.valor,
+    proxima_recarga: input.proxima_recarga,
+    autor_crm_usuario_id: user.id,
+  })
+
+  if (error) throw error
+  revalidatePath('/central-conversas')
+  return { success: true }
+}
+
+export async function listarRecargasInstancia(instanciaId: string): Promise<{ success: boolean; recargas?: InstanciaRecargaItem[]; error?: string }> {
+  try {
+    await requirePermission('central-conversas', 'can_view')
+    const admin = await createAdminClient()
+    const { data, error } = await admin
+      .from('chat_instancia_recargas')
+      .select('id, data_recarga, valor, proxima_recarga, created_at')
+      .eq('instancia_id', instanciaId)
+      .order('data_recarga', { ascending: false })
+
+    if (error) throw error
+    const items = (data || []).map((r) => ({
+      id: String(r.id),
+      data_recarga: String(r.data_recarga),
+      valor: Number(r.valor),
+      proxima_recarga: String(r.proxima_recarga),
+      created_at: String(r.created_at),
+    }))
+    return { success: true, recargas: items }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 export async function conectarInstancia(instanciaId: string) {
@@ -143,7 +341,8 @@ export async function statusInstancia(instanciaId: string) {
   const admin = await createAdminClient()
   const { data } = await admin.from('chat_instancias').select(COLS_VIEW).eq('id', instanciaId).is('deleted_at', null).maybeSingle()
   if (!data) throw new Error('Instância não encontrada.')
-  return data as InstanciaView
+  const [enriched] = await enrichInstancias([data])
+  return enriched
 }
 
 export async function desconectarInstancia(instanciaId: string) {
