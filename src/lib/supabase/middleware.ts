@@ -165,6 +165,7 @@ export async function updateSession(request: NextRequest) {
     '/api/assinafy/webhook',
     '/api/zapi/webhook',
     '/api/nuvidio/webhook',
+    '/api/if-credito/fydigital/webhook',
     // Autentica por NVTI_SERVICE_TOKEN no handler (rota de serviço dos orquestradores).
     '/api/nvti/interno',
     // Consulta CPF paga do CRM AlvoConsig (também NVTI_SERVICE_TOKEN no handler).
