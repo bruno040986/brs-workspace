@@ -472,6 +472,7 @@ const ItemConversa = memo(function ItemConversa({
         nome={c.meta.sender?.name}
         tamanho={36}
         fontSize={13}
+        canal={c.meta?.channel || 'whatsapp'}
         iconeAlternativo={grupo ? <UsersRound size={16} /> : undefined}
       />
       <span style={{ minWidth: 0, flex: 1 }}>
@@ -483,20 +484,6 @@ const ItemConversa = memo(function ItemConversa({
             {aba === 'fila' && posicaoFila !== undefined && (
               <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 99, background: '#f59e0b', color: '#fff' }}>
                 #{posicaoFila}
-              </span>
-            )}
-            {aba === 'geral' && (
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: '1px 6px',
-                  borderRadius: 99,
-                  background: ehEncerrada ? '#64748b' : '#22c55e',
-                  color: '#fff',
-                }}
-              >
-                {ehEncerrada ? 'Encerrada' : 'Aberta'}
               </span>
             )}
             <span style={{ fontSize: 10.5, color: 'var(--msn-meta-text)' }}>{c.last_activity_at ? horaCurta(c.last_activity_at) : ''}</span>
@@ -512,6 +499,20 @@ const ItemConversa = memo(function ItemConversa({
         </span>
         {(entidade || departamento || nomeInstancia || atendente || aba === 'geral') && (
           <span style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+            {aba === 'geral' && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 99,
+                  background: ehEncerrada ? '#64748b' : '#22c55e',
+                  color: '#fff',
+                }}
+              >
+                {ehEncerrada ? 'Encerrada' : 'Aberta'}
+              </span>
+            )}
             {nomeInstancia && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'rgba(37,99,235,0.12)', color: '#1d4ed8' }}>{nomeInstancia}</span>
             )}

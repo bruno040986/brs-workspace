@@ -436,7 +436,7 @@ export default function ThreadConversa({
             <ArrowLeft size={14} />
           </button>
         )}
-        <AvatarContato thumbnail={conversa.meta.sender?.thumbnail} nome={conversa.meta.sender?.name} tamanho={32} fontSize={12} raio={grupo ? 9 : 99} />
+        <AvatarContato thumbnail={conversa.meta.sender?.thumbnail} nome={conversa.meta.sender?.name} tamanho={32} fontSize={12} raio={grupo ? 9 : 99} canal={conversa.meta?.channel || 'whatsapp'} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
@@ -590,7 +590,21 @@ export default function ThreadConversa({
                 const nota = Boolean(m.private)
                 const aparelho = m.content_attributes?.origem === 'aparelho'
                 const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
-                const conteudo = remetente ? remetente.conteudo : m.content
+                let conteudo = remetente ? remetente.conteudo : m.content
+
+                const ehRevogada = Boolean(
+                  m.content_attributes?.revoked ||
+                    m.content_attributes?.deleted ||
+                    m.content_attributes?.is_deleted ||
+                    (conteudo && conteudo.includes('🚫 Mensagem apagada')),
+                )
+                const reactionAttr = m.content_attributes?.reaction as { emoji?: string } | undefined
+                const ehReacao = Boolean(reactionAttr?.emoji || (conteudo && (conteudo.startsWith('Reagiu ') || conteudo.startsWith('Reagiu com '))))
+                if (ehReacao && (!conteudo || conteudo === '[sem conteúdo]' || conteudo.startsWith('Reagiu '))) {
+                  const emoji = reactionAttr?.emoji || conteudo?.replace(/^Reagiu\s*(com)?\s*/, '') || '❤️'
+                  conteudo = `${saida ? 'Você' : remetente?.nome || 'O contato'} reagiu com ${emoji}`
+                }
+
                 const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
                 const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
                 return (
@@ -602,8 +616,16 @@ export default function ThreadConversa({
                       <Reply size={12} />
                     </button>
                   )}
-                  <div className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}>
+                  <div
+                    className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}
+                    style={ehRevogada ? { opacity: 0.65, filter: 'grayscale(0.3)' } : undefined}
+                  >
                     {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
+                    {ehRevogada && (
+                      <div style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--msn-muted)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        🚫 Mensagem apagada pelo remetente
+                      </div>
+                    )}
                     {inReplyTo && (
                       <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
@@ -612,7 +634,7 @@ export default function ThreadConversa({
                     {m.attachments?.map((a) =>
                       a.file_type === 'image' ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img key={a.id} src={a.data_url} alt="" onLoad={aoMidiaCarregar} style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block' }} />
+                        <img key={a.id} src={a.data_url} alt="" onLoad={aoMidiaCarregar} style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block', opacity: ehRevogada ? 0.4 : 1 }} />
                       ) : a.file_type === 'audio' ? (
                         <audio key={a.id} controls src={a.data_url} onLoadedData={aoMidiaCarregar} style={{ maxWidth: '100%', marginBottom: 4 }} />
                       ) : (
@@ -622,7 +644,7 @@ export default function ThreadConversa({
                       ),
                     )}
                     {conteudo && (
-                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, textDecoration: ehRevogada ? 'line-through' : undefined }}>
                         <TextoComMencoes texto={conteudo} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
                       </div>
                     )}

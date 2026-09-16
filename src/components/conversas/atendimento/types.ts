@@ -74,18 +74,22 @@ export function iniciais(nome?: string | null) {
 export function previaConversa(c: ChatwootConversa) {
   const ultima = c.last_non_activity_message
   if (!ultima) return ''
-  const corpo = ultima.content
-    ? ultima.content
-    : ultima.attachments?.length
-      ? (() => {
-          const tipo = ultima.attachments![0].file_type
-          return tipo === 'image' ? '📷 Foto' : tipo === 'audio' ? '🎤 Áudio' : '📎 Anexo'
-        })()
-      : ''
+  let corpo = ultima.content
+  const reaction = ultima.content_attributes?.reaction as { emoji?: string } | undefined
+  if (reaction?.emoji || (corpo && (corpo.startsWith('Reagiu ') || corpo.startsWith('Reagiu com ')))) {
+    const emoji = reaction?.emoji || corpo?.replace(/^Reagiu\s*(com)?\s*/, '') || '❤️'
+    corpo = `Reagiu com ${emoji}`
+  } else if (ultima.content_attributes?.revoked || ultima.content_attributes?.deleted || (corpo && corpo.includes('🚫 Mensagem apagada'))) {
+    corpo = '🚫 Mensagem apagada'
+  } else if (!corpo || corpo === '[sem conteúdo]') {
+    if (ultima.attachments?.length) {
+      const tipo = ultima.attachments[0].file_type
+      corpo = tipo === 'image' ? '📷 Foto' : tipo === 'audio' ? '🎤 Áudio' : '📎 Anexo'
+    } else {
+      corpo = ''
+    }
+  }
   if (!corpo) return ''
-  // Em grupo, prefixa com quem mandou (frente f) — sender vem como objeto no
-  // contrato do engine; sem ele, cai só no texto (mensagens da equipe já
-  // trazem o prefixo *Nome:* embutido no content).
   if (ehGrupo(c)) {
     const sender = ultima.content_attributes?.sender as { nome?: string; numero?: string } | undefined
     const nome = sender?.nome || sender?.numero
