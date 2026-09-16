@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Calendar, DollarSign, Edit2, History, Loader2, Plus, Power, QrCode, RefreshCw, Trash2, Users, Wifi, WifiOff, X } from 'lucide-react'
+import { Calendar, DollarSign, Edit2, History, Loader2, MessageSquare, Plus, Power, QrCode, RefreshCw, Send, Trash2, Users, Wifi, WifiOff, X } from 'lucide-react'
 import {
   conectarInstancia,
   criarInstanciaBrs,
@@ -36,6 +36,14 @@ const TIPO_PLANO_LABEL: Record<string, string> = {
   pre_pago: 'Pré-pago',
   pos_pago: 'Pós-pago',
   virtual: 'Virtual',
+}
+
+function TelegramLogo({ size = 36 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.69-.52.36-1 .54-1.43.53-.47-.01-1.37-.26-2.04-.48-.82-.27-1.47-.42-1.42-.88.03-.24.37-.49 1.02-.74 3.99-1.74 6.66-2.89 8.01-3.46 3.81-1.6 4.6-1.88 5.12-1.89.11 0 .37.03.54.17.14.12.18.28.2.45-.02.07-.02.13-.03.22z" />
+    </svg>
+  )
 }
 
 export default function InstanciasClient({ view }: { view: View }) {
@@ -81,6 +89,7 @@ export default function InstanciasClient({ view }: { view: View }) {
   } | null>(null)
 
   const operadoras = view.operadoras || []
+  const inboxTelegram = view.inboxes.filter((i) => i.channel_type === 'Channel::Telegram')
 
   useEffect(() => {
     listarDepartamentos().then((res) => res.success && setDepartamentos(res.data || []))
@@ -289,21 +298,27 @@ export default function InstanciasClient({ view }: { view: View }) {
 
   return (
     <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Instâncias WhatsApp</h1>
-          <p className="page-subtitle">
-            Números da BRS conectados por QR Code (Baileys) ou Z-API. Todas enviam, recebem e operam grupos — é por elas que o suporte aos parceiros e às IFs entra no chat.
-          </p>
+      {/* CABEÇALHO MODERNO SEGUINDO A IDENTIDADE DO WORKSPACE */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', display: 'grid', placeItems: 'center', color: '#fff', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)', flexShrink: 0 }}>
+            <MessageSquare size={24} />
+          </div>
+          <div>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', color: 'var(--color-ink)' }}>
+              Instâncias WhatsApp
+            </h1>
+          </div>
         </div>
+
         {podeCriar && (
-          <button type="button" className="btn btn-primary" onClick={() => setMostrarForm((v) => !v)}>
+          <button type="button" className="btn btn-primary" style={{ padding: '0.55rem 1.1rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setMostrarForm((v) => !v)}>
             <Plus size={16} /> Nova instância
           </button>
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
         <StatusChip ok={!!view.conta} label={view.conta ? `Chatwoot: ${view.conta.nome}` : 'Chatwoot ainda não provisionado'} />
         <StatusChip ok={view.engineOk} label={view.engineOk ? 'Engine no ar' : 'Engine fora do ar / não configurado'} />
         <StatusChip ok={view.cofreOk} label={view.cofreOk ? 'Cofre de credenciais ativo' : 'Cofre não configurado'} />
@@ -408,28 +423,33 @@ export default function InstanciasClient({ view }: { view: View }) {
           const conectada = inst.status === 'conectada'
           return (
             <div key={inst.id} className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              {/* CABEÇALHO DO CARD COM NOME EXPANDIDO E BADGE CONECTADA LOGO ABAIXO */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
                 {inst.operadora_logo_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={inst.operadora_logo_url}
                     alt={inst.operadora_nome || 'Operadora'}
-                    style={{ width: 80, height: 80, borderRadius: 16, objectFit: 'contain', border: '1px solid var(--color-line)', background: '#fff', padding: 4 }}
+                    style={{ width: 80, height: 80, borderRadius: 16, objectFit: 'contain', border: '1px solid var(--color-line)', background: '#fff', padding: 4, flexShrink: 0 }}
                   />
                 ) : (
-                  <span style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: conectada ? 'rgba(16,185,129,.12)' : 'rgba(10,17,40,.06)', color: conectada ? '#059669' : 'var(--color-ink-subtle)' }}>
+                  <span style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: conectada ? 'rgba(16,185,129,.12)' : 'rgba(10,17,40,.06)', color: conectada ? '#059669' : 'var(--color-ink-subtle)', flexShrink: 0 }}>
                     {conectada ? <Wifi size={32} /> : <WifiOff size={32} />}
                   </span>
                 )}
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.nome}</span>
+                <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25, wordBreak: 'break-word' }}>
+                    {inst.nome}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
-                    {inst.provedor === 'zapi' ? 'Z-API' : 'Baileys'} · <Users size={12} style={{ verticalAlign: '-2px' }} /> grupos
+                  <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {inst.provedor === 'zapi' ? 'Z-API' : 'Baileys'} · <Users size={12} /> {inst.permite_grupos ? 'com grupos' : 'sem grupos'}
+                  </div>
+                  <div style={{ marginTop: 2 }}>
+                    <span className={`badge ${conectada ? 'badge-success' : inst.status === 'erro' ? 'badge-danger' : ''}`} style={{ fontSize: 11 }}>
+                      {STATUS_LABEL[inst.status] || inst.status}
+                    </span>
                   </div>
                 </div>
-                <span className={`badge ${conectada ? 'badge-success' : inst.status === 'erro' ? 'badge-danger' : ''}`}>{STATUS_LABEL[inst.status] || inst.status}</span>
               </div>
 
               {/* Informações do Chip / Badges */}
@@ -458,7 +478,7 @@ export default function InstanciasClient({ view }: { view: View }) {
                   <button
                     type="button"
                     style={{ background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer', color: 'var(--color-ink-subtle)', marginLeft: 'auto' }}
-                    title="Editar dados do chip"
+                    title="Editar dados da instância e chip"
                     onClick={() =>
                       setEditandoChip({
                         instanciaId: inst.id,
@@ -559,14 +579,54 @@ export default function InstanciasClient({ view }: { view: View }) {
             </div>
           )
         })}
+
+        {/* CARD PARA SINCRONIZAR TELEGRAM */}
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', border: '1px stroke var(--color-line)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, #2AABEE 0%, #229ED9 100%)', color: '#fff', flexShrink: 0, boxShadow: '0 4px 12px rgba(42, 171, 238, 0.25)' }}>
+              <TelegramLogo size={42} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25 }}>
+                Telegram
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                Bot / Canal Telegram · Chatwoot
+              </div>
+              <div style={{ marginTop: 2 }}>
+                <span className={`badge ${inboxTelegram.length > 0 ? 'badge-success' : ''}`} style={{ fontSize: 11, background: inboxTelegram.length > 0 ? undefined : 'rgba(42,171,238,0.12)', color: inboxTelegram.length > 0 ? undefined : '#0284c7' }}>
+                  {inboxTelegram.length > 0 ? 'Conectado' : 'Pronto p/ integrar'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)', marginTop: '0.1rem' }}>
+            {inboxTelegram.length > 0
+              ? `Bot ativo: ${inboxTelegram.map((i) => i.name).join(', ')}`
+              : 'Sincronize bots ou canais do Telegram via BotFather para enviar e receber conversas no Atendimento.'}
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: 'auto', paddingTop: '0.5rem' }}>
+            <a
+              href={`${view.chatwootUrl}/app/accounts/${view.conta?.chatwootAccountId || 1}/settings/inboxes/new`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'center' }}
+            >
+              <Send size={14} /> Sincronizar Telegram
+            </a>
+          </div>
+        </div>
       </div>
 
-      {/* MODAL DE EDIÇÃO DOS DADOS DO CHIP */}
+      {/* MODAL DE EDIÇÃO DOS DADOS DO CHIP E INSTÂNCIA */}
       {editandoChip && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', zIndex: 999, padding: '1rem' }}>
           <form onSubmit={handleSalvarChip} className="card" style={{ width: '100%', maxWidth: 480, padding: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Editar dados do chip — {editandoChip.nome}</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Editar dados da instância e chip</h3>
               <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setEditandoChip(null)}>
                 <X size={18} />
               </button>
@@ -773,4 +833,3 @@ function StatusChip({ ok, label }: { ok: boolean; label: string }) {
     </span>
   )
 }
-
