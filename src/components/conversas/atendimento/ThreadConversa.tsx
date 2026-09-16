@@ -6,21 +6,31 @@ import {
   ArrowLeft,
   Check,
   CheckCheck,
+  ChevronDown,
+  Copy,
+  CornerUpRight,
   Download,
   Info,
   Loader2,
   Mic,
   Paperclip,
+  Pin,
   Reply,
+  RotateCw,
   Search,
   Send,
+  Share2,
   Smile,
   Square,
+  Star,
   StickyNote,
   Trash2,
+  User,
   UserCog,
   UserPlus,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
@@ -38,9 +48,7 @@ function chaveMensagem(m: MensagemComExtras): string {
   return String(m.id)
 }
 
-// Uma resolução por carregamento de página, não por conversa aberta: cada
-// chamada é uma server action + GET /agents no Chatwoot, e a thread monta a
-// cada troca de conversa. O agente do usuário logado não muda na sessão.
+// Uma resolução por carregamento de página, não por conversa aberta
 let meuAgentePromise: Promise<{ id: number; name: string } | null> | null = null
 function resolverMeuAgente() {
   if (!meuAgentePromise) {
@@ -76,19 +84,36 @@ type Props = {
   onEnviarRespostaRapida: (respostaId: string) => Promise<void>
   onTransferir: (input: { departamentoId: string; agenteId?: number | null; comentario?: string }) => Promise<void>
   onEncerrar: (motivo?: string) => Promise<void>
+  conversas?: ConversaAtendimento[]
+  onReagirMensagem?: (messageId: number, emoji: string) => Promise<void>
+  onApagarMensagem?: (messageId: number) => Promise<void>
+  onEncaminharMensagem?: (sourceMessage: MensagemComExtras, targetConversationId: number) => Promise<void>
+  onSelecionarConversa?: (c: ConversaAtendimento | null) => void
+  onNovaConversa?: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<any>
 }
 
 type SenderGrupo = { jid?: string; numero?: string | null; nome?: string | null }
 
+function formatarContatoMencao(m: MembroGrupo | null | undefined): string {
+  if (!m) return ''
+  const nome = String(m.nome || '').trim()
+  if (nome && !nome.includes('@lid') && !nome.includes('@s.whatsapp.net')) return nome
+  const num = String(m.numero || m.jid || '').replace(/@.*$/, '').replace(/[^0-9]/g, '')
+  if (num.length >= 10) {
+    if (num.startsWith('55') && num.length >= 12) {
+      const ddd = num.slice(2, 4)
+      const rest = num.slice(4)
+      return `+55 (${ddd}) ${rest.slice(0, rest.length - 4)}-${rest.slice(-4)}`
+    }
+    return `+${num}`
+  }
+  return m.nome || m.numero || 'Membro'
+}
+
 /**
- * Remetente de mensagem recebida em GRUPO. Contrato do engine
- * (RECADO-ENGINE-GRUPOS): `content_attributes.sender = { jid, numero, nome }`
- * — é OBJETO, nunca renderizar direto. O engine mantém o prefixo `*Nome:* `
- * no texto por compatibilidade com o CRM; com o label na bolha, tiramos o
- * prefixo pra não duplicar o nome. Mensagens anteriores ao contrato (sem
- * `sender`) caem no prefixo do texto.
+  Remetente de mensagem recebida em GRUPO.
  */
-function remetenteDeGrupo(m: MensagemComExtras): { nome: string; conteudo: string | null } | null {
+function remetenteDeGrupo(m: MensagemComExtras): { nome: string; conteudo: string | null; jid?: string; numero?: string } | null {
   const bruto = m.content_attributes?.sender
   const s: SenderGrupo | null = bruto && typeof bruto === 'object' ? (bruto as SenderGrupo) : typeof bruto === 'string' ? { nome: bruto } : null
   const conteudo = m.content
@@ -96,10 +121,10 @@ function remetenteDeGrupo(m: MensagemComExtras): { nome: string; conteudo: strin
   const nome = String(s?.nome || s?.numero || prefixo?.[1] || '').trim()
   if (!nome) return null
   const tiraPrefixo = prefixo && (!s?.nome || prefixo[1] === s.nome)
-  return { nome, conteudo: tiraPrefixo ? prefixo[2] : conteudo }
+  return { nome, conteudo: tiraPrefixo ? prefixo[2] : conteudo, jid: s?.jid, numero: s?.numero || undefined }
 }
 
-/** Destaca tokens `@algo` no texto — só visual, sem lookup (frente e). */
+/** Destaca tokens `@algo` no texto */
 function TextoComMencoes({ texto, temMencoes }: { texto: string; temMencoes: boolean }) {
   if (!temMencoes) return <>{texto}</>
   const partes = texto.split(/(@[^\s@]+)/g)
@@ -146,6 +171,12 @@ export default function ThreadConversa({
   onEnviarRespostaRapida,
   onTransferir,
   onEncerrar,
+  conversas,
+  onReagirMensagem,
+  onApagarMensagem,
+  onEncaminharMensagem,
+  onSelecionarConversa,
+  onNovaConversa,
 }: Props) {
   const [texto, setTexto] = useState('')
   const [notaInterna, setNotaInterna] = useState(false)
@@ -160,17 +191,24 @@ export default function ThreadConversa({
   const [motivoEncerrar, setMotivoEncerrar] = useState('')
   const [gravando, setGravando] = useState<'idle' | 'gravando' | 'pronto'>('idle')
   const [duracaoMs, setDuracaoMs] = useState(0)
-  // Feedback imediato de assumir/transferir (Messenger M0 frente e): o hook
-  // (useAtendimento.transferir/atribuirAgente) já é otimista — este estado é
-  // só o spinner/toast LOCAL do botão, nada de estado de negócio.
   const [alterando, setAlterando] = useState<'assumindo' | 'transferindo' | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [meuAgente, setMeuAgente] = useState<{ id: number; name: string } | null | undefined>(undefined)
-  // @menção (frente e, só em grupo): membros carregados sob demanda ao digitar
-  // "@"; `mencoesAtuais` guarda jid por nome exibido no texto, zerado ao
-  // enviar/trocar de conversa.
   const [membrosGrupo, setMembrosGrupo] = useState<MembroGrupo[]>([])
   const [mencoesAtuais, setMencoesAtuais] = useState<Map<string, string>>(new Map())
+  
+  // Novos estados para recursos interativos (Ctrl+V, Lightbox, Menu de Ações, Fixar, Favoritar)
+  const [modalPastePreview, setModalPastePreview] = useState<{ file: File; url: string; legenda: string } | null>(null)
+  const [modalLightbox, setModalLightbox] = useState<{ url: string; nome?: string; mensagem?: MensagemComExtras } | null>(null)
+  const [zoomScale, setZoomScale] = useState(1)
+  const [hoverMessageId, setHoverMessageId] = useState<number | null>(null)
+  const [menuMensagemId, setMenuMensagemId] = useState<number | null>(null)
+  const [modalEncaminhar, setModalEncaminhar] = useState<MensagemComExtras | null>(null)
+  const [filtroEncaminhar, setFiltroEncaminhar] = useState('')
+  const [mensagensFixadas, setMensagensFixadas] = useState<Set<number>>(new Set())
+  const [mensagensFavoritas, setMensagensFavoritas] = useState<Set<number>>(new Set())
+  const [mensagensApagadasLocal, setMensagensApagadasLocal] = useState<Set<number>>(new Set())
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -179,9 +217,6 @@ export default function ThreadConversa({
   const inicioGravacaoRef = useRef(0)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Assumir para mim (frente e): resolução usuário logado → agente Chatwoot é
-  // a mesma usada pela presença (getMinhaDisponibilidade), por e-mail — já
-  // existe no servidor, então não há mapeamento novo pra inventar aqui.
   useEffect(() => {
     let vivo = true
     void resolverMeuAgente().then((r) => {
@@ -192,9 +227,9 @@ export default function ThreadConversa({
     }
   }, [])
 
-  function exibirToast(texto: string) {
+  function exibirToast(textoMsg: string) {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    setToast(texto)
+    setToast(textoMsg)
     toastTimerRef.current = setTimeout(() => setToast(null), 4000)
   }
 
@@ -208,15 +243,6 @@ export default function ThreadConversa({
     return mensagens.filter((m) => (m.content || '').toLowerCase().includes(alvo))
   }, [mensagens, buscaAberta, buscaTexto])
 
-  // Rolagem (frente d — useRolagemThread): com a busca aberta, o thread fica
-  // CONGELADO na foto de quando ela abriu — nenhuma mensagem nova durante a
-  // busca dispara scroll/"N nova(s)"; ao fechar a busca, volta a ler
-  // `mensagens` ao vivo (comportamento atual preservado: "com buscaAberta,
-  // não rolar"). Captura a foto no exato instante em que `buscaAberta` VIRA
-  // true — padrão "ajustar state durante o render" dos docs do React (não
-  // efeito: um efeito rodaria um commit depois, e o React Compiler deste
-  // projeto proíbe tanto ler `ref.current` durante o render quanto chamar
-  // setState dentro de um efeito sem uma razão externa).
   const [mensagensCongeladas, setMensagensCongeladas] = useState<MensagemComExtras[]>(mensagens)
   const [buscaAbertaAnterior, setBuscaAbertaAnterior] = useState(buscaAberta)
   if (buscaAberta !== buscaAbertaAnterior) {
@@ -224,20 +250,10 @@ export default function ThreadConversa({
     if (buscaAberta) setMensagensCongeladas(mensagens)
   }
   const threadRolagem = buscaAberta ? mensagensCongeladas : mensagens
-  // Destructuring (não `const rolagem = useRolagemThread(...)` + `rolagem.x`)
-  // por exigência do React Compiler deste projeto: o objeto retornado carrega
-  // `containerRef` (useRef) e um acesso via propriedade encadeada (`rolagem.x`)
-  // faz o compiler tratar TODO o retorno como valor de ref, mesmo os campos
-  // que não são refs — proibindo leitura durante o render ("Cannot access ref
-  // value during render"). Desestruturar no ponto de chamada (mesmo padrão do
-  // CRM AlvoConsig) evita o falso positivo.
   const { containerRef, novasNaoLidas, aoRolarMensagens, irParaOFim, irParaMensagemEnviada, aoMidiaCarregar } = useRolagemThread(threadRolagem, chaveMensagem)
 
   const mensagensPorId = useMemo(() => new Map(mensagens.map((m) => [m.id, m])), [mensagens])
 
-  // Fase B §d: chips de resposta rápida cadastradas no Workspace (com escopo por
-  // departamento) substituem o canned response nativo do Chatwoot; se nada foi
-  // cadastrado ainda, cai de volta pro nativo (fallback combinado no roteiro).
   const chipsResposta = useMemo<Array<{ id: string; atalho: string; conteudo: string; arquivoPath: string | null }>>(
     () =>
       respostasVisiveis.length > 0
@@ -246,7 +262,6 @@ export default function ThreadConversa({
     [respostasVisiveis, respostasRapidas],
   )
 
-  /** Resposta com anexo sai na hora (arquivo + texto como legenda); só texto vai pro composer. */
   function usarResposta(r: { id: string; conteudo: string; arquivoPath: string | null }) {
     if (r.arquivoPath) {
       setTexto('')
@@ -266,7 +281,6 @@ export default function ThreadConversa({
   const grupo = ehGrupo(conversa)
   const entidade = conversa.atendimentoMeta?.entidade
 
-  // Zera menções + recarrega membros ao trocar de conversa; só busca em grupo.
   useEffect(() => {
     setMencoesAtuais(new Map())
     setMembrosGrupo([])
@@ -280,7 +294,6 @@ export default function ThreadConversa({
     return () => {
       vivo = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversa.id, grupo])
 
   const termoMencao = useMemo(() => {
@@ -295,15 +308,15 @@ export default function ThreadConversa({
     return (membrosGrupo || [])
       .filter((m) => {
         if (!m) return false
-        const label = String(m.nome || m.numero || '')
-        return label.toLowerCase().includes(alvo)
+        const rotulo = formatarContatoMencao(m)
+        return rotulo.toLowerCase().includes(alvo)
       })
       .slice(0, 6)
   }, [termoMencao, membrosGrupo])
 
   function escolherMencao(m: MembroGrupo) {
     if (!m) return
-    const rotulo = String(m.nome || m.numero || m.jid || 'membro')
+    const rotulo = formatarContatoMencao(m)
     setTexto((prev) => prev.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${rotulo} `))
     setMencoesAtuais((prev) => {
       const novo = new Map(prev)
@@ -312,13 +325,6 @@ export default function ThreadConversa({
     })
   }
 
-  // "Assumir para mim" (frente e): reaproveita onTransferir (departamento
-  // ATUAL + novo atendente, sem comentário — transferirConversa só grava
-  // nota quando há comentário, então isto equivale a um atribuirAgente
-  // silencioso) em vez de exigir um prop novo só pra este botão. Só aparece
-  // quando dá pra resolver os dois lados: o agente Chatwoot do usuário
-  // logado (getMeuAgente, e-mail — mesma resolução da presença) E o
-  // departamento local correspondente ao time atual da conversa no Chatwoot.
   const departamentoAtualId = departamentos.find((d) => d.chatwootTeamId != null && d.chatwootTeamId === (conversa.meta.team?.id ?? null))?.id
   const podeAssumirParaMim = Boolean(meuAgente && departamentoAtualId && conversa.meta.assignee?.id !== meuAgente.id)
 
@@ -329,8 +335,6 @@ export default function ThreadConversa({
       await onTransferir({ departamentoId: departamentoAtualId, agenteId: meuAgente.id })
       exibirToast('Atendimento assumido')
     } catch {
-      // erro do servidor já vira banner via at.erro (AtendimentoCompleto/Compacto);
-      // a restauração do atendente anterior é feita pelo hook (transferir), otimista.
     } finally {
       setAlterando(null)
     }
@@ -347,7 +351,6 @@ export default function ThreadConversa({
       setTransfComentario('')
       exibirToast(agenteNome ? `Transferido para ${agenteNome}` : `Transferido para ${departamentoNome || 'o departamento'}`)
     } catch {
-      // idem: erro já vira banner; hook restaura o atendente/departamento anteriores.
     } finally {
       setAlterando(null)
     }
@@ -356,8 +359,6 @@ export default function ThreadConversa({
   async function enviar() {
     const valor = texto.trim()
     if (!valor) return
-    // Só manda como menção o jid de nomes que sobreviveram no texto final
-    // (a pessoa pode apagar um "@Nome" depois de escolhido).
     const mentions = [...mencoesAtuais.entries()].filter(([nome]) => valor.includes(`@${nome}`)).map(([, jid]) => jid)
     setTexto('')
     setMencoesAtuais(new Map())
@@ -374,6 +375,18 @@ export default function ThreadConversa({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (!enviando) void enviar()
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = e.clipboardData?.files
+    if (files && files.length > 0) {
+      const file = files[0]
+      if (file.type.startsWith('image/')) {
+        e.preventDefault()
+        const url = URL.createObjectURL(file)
+        setModalPastePreview({ file, url, legenda: '' })
+      }
     }
   }
 
@@ -436,8 +449,40 @@ export default function ThreadConversa({
     irParaMensagemEnviada()
   }
 
+  async function responderEmParticular(remetente: { jid?: string; numero?: string; nome?: string }, m: MensagemComExtras) {
+    setMenuMensagemId(null)
+    const tel = remetente.numero || (remetente.jid ? remetente.jid.replace(/@.*$/, '').replace(/[^0-9]/g, '') : '')
+    if (!tel) return
+    const encontrada = conversas?.find((c) => c.meta?.sender?.phone_number?.includes(tel) || c.meta?.sender?.identifier?.includes(tel))
+    if (encontrada && onSelecionarConversa) {
+      onSelecionarConversa(encontrada)
+      onCitar(m)
+      exibirToast(`Respondendo em particular para ${remetente.nome || tel}`)
+    } else if (onNovaConversa) {
+      const opId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `op-${Date.now()}`
+      const instId = conversa.inbox_id ? String(conversa.inbox_id) : '1'
+      await onNovaConversa({ instanciaId: instId, telefone: tel, texto: `Olá ${remetente.nome || ''}, em relação à mensagem: "${(m.content || '').slice(0, 40)}"`, operationId: opId })
+      exibirToast(`Iniciada conversa com ${remetente.nome || tel}`)
+    }
+  }
+
+  async function conversarComContato(remetente: { jid?: string; numero?: string; nome?: string }) {
+    setMenuMensagemId(null)
+    const tel = remetente.numero || (remetente.jid ? remetente.jid.replace(/@.*$/, '').replace(/[^0-9]/g, '') : '')
+    if (!tel) return
+    const encontrada = conversas?.find((c) => c.meta?.sender?.phone_number?.includes(tel) || c.meta?.sender?.identifier?.includes(tel))
+    if (encontrada && onSelecionarConversa) {
+      onSelecionarConversa(encontrada)
+    } else if (onNovaConversa) {
+      const opId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `op-${Date.now()}`
+      const instId = conversa.inbox_id ? String(conversa.inbox_id) : '1'
+      await onNovaConversa({ instanciaId: instId, telefone: tel, texto: 'Olá!', operationId: opId })
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: 'var(--msn-surface)' }}>
+      {/* Cabeçalho do Chat */}
       <div className="brs-messenger-chat-head" style={{ position: 'relative', height: 'auto', minHeight: 36, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px' }}>
         {compacto && onVoltar && (
           <button type="button" onClick={onVoltar} className="brs-messenger-toolbar-btn" style={{ padding: 6 }}>
@@ -558,6 +603,7 @@ export default function ThreadConversa({
         </div>
       )}
 
+      {/* Thread de Mensagens */}
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div
           ref={containerRef}
@@ -604,6 +650,7 @@ export default function ThreadConversa({
                   m.content_attributes?.revoked ||
                     m.content_attributes?.deleted ||
                     m.content_attributes?.is_deleted ||
+                    mensagensApagadasLocal.has(m.id) ||
                     (conteudo && conteudo.includes('🚫 Mensagem apagada')),
                 )
                 const reactionAttr = m.content_attributes?.reaction as { emoji?: string } | undefined
@@ -624,82 +671,282 @@ export default function ThreadConversa({
 
                 const inReplyTo = m.content_attributes?.in_reply_to as number | undefined
                 const citada = inReplyTo ? mensagensPorId.get(inReplyTo) : undefined
+
+                const ehFixada = mensagensFixadas.has(m.id)
+                const ehFavorita = mensagensFavoritas.has(m.id)
+
                 return (
                   <Fragment key={m.id}>
                     {separadorEl}
-                    <div {...atributoChave} style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3 }}>
-                  {!saida && (
-                    <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
-                      <Reply size={12} />
-                    </button>
-                  )}
-                  <div
-                    className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}
-                    style={ehRevogada ? { opacity: 0.65, filter: 'grayscale(0.3)' } : undefined}
-                  >
-                    {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
-                    {ehRevogada && (
-                      <div style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--msn-muted)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        🚫 Mensagem apagada pelo remetente
-                      </div>
-                    )}
-                    {inReplyTo && (
-                      <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
-                      </div>
-                    )}
-                    {m.attachments?.map((a) =>
-                      a.file_type === 'image' ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img key={a.id} src={a.data_url} alt="" onLoad={aoMidiaCarregar} style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block', opacity: ehRevogada ? 0.4 : 1 }} />
-                      ) : a.file_type === 'audio' || a.file_type === 'voice' ? (
-                        <AudioPlayer key={a.id} src={a.data_url} onLoadedData={aoMidiaCarregar} isMine={saida} />
-                      ) : (
-                        <a key={a.id} href={a.data_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4, color: 'var(--msn-link)' }}>
-                          <Download size={12} /> anexo
-                        </a>
-                      ),
-                    )}
-                    {exibirTexto && (
-                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, textDecoration: ehRevogada ? 'line-through' : undefined }}>
-                        <TextoComMencoes texto={conteudo || ''} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
-                      </div>
-                    )}
-                    {m.reacoes.length > 0 && (
-                      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
-                        {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
-                          <span key={emoji} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
-                            {emoji}
-                            {qtd > 1 ? ` ${qtd}` : ''}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
-                      {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
-                      {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
-                      {dataHoraCompleta(m.created_at)}
-                      {nota ? ' · nota interna' : ''}
-                      {saida && !nota && (
-                        <>
-                          {m.status === 'falhou' ? (
-                            <span style={{ color: '#dc2626' }} title="Falhou">
-                              !
-                            </span>
-                          ) : m.status === 'lido' || m.status === 'entregue' ? (
-                            <CheckCheck size={12} style={{ color: m.status === 'lido' ? 'var(--msn-accent)' : undefined }} />
-                          ) : (
-                            <Check size={12} />
-                          )}
-                        </>
+                    <div
+                      {...atributoChave}
+                      onMouseEnter={() => setHoverMessageId(m.id)}
+                      onMouseLeave={() => setHoverMessageId(null)}
+                      style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3, position: 'relative' }}
+                    >
+                      {!saida && (
+                        <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
+                          <Reply size={12} />
+                        </button>
                       )}
-                    </div>
-                  </div>
-                  {saida && (
-                    <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
-                      <Reply size={12} />
-                    </button>
-                  )}
+
+                      <div
+                        className={`brs-messenger-message-bubble ${nota ? 'is-nota' : saida ? 'is-mine' : 'is-theirs'}`}
+                        style={{
+                          ...(ehRevogada ? { opacity: 0.65, filter: 'grayscale(0.3)' } : {}),
+                          ...(ehFixada ? { borderTop: '2px solid #eab308' } : {}),
+                          position: 'relative',
+                        }}
+                      >
+                        {(ehFixada || ehFavorita) && (
+                          <div style={{ display: 'flex', gap: 4, fontSize: 10, color: '#ca8a04', marginBottom: 2, fontWeight: 700 }}>
+                            {ehFixada && <span>📌 Fixada</span>}
+                            {ehFavorita && <span>⭐ Favorita</span>}
+                          </div>
+                        )}
+                        {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
+                        {ehRevogada && (
+                          <div style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--msn-muted)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            🚫 Mensagem apagada (mantida no histórico)
+                          </div>
+                        )}
+                        {inReplyTo && (
+                          <div style={{ borderLeft: '3px solid var(--msn-accent)', padding: '3px 6px', marginBottom: 4, background: 'rgba(0,0,0,.04)', borderRadius: 4, fontSize: 11.5, color: 'var(--msn-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {citada?.content || (citada?.attachments?.length ? '📎 anexo' : 'mensagem citada')}
+                          </div>
+                        )}
+                        {m.attachments?.map((a) =>
+                          a.file_type === 'image' ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={a.id}
+                              src={a.data_url}
+                              alt=""
+                              onLoad={aoMidiaCarregar}
+                              onClick={() => { setModalLightbox({ url: a.data_url, nome: `imagem_${a.id}.png`, mensagem: m }); setZoomScale(1) }}
+                              style={{ maxWidth: '100%', borderRadius: 6, marginBottom: 4, display: 'block', opacity: ehRevogada ? 0.4 : 1, cursor: 'pointer' }}
+                              title="Clique para ampliar no Lightbox"
+                            />
+                          ) : a.file_type === 'audio' || a.file_type === 'voice' ? (
+                            <AudioPlayer key={a.id} src={a.data_url} onLoadedData={aoMidiaCarregar} isMine={saida} />
+                          ) : (
+                            <a key={a.id} href={a.data_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 4, color: 'var(--msn-link)' }}>
+                              <Download size={12} /> anexo
+                            </a>
+                          ),
+                        )}
+                        {exibirTexto && (
+                          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, textDecoration: ehRevogada ? 'line-through' : undefined }}>
+                            <TextoComMencoes texto={conteudo || ''} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
+                          </div>
+                        )}
+                        {m.reacoes.length > 0 && (
+                          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+                            {Object.entries(m.reacoes.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] || 0) + 1 }), {})).map(([emoji, qtd]) => (
+                              <span key={emoji} style={{ fontSize: 12, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '0 5px' }}>
+                                {emoji}
+                                {qtd > 1 ? ` ${qtd}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="brs-messenger-message-meta" style={{ fontSize: 10, textAlign: 'right', marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
+                          {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
+                          {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
+                          {dataHoraCompleta(m.created_at)}
+                          {nota ? ' · nota interna' : ''}
+                          {saida && !nota && (
+                            <>
+                              {m.status === 'falhou' ? (
+                                <span style={{ color: '#dc2626' }} title="Falhou">
+                                  !
+                                </span>
+                              ) : m.status === 'lido' || m.status === 'entregue' ? (
+                                <CheckCheck size={12} style={{ color: m.status === 'lido' ? 'var(--msn-accent)' : undefined }} />
+                              ) : (
+                                <Check size={12} />
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Botão Chevron / Barra Flutuante de Ações na mensagem */}
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2 }}>
+                        {(hoverMessageId === m.id || menuMensagemId === m.id) && (
+                          <div style={{ display: 'flex', alignItems: 'center', background: 'var(--msn-surface)', border: '1px solid var(--msn-soft-border)', borderRadius: 99, padding: '2px 4px', boxShadow: '0 2px 6px rgba(0,0,0,0.12)' }}>
+                            <button
+                              type="button"
+                              onClick={() => setMenuMensagemId((prev) => (prev === m.id ? null : m.id))}
+                              className="brs-messenger-toolbar-btn"
+                              style={{ padding: 3 }}
+                              title="Opções da mensagem"
+                            >
+                              <ChevronDown size={13} />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Dropdown Menu da Mensagem */}
+                        {menuMensagemId === m.id && (
+                          <div
+                            className="brs-messenger"
+                            style={{
+                              position: 'absolute',
+                              top: '100%',
+                              right: saida ? 0 : 'auto',
+                              left: saida ? 'auto' : 0,
+                              marginTop: 4,
+                              width: 220,
+                              borderRadius: 8,
+                              background: 'var(--msn-surface)',
+                              boxShadow: '0 6px 20px rgba(0,0,0,0.2)',
+                              zIndex: 120,
+                              padding: 4,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                            }}
+                          >
+                            {/* Reações Rápida */}
+                            <div style={{ display: 'flex', gap: 4, padding: '4px 6px', borderBottom: '1px solid var(--msn-soft-border)', justifyContent: 'space-between' }}>
+                              {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', padding: '2px 4px', borderRadius: 4 }}
+                                  onClick={async () => {
+                                    setMenuMensagemId(null)
+                                    if (onReagirMensagem) await onReagirMensagem(m.id, emoji)
+                                    exibirToast(`Reagiu com ${emoji}`)
+                                  }}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => { onCitar(m); setMenuMensagemId(null) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Reply size={14} /> Responder
+                            </button>
+
+                            {grupo && remetente && !saida && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => void responderEmParticular(remetente, m)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                                >
+                                  <CornerUpRight size={14} /> Responder em particular
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void conversarComContato(remetente)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                                >
+                                  <User size={14} /> Conversar com {remetente.nome}
+                                </button>
+                              </>
+                            )}
+
+                            {conteudo && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (conteudo) {
+                                    void navigator.clipboard.writeText(conteudo)
+                                    exibirToast('Texto copiado!')
+                                  }
+                                  setMenuMensagemId(null)
+                                }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                              >
+                                <Copy size={14} /> Copiar
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => { setModalEncaminhar(m); setMenuMensagemId(null) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Share2 size={14} /> Encaminhar
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMensagensFixadas((prev) => {
+                                  const n = new Set(prev)
+                                  if (n.has(m.id)) n.delete(m.id)
+                                  else n.add(m.id)
+                                  return n
+                                })
+                                exibirToast(mensagensFixadas.has(m.id) ? 'Mensagem desfixada' : 'Mensagem fixada')
+                                setMenuMensagemId(null)
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Pin size={14} /> {mensagensFixadas.has(m.id) ? 'Desfixar' : 'Fixar'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMensagensFavoritas((prev) => {
+                                  const n = new Set(prev)
+                                  if (n.has(m.id)) n.delete(m.id)
+                                  else n.add(m.id)
+                                  return n
+                                })
+                                exibirToast(mensagensFavoritas.has(m.id) ? 'Removida dos favoritos' : 'Adicionada aos favoritos')
+                                setMenuMensagemId(null)
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Star size={14} /> {mensagensFavoritas.has(m.id) ? 'Desfavoritar' : 'Favoritar'}
+                            </button>
+
+                            {conteudo && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNotaInterna(true)
+                                  setTexto((prev) => (prev ? `${prev}\n${conteudo}` : conteudo))
+                                  exibirToast('Texto adicionado às notas internas!')
+                                  setMenuMensagemId(null)
+                                }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                              >
+                                <StickyNote size={14} /> Adicionar texto às notas
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuMensagemId(null)
+                                if (onApagarMensagem) void onApagarMensagem(m.id)
+                                setMensagensApagadasLocal((prev) => new Set(prev).add(m.id))
+                                exibirToast('Mensagem apagada (mantida no histórico riscada)')
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Trash2 size={14} /> Apagar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {saida && (
+                        <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
+                          <Reply size={12} />
+                        </button>
+                      )}
                     </div>
                   </Fragment>
                 )
@@ -736,6 +983,7 @@ export default function ThreadConversa({
         </div>
       )}
 
+      {/* Editor / Caixa de texto */}
       <div className="brs-messenger-editor" style={{ padding: 8, borderTop: '1px solid var(--msn-border)' }}>
         {citacao && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '5px 8px', marginBottom: 6, borderLeft: '3px solid var(--msn-accent)', background: 'var(--msn-surface-alt)', borderRadius: 4 }}>
@@ -822,26 +1070,30 @@ export default function ThreadConversa({
         ) : (
           <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
             {sugestoesMencao.length > 0 && (
-              <div className="brs-messenger" style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, borderRadius: 6, width: 220, zIndex: 60, padding: 4, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
-                {sugestoesMencao.map((m) => (
-                  <button
-                    key={m.jid}
-                    type="button"
-                    onClick={() => escolherMencao(m)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4 }}
-                  >
-                    <AvatarContato nome={String(m.nome || m.numero || '')} tamanho={20} fontSize={9} />
-                    {String(m.nome || m.numero || m.jid || 'Membro')}
-                  </button>
-                ))}
+              <div className="brs-messenger" style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, borderRadius: 6, width: 240, zIndex: 60, padding: 4, background: 'var(--msn-surface)', boxShadow: '0 4px 16px rgba(0,0,0,.18)' }} data-brs-messenger-ignore-close="true">
+                {sugestoesMencao.map((m) => {
+                  const rotuloFormatado = formatarContatoMencao(m)
+                  return (
+                    <button
+                      key={m.jid}
+                      type="button"
+                      onClick={() => escolherMencao(m)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                    >
+                      <AvatarContato nome={rotuloFormatado} tamanho={20} fontSize={9} />
+                      {rotuloFormatado}
+                    </button>
+                  )
+                })}
               </div>
             )}
             <textarea
               className={`brs-messenger-composer-input ${notaInterna ? 'is-nota' : ''}`}
-              placeholder={notaInterna ? 'Escreva uma nota interna (não vai pro cliente)…' : grupo ? 'Digite uma mensagem… (@ para mencionar)' : 'Digite uma mensagem…'}
+              placeholder={notaInterna ? 'Escreva uma nota interna (não vai pro cliente)…' : grupo ? 'Digite uma mensagem… (@ para mencionar, Ctrl+V para colar imagem)' : 'Digite uma mensagem… (Ctrl+V para colar imagem)'}
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={handlePaste}
             />
             <button type="button" onClick={() => void enviar()} disabled={enviando || !texto.trim()} className="brs-messenger-primary-button brs-messenger-send-button">
               {enviando ? <Loader2 size={14} className="spinner" /> : <Send size={14} />}
@@ -850,6 +1102,7 @@ export default function ThreadConversa({
         )}
       </div>
 
+      {/* Modal Transferir Chamado */}
       {modalTransferir && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center', zIndex: 400 }} data-brs-messenger-ignore-close="true">
           <div className="brs-messenger" style={{ width: 340, maxWidth: '92vw', borderRadius: 6, overflow: 'hidden' }} data-brs-messenger-ignore-close="true">
@@ -897,6 +1150,154 @@ export default function ThreadConversa({
                 >
                   Salvar
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Preview de Imagem (Ctrl+V) */}
+      {modalPastePreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'grid', placeItems: 'center', zIndex: 500 }} data-brs-messenger-ignore-close="true">
+          <div className="brs-messenger" style={{ width: 440, maxWidth: '92vw', borderRadius: 8, overflow: 'hidden', background: 'var(--msn-surface)' }}>
+            <div className="brs-messenger-titlebar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Enviar Imagem (Ctrl+V)</span>
+              <button type="button" onClick={() => setModalPastePreview(null)} className="brs-messenger-toolbar-btn">
+                <X size={14} />
+              </button>
+            </div>
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={modalPastePreview.url} alt="Preview da imagem colada" style={{ maxHeight: 260, maxWidth: '100%', objectFit: 'contain', borderRadius: 6, border: '1px solid var(--msn-soft-border)' }} />
+              <textarea
+                className="brs-messenger-composer-input"
+                style={{ width: '100%', minHeight: 50 }}
+                placeholder="Legenda da imagem (opcional)..."
+                value={modalPastePreview.legenda}
+                onChange={(e) => setModalPastePreview((prev) => (prev ? { ...prev, legenda: e.target.value } : null))}
+              />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
+                <button type="button" onClick={() => setModalPastePreview(null)} className="brs-messenger-pill-btn" style={{ padding: '4px 12px' }}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="brs-messenger-primary-button"
+                  style={{ padding: '5px 16px', display: 'flex', gap: 6, alignItems: 'center' }}
+                  onClick={async () => {
+                    const { file, legenda } = modalPastePreview
+                    setModalPastePreview(null)
+                    await onEnviarAnexo(file, legenda || undefined)
+                    irParaMensagemEnviada()
+                  }}
+                >
+                  <Send size={13} /> Enviar Imagem
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Lightbox de Imagens com Zoom, Download e Encaminhar */}
+      {modalLightbox && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 1000, display: 'flex', flexDirection: 'column', backdropFilter: 'blur(4px)' }}>
+          <div style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,.4)', color: '#fff' }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Visualizador de Imagem</div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button type="button" title="Zoom Out" onClick={() => setZoomScale((z) => Math.max(0.5, z - 0.25))} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 6 }}>
+                <ZoomOut size={18} />
+              </button>
+              <span style={{ fontSize: 12, minWidth: 40, textAlign: 'center' }}>{Math.round(zoomScale * 100)}%</span>
+              <button type="button" title="Zoom In" onClick={() => setZoomScale((z) => Math.min(4, z + 0.25))} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 6 }}>
+                <ZoomIn size={18} />
+              </button>
+              <button type="button" title="Resetar Zoom" onClick={() => setZoomScale(1)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 6 }}>
+                <RotateCw size={16} />
+              </button>
+              <a href={modalLightbox.url} download={modalLightbox.nome || 'imagem.png'} target="_blank" rel="noreferrer" title="Baixar / Salvar Imagem" style={{ color: '#fff', padding: 6, display: 'flex', alignItems: 'center' }}>
+                <Download size={18} />
+              </a>
+              {modalLightbox.mensagem && (
+                <button
+                  type="button"
+                  title="Encaminhar Imagem"
+                  onClick={() => {
+                    const msg = modalLightbox.mensagem
+                    setModalLightbox(null)
+                    if (msg) setModalEncaminhar(msg)
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 6 }}
+                >
+                  <Share2 size={18} />
+                </button>
+              )}
+              <button type="button" onClick={() => { setModalLightbox(null); setZoomScale(1) }} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 6 }}>
+                <X size={22} />
+              </button>
+            </div>
+          </div>
+          <div style={{ flex: 1, display: 'grid', placeItems: 'center', overflow: 'auto', padding: 20 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={modalLightbox.url}
+              alt="Lightbox Preview"
+              style={{
+                transform: `scale(${zoomScale})`,
+                transition: 'transform 0.15s ease-out',
+                maxHeight: '82vh',
+                maxWidth: '90vw',
+                objectFit: 'contain',
+                borderRadius: 6,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Encaminhar Mensagem */}
+      {modalEncaminhar && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 450 }} data-brs-messenger-ignore-close="true">
+          <div className="brs-messenger" style={{ width: 380, maxWidth: '92vw', borderRadius: 8, overflow: 'hidden', background: 'var(--msn-surface)' }}>
+            <div className="brs-messenger-titlebar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Encaminhar Mensagem</span>
+              <button type="button" onClick={() => setModalEncaminhar(null)} className="brs-messenger-toolbar-btn">
+                <X size={14} />
+              </button>
+            </div>
+            <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input
+                className="brs-messenger-search-input"
+                placeholder="Buscar conversa para encaminhar..."
+                value={filtroEncaminhar}
+                onChange={(e) => setFiltroEncaminhar(e.target.value)}
+              />
+              <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {(conversas || [])
+                  .filter((c) => (c.meta?.sender?.name || '').toLowerCase().includes(filtroEncaminhar.toLowerCase()))
+                  .map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--msn-soft-border)', background: 'var(--msn-surface-alt)', cursor: 'pointer', textAlign: 'left' }}
+                      onClick={async () => {
+                        const msg = modalEncaminhar
+                        setModalEncaminhar(null)
+                        setFiltroEncaminhar('')
+                        if (onEncaminharMensagem && msg) {
+                          await onEncaminharMensagem(msg, c.id)
+                          exibirToast(`Mensagem encaminhada para ${c.meta?.sender?.name || 'conversa'}`)
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <AvatarContato nome={c.meta?.sender?.name} tamanho={28} fontSize={11} />
+                        <span style={{ fontSize: 12.5, fontWeight: 600 }}>{c.meta?.sender?.name || 'Sem nome'}</span>
+                      </div>
+                      <Share2 size={14} style={{ color: 'var(--msn-accent)' }} />
+                    </button>
+                  ))}
               </div>
             </div>
           </div>

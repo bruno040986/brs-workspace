@@ -96,6 +96,12 @@ export default function AtendimentoCompacto() {
             onEnviarRespostaRapida={at.enviarRespostaRapida}
             onTransferir={at.transferir}
             onEncerrar={at.encerrar}
+            conversas={at.conversas}
+            onReagirMensagem={at.reagirMensagem}
+            onApagarMensagem={at.apagarMensagem}
+            onEncaminharMensagem={at.encaminharMensagem}
+            onSelecionarConversa={at.selecionarConversa}
+            onNovaConversa={at.novaConversa}
           />
         ) : (
           <ListaConversas

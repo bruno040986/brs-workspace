@@ -5,8 +5,10 @@ import { createClient } from '@/lib/supabase/client'
 import { pollingVisivel } from '@/lib/polling-visivel'
 import {
   addNotaInterna,
+  apagarMensagem as apagarMensagemAction,
   assumirConversa,
   buscarEntidades,
+  encaminharMensagem as encaminharMensagemAction,
   encerrarConversa,
   enviarAnexoConversa,
   enviarAudioConversa,
@@ -29,6 +31,7 @@ import {
   marcarConversaLida,
   marcarNaoLidaConversa,
   meusDepartamentos,
+  reagirMensagem as reagirMensagemAction,
   responderConversa,
   setAtendentePadraoContato,
   setDepartamentoPadraoContato,
@@ -773,6 +776,38 @@ export function useAtendimento() {
     return r
   }
 
+  async function reagirMensagem(messageId: number, emoji: string) {
+    if (!selecionada) return
+    try {
+      await reagirMensagemAction(selecionada.id, messageId, emoji)
+      await carregarThread(selecionada.id, { silencioso: true })
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao reagir à mensagem.'))
+    }
+  }
+
+  async function apagarMensagem(messageId: number) {
+    if (!selecionada) return
+    try {
+      await apagarMensagemAction(selecionada.id, messageId)
+      await carregarThread(selecionada.id, { silencioso: true })
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao apagar mensagem.'))
+    }
+  }
+
+  async function encaminharMensagem(sourceMessage: MensagemComExtras, targetConversationId: number) {
+    try {
+      await encaminharMensagemAction(sourceMessage, targetConversationId)
+      if (selecionada?.id === targetConversationId) {
+        await carregarThread(selecionada.id, { silencioso: true })
+      }
+      void carregarLista()
+    } catch (err) {
+      setErro(mensagem(err, 'Falha ao encaminhar mensagem.'))
+    }
+  }
+
   return {
     aba,
     setAba,
@@ -844,6 +879,9 @@ export function useAtendimento() {
     buscarEntidades: buscarEntidadesFn,
     novaConversa,
     recarregarLista: carregarLista,
+    reagirMensagem,
+    apagarMensagem,
+    encaminharMensagem,
   }
 }
 

@@ -74,6 +74,12 @@ export default function AtendimentoCompleto() {
             onEnviarRespostaRapida={at.enviarRespostaRapida}
             onTransferir={at.transferir}
             onEncerrar={at.encerrar}
+            conversas={at.conversas}
+            onReagirMensagem={at.reagirMensagem}
+            onApagarMensagem={at.apagarMensagem}
+            onEncaminharMensagem={at.encaminharMensagem}
+            onSelecionarConversa={at.selecionarConversa}
+            onNovaConversa={at.novaConversa}
           />
         ) : (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--msn-muted)' }}>

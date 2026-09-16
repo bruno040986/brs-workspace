@@ -1259,6 +1259,81 @@ export async function setTagsContato(contactId: number, tags: string[]): Promise
 }
 
 // ---------------------------------------------------------------------------
+// Reações, Apagar/Revogar e Encaminhamento de Mensagens
+// ---------------------------------------------------------------------------
+
+export async function reagirMensagem(conversationId: number, messageId: number, emoji: string): Promise<{ ok: boolean }> {
+  await requirePermission('conversas', 'can_view')
+  const user = await requireCurrentUser()
+  const conta = await contaBrs()
+  if (conta && messageId) {
+    const admin = await createAdminClient()
+    const jidUsuario = user.email || String(user.id)
+    if (emoji) {
+      await admin.from('chat_mensagem_reacoes').upsert(
+        { conta_id: conta.id, chatwoot_message_id: messageId, jid: jidUsuario, emoji },
+        { onConflict: 'conta_id,chatwoot_message_id,jid' },
+      )
+    } else {
+      await admin.from('chat_mensagem_reacoes').delete().eq('conta_id', conta.id).eq('chatwoot_message_id', messageId).eq('jid', jidUsuario)
+    }
+  }
+  return { ok: true }
+}
+
+export async function apagarMensagem(conversationId: number, messageId: number): Promise<{ ok: boolean }> {
+  await requirePermission('conversas', 'can_view')
+  const conta = await contaBrs()
+  if (conta && messageId) {
+    const admin = await createAdminClient()
+    // Grava status revogada para que o frontend mostre como riscada (soft-delete), preservando histórico
+    await admin.from('chat_mensagem_status').upsert(
+      { conta_id: conta.id, chatwoot_message_id: messageId, status: 'revogada' },
+      { onConflict: 'conta_id,chatwoot_message_id' },
+    )
+  }
+  const cli = await clienteChatwootBrs()
+  if (cli) {
+    try {
+      await cli.req(`/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' })
+    } catch {
+      // tolerado pois o histórico é mantido em nosso banco
+    }
+  }
+  return { ok: true }
+}
+
+export async function encaminharMensagem(sourceMessage: MensagemComExtras, targetConversationId: number): Promise<{ ok: boolean }> {
+  await requirePermission('conversas', 'can_view')
+  const cli = await clienteChatwootBrs()
+  if (!cli) throw new Error('Chatwoot não provisionado.')
+  const user = await requireCurrentUser()
+  const assinatura = await assinaturaDoUsuario(user.id)
+
+  const anexo = sourceMessage.attachments?.[0]
+  if (anexo && anexo.data_url) {
+    try {
+      const res = await fetch(anexo.data_url)
+      const arrayBuffer = await res.arrayBuffer()
+      const bytes = Buffer.from(arrayBuffer)
+      const mime = anexo.file_type === 'image' ? 'image/png' : anexo.file_type === 'audio' ? 'audio/ogg' : 'application/pdf'
+      const arquivo = { nome: `encaminhado_${anexo.id}`, mime, bytes }
+      const legenda = sourceMessage.content ? `↪️ Encaminhado: ${sourceMessage.content}` : '↪️ Encaminhado'
+      await cli.enviarMensagemComAnexo(targetConversationId, arquivo, assinar(assinatura, legenda))
+    } catch {
+      if (sourceMessage.content) {
+        await cli.enviarMensagem(targetConversationId, assinar(assinatura, `↪️ Encaminhado: ${sourceMessage.content}`))
+      }
+    }
+  } else if (sourceMessage.content) {
+    const texto = `↪️ Encaminhado: ${sourceMessage.content}`
+    await cli.enviarMensagem(targetConversationId, assinar(assinatura, texto))
+  }
+  return { ok: true }
+}
+
+
+// ---------------------------------------------------------------------------
 // Cadastro de Tags (Configurações › Comunicação › Tags) — CRUD das labels da
 // conta, com cor. Permissão de configurar: central-conversas.
 // ---------------------------------------------------------------------------
