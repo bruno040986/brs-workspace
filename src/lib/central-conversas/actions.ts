@@ -942,13 +942,14 @@ export async function transferirConversa(conversationId: number, input: { depart
   }
 }
 
-/** Encerra (resolve). Com motivo, registra nota interna "Encerrado: <motivo>" antes. */
+/** Encerra (resolve). Desvincula o atendente para que, se houver nova mensagem, a conversa reabra na Fila. */
 export async function encerrarConversa(conversationId: number, motivo?: string): Promise<{ ok: true }> {
   await requirePermission('conversas', 'can_view')
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   const razao = String(motivo || '').trim()
   if (razao) await cli.notaInterna(conversationId, `Encerrado: ${razao}`)
+  await cli.atribuir(conversationId, { assigneeId: null })
   await cli.mudarStatus(conversationId, 'resolved')
   return { ok: true }
 }
