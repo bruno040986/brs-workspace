@@ -156,6 +156,7 @@ export default function InstanciasClient({ view }: { view: View }) {
     try {
       await salvarChipInstancia({
         instanciaId: editandoChip.instanciaId,
+        nome: editandoChip.nome || null,
         numero_informado: editandoChip.numero_informado || null,
         tipo_numero: editandoChip.tipo_numero || null,
         operadora_id: editandoChip.operadora_id || null,
@@ -413,11 +414,11 @@ export default function InstanciasClient({ view }: { view: View }) {
                   <img
                     src={inst.operadora_logo_url}
                     alt={inst.operadora_nome || 'Operadora'}
-                    style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'contain', border: '1px solid var(--color-line)', background: '#fff', padding: 2 }}
+                    style={{ width: 80, height: 80, borderRadius: 16, objectFit: 'contain', border: '1px solid var(--color-line)', background: '#fff', padding: 4 }}
                   />
                 ) : (
-                  <span style={{ width: 40, height: 40, borderRadius: 12, display: 'grid', placeItems: 'center', background: conectada ? 'rgba(16,185,129,.12)' : 'rgba(10,17,40,.06)', color: conectada ? '#059669' : 'var(--color-ink-subtle)' }}>
-                    {conectada ? <Wifi size={20} /> : <WifiOff size={20} />}
+                  <span style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: conectada ? 'rgba(16,185,129,.12)' : 'rgba(10,17,40,.06)', color: conectada ? '#059669' : 'var(--color-ink-subtle)' }}>
+                    {conectada ? <Wifi size={32} /> : <WifiOff size={32} />}
                   </span>
                 )}
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -572,6 +573,17 @@ export default function InstanciasClient({ view }: { view: View }) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              <label className="form-field">
+                <span className="form-label">Nome da Instância</span>
+                <input
+                  className="form-input"
+                  required
+                  placeholder="Ex.: Suporte, Financeiro, Disparo 01"
+                  value={editandoChip.nome}
+                  onChange={(e) => setEditandoChip({ ...editandoChip, nome: e.target.value })}
+                />
+              </label>
+
               <label className="form-field">
                 <span className="form-label">Número do Chip</span>
                 <input

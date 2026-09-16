@@ -239,6 +239,7 @@ export async function criarInstanciaBrs(input: {
 
 export async function salvarChipInstancia(input: {
   instanciaId: string
+  nome?: string | null
   numero_informado?: string | null
   tipo_numero?: 'celular' | 'fixo' | 'virtual' | null
   operadora_id?: string | null
@@ -247,12 +248,18 @@ export async function salvarChipInstancia(input: {
   await requirePermission('central-conversas', 'can_edit')
   const admin = await createAdminClient()
 
-  const row = {
+  const nomeLimpo = input.nome ? String(input.nome).trim().slice(0, 60) : undefined
+
+  const row: Record<string, any> = {
     numero_informado: input.numero_informado?.trim() || null,
     tipo_numero: input.tipo_numero || null,
     operadora_id: input.operadora_id || null,
     tipo_plano: input.tipo_plano || null,
     updated_at: new Date().toISOString(),
+  }
+
+  if (nomeLimpo) {
+    row.nome = nomeLimpo
   }
 
   const { error } = await admin.from('chat_instancias').update(row).eq('id', input.instanciaId)
