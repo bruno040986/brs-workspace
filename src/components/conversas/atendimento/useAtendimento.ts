@@ -139,8 +139,20 @@ export function useAtendimento() {
   const teamIdFiltro =
     departamentoIds.size === 1 ? departamentos.find((d) => departamentoIds.has(d.id))?.chatwootTeamId ?? undefined : undefined
 
+  const cacheConversasRef = useRef<Partial<Record<AbaAtendimento, ConversaAtendimento[]>>>({})
+  const abaRef = useRef(aba)
+  useEffect(() => {
+    abaRef.current = aba
+  }, [aba])
+
+  // Invalida cache quando a busca ou filtros de canal/departamento mudam
+  useEffect(() => {
+    cacheConversasRef.current = {}
+  }, [busca, canalIds, departamentoIds])
+
   const carregarLista = useCallback(async (): Promise<ConversaAtendimento[]> => {
     if (aba === 'contatos') return []
+    const abaSolicitada = aba
     try {
       const r = await getConversas({ aba, q: busca || undefined, inboxId: canalIdServidor, teamId: teamIdFiltro ?? undefined })
       let lista = (r.conversas || []) as ConversaAtendimento[]
@@ -150,7 +162,11 @@ export function useAtendimento() {
         lista = lista.filter((c) => c.meta?.team && teamsAlvo.has(c.meta.team.id))
       }
       setDisponivel(r.disponivel)
-      setConversas(lista)
+      cacheConversasRef.current[abaSolicitada] = lista
+
+      if (abaSolicitada === abaRef.current) {
+        setConversas(lista)
+      }
       // Mantém a conversa aberta em dia com a lista (atendente, última mensagem):
       // sem isso o select de Atendente ficava "Sem atendente" até reabrir a conversa.
       setSelecionada((prev) => {
@@ -164,7 +180,9 @@ export function useAtendimento() {
       setErro(mensagem(err, 'Erro ao carregar conversas.'))
       return []
     } finally {
-      setCarregandoLista(false)
+      if (abaSolicitada === abaRef.current) {
+        setCarregandoLista(false)
+      }
     }
   }, [aba, busca, canalIds, departamentoIds, departamentos, canalIdServidor, teamIdFiltro])
 
@@ -257,16 +275,17 @@ export function useAtendimento() {
   }, [])
 
   useEffect(() => {
-    void (async () => {
-      // Exibe spinner de lista completa só se a lista ainda estiver vazia
-      if (conversas.length === 0) {
-        setCarregandoLista(true)
-      }
-      await Promise.all([carregarLista(), carregarContadores()])
-    })()
-    // Realtime é o caminho principal (efeito abaixo); este poll de 30s é só a
-    // rede de segurança (fato 3: mensagem enviada por outro atendente no
-    // Chatwoot não gera evento) e respeita a Page Visibility API.
+    if (aba === 'contatos') return
+    const cacheExistente = cacheConversasRef.current[aba]
+    if (cacheExistente) {
+      setConversas(cacheExistente)
+      setCarregandoLista(false)
+    } else {
+      setConversas([])
+      setCarregandoLista(true)
+    }
+    void Promise.all([carregarLista(), carregarContadores()])
+
     return pollingVisivel(
       () => {
         void carregarLista()
@@ -275,7 +294,7 @@ export function useAtendimento() {
       30_000,
       { imediato: false },
     )
-  }, [carregarLista, carregarContadores])
+  }, [aba, carregarLista, carregarContadores])
 
   useEffect(() => {
     if (aba === 'contatos') void carregarContatos()
