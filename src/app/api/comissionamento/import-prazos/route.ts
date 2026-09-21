@@ -5,6 +5,9 @@
  * (financeira + promotora + forma + convênio + código no banco — as mesmas
  * colunas que a cadastraram no passo 1) e usa as colunas específicas de
  * prazo. Aqui a repetição da tabela é o esperado: cada linha é um prazo.
+ * Se a linha traz id_arw, ele localiza a tabela primeiro. Tabela sem código no
+ * banco (o banco nem sempre informa) é localizada pelo NOME, entre as tabelas
+ * sem código da mesma combinação.
  * Tabela não encontrada = linha inválida ("rode o passo 1 primeiro").
  *
  * Match p/ atualização: tabela + prazo_inicial/final + faixa de valores.
@@ -16,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
+  localizarTabelaComissao,
   normalizarTexto,
   parseDataPlanilha,
   parseFormaPagamentoPlanilha,
@@ -53,6 +57,7 @@ type TabelaRef = {
   promotora_id: string | null
   forma_contrato_id: string
   convenio_id: string | null
+  id_arw: string | null
 }
 
 type PrazoExistente = {
@@ -155,7 +160,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   const [{ data: tabelasData }, { data: prazosData }] = await Promise.all([
     admin
       .from('tabelas_comissao')
-      .select('id, codigo, nome, codigo_tabela_banco, institution_id, promotora_id, forma_contrato_id, convenio_id')
+      .select('id, codigo, nome, codigo_tabela_banco, institution_id, promotora_id, forma_contrato_id, convenio_id, id_arw')
       .is('deleted_at', null),
     admin
       .from('prazos_comissao')
@@ -163,20 +168,6 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   ])
   const tabelas = (tabelasData || []) as TabelaRef[]
   const prazosExistentes = (prazosData || []) as PrazoExistente[]
-
-  function localizarTabela(institutionId: string | null, promotoraId: string | null, formaId: string | null, convenioId: string | null, codigoBanco: string | null): TabelaRef | null {
-    if (!institutionId || !codigoBanco) return null
-    return (
-      tabelas.find(
-        (item) =>
-          item.institution_id === institutionId &&
-          normalizarTexto(item.codigo_tabela_banco) === normalizarTexto(codigoBanco) &&
-          item.forma_contrato_id === formaId &&
-          String(item.convenio_id || '') === String(convenioId || '') &&
-          String(item.promotora_id || '') === String(promotoraId || ''),
-      ) || null
-    )
-  }
 
   const linhas: LinhaPrazo[] = []
   const identidadesVistas = new Set<string>()
@@ -191,6 +182,8 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     const formaTexto = String(celula(row, 'forma_contrato') ?? '').trim()
     const convenioTexto = String(celula(row, 'convenio') ?? '').trim()
     const codigoBanco = String(celula(row, 'codigo_tabela_banco') ?? '').trim() || null
+    const nomeTabela = String(celula(row, 'nome') ?? '').trim()
+    const idArw = String(celula(row, 'id_arw') ?? '').trim() || null
 
     const institutionId = resolverReferencia('financeira', financeiraTexto, catalogo, resolucoes)
     const promotoraId = promotoraTexto ? resolverReferencia('promotora', promotoraTexto, catalogo, resolucoes) : null
@@ -221,7 +214,8 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       })(),
     }
 
-    const descricaoBase = `${financeiraTexto || '?'} · cód. ${codigoBanco || '?'} · ${convenioTexto || 'sem convênio'}${promotoraTexto ? ` · via ${promotoraTexto}` : ''}`
+    const identificacaoTabela = codigoBanco ? `cód. ${codigoBanco}` : nomeTabela ? `sem cód. · ${nomeTabela}` : 'sem cód.'
+    const descricaoBase = `${financeiraTexto || '?'} · ${identificacaoTabela} · ${convenioTexto || 'sem convênio'}${promotoraTexto ? ` · via ${promotoraTexto}` : ''}`
     const descricao = `${descricaoBase} — prazo ${dados.prazo_inicial ?? '?'} a ${dados.prazo_final ?? '?'} — comissão ${fmtNum(dados.comissao)}`
 
     // Pendências de referência.
@@ -249,11 +243,12 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       continue
     }
 
-    const tabela = localizarTabela(institutionId, promotoraId, formaId, convenioId, codigoBanco)
-    if (!tabela) {
-      linhas.push({ n, status: 'invalida', erro: 'Tabela de Comissão não encontrada com essa combinação (financeira + promotora + forma + convênio + código no banco). Rode primeiro o passo 1 — Tabelas.', descricao, pendencias: [], matchId: null, diff: [], dados })
+    const localizada = localizarTabelaComissao(tabelas, { institutionId, promotoraId, formaId, convenioId, codigoBanco, nome: nomeTabela, idArw })
+    if ('erro' in localizada) {
+      linhas.push({ n, status: 'invalida', erro: localizada.erro, descricao, pendencias: [], matchId: null, diff: [], dados })
       continue
     }
+    const { tabela } = localizada
     dados.tabela_comissao_id = tabela.id
 
     // Dedupe dentro do arquivo (mesmo prazo da mesma tabela duas vezes).

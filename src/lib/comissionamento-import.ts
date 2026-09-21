@@ -195,6 +195,77 @@ export function normalizarTexto(value: unknown): string {
     .trim()
 }
 
+/**
+ * Discriminador da Tabela de Comissão dentro da combinação financeira +
+ * promotora + forma + convênio. O código no banco é a identidade quando existe;
+ * o banco nem sempre informa código (coluna nula) e aí o NOME assume o papel —
+ * sem isso duas tabelas sem código da mesma combinação colapsariam numa só. O
+ * prefixo impede que uma tabela sem código case com uma que tem código.
+ */
+export function discriminadorTabela(codigoBanco: unknown, nome: unknown): string {
+  const codigo = normalizarTexto(codigoBanco)
+  return codigo ? `cod:${codigo}` : `nome:${normalizarTexto(nome)}`
+}
+
+export type TabelaLocalizavel = {
+  id: string
+  nome: string
+  codigo_tabela_banco: string | null
+  institution_id: string
+  promotora_id: string | null
+  forma_contrato_id: string
+  convenio_id: string | null
+  id_arw: string | null
+}
+
+/**
+ * Passo 2 (Prazos): acha a Tabela de Comissão da linha. id_arw, se vier, manda;
+ * senão vale financeira + promotora + forma + convênio + discriminador (código
+ * ou, sem código, nome). Devolve `{ erro }` legível quando não dá para decidir.
+ */
+export function localizarTabelaComissao<T extends TabelaLocalizavel>(
+  tabelas: T[],
+  linha: {
+    institutionId: string | null
+    promotoraId: string | null
+    formaId: string | null
+    convenioId: string | null
+    codigoBanco: string | null
+    nome: string
+    idArw: string | null
+  },
+): { tabela: T } | { erro: string } {
+  if (linha.idArw) {
+    const porArw = tabelas.find((item) => item.id_arw && normalizarTexto(item.id_arw) === normalizarTexto(linha.idArw))
+    if (porArw) return { tabela: porArw }
+  }
+  if (!linha.codigoBanco && !linha.nome) {
+    return { erro: 'Linha sem código no banco e sem nome da tabela: preencha "nome" (ou "id_arw") para localizar a Tabela de Comissão.' }
+  }
+  const alvo = discriminadorTabela(linha.codigoBanco, linha.nome)
+  const candidatas = tabelas.filter(
+    (item) =>
+      item.institution_id === linha.institutionId &&
+      discriminadorTabela(item.codigo_tabela_banco, item.nome) === alvo &&
+      item.forma_contrato_id === linha.formaId &&
+      String(item.convenio_id || '') === String(linha.convenioId || '') &&
+      String(item.promotora_id || '') === String(linha.promotoraId || ''),
+  )
+  if (candidatas.length === 0) {
+    return {
+      erro: linha.codigoBanco
+        ? 'Tabela de Comissão não encontrada com essa combinação (financeira + promotora + forma + convênio + código no banco). Rode primeiro o passo 1 — Tabelas.'
+        : 'Tabela de Comissão sem código no banco não encontrada com essa combinação (financeira + promotora + forma + convênio + nome). Rode primeiro o passo 1 — Tabelas.',
+    }
+  }
+  // Sem código, o nome é a única identidade: se houver duas iguais, não dá para
+  // saber em qual gravar o prazo (comissão) — melhor recusar que chutar.
+  if (!linha.codigoBanco && candidatas.length > 1) {
+    return { erro: 'Há mais de uma Tabela de Comissão sem código com esse nome nessa combinação. Informe o id_arw na linha ou renomeie/exclua a duplicada.' }
+  }
+  return { tabela: candidatas[0] }
+}
+
 export function parseSeguro(value: unknown): boolean | null {
   const texto = normalizarTexto(value)
   if (!texto) return null

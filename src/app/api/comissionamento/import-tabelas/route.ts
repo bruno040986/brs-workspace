@@ -16,6 +16,7 @@ import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
   COLUNAS_TABELA,
+  discriminadorTabela,
   normalizarTexto,
   parseSeguro,
   parseTaxaPlanilha,
@@ -61,7 +62,7 @@ function chaveIdentidade(dados: LinhaAnalisada['dados']) {
     dados.promotora_id || '',
     dados.forma_contrato_id || '',
     dados.convenio_id || '',
-    normalizarTexto(dados.codigo_tabela_banco),
+    discriminadorTabela(dados.codigo_tabela_banco, dados.nome),
   ].join('|')
 }
 
@@ -71,12 +72,14 @@ function encontrarExistente(dados: LinhaAnalisada['dados'], existentes: TabelaEx
     if (porArw) return porArw
   }
   // Identidade imutável: financeira + promotora + forma + convênio + código no
-  // banco. Nome e juros são atributos atualizáveis — nunca entram no match.
-  if (dados.institution_id && dados.codigo_tabela_banco) {
+  // banco. Nome e juros são atributos atualizáveis — só entram no match quando
+  // a tabela não tem código no banco (aí o nome é a única identidade).
+  if (dados.institution_id) {
+    const alvo = discriminadorTabela(dados.codigo_tabela_banco, dados.nome)
     const porChave = existentes.find(
       (item) =>
         item.institution_id === dados.institution_id &&
-        normalizarTexto(item.codigo_tabela_banco) === normalizarTexto(dados.codigo_tabela_banco) &&
+        discriminadorTabela(item.codigo_tabela_banco, item.nome) === alvo &&
         item.forma_contrato_id === dados.forma_contrato_id &&
         String(item.convenio_id || '') === String(dados.convenio_id || '') &&
         String(item.promotora_id || '') === String(dados.promotora_id || ''),
