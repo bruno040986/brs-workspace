@@ -1,14 +1,18 @@
 /**
  * Importador — PASSO 2: Prazos Comissão (a MESMA planilha do passo 1).
  *
- * Cada linha localiza a Tabela de Comissão pela identidade natural
- * (financeira + promotora + forma + convênio + código no banco — as mesmas
- * colunas que a cadastraram no passo 1) e usa as colunas específicas de
- * prazo. Aqui a repetição da tabela é o esperado: cada linha é um prazo.
- * Se a linha traz id_arw, ele localiza a tabela primeiro. Tabela sem código no
- * banco (o banco nem sempre informa) é localizada pelo NOME, entre as tabelas
- * sem código da mesma combinação.
- * Tabela não encontrada = linha inválida ("rode o passo 1 primeiro").
+ * Cada linha repete a tabela e traz um prazo (a repetição é o esperado). A
+ * Tabela de Comissão "pedida" é localizada assim:
+ *   - com código no banco: financeira + promotora + forma + convênio + código
+ *     (nome e juros seguem atualizáveis pelo passo 1, então não entram);
+ *   - sem código: todos os demais campos da tabela precisam bater — nome,
+ *     financeira, promotora, forma, convênio, formalização, seguro e juros
+ *     (observação fica de fora); se algum não bate, NÃO é a mesma tabela;
+ *   - se a linha traz id_arw, ele localiza a tabela primeiro.
+ * Tabela não encontrada = linha inválida (sem código, diz em que campos a de
+ * mesmo nome difere; "rode o passo 1 primeiro").
+ * Cópias idênticas no cadastro: vale a que JÁ tem aquele prazo (a linha vira
+ * atualização dele); senão a mais antiga — e a linha avisa.
  *
  * Match p/ atualização: tabela + prazo_inicial/final + faixa de valores.
  * Aplicar grava o número de lote em lote_importacao (coluna do grid).
@@ -19,7 +23,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
-  localizarTabelaComissao,
+  candidatasDaLinha,
+  explicarTabelaNaoEncontrada,
+  indexarTabelas,
+  lerCamposTabela,
   normalizarTexto,
   parseDataPlanilha,
   parseFormaPagamentoPlanilha,
@@ -30,6 +37,7 @@ import {
   type DiffCampo,
   type PendenciaLinha,
   type Resolucoes,
+  type TabelaCadastrada,
 } from '@/lib/comissionamento-import'
 import { formaPagamentoLabel, formaPagamentoUsaFaixa } from '@/lib/comissionamento'
 import {
@@ -48,17 +56,7 @@ const MAX_LINHAS = 20_000
 
 const COLUNAS_PRAZO_OBRIGATORIAS = ['prazo_inicial', 'prazo_final', 'comissao'] as const
 
-type TabelaRef = {
-  id: string
-  codigo: number
-  nome: string
-  codigo_tabela_banco: string | null
-  institution_id: string
-  promotora_id: string | null
-  forma_contrato_id: string
-  convenio_id: string | null
-  id_arw: string | null
-}
+type TabelaRef = TabelaCadastrada & { codigo: number }
 
 type PrazoExistente = {
   id: string
@@ -111,6 +109,16 @@ function numeroIgual(a: number | null, b: number | null) {
   return Math.abs(Number(a) - Number(b)) < 0.005
 }
 
+// Mesmo prazo dentro de uma tabela: intervalo de prazos + faixa de valores.
+function mesmoPrazo(item: PrazoExistente, dados: DadosPrazo) {
+  return (
+    Number(item.prazo_inicial) === dados.prazo_inicial &&
+    Number(item.prazo_final) === dados.prazo_final &&
+    numeroIgual(item.valor_inicial === null ? null : Number(item.valor_inicial), dados.valor_inicial) &&
+    numeroIgual(item.valor_final === null ? null : Number(item.valor_final), dados.valor_final)
+  )
+}
+
 function chaveIdentidadePrazo(dados: DadosPrazo) {
   return [dados.tabela_comissao_id, dados.prazo_inicial, dados.prazo_final, dados.valor_inicial ?? '', dados.valor_final ?? ''].join('|')
 }
@@ -160,13 +168,14 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   const [{ data: tabelasData }, { data: prazosData }] = await Promise.all([
     admin
       .from('tabelas_comissao')
-      .select('id, codigo, nome, codigo_tabela_banco, institution_id, promotora_id, forma_contrato_id, convenio_id, id_arw')
-      .is('deleted_at', null),
+      .select('id, codigo, nome, codigo_tabela_banco, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, id_arw')
+      .is('deleted_at', null)
+      .order('codigo', { ascending: true }),
     admin
       .from('prazos_comissao')
       .select('id, tabela_comissao_id, forma_pagamento, valor_inicial, valor_final, prazo_inicial, prazo_final, data_base, data_bloqueio, manter_enquadramento, comissao, emissao, seguro, forma_pagamento_seguro, id_arw'),
   ])
-  const tabelas = (tabelasData || []) as TabelaRef[]
+  const indiceTabelas = indexarTabelas((tabelasData || []) as TabelaRef[])
   const prazosExistentes = (prazosData || []) as PrazoExistente[]
 
   const linhas: LinhaPrazo[] = []
@@ -177,18 +186,21 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     if (!Array.isArray(row) || row.every((cell) => String(cell ?? '').trim() === '')) continue
     const n = i + 2
 
-    const financeiraTexto = String(celula(row, 'financeira') ?? '').trim()
-    const promotoraTexto = String(celula(row, 'promotora') ?? '').trim()
-    const formaTexto = String(celula(row, 'forma_contrato') ?? '').trim()
-    const convenioTexto = String(celula(row, 'convenio') ?? '').trim()
-    const codigoBanco = String(celula(row, 'codigo_tabela_banco') ?? '').trim() || null
-    const nomeTabela = String(celula(row, 'nome') ?? '').trim()
+    // Os mesmos campos da tabela, lidos exatamente como no passo 1.
+    const tabelaLinha = lerCamposTabela((coluna) => celula(row, coluna), (campo, texto) => resolverReferencia(campo, texto, catalogo, resolucoes))
+    const {
+      financeira_texto: financeiraTexto,
+      promotora_texto: promotoraTexto,
+      forma_texto: formaTexto,
+      convenio_texto: convenioTexto,
+      formalizacao_texto: formalizacaoTexto,
+      institution_id: institutionId,
+      promotora_id: promotoraId,
+      forma_contrato_id: formaId,
+      convenio_id: convenioId,
+      tipo_formalizacao_id: formalizacaoId,
+    } = tabelaLinha
     const idArw = String(celula(row, 'id_arw') ?? '').trim() || null
-
-    const institutionId = resolverReferencia('financeira', financeiraTexto, catalogo, resolucoes)
-    const promotoraId = promotoraTexto ? resolverReferencia('promotora', promotoraTexto, catalogo, resolucoes) : null
-    const formaId = resolverReferencia('forma_contrato', formaTexto, catalogo, resolucoes)
-    const convenioId = convenioTexto ? resolverReferencia('convenio', convenioTexto, catalogo, resolucoes) : null
 
     const formaPagamento = parseFormaPagamentoPlanilha(celula(row, 'forma_pagamento'))
     const usaFaixa = formaPagamentoUsaFaixa(formaPagamento)
@@ -214,8 +226,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       })(),
     }
 
-    const identificacaoTabela = codigoBanco ? `cód. ${codigoBanco}` : nomeTabela ? `sem cód. · ${nomeTabela}` : 'sem cód.'
-    const descricaoBase = `${financeiraTexto || '?'} · ${identificacaoTabela} · ${convenioTexto || 'sem convênio'}${promotoraTexto ? ` · via ${promotoraTexto}` : ''}`
+    const descricaoBase = `${financeiraTexto || '?'} · ${tabelaLinha.nome || 'sem nome'} · ${tabelaLinha.codigo_tabela_banco ? `cód. ${tabelaLinha.codigo_tabela_banco}` : 'sem cód.'} · ${convenioTexto || 'sem convênio'}${promotoraTexto ? ` · via ${promotoraTexto}` : ''}`
     const descricao = `${descricaoBase} — prazo ${dados.prazo_inicial ?? '?'} a ${dados.prazo_final ?? '?'} — comissão ${fmtNum(dados.comissao)}`
 
     // Pendências de referência.
@@ -224,6 +235,8 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     if (promotoraTexto && !promotoraId) pendencias.push({ campo: 'promotora' as CampoReferencia, texto: promotoraTexto, textoNormalizado: normalizarTexto(promotoraTexto) })
     if (formaTexto && !formaId) pendencias.push({ campo: 'forma_contrato' as CampoReferencia, texto: formaTexto, textoNormalizado: normalizarTexto(formaTexto) })
     if (convenioTexto && !convenioId) pendencias.push({ campo: 'convenio' as CampoReferencia, texto: convenioTexto, textoNormalizado: normalizarTexto(convenioTexto) })
+    // A formalização só entra na comparação da tabela quando a linha não tem código.
+    if (!tabelaLinha.codigo_tabela_banco && formalizacaoTexto && !formalizacaoId) pendencias.push({ campo: 'tipo_formalizacao' as CampoReferencia, texto: formalizacaoTexto, textoNormalizado: normalizarTexto(formalizacaoTexto) })
     if (pendencias.length > 0) {
       linhas.push({ n, status: 'pendencia', descricao, pendencias, matchId: null, diff: [], dados })
       continue
@@ -243,39 +256,35 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       continue
     }
 
-    const localizada = localizarTabelaComissao(tabelas, { institutionId, promotoraId, formaId, convenioId, codigoBanco, nome: nomeTabela, idArw })
-    if ('erro' in localizada) {
-      linhas.push({ n, status: 'invalida', erro: localizada.erro, descricao, pendencias: [], matchId: null, diff: [], dados })
+    const candidatas = candidatasDaLinha(indiceTabelas, tabelaLinha, idArw)
+    if (candidatas.length === 0) {
+      linhas.push({ n, status: 'invalida', erro: explicarTabelaNaoEncontrada(indiceTabelas, tabelaLinha, catalogo.nomes), descricao, pendencias: [], matchId: null, diff: [], dados })
       continue
     }
-    const { tabela } = localizada
+    // Cópias idênticas no cadastro: a que JÁ tem este prazo (a linha vira
+    // atualização dele); senão a mais antiga (a consulta vem ordenada por código).
+    const tabela = candidatas.length === 1 ? candidatas[0] : candidatas.find((t) => prazosExistentes.some((p) => p.tabela_comissao_id === t.id && mesmoPrazo(p, dados))) || candidatas[0]
     dados.tabela_comissao_id = tabela.id
+    const descricaoLinha = candidatas.length > 1 ? `${descricao} ⚠ ${candidatas.length} tabelas idênticas no cadastro (nº ${candidatas.map((t) => t.codigo).join(', ')}), usada a nº ${tabela.codigo}` : descricao
 
     // Dedupe dentro do arquivo (mesmo prazo da mesma tabela duas vezes).
     const identidade = chaveIdentidadePrazo(dados)
     if (identidadesVistas.has(identidade)) {
-      linhas.push({ n, status: 'repetida', descricao, pendencias: [], matchId: null, diff: [], dados })
+      linhas.push({ n, status: 'repetida', descricao: descricaoLinha, pendencias: [], matchId: null, diff: [], dados })
       continue
     }
     identidadesVistas.add(identidade)
 
     // Match: tabela + intervalo de prazos + faixa de valores.
-    const existente = prazosExistentes.find(
-      (item) =>
-        item.tabela_comissao_id === tabela.id &&
-        Number(item.prazo_inicial) === dados.prazo_inicial &&
-        Number(item.prazo_final) === dados.prazo_final &&
-        numeroIgual(item.valor_inicial === null ? null : Number(item.valor_inicial), dados.valor_inicial) &&
-        numeroIgual(item.valor_final === null ? null : Number(item.valor_final), dados.valor_final),
-    )
+    const existente = prazosExistentes.find((item) => item.tabela_comissao_id === tabela.id && mesmoPrazo(item, dados))
 
     if (!existente) {
-      linhas.push({ n, status: 'nova', descricao, pendencias: [], matchId: null, diff: [], dados })
+      linhas.push({ n, status: 'nova', descricao: descricaoLinha, pendencias: [], matchId: null, diff: [], dados })
       continue
     }
 
     const diff = montarDiffPrazo(dados, existente)
-    linhas.push({ n, status: diff.length === 0 ? 'sem_mudanca' : 'atualizacao', descricao, pendencias: [], matchId: existente.id, diff, dados })
+    linhas.push({ n, status: diff.length === 0 ? 'sem_mudanca' : 'atualizacao', descricao: descricaoLinha, pendencias: [], matchId: existente.id, diff, dados })
   }
 
   const resumo = {
