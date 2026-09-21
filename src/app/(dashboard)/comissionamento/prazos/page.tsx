@@ -5,14 +5,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Clock, Download, Edit2, Loader2, Plus, Trash2 } from 'lucide-react'
 import { gerarCsvPrazosCadastrados } from '@/lib/comissionamento-import'
 import {
+  FORMAS_PAGAMENTO_PRAZO,
   calcularGradeComissionamento,
   formaPagamentoEmPercentual,
   type ContextoTabela,
   type LinhaGrade,
   type SpreadRow,
 } from '@/lib/comissionamento'
+import { CAMPOS_DATA_PRAZO, FILTROS_PRAZOS_PADRAO, ORDENS_PRAZOS, type FiltrosPrazos } from '@/lib/comissionamento-filtros'
 import ScrollSyncTable from '@/components/forms/ScrollSyncTable'
 import { excluirPrazoComissao, getComissionamentoLookups, getPrazosComissao, getSpreads, type PrazoComissaoPayload } from '../actions'
+import { CampoFiltro, OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
 
 type Instituicao = { id: string; name: string; logo_url?: string | null; imposto_comissao_percent: number | null }
 type TipoAgente = { id: string; name: string; codigo_arw: number | null; percentual_repasse: number | null }
@@ -54,7 +57,15 @@ type Prazo = PrazoComissaoPayload & {
   lote_importacao: string | null
   tabelas_comissao: TabelaLookup | null
 }
-type Lookups = { instituicoes: Instituicao[]; tabelasComissao: TabelaLookup[]; tiposAgente: TipoAgente[] }
+type OpcaoLookup = { id: string; nome: string }
+type Lookups = {
+  instituicoes: Instituicao[]
+  tabelasComissao: TabelaLookup[]
+  tiposAgente: TipoAgente[]
+  convenios: OpcaoLookup[]
+  formasContrato: OpcaoLookup[]
+  promotoras: OpcaoLookup[]
+}
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
 const agenteColumns = ['Prata', 'Ouro', 'Bronze', 'Diamante', 'Rubi', 'Adamantium', 'Latão', 'Lojista/Empresa'] as const
@@ -95,47 +106,75 @@ function matchesAgente(label: string, tipoAgenteNome: string) {
 
 export default function PrazosComissaoPage() {
   const [items, setItems] = useState<Prazo[]>([])
-  const [lookups, setLookups] = useState<Lookups>({ instituicoes: [], tabelasComissao: [], tiposAgente: [] })
+  const [lookups, setLookups] = useState<Lookups>({ instituicoes: [], tabelasComissao: [], tiposAgente: [], convenios: [], formasContrato: [], promotoras: [] })
   const [spreads, setSpreads] = useState<SpreadRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
-  const [tabelaFilter, setTabelaFilter] = useState('')
+  // `filtros` é o que está nos campos; `aplicados` é o que gerou a lista atual (Listar/Enter).
+  const [filtros, setFiltros] = useState<FiltrosPrazos>(FILTROS_PRAZOS_PADRAO)
+  const [aplicados, setAplicados] = useState<FiltrosPrazos>(FILTROS_PRAZOS_PADRAO)
+  const [totalEncontrado, setTotalEncontrado] = useState(0)
+  // Tipos de agente marcados: só escolhem quais colunas de repasse aparecem (vazio = todas).
+  const [agentesFiltro, setAgentesFiltro] = useState<string[]>([])
 
-  async function loadData(nextTabela = tabelaFilter) {
+  async function carregarPrazos(proximos: FiltrosPrazos) {
     setLoading(true)
     try {
-      const [itemsRes, lookupsRes, spreadsRes] = await Promise.all([
-        getPrazosComissao(nextTabela || undefined),
-        getComissionamentoLookups(),
-        getSpreads(),
-      ])
-      if (itemsRes.success) setItems((itemsRes.items || []) as unknown as Prazo[])
-      else setMessage({ type: 'error', text: itemsRes.error || 'Erro ao carregar prazos comissão.' })
+      const res = await getPrazosComissao(proximos)
+      if (res.success) {
+        setItems((res.items || []) as unknown as Prazo[])
+        setTotalEncontrado(res.total ?? (res.items || []).length)
+        setAplicados(proximos)
+      } else setMessage({ type: 'error', text: res.error || 'Erro ao carregar prazos comissão.' })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Erro ao carregar prazos comissão.' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function loadData() {
+    setLoading(true)
+    try {
+      const [lookupsRes, spreadsRes] = await Promise.all([getComissionamentoLookups(), getSpreads()])
       if (lookupsRes.success) {
         setLookups({
           instituicoes: (lookupsRes.instituicoes || []) as Instituicao[],
           tabelasComissao: (lookupsRes.tabelasComissao || []) as unknown as TabelaLookup[],
           tiposAgente: (lookupsRes.tiposAgente || []) as TipoAgente[],
+          convenios: (lookupsRes.convenios || []) as OpcaoLookup[],
+          formasContrato: (lookupsRes.formasContrato || []) as OpcaoLookup[],
+          promotoras: (lookupsRes.promotoras || []) as OpcaoLookup[],
         })
       }
       if (spreadsRes.success) setSpreads((spreadsRes.items || []) as unknown as SpreadRow[])
       else setMessage({ type: 'error', text: spreadsRes.error || 'Erro ao carregar spreads.' })
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Erro ao carregar prazos comissão.' })
-    } finally {
-      setLoading(false)
     }
+    await carregarPrazos(FILTROS_PRAZOS_PADRAO)
   }
 
   useEffect(() => {
-    loadData('')
+    loadData()
   }, [])
 
-  async function handleFilterChange(value: string) {
-    setTabelaFilter(value)
-    await loadData(value)
+  function atualizarFiltro<K extends keyof FiltrosPrazos>(campo: K, valor: FiltrosPrazos[K]) {
+    setFiltros((atual) => ({ ...atual, [campo]: valor }))
   }
+
+  function limparFiltros() {
+    setFiltros(FILTROS_PRAZOS_PADRAO)
+    setAgentesFiltro([])
+    carregarPrazos(FILTROS_PRAZOS_PADRAO)
+  }
+
+  function alternarAgente(coluna: string) {
+    setAgentesFiltro((atual) => (atual.includes(coluna) ? atual.filter((item) => item !== coluna) : [...atual, coluna]))
+  }
+
+  const colunasAgente = agentesFiltro.length ? agenteColumns.filter((coluna) => agentesFiltro.includes(coluna)) : agenteColumns
 
   function tabelaLabel(item: TabelaLookup) {
     const inst = lookups.instituicoes.find((instituicao) => instituicao.id === item.institution_id)
@@ -173,7 +212,7 @@ export default function PrazosComissaoPage() {
       const res = await excluirPrazoComissao(item.id)
       if (res.success) {
         setMessage({ type: 'success', text: 'Prazo comissão excluído.' })
-        await loadData()
+        await carregarPrazos(aplicados)
       } else setMessage({ type: 'error', text: res.error || 'Erro ao excluir prazo comissão.' })
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Erro ao excluir prazo comissão.' })
@@ -228,7 +267,8 @@ export default function PrazosComissaoPage() {
     a.download = `prazos-comissao-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    setMessage({ type: 'success', text: `${items.length} prazo(s) exportado(s) — layout completo, reimportável no Passo 2.` })
+    const truncado = totalEncontrado > items.length
+    setMessage({ type: 'success', text: truncado ? `${items.length} de ${totalEncontrado} prazo(s) exportado(s) — a lista é limitada; refine os filtros para exportar o restante. Layout completo, reimportável no Passo 2.` : `${items.length} prazo(s) exportado(s) — layout completo, reimportável no Passo 2.` })
   }
 
   function repasseAgente(item: Prazo, label: string) {
@@ -265,12 +305,63 @@ export default function PrazosComissaoPage() {
         </div>
       )}
 
-      <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem' }}>
-        <select className="form-control" style={{ maxWidth: 520 }} value={tabelaFilter} onChange={(e) => handleFilterChange(e.target.value)}>
-          <option value="">Todas as tabelas de comissão</option>
-          {lookups.tabelasComissao.map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}
-        </select>
-      </div>
+      <PainelFiltros
+        onListar={() => carregarPrazos(filtros)}
+        onLimpar={limparFiltros}
+        carregando={loading}
+        resumo={
+          loading ? 'Carregando…' : (
+            <>
+              Mostrando <strong>{items.length.toLocaleString('pt-BR')}</strong> de <strong>{totalEncontrado.toLocaleString('pt-BR')}</strong> prazo(s)
+              {aplicados.prazoBloqueado === 'nao' ? ' — bloqueados ocultos' : ''}
+              {totalEncontrado > items.length && <span style={{ color: 'var(--brs-danger)', fontWeight: 600 }}> — a lista mostra só os primeiros {items.length.toLocaleString('pt-BR')}; refine os filtros para ver os demais</span>}
+            </>
+          )
+        }
+      >
+        <TextoFiltro label="Descrição" valor={filtros.descricao} onChange={(v) => atualizarFiltro('descricao', v)} placeholder="Nome da tabela" />
+        <SelectFiltro label="Financeira" valor={filtros.financeira} onChange={(v) => atualizarFiltro('financeira', v)} vazio="Todas" opcoes={lookups.instituicoes.map((item) => ({ valor: item.id, label: item.name }))} />
+        <SelectFiltro label="Convênio" valor={filtros.convenio} onChange={(v) => atualizarFiltro('convenio', v)} vazio="Todos" opcoes={lookups.convenios.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <SelectFiltro label="Forma do contrato" valor={filtros.forma} onChange={(v) => atualizarFiltro('forma', v)} vazio="Todas" opcoes={lookups.formasContrato.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <SelectFiltro label="Prazo comissão bloqueado" valor={filtros.prazoBloqueado} onChange={(v) => atualizarFiltro('prazoBloqueado', v as FiltrosPrazos['prazoBloqueado'])} opcoes={OPCOES_BLOQUEIO} />
+        <SelectFiltro label="Tabela comissão bloqueada" valor={filtros.tabelaBloqueada} onChange={(v) => atualizarFiltro('tabelaBloqueada', v as FiltrosPrazos['tabelaBloqueada'])} opcoes={OPCOES_BLOQUEIO} />
+        <SelectFiltro label="Promotora" valor={filtros.promotora} onChange={(v) => atualizarFiltro('promotora', v)} vazio="Todas" opcoes={[{ valor: 'direto', label: 'Direto' }, ...lookups.promotoras.map((item) => ({ valor: item.id, label: item.nome }))]} />
+        <SelectFiltro label="Forma de pagamento" valor={filtros.formaPagamento} onChange={(v) => atualizarFiltro('formaPagamento', v)} vazio="Todas" opcoes={FORMAS_PAGAMENTO_PRAZO.map((item) => ({ valor: item.value, label: item.label }))} />
+        <SelectFiltro label="Forma de pagamento seguro" valor={filtros.formaPagamentoSeguro} onChange={(v) => atualizarFiltro('formaPagamentoSeguro', v)} vazio="Todas" opcoes={[{ valor: 'percentual', label: 'Percentual' }, { valor: 'fixo', label: 'Valor fixo' }]} />
+        <SelectFiltro label="Tipo de seguro" valor={filtros.seguro} onChange={(v) => atualizarFiltro('seguro', v as FiltrosPrazos['seguro'])} vazio="Todos" opcoes={OPCOES_SEGURO} />
+        <TextoFiltro label="Código da tabela" valor={filtros.codigoTabela} onChange={(v) => atualizarFiltro('codigoTabela', v)} placeholder="Banco ou nº do sistema" />
+        <SelectFiltro label="Tabela de comissão" valor={filtros.tabela} onChange={(v) => atualizarFiltro('tabela', v)} vazio="Todas" opcoes={lookups.tabelasComissao.map((item) => ({ valor: item.id, label: tabelaLabel(item) }))} />
+        <CampoFiltro label="Prazo (de – até)">
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <input type="number" min={1} className="form-control" placeholder="1" value={filtros.prazoDe} onChange={(e) => atualizarFiltro('prazoDe', e.target.value)} />
+            <input type="number" min={1} className="form-control" placeholder="240" value={filtros.prazoAte} onChange={(e) => atualizarFiltro('prazoAte', e.target.value)} />
+          </div>
+        </CampoFiltro>
+        <TextoFiltro label="Lote de importação" valor={filtros.lote} onChange={(v) => atualizarFiltro('lote', v)} />
+        <SelectFiltro label="Ordenar por" valor={filtros.ordenar} onChange={(v) => atualizarFiltro('ordenar', v as FiltrosPrazos['ordenar'])} opcoes={ORDENS_PRAZOS.map((o) => ({ valor: o.valor, label: o.label }))} />
+        <CampoFiltro label="Data" linhaInteira>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', maxWidth: 680 }}>
+            <select className="form-control" style={{ flex: '1 1 180px' }} value={filtros.dataCampo} onChange={(e) => atualizarFiltro('dataCampo', e.target.value as FiltrosPrazos['dataCampo'])}>
+              {CAMPOS_DATA_PRAZO.map((campo) => <option key={campo.valor} value={campo.valor}>{campo.label}</option>)}
+            </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 190px', fontSize: '0.8rem', color: 'var(--brs-gray-600)' }}>de
+              <input type="date" className="form-control" value={filtros.dataDe} onChange={(e) => atualizarFiltro('dataDe', e.target.value)} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 190px', fontSize: '0.8rem', color: 'var(--brs-gray-600)' }}>até
+              <input type="date" className="form-control" value={filtros.dataAte} onChange={(e) => atualizarFiltro('dataAte', e.target.value)} />
+            </label>
+          </div>
+        </CampoFiltro>
+        <CampoFiltro label="Tipo de agente — colunas de repasse exibidas (aplica na hora)" linhaInteira>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+            {agenteColumns.map((coluna) => {
+              const ativo = agentesFiltro.includes(coluna)
+              return <button key={coluna} type="button" aria-pressed={ativo} className={`btn btn-sm ${ativo ? 'btn-primary' : 'btn-outline'}`} onClick={() => alternarAgente(coluna)}>{coluna}</button>
+            })}
+            {agentesFiltro.length === 0 && <span style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)' }}>Nenhum marcado = todos os tipos</span>}
+          </div>
+        </CampoFiltro>
+      </PainelFiltros>
 
       <div className="card">
         <ScrollSyncTable maxHeight="calc(100vh - 260px)">
@@ -288,7 +379,7 @@ export default function PrazosComissaoPage() {
                 <th>Seguro</th>
                 <th>Data Bloqueio</th>
                 <th>Comissão Empresa</th>
-                {agenteColumns.map((column) => <th key={column}>{column}</th>)}
+                {colunasAgente.map((column) => <th key={column}>{column}</th>)}
                 <th>Lote Importação</th>
                 <th>Código ARW</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
@@ -296,9 +387,9 @@ export default function PrazosComissaoPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={22} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={14 + colunasAgente.length} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={22} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Clock size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum prazo encontrado</h3><p>Cadastre o primeiro prazo comissão.</p></div></td></tr>
+                <tr><td colSpan={14 + colunasAgente.length} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Clock size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum prazo encontrado</h3><p>Ajuste os filtros ou cadastre um prazo comissão.</p></div></td></tr>
               ) : items.map((item) => {
                 const tabela = item.tabelas_comissao
                 const emPercentual = formaPagamentoEmPercentual(item.forma_pagamento)
@@ -315,7 +406,7 @@ export default function PrazosComissaoPage() {
                     <td>{seguroBadge(tabela?.com_seguro)}</td>
                     <td>{formatDate(item.data_bloqueio)}</td>
                     <td>{formatValor(item.comissao, emPercentual)}</td>
-                    {agenteColumns.map((column) => <td key={column}>{repasseAgente(item, column)}</td>)}
+                    {colunasAgente.map((column) => <td key={column}>{repasseAgente(item, column)}</td>)}
                     <td>{item.lote_importacao || '-'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.id_arw || '-'}</td>
                     <td style={{ textAlign: 'right' }}>

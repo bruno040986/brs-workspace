@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { ORIGENS_MARGEM } from '@/lib/comissionamento'
+import { hojeSaoPaulo, montarConsultaPrazos, type FiltrosPrazos, type OpFiltro, type OrdemOp } from '@/lib/comissionamento-filtros'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -350,20 +351,41 @@ export type PrazoComissaoPayload = {
   id_arw?: string | null
 }
 
-export async function getPrazosComissao(tabelaComissaoId?: string) {
+const LIMITE_LISTA_PRAZOS = 300
+
+// Aplica as operações neutras montadas por montarConsultaPrazos (que já valida a
+// entrada — Server Action é chamável por POST direto, então nada vem confiável).
+function aplicarFiltrosPrazos(query: any, filtros: OpFiltro[], ordem: OrdemOp[]) {
+  for (const f of filtros) {
+    if (f.op === 'eq') query = query.eq(f.coluna, f.valor)
+    else if (f.op === 'is_null') query = query.is(f.coluna, null)
+    else if (f.op === 'gte') query = query.gte(f.coluna, f.valor)
+    else if (f.op === 'lte') query = query.lte(f.coluna, f.valor)
+    else if (f.op === 'ilike') query = query.ilike(f.coluna, f.valor)
+    else if (f.op === 'or') query = f.tabela ? query.or(f.expressao, { referencedTable: f.tabela }) : query.or(f.expressao)
+  }
+  for (const o of ordem) query = query.order(o.coluna, { ascending: o.ascending })
+  return query
+}
+
+export async function getPrazosComissao(filtros: Partial<FiltrosPrazos> = {}) {
   try {
     await requirePermission(PERMISSION_RESOURCE)
-    let query = supabaseAdmin
-      .from('prazos_comissao')
-      .select(
-        '*, tabelas_comissao ( id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
-      )
-      .order('created_at', { ascending: false })
-      .limit(300)
-    if (tabelaComissaoId) query = query.eq('tabela_comissao_id', tabelaComissaoId)
-    const { data, error } = await query
+    const consulta = montarConsultaPrazos(filtros || {}, hojeSaoPaulo())
+    const query = aplicarFiltrosPrazos(
+      supabaseAdmin
+        .from('prazos_comissao')
+        .select(
+          '*, tabelas_comissao!inner ( id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, is_active, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
+          { count: 'exact' },
+        ),
+      consulta.filtros,
+      consulta.ordem,
+    ).limit(LIMITE_LISTA_PRAZOS)
+    const { data, error, count } = await query
     if (error) throw error
-    return { success: true, items: data || [] }
+    // total = quantos prazos batem com os filtros (a lista mostra no máximo `limite`).
+    return { success: true, items: data || [], total: count ?? (data || []).length, limite: LIMITE_LISTA_PRAZOS }
   } catch (error: any) {
     console.error('Erro ao listar prazos comissão:', error)
     return { success: false, error: error.message }

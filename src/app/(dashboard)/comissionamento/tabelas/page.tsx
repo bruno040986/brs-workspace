@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Download, Edit2, Loader2, Plus, Power, PowerOff, Search, Table2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Download, Edit2, Loader2, Plus, Power, PowerOff, Table2, X } from 'lucide-react'
 import { getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setTabelaComissaoAtiva, type TabelaComissaoPayload } from '../actions'
 import { gerarCsvTabelasCadastradas } from '@/lib/comissionamento-import'
+import { FILTROS_TABELAS_PADRAO, ORDENS_TABELAS, filtrarTabelas, type FiltrosTabelas } from '@/lib/comissionamento-filtros'
+import { OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
 
 type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null }
 type Lookup = { id: string; nome: string; codigo?: string | null; is_active?: boolean; origem_margem?: string }
@@ -26,6 +28,7 @@ type TabelaComissao = {
   observacao: string | null
   id_arw: string | null
   is_active: boolean
+  created_at?: string | null
   financial_institutions: Instituicao | null
   promotoras: { id: string; razao_social: string | null; nome_fantasia: string | null } | null
   formas_contrato: Lookup | null
@@ -82,10 +85,9 @@ export default function TabelasComissaoPage() {
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [institutionFilter, setInstitutionFilter] = useState('all')
-  const [formaFilter, setFormaFilter] = useState('all')
-  const [promotoraFilter, setPromotoraFilter] = useState('')
+  // `filtros` é o que está nos campos; `aplicados` só muda ao clicar em Listar (ou Enter).
+  const [filtros, setFiltros] = useState<FiltrosTabelas>(FILTROS_TABELAS_PADRAO)
+  const [aplicados, setAplicados] = useState<FiltrosTabelas>(FILTROS_TABELAS_PADRAO)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<EditingTabela | null>(null)
   const [saving, setSaving] = useState(false)
@@ -116,16 +118,16 @@ export default function TabelasComissaoPage() {
     loadData()
   }, [])
 
-  const filteredItems = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    return items.filter((item) => {
-      const matchesSearch = !query || String(item.nome || '').toLowerCase().includes(query) || String(item.codigo_tabela_banco || '').toLowerCase().includes(query) || String(item.financial_institutions?.name || '').toLowerCase().includes(query)
-      const matchesInstitution = institutionFilter === 'all' || item.institution_id === institutionFilter
-      const matchesForma = formaFilter === 'all' || item.forma_contrato_id === formaFilter
-      const matchesPromotora = !promotoraFilter || (promotoraFilter === 'direto' ? !item.promotora_id : item.promotora_id === promotoraFilter)
-      return matchesSearch && matchesInstitution && matchesForma && matchesPromotora
-    })
-  }, [items, searchQuery, institutionFilter, formaFilter, promotoraFilter])
+  const filteredItems = useMemo(() => filtrarTabelas(items, aplicados), [items, aplicados])
+
+  function atualizarFiltro<K extends keyof FiltrosTabelas>(campo: K, valor: FiltrosTabelas[K]) {
+    setFiltros((atual) => ({ ...atual, [campo]: valor }))
+  }
+
+  function limparFiltros() {
+    setFiltros(FILTROS_TABELAS_PADRAO)
+    setAplicados(FILTROS_TABELAS_PADRAO)
+  }
 
   function openNew() {
     setEditing({ codigo_tabela_banco: '', nome: '', institution_id: '', promotora_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '', juros_tipo: '', juros_fixa: '', juros_min: '', juros_max: '' })
@@ -254,25 +256,23 @@ export default function TabelasComissaoPage() {
 
       {message && <div style={{ marginBottom: '1rem', padding: '0.875rem 1rem', borderRadius: 10, border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`, background: message.type === 'success' ? '#ECFDF5' : '#FEF2F2', color: message.type === 'success' ? '#065F46' : '#991B1B', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>{message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}<span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{message.text}</span></div>}
 
-      <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
-          <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--brs-gray-400)' }}><Search size={16} /></span>
-          <input type="text" className="form-control" placeholder="Buscar por nome, código ou instituição..." style={{ paddingLeft: '2.25rem', width: '100%' }} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        </div>
-        <select className="form-control" style={{ width: 220 }} value={institutionFilter} onChange={(e) => setInstitutionFilter(e.target.value)}>
-          <option value="all">Todas as instituições</option>
-          {lookups.instituicoes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-        <select className="form-control" style={{ width: 220 }} value={formaFilter} onChange={(e) => setFormaFilter(e.target.value)}>
-          <option value="all">Todas as formas</option>
-          {lookups.formasContrato.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
-        </select>
-        <select className="form-control" style={{ width: 220 }} value={promotoraFilter} onChange={(e) => setPromotoraFilter(e.target.value)}>
-          <option value="">Todas as promotoras</option>
-          <option value="direto">Direto</option>
-          {lookups.promotoras.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
-        </select>
-      </div>
+      <PainelFiltros
+        onListar={() => setAplicados(filtros)}
+        onLimpar={limparFiltros}
+        carregando={loading}
+        resumo={loading ? 'Carregando…' : <><strong>{filteredItems.length.toLocaleString('pt-BR')}</strong> de {items.length.toLocaleString('pt-BR')} tabela(s){aplicados.bloqueado === 'nao' ? ' — bloqueadas ocultas' : ''}</>}
+      >
+        <TextoFiltro label="Nome" valor={filtros.nome} onChange={(v) => atualizarFiltro('nome', v)} />
+        <SelectFiltro label="Financeira" valor={filtros.financeira} onChange={(v) => atualizarFiltro('financeira', v)} vazio="Todas" opcoes={lookups.instituicoes.map((item) => ({ valor: item.id, label: item.name }))} />
+        <SelectFiltro label="Convênio" valor={filtros.convenio} onChange={(v) => atualizarFiltro('convenio', v)} vazio="Todos" opcoes={lookups.convenios.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <SelectFiltro label="Forma de contrato" valor={filtros.forma} onChange={(v) => atualizarFiltro('forma', v)} vazio="Todas" opcoes={lookups.formasContrato.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <SelectFiltro label="Tipo de formalização" valor={filtros.formalizacao} onChange={(v) => atualizarFiltro('formalizacao', v)} vazio="Todos" opcoes={lookups.tiposFormalizacao.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <SelectFiltro label="Tipo de seguro" valor={filtros.seguro} onChange={(v) => atualizarFiltro('seguro', v as FiltrosTabelas['seguro'])} vazio="Todos" opcoes={OPCOES_SEGURO} />
+        <SelectFiltro label="Promotora" valor={filtros.promotora} onChange={(v) => atualizarFiltro('promotora', v)} vazio="Todas" opcoes={[{ valor: 'direto', label: 'Direto' }, ...lookups.promotoras.map((item) => ({ valor: item.id, label: item.nome }))]} />
+        <SelectFiltro label="Bloqueado" valor={filtros.bloqueado} onChange={(v) => atualizarFiltro('bloqueado', v as FiltrosTabelas['bloqueado'])} opcoes={OPCOES_BLOQUEIO} />
+        <TextoFiltro label="Código da tabela" valor={filtros.codigo} onChange={(v) => atualizarFiltro('codigo', v)} placeholder="Banco ou nº do sistema" />
+        <SelectFiltro label="Ordenar por" valor={filtros.ordenar} onChange={(v) => atualizarFiltro('ordenar', v as FiltrosTabelas['ordenar'])} opcoes={ORDENS_TABELAS.map((o) => ({ valor: o.valor, label: o.label }))} />
+      </PainelFiltros>
 
       <div className="card">
         <div className="table-wrapper">
