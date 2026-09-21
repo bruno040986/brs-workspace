@@ -56,6 +56,12 @@ body {
 .main-content {
   flex: 1;
   width: 100%;
+  /* min-width:0: sem isto este item flex não encolhe abaixo do conteúdo mais
+     largo (tabela de células nowrap), a coluna cresce além da tela e o conteúdo
+     vaza para BAIXO do trilho do Messenger, cuja reserva é o padding abaixo
+     (achado 21/09/2026: Tabelas de Comissão e Prazos Comissão). Com isto a
+     tabela rola dentro do próprio .table-wrapper. */
+  min-width: 0;
   padding-right: var(--brs-messenger-dock-reserve, 0px);
 }
 
