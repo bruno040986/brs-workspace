@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   Building2,
@@ -13,6 +13,7 @@ import {
   HelpCircle,
   Info,
   RefreshCw,
+  Search,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -32,6 +33,7 @@ import {
   ConfiguracoesGeraisPortabilidade,
   ContratoPortabilidade,
   ConvenioTipo,
+  MinReleaseMode,
   RegraBancoPortabilidade,
 } from '@/lib/portability/types'
 
@@ -74,6 +76,54 @@ function pct(v: number | null | undefined) {
   return `${v.toFixed(2).replace('.', ',')}%`
 }
 
+// Helpers for rules formatting inside modal
+function listToTxt(arr: string[] | undefined | null): string {
+  return (arr || []).join(', ')
+}
+
+function txtToList(str: string): string[] {
+  return str
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+}
+
+function mapToTxt(map: Record<string, number> | undefined | null): string {
+  if (!map) return ''
+  return Object.entries(map)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(', ')
+}
+
+function txtToMap(str: string): Record<string, number> {
+  const res: Record<string, number> = {}
+  str.split(',').forEach((part) => {
+    const [k, v] = part.split(':')
+    if (k && v != null) {
+      const num = parseFloat(v.trim().replace(',', '.'))
+      if (!isNaN(num)) {
+        res[k.trim().toUpperCase()] = num
+      }
+    }
+  })
+  return res
+}
+
+function formatAgeText(years: number | null | undefined, months: number | null | undefined): string {
+  if (years == null) return ''
+  if (months && months > 0) return `${years} anos e ${months} meses`
+  return `${years} anos`
+}
+
+function parseAgeText(str: string): { years: number | null; months: number | null } {
+  if (!str.trim()) return { years: null, months: null }
+  const yMatch = str.match(/(\d+)\s*anos?/i)
+  const mMatch = str.match(/(\d+)\s*mes/i)
+  const years = yMatch ? parseInt(yMatch[1], 10) : parseInt(str.replace(/\D/g, ''), 10) || null
+  const months = mMatch ? parseInt(mMatch[1], 10) : 0
+  return { years, months }
+}
+
 export default function SimuladorPortabilidadeClient({
   convenios,
   financialInstitutions,
@@ -85,7 +135,12 @@ export default function SimuladorPortabilidadeClient({
   const [rules, setRules] = useState<RegraBancoPortabilidade[]>(initialRules)
   const [generalConfig, setGeneralConfig] = useState<ConfiguracoesGeraisPortabilidade>(initialGeneralConfig)
   const [portCoeff, setPortCoeff] = useState<number>(DEFAULT_PORT_COEFF)
-  const [newCoeffs, setNewCoeffs] = useState<Record<string, number>>({ FACTA: 0.023896, BMG: 0.02245 })
+  const [newCoeffs, setNewCoeffs] = useState<Record<string, number>>({
+    FACTA: 0.023896,
+    BMG: 0.02245,
+    CAIXA: 0.0403,
+    BB: 0.0239,
+  })
 
   const [client, setClient] = useState<ClientePortabilidade | null>(null)
   const [loans, setLoans] = useState<ContratoPortabilidade[]>([])
@@ -100,11 +155,80 @@ export default function SimuladorPortabilidadeClient({
   })
 
   const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [bankSearch, setBankSearch] = useState('')
+  const [openBanks, setOpenBanks] = useState<Record<string, boolean>>({ DAYCOVAL: true })
   const [copyToast, setCopyToast] = useState<string | null>(null)
+
+  // Load state from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedRules = localStorage.getItem('brs_portability_rules_v2')
+      if (savedRules) setRules(JSON.parse(savedRules))
+
+      const savedGeneral = localStorage.getItem('brs_portability_general_v2')
+      if (savedGeneral) setGeneralConfig(JSON.parse(savedGeneral))
+
+      const savedCoeff = localStorage.getItem('brs_portability_port_coeff_v2')
+      if (savedCoeff) setPortCoeff(parseFloat(savedCoeff))
+
+      const savedNewCoeffs = localStorage.getItem('brs_portability_new_coeffs_v2')
+      if (savedNewCoeffs) setNewCoeffs(JSON.parse(savedNewCoeffs))
+    } catch (e) {
+      console.error('Erro ao carregar configurações salvas:', e)
+    }
+  }, [])
 
   function showToast(msg: string) {
     setCopyToast(msg)
     setTimeout(() => setCopyToast(null), 2500)
+  }
+
+  function handleSaveConfig() {
+    try {
+      localStorage.setItem('brs_portability_rules_v2', JSON.stringify(rules))
+      localStorage.setItem('brs_portability_general_v2', JSON.stringify(generalConfig))
+      localStorage.setItem('brs_portability_port_coeff_v2', String(portCoeff))
+      localStorage.setItem('brs_portability_new_coeffs_v2', JSON.stringify(newCoeffs))
+      showToast('Configurações e regras salvas com sucesso!')
+      setIsConfigOpen(false)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  function handleResetConfig() {
+    if (confirm('Deseja restaurar todas as regras para os valores padrão do sistema?')) {
+      setRules(DEFAULT_BANK_RULES)
+      setGeneralConfig(DEFAULT_GENERAL_RULES)
+      setPortCoeff(DEFAULT_PORT_COEFF)
+      setNewCoeffs({ FACTA: 0.023896, BMG: 0.02245, CAIXA: 0.0403, BB: 0.0239 })
+      localStorage.removeItem('brs_portability_rules_v2')
+      localStorage.removeItem('brs_portability_general_v2')
+      localStorage.removeItem('brs_portability_port_coeff_v2')
+      localStorage.removeItem('brs_portability_new_coeffs_v2')
+      showToast('Regras restauradas para o padrão.')
+    }
+  }
+
+  function toggleBankOpen(id: string) {
+    setOpenBanks((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  function setAllBanksOpen(isOpen: boolean) {
+    const next: Record<string, boolean> = {}
+    rules.forEach((r) => {
+      next[r.id] = isOpen
+    })
+    setOpenBanks(next)
+  }
+
+  function updateBankRule(id: string, key: keyof RegraBancoPortabilidade, val: any) {
+    setRules((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r
+        return { ...r, [key]: val }
+      })
+    )
   }
 
   function handleAnalisar() {
@@ -115,7 +239,6 @@ export default function SimuladorPortabilidadeClient({
     setClient(parsedClient)
     setLoans(parsedLoans)
 
-    // Inicializar seleções
     const initialPorts: Record<string, boolean> = {}
     parsedLoans.forEach((l, i) => {
       initialPorts[l.contract || String(i)] = true
@@ -143,6 +266,12 @@ export default function SimuladorPortabilidadeClient({
     if (!client?.margin || !newContractCoeff) return null
     return client.margin / newContractCoeff
   }, [client, newContractCoeff])
+
+  const filteredRules = useMemo(() => {
+    if (!bankSearch.trim()) return rules
+    const q = bankSearch.toLowerCase()
+    return rules.filter((r) => r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
+  }, [rules, bankSearch])
 
   function handleCopyProposal() {
     if (!client) return
@@ -584,54 +713,597 @@ export default function SimuladorPortabilidadeClient({
         })}
       </div>
 
-      {/* Settings Modal */}
+      {/* FULL ACCORDION CONFIGURATION MODAL (Match Motor_de_Decisao Port_NEX.html) */}
       {isConfigOpen && (
         <div className="modal-backdrop" onClick={() => setIsConfigOpen(false)}>
-          <div className="modal" style={{ maxWidth: 600 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Settings size={20} /> Configuração de Coeficientes & Regras
-              </h3>
-              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setIsConfigOpen(false)}>
-                <X size={20} />
+          <div
+            className="modal"
+            style={{
+              maxWidth: 1100,
+              width: '95vw',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: 0,
+              overflow: 'hidden',
+              borderRadius: '16px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '1.25rem 1.5rem',
+                borderBottom: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-navy)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Settings size={22} color="#D97706" /> Configuração de Bancos & Regras de Portabilidade
+                </h3>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'var(--brs-gray-500)' }}>
+                  Marque os bancos que deseja operar. Expanda cada banco para personalizar limites, taxas, idades e regras específicas.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={handleResetConfig}
+                  style={{ fontSize: '0.8rem', color: '#DC2626', borderColor: '#FECACA' }}
+                >
+                  <RefreshCw size={14} /> Restaurar Padrão
+                </button>
+                <button type="button" className="btn btn-ghost btn-icon" onClick={() => setIsConfigOpen(false)}>
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* 1. Regras Gerais */}
+              <div
+                style={{
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '12px',
+                  padding: '1.25rem',
+                }}
+              >
+                <h4 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 800, color: 'var(--brs-navy)', textTransform: 'uppercase' }}>
+                  Regras Gerais • Aplicadas a Todos os Bancos
+                </h4>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={generalConfig.blockLoas}
+                        onChange={(e) => setGeneralConfig({ ...generalConfig, blockLoas: e.target.checked })}
+                        style={{ width: '16px', height: '16px' }}
+                      />
+                      Bloquear Espécies LOAS
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={generalConfig.loasSpecies}
+                      placeholder="Ex.: 87,88"
+                      onChange={(e) => setGeneralConfig({ ...generalConfig, loasSpecies: e.target.value })}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={generalConfig.blockRepresentative}
+                        onChange={(e) => setGeneralConfig({ ...generalConfig, blockRepresentative: e.target.checked })}
+                        style={{ width: '16px', height: '16px' }}
+                      />
+                      Não Operar com Representante Legal
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={generalConfig.representativeReason}
+                      placeholder="Motivo (ex.: Não faz representante)"
+                      onChange={(e) => setGeneralConfig({ ...generalConfig, representativeReason: e.target.value })}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--brs-gray-700)' }}>
+                      Motivo Exibido para Bloqueio LOAS
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={generalConfig.loasReason}
+                      placeholder="Motivo (ex.: Não porta LOAS)"
+                      onChange={(e) => setGeneralConfig({ ...generalConfig, loasReason: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Coeficientes Globais & Contrato Novo */}
+              <div
+                style={{
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '12px',
+                  padding: '1.25rem',
+                }}
+              >
+                <h4 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 800, color: 'var(--brs-navy)', textTransform: 'uppercase' }}>
+                  Coeficientes Globais & Contrato Novo
+                </h4>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Coeficiente Padrão Portabilidade</label>
+                    <input
+                      type="number"
+                      step="0.00001"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={portCoeff}
+                      onChange={(e) => setPortCoeff(parseFloat(e.target.value) || DEFAULT_PORT_COEFF)}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Coef. Novo FACTA</label>
+                    <input
+                      type="number"
+                      step="0.00001"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={newCoeffs.FACTA || 0.023896}
+                      onChange={(e) => setNewCoeffs({ ...newCoeffs, FACTA: parseFloat(e.target.value) || 0.023896 })}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Coef. Novo BMG</label>
+                    <input
+                      type="number"
+                      step="0.00001"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={newCoeffs.BMG || 0.02245}
+                      onChange={(e) => setNewCoeffs({ ...newCoeffs, BMG: parseFloat(e.target.value) || 0.02245 })}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Coef. LOAS Caixa</label>
+                    <input
+                      type="number"
+                      step="0.00001"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={newCoeffs.CAIXA || 0.0403}
+                      onChange={(e) => setNewCoeffs({ ...newCoeffs, CAIXA: parseFloat(e.target.value) || 0.0403 })}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Coef. LOAS Banco do Brasil</label>
+                    <input
+                      type="number"
+                      step="0.00001"
+                      className="form-control"
+                      style={{ fontSize: '0.85rem', padding: '0.4rem 0.6rem' }}
+                      value={newCoeffs.BB || 0.0239}
+                      onChange={(e) => setNewCoeffs({ ...newCoeffs, BB: parseFloat(e.target.value) || 0.0239 })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Accordion List por Banco */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: 'var(--brs-navy)', textTransform: 'uppercase' }}>
+                    Regras Individuais por Instituição Financeira ({rules.length})
+                  </h4>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ position: 'relative', width: '220px' }}>
+                      <Search size={15} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Buscar banco..."
+                        style={{ paddingLeft: '2rem', fontSize: '0.82rem', height: '34px' }}
+                        value={bankSearch}
+                        onChange={(e) => setBankSearch(e.target.value)}
+                      />
+                    </div>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={() => setAllBanksOpen(true)} style={{ fontSize: '0.78rem' }}>
+                      Expandir Todos
+                    </button>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={() => setAllBanksOpen(false)} style={{ fontSize: '0.78rem' }}>
+                      Recolher
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {filteredRules.map((r) => {
+                    const isOpen = !!openBanks[r.id]
+
+                    return (
+                      <div
+                        key={r.id}
+                        style={{
+                          border: `1px solid ${r.enabled ? '#CBD5E1' : '#E2E8F0'}`,
+                          borderRadius: '12px',
+                          overflow: 'hidden',
+                          background: r.enabled ? '#FFFFFF' : '#F8FAFC',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                        }}
+                      >
+                        {/* Bank Card Accordion Summary */}
+                        <div
+                          style={{
+                            padding: '0.85rem 1.25rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: isOpen ? '#F1F5F9' : r.enabled ? '#FFFFFF' : '#F8FAFC',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                          }}
+                          onClick={() => toggleBankOpen(r.id)}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={r.enabled}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                updateBankRule(r.id, 'enabled', e.target.checked)
+                              }}
+                              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                              title="Ativar/Desativar Banco"
+                            />
+
+                            <strong style={{ fontSize: '1rem', color: r.enabled ? 'var(--brs-navy)' : '#94A3B8' }}>
+                              {r.name}
+                            </strong>
+
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '999px',
+                                background: r.enabled ? '#DCFCE7' : '#E2E8F0',
+                                color: r.enabled ? '#15803D' : '#64748B',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {r.enabled ? 'ativo' : 'inativo'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#64748B' }}>
+                            {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                          </div>
+                        </div>
+
+                        {/* Bank Accordion Details */}
+                        {isOpen && (
+                          <div
+                            style={{
+                              padding: '1.25rem',
+                              borderTop: '1px solid #E2E8F0',
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                              gap: '1rem',
+                              background: '#FFFFFF',
+                            }}
+                          >
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Coeficiente da Portabilidade</label>
+                              <input
+                                type="number"
+                                step="0.00001"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder={`Usa padrão (${portCoeff})`}
+                                value={r.portCoeff ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'portCoeff', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Taxa Mínima de Entrada (%)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.entry ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'entry', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Refin Mínimo (%)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.refiMin ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'refiMin', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Refin Máximo (%)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.refiMax ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'refiMax', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Idade Mínima</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.ageMin ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'ageMin', e.target.value ? parseInt(e.target.value, 10) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Idade Máxima</label>
+                              <input
+                                type="text"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Ex.: 71 anos e 11 meses"
+                                value={formatAgeText(r.ageMaxYears, r.ageMaxMonths)}
+                                onChange={(e) => {
+                                  const parsed = parseAgeText(e.target.value)
+                                  updateBankRule(r.id, 'ageMaxYears', parsed.years)
+                                  updateBankRule(r.id, 'ageMaxMonths', parsed.months)
+                                }}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Idade Máxima ao Final</label>
+                              <input
+                                type="text"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Ex.: 80 anos e 11 meses"
+                                value={formatAgeText(r.endAgeYears, r.endAgeMonths)}
+                                onChange={(e) => {
+                                  const parsed = parseAgeText(e.target.value)
+                                  updateBankRule(r.id, 'endAgeYears', parsed.years)
+                                  updateBankRule(r.id, 'endAgeMonths', parsed.months)
+                                }}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Prazo Padrão</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="108"
+                                value={r.term ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'term', parseInt(e.target.value, 10) || 108)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Parcela Mínima (R$)</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Não tem mínima"
+                                value={r.minInstallment ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'minInstallment', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Saldo Mínimo (R$)</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Não tem mínimo"
+                                value={r.minDebt ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'minDebt', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Valor Financiado Mínimo (R$)</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Não tem mínimo"
+                                value={r.minFinanced ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'minFinanced', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Troco / Liberado Mínimo (R$)</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Não tem mínimo"
+                                value={r.minRelease ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'minRelease', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Regra do Troco</label>
+                              <select
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                value={r.minReleaseMode || 'fixed'}
+                                onChange={(e) => updateBankRule(r.id, 'minReleaseMode', e.target.value as MinReleaseMode)}
+                              >
+                                <option value="fixed">Valor fixo</option>
+                                <option value="maxFixedOrPercentDebt">Maior entre valor fixo e % da dívida</option>
+                                <option value="maxFixedOrPercentNew">Maior entre valor fixo e % do contrato novo</option>
+                                <option value="percentDebtOnly">Somente % da dívida</option>
+                                <option value="installment">Uma parcela de troco</option>
+                              </select>
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Percentual do Troco (%)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.minReleasePercent ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'minReleasePercent', e.target.value ? parseFloat(e.target.value) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Pagas Padrão</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.defaultPaid ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'defaultPaid', e.target.value ? parseInt(e.target.value, 10) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Pagas Bancos de Rede</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                style={{ fontSize: '0.82rem' }}
+                                placeholder="Sem regra"
+                                value={r.networkPaid ?? ''}
+                                onChange={(e) => updateBankRule(r.id, 'networkPaid', e.target.value ? parseInt(e.target.value, 10) : null)}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ gridColumn: 'span 2', margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Bancos que Não Porta</label>
+                              <textarea
+                                className="form-control"
+                                style={{ fontSize: '0.82rem', height: '60px' }}
+                                placeholder="Ex.: C6, SAFRA, ALFA, MASTER"
+                                value={listToTxt(r.blocked)}
+                                onChange={(e) => updateBankRule(r.id, 'blocked', txtToList(e.target.value))}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ gridColumn: 'span 2', margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Bancos com Regra de Parcelas Pagas</label>
+                              <textarea
+                                className="form-control"
+                                style={{ fontSize: '0.82rem', height: '60px' }}
+                                placeholder="Ex.: FACTA:24, AGIBANK:15, PAN:12"
+                                value={mapToTxt(r.paid)}
+                                onChange={(e) => updateBankRule(r.id, 'paid', txtToMap(e.target.value))}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Tabela Especial</label>
+                              <textarea
+                                className="form-control"
+                                style={{ fontSize: '0.82rem', height: '60px' }}
+                                placeholder="Ex.: QI, PINE"
+                                value={listToTxt(r.special)}
+                                onChange={(e) => updateBankRule(r.id, 'special', txtToList(e.target.value))}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Pode com Menos de 12 Pagas</label>
+                              <textarea
+                                className="form-control"
+                                style={{ fontSize: '0.82rem', height: '60px' }}
+                                placeholder="Ex.: QI, INTER, DAYCOVAL"
+                                value={listToTxt(r.under12)}
+                                onChange={(e) => updateBankRule(r.id, 'under12', txtToList(e.target.value))}
+                              />
+                            </div>
+
+                            <div className="form-group" style={{ gridColumn: 'span 2', margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: '0.78rem' }}>Outras Observações</label>
+                              <textarea
+                                className="form-control"
+                                style={{ fontSize: '0.82rem', height: '60px' }}
+                                placeholder="Ex.: Unifica até 3 parcelas, não reduz parcela..."
+                                value={r.notes || ''}
+                                onChange={(e) => updateBankRule(r.id, 'notes', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: '1rem 1.5rem',
+                borderTop: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.75rem',
+              }}
+            >
+              <button type="button" className="btn btn-outline" onClick={() => setIsConfigOpen(false)}>
+                Cancelar
               </button>
-            </div>
-            <div className="modal-body" style={{ display: 'grid', gap: '1rem' }}>
-              <div className="form-group">
-                <label className="form-label">Coeficiente Padrão de Portabilidade</label>
-                <input
-                  type="number"
-                  step="0.00001"
-                  className="form-control"
-                  value={portCoeff}
-                  onChange={(e) => setPortCoeff(parseFloat(e.target.value) || DEFAULT_PORT_COEFF)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Coeficiente Novo Facta</label>
-                <input
-                  type="number"
-                  step="0.00001"
-                  className="form-control"
-                  value={newCoeffs.FACTA || 0.023896}
-                  onChange={(e) => setNewCoeffs({ ...newCoeffs, FACTA: parseFloat(e.target.value) || 0.023896 })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Coeficiente Novo BMG</label>
-                <input
-                  type="number"
-                  step="0.00001"
-                  className="form-control"
-                  value={newCoeffs.BMG || 0.02245}
-                  onChange={(e) => setNewCoeffs({ ...newCoeffs, BMG: parseFloat(e.target.value) || 0.02245 })}
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-primary" onClick={() => setIsConfigOpen(false)}>
+              <button type="button" className="btn btn-primary" onClick={handleSaveConfig} style={{ padding: '0.6rem 1.5rem', fontWeight: 800 }}>
                 Salvar Regras
               </button>
             </div>
@@ -641,3 +1313,4 @@ export default function SimuladorPortabilidadeClient({
     </div>
   )
 }
+
