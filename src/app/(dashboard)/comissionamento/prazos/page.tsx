@@ -15,7 +15,7 @@ import {
 import { CAMPOS_DATA_PRAZO, FILTROS_PRAZOS_PADRAO, ORDENS_PRAZOS, type FiltrosPrazos } from '@/lib/comissionamento-filtros'
 import ScrollSyncTable from '@/components/forms/ScrollSyncTable'
 import { excluirPrazoComissao, getComissionamentoLookups, getPrazosComissao, getSpreads, type PrazoComissaoPayload } from '../actions'
-import { CampoFiltro, OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
+import { CampoFiltro, ComboboxFiltro, OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
 
 type Instituicao = { id: string; name: string; logo_url?: string | null; imposto_comissao_percent: number | null }
 type TipoAgente = { id: string; name: string; codigo_arw: number | null; percentual_repasse: number | null }
@@ -320,17 +320,17 @@ export default function PrazosComissaoPage() {
         }
       >
         <TextoFiltro label="Descrição" valor={filtros.descricao} onChange={(v) => atualizarFiltro('descricao', v)} placeholder="Nome da tabela" />
-        <SelectFiltro label="Financeira" valor={filtros.financeira} onChange={(v) => atualizarFiltro('financeira', v)} vazio="Todas" opcoes={lookups.instituicoes.map((item) => ({ valor: item.id, label: item.name }))} />
-        <SelectFiltro label="Convênio" valor={filtros.convenio} onChange={(v) => atualizarFiltro('convenio', v)} vazio="Todos" opcoes={lookups.convenios.map((item) => ({ valor: item.id, label: item.nome }))} />
-        <SelectFiltro label="Forma do contrato" valor={filtros.forma} onChange={(v) => atualizarFiltro('forma', v)} vazio="Todas" opcoes={lookups.formasContrato.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <ComboboxFiltro label="Financeira" valor={filtros.financeira} onChange={(v) => atualizarFiltro('financeira', v)} vazio="Todas" opcoes={lookups.instituicoes.map((item) => ({ valor: item.id, label: item.name }))} />
+        <ComboboxFiltro label="Convênio" valor={filtros.convenio} onChange={(v) => atualizarFiltro('convenio', v)} vazio="Todos" opcoes={lookups.convenios.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <ComboboxFiltro label="Forma do contrato" valor={filtros.forma} onChange={(v) => atualizarFiltro('forma', v)} vazio="Todas" opcoes={lookups.formasContrato.map((item) => ({ valor: item.id, label: item.nome }))} />
         <SelectFiltro label="Prazo comissão bloqueado" valor={filtros.prazoBloqueado} onChange={(v) => atualizarFiltro('prazoBloqueado', v as FiltrosPrazos['prazoBloqueado'])} opcoes={OPCOES_BLOQUEIO} />
         <SelectFiltro label="Tabela comissão bloqueada" valor={filtros.tabelaBloqueada} onChange={(v) => atualizarFiltro('tabelaBloqueada', v as FiltrosPrazos['tabelaBloqueada'])} opcoes={OPCOES_BLOQUEIO} />
-        <SelectFiltro label="Promotora" valor={filtros.promotora} onChange={(v) => atualizarFiltro('promotora', v)} vazio="Todas" opcoes={[{ valor: 'direto', label: 'Direto' }, ...lookups.promotoras.map((item) => ({ valor: item.id, label: item.nome }))]} />
+        <ComboboxFiltro label="Promotora" valor={filtros.promotora} onChange={(v) => atualizarFiltro('promotora', v)} vazio="Todas" opcoes={[{ valor: 'direto', label: 'Direto' }, ...lookups.promotoras.map((item) => ({ valor: item.id, label: item.nome }))]} />
         <SelectFiltro label="Forma de pagamento" valor={filtros.formaPagamento} onChange={(v) => atualizarFiltro('formaPagamento', v)} vazio="Todas" opcoes={FORMAS_PAGAMENTO_PRAZO.map((item) => ({ valor: item.value, label: item.label }))} />
         <SelectFiltro label="Forma de pagamento seguro" valor={filtros.formaPagamentoSeguro} onChange={(v) => atualizarFiltro('formaPagamentoSeguro', v)} vazio="Todas" opcoes={[{ valor: 'percentual', label: 'Percentual' }, { valor: 'fixo', label: 'Valor fixo' }]} />
         <SelectFiltro label="Tipo de seguro" valor={filtros.seguro} onChange={(v) => atualizarFiltro('seguro', v as FiltrosPrazos['seguro'])} vazio="Todos" opcoes={OPCOES_SEGURO} />
         <TextoFiltro label="Código da tabela" valor={filtros.codigoTabela} onChange={(v) => atualizarFiltro('codigoTabela', v)} placeholder="Banco ou nº do sistema" />
-        <SelectFiltro label="Tabela de comissão" valor={filtros.tabela} onChange={(v) => atualizarFiltro('tabela', v)} vazio="Todas" opcoes={lookups.tabelasComissao.map((item) => ({ valor: item.id, label: tabelaLabel(item) }))} />
+        <ComboboxFiltro label="Tabela de comissão" valor={filtros.tabela} onChange={(v) => atualizarFiltro('tabela', v)} vazio="Todas" opcoes={lookups.tabelasComissao.map((item) => ({ valor: item.id, label: tabelaLabel(item) }))} />
         <CampoFiltro label="Prazo (de – até)">
           <div style={{ display: 'flex', gap: '0.4rem' }}>
             <input type="number" min={1} className="form-control" placeholder="1" value={filtros.prazoDe} onChange={(e) => atualizarFiltro('prazoDe', e.target.value)} />

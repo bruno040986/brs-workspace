@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle, Download, Edit2, Loader2, Plus, Power, PowerO
 import { getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setTabelaComissaoAtiva, type TabelaComissaoPayload } from '../actions'
 import { gerarCsvTabelasCadastradas } from '@/lib/comissionamento-import'
 import { FILTROS_TABELAS_PADRAO, ORDENS_TABELAS, filtrarTabelas, type FiltrosTabelas } from '@/lib/comissionamento-filtros'
-import { OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
+import { ComboboxFiltro, OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
 
 type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null }
 type Lookup = { id: string; nome: string; codigo?: string | null; is_active?: boolean; origem_margem?: string }
@@ -263,12 +263,12 @@ export default function TabelasComissaoPage() {
         resumo={loading ? 'Carregando…' : <><strong>{filteredItems.length.toLocaleString('pt-BR')}</strong> de {items.length.toLocaleString('pt-BR')} tabela(s){aplicados.bloqueado === 'nao' ? ' — bloqueadas ocultas' : ''}</>}
       >
         <TextoFiltro label="Nome" valor={filtros.nome} onChange={(v) => atualizarFiltro('nome', v)} />
-        <SelectFiltro label="Financeira" valor={filtros.financeira} onChange={(v) => atualizarFiltro('financeira', v)} vazio="Todas" opcoes={lookups.instituicoes.map((item) => ({ valor: item.id, label: item.name }))} />
-        <SelectFiltro label="Convênio" valor={filtros.convenio} onChange={(v) => atualizarFiltro('convenio', v)} vazio="Todos" opcoes={lookups.convenios.map((item) => ({ valor: item.id, label: item.nome }))} />
-        <SelectFiltro label="Forma de contrato" valor={filtros.forma} onChange={(v) => atualizarFiltro('forma', v)} vazio="Todas" opcoes={lookups.formasContrato.map((item) => ({ valor: item.id, label: item.nome }))} />
-        <SelectFiltro label="Tipo de formalização" valor={filtros.formalizacao} onChange={(v) => atualizarFiltro('formalizacao', v)} vazio="Todos" opcoes={lookups.tiposFormalizacao.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <ComboboxFiltro label="Financeira" valor={filtros.financeira} onChange={(v) => atualizarFiltro('financeira', v)} vazio="Todas" opcoes={lookups.instituicoes.map((item) => ({ valor: item.id, label: item.name }))} />
+        <ComboboxFiltro label="Convênio" valor={filtros.convenio} onChange={(v) => atualizarFiltro('convenio', v)} vazio="Todos" opcoes={lookups.convenios.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <ComboboxFiltro label="Forma de contrato" valor={filtros.forma} onChange={(v) => atualizarFiltro('forma', v)} vazio="Todas" opcoes={lookups.formasContrato.map((item) => ({ valor: item.id, label: item.nome }))} />
+        <ComboboxFiltro label="Tipo de formalização" valor={filtros.formalizacao} onChange={(v) => atualizarFiltro('formalizacao', v)} vazio="Todos" opcoes={lookups.tiposFormalizacao.map((item) => ({ valor: item.id, label: item.nome }))} />
         <SelectFiltro label="Tipo de seguro" valor={filtros.seguro} onChange={(v) => atualizarFiltro('seguro', v as FiltrosTabelas['seguro'])} vazio="Todos" opcoes={OPCOES_SEGURO} />
-        <SelectFiltro label="Promotora" valor={filtros.promotora} onChange={(v) => atualizarFiltro('promotora', v)} vazio="Todas" opcoes={[{ valor: 'direto', label: 'Direto' }, ...lookups.promotoras.map((item) => ({ valor: item.id, label: item.nome }))]} />
+        <ComboboxFiltro label="Promotora" valor={filtros.promotora} onChange={(v) => atualizarFiltro('promotora', v)} vazio="Todas" opcoes={[{ valor: 'direto', label: 'Direto' }, ...lookups.promotoras.map((item) => ({ valor: item.id, label: item.nome }))]} />
         <SelectFiltro label="Bloqueado" valor={filtros.bloqueado} onChange={(v) => atualizarFiltro('bloqueado', v as FiltrosTabelas['bloqueado'])} opcoes={OPCOES_BLOQUEIO} />
         <TextoFiltro label="Código da tabela" valor={filtros.codigo} onChange={(v) => atualizarFiltro('codigo', v)} placeholder="Banco ou nº do sistema" />
         <SelectFiltro label="Ordenar por" valor={filtros.ordenar} onChange={(v) => atualizarFiltro('ordenar', v as FiltrosTabelas['ordenar'])} opcoes={ORDENS_TABELAS.map((o) => ({ valor: o.valor, label: o.label }))} />

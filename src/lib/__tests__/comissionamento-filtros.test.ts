@@ -7,9 +7,11 @@ import assert from 'node:assert/strict'
 import {
   FILTROS_PRAZOS_PADRAO,
   FILTROS_TABELAS_PADRAO,
+  filtrarOpcoesCombobox,
   filtrarTabelas,
   hojeSaoPaulo,
   montarConsultaPrazos,
+  normalizarBuscaCombobox,
   type FiltrosTabelas,
   type OpFiltro,
   type TabelaFiltravel,
@@ -245,5 +247,58 @@ describe('hojeSaoPaulo', () => {
   test('usa o dia de Brasília, não o UTC', () => {
     assert.equal(hojeSaoPaulo(new Date('2026-09-22T02:30:00Z')), '2026-09-21')
     assert.equal(hojeSaoPaulo(new Date('2026-09-22T03:00:00Z')), '2026-09-22')
+  })
+})
+
+describe('filtrarOpcoesCombobox', () => {
+  const opcoes = [
+    { valor: 'a', label: 'BANCO SANTANDER (BRASIL) S.A.' },
+    { valor: 'b', label: 'Banco Pan' },
+    { valor: 'c', label: 'Prefeitura Municipal de Salto/SP' },
+    { valor: 'd', label: 'Bem Digital' },
+  ]
+
+  test('abaixo do mínimo (padrão 3): devolve a lista inteira, sem filtrar', () => {
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, ''), opcoes)
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'b'), opcoes)
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'ba'), opcoes)
+  })
+
+  test('a partir do mínimo: filtra pelo texto contido no label', () => {
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'ban'), [opcoes[0], opcoes[1]])
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'salto'), [opcoes[2]])
+  })
+
+  test('ignora caixa e acento', () => {
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'PREFEITURA'), [opcoes[2]])
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'sáo'), [])
+  })
+
+  test('espaços nas pontas não contam para o mínimo de caracteres', () => {
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, '  ba  '), opcoes) // "ba" = 2 caracteres reais
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, '  ban  '), [opcoes[0], opcoes[1]]) // "ban" = 3
+  })
+
+  test('sem nenhum resultado: lista vazia (não devolve tudo)', () => {
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'xyz'), [])
+  })
+
+  test('minimoCaracteres é configurável', () => {
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'ba', 2), [opcoes[0], opcoes[1]])
+    assert.deepEqual(filtrarOpcoesCombobox(opcoes, 'ba', 5), opcoes)
+  })
+
+  test('não altera a lista original', () => {
+    const copia = [...opcoes]
+    filtrarOpcoesCombobox(opcoes, 'ban')
+    assert.deepEqual(opcoes, copia)
+  })
+})
+
+describe('normalizarBuscaCombobox', () => {
+  test('mede o mesmo tamanho que o limiar do filtro usa (ignora acento, caixa e espaços das pontas)', () => {
+    assert.equal(normalizarBuscaCombobox('  Ban  ').length, 3)
+    assert.equal(normalizarBuscaCombobox('sáo').length, 3)
+    assert.equal(normalizarBuscaCombobox('').length, 0)
   })
 })

@@ -19,6 +19,28 @@ function normalizar(valor: unknown): string {
 
 const comparaTexto = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })
 
+// ---------------------------------------------------------------------------
+// Combobox de busca (Bruno, 21/09/2026): os campos de referência com muitas
+// opções (Financeira, Convênio, Forma de Contrato, Tipo de Formalização,
+// Promotora, Tabela de Comissão) viram um campo de digitação — abaixo do
+// mínimo de caracteres mostra a lista inteira (dá pra rolar e escolher sem
+// digitar nada); a partir do mínimo, filtra pelo texto contido no label.
+// ---------------------------------------------------------------------------
+
+/** Exportada para a tela medir "faltam N letras" com a MESMA normalização do
+ * filtro abaixo — nunca dessincroniza o texto de ajuda do limiar real. */
+export function normalizarBuscaCombobox(busca: string): string {
+  return normalizar(busca)
+}
+
+/** Opções de poucas escolhas fixas (Bloqueado, Tipo de Seguro, Ordenar Por...)
+ * continuam como `<select>` comum — não precisam de busca. */
+export function filtrarOpcoesCombobox<T extends { label: string }>(opcoes: T[], busca: string, minimoCaracteres = 3): T[] {
+  const termo = normalizarBuscaCombobox(busca)
+  if (termo.length < minimoCaracteres) return opcoes
+  return opcoes.filter((opcao) => normalizar(opcao.label).includes(termo))
+}
+
 export type SeguroFiltro = '' | 'com' | 'sem' | 'nao_informado'
 /** 'nao' = só os ativos (padrão do ARW), 'sim' = só os bloqueados, 'todos' = sem filtro. */
 export type BloqueioFiltro = 'nao' | 'sim' | 'todos'
