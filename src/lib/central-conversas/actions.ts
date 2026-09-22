@@ -23,8 +23,11 @@ import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
 import { engine, engineConfigurado, EngineEnvioIncertoError } from './engine'
 import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
+import { listarAgendamentos, type AcaoAgendada } from './agendamento-actions'
 
 const LIMITE_INSTANCIAS_BRS = 3
+const contatosHigienizadosSet = new Set<number>()
+const conversasRoteadasSet = new Set<number>()
 
 export type InstanciaRecargaItem = {
   id: string
@@ -430,36 +433,40 @@ async function resolverNomesEntidades(rows: MetaRow[]): Promise<Map<string, stri
   const nomes = new Map<string, string>()
 
   const parceiros = [...(porTipo.get('parceiro') || [])]
-  if (parceiros.length) {
-    const { data } = await admin.from('agentes_parceiros').select('id, fantasy_name, name, arw_code').in('id', parceiros)
-    for (const p of data || []) {
-      const rotulo = p.arw_code ? `ARW ${p.arw_code}` : String(p.fantasy_name || p.name || 'Parceiro').trim()
-      const idStr = String(p.id).trim()
-      nomes.set(`parceiro:${idStr}`, rotulo)
-      nomes.set(`parceiro:${idStr.toLowerCase()}`, rotulo)
-    }
-  }
-
   const instituicoes = [...(porTipo.get('instituicao') || [])]
-  if (instituicoes.length) {
-    const { data } = await admin.from('financial_institutions').select('id, name, razao_social').in('id', instituicoes)
-    for (const i of data || []) {
-      const rotulo = String(i.name || i.razao_social || 'Instituição').trim()
-      const idStr = String(i.id).trim()
-      nomes.set(`instituicao:${idStr}`, rotulo)
-      nomes.set(`instituicao:${idStr.toLowerCase()}`, rotulo)
-    }
+  const promotoras = [...(porTipo.get('promotora') || [])]
+
+  const [parceirosRes, instituicoesRes, promotorasRes] = await Promise.all([
+    parceiros.length
+      ? admin.from('agentes_parceiros').select('id, fantasy_name, name, arw_code').in('id', parceiros)
+      : Promise.resolve({ data: [] }),
+    instituicoes.length
+      ? admin.from('financial_institutions').select('id, name, razao_social').in('id', instituicoes)
+      : Promise.resolve({ data: [] }),
+    promotoras.length
+      ? admin.from('promotoras').select('id, nome_fantasia, razao_social').in('id', promotoras)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  for (const p of parceirosRes.data || []) {
+    const rotulo = p.arw_code ? `ARW ${p.arw_code}` : String(p.fantasy_name || p.name || 'Parceiro').trim()
+    const idStr = String(p.id).trim()
+    nomes.set(`parceiro:${idStr}`, rotulo)
+    nomes.set(`parceiro:${idStr.toLowerCase()}`, rotulo)
   }
 
-  const promotoras = [...(porTipo.get('promotora') || [])]
-  if (promotoras.length) {
-    const { data } = await admin.from('promotoras').select('id, nome_fantasia, razao_social').in('id', promotoras)
-    for (const p of data || []) {
-      const rotulo = String(p.nome_fantasia || p.razao_social || 'Promotora').trim()
-      const idStr = String(p.id).trim()
-      nomes.set(`promotora:${idStr}`, rotulo)
-      nomes.set(`promotora:${idStr.toLowerCase()}`, rotulo)
-    }
+  for (const i of instituicoesRes.data || []) {
+    const rotulo = String(i.name || i.razao_social || 'Instituição').trim()
+    const idStr = String(i.id).trim()
+    nomes.set(`instituicao:${idStr}`, rotulo)
+    nomes.set(`instituicao:${idStr.toLowerCase()}`, rotulo)
+  }
+
+  for (const p of promotorasRes.data || []) {
+    const rotulo = String(p.nome_fantasia || p.razao_social || 'Promotora').trim()
+    const idStr = String(p.id).trim()
+    nomes.set(`promotora:${idStr}`, rotulo)
+    nomes.set(`promotora:${idStr.toLowerCase()}`, rotulo)
   }
 
   return nomes
@@ -544,8 +551,10 @@ function conversaEhGrupo(c: ChatwootConversa): boolean {
  * sem departamento até a próxima tentativa.
  */
 async function atribuirDepartamentosAutomaticos(cli: ChatwootConta, contaId: string, payload: ChatwootConversa[]): Promise<void> {
-  const semTeam = payload.filter((c) => !c.meta?.team)
+  const semTeam = payload.filter((c) => !c.meta?.team && !conversasRoteadasSet.has(c.id))
   if (!semTeam.length) return
+  for (const c of semTeam) conversasRoteadasSet.add(c.id)
+
   try {
     const admin = await createAdminClient()
     const contactIds = [...new Set(semTeam.map((c) => c.meta?.sender?.id).filter((x): x is number => typeof x === 'number'))]
@@ -586,43 +595,37 @@ async function atribuirDepartamentosAutomaticos(cli: ChatwootConta, contaId: str
     const metaPorContato = new Map((contatoMetas || []).map((m: any) => [Number(m.chatwoot_contact_id), m]))
     const teamGrupos = deptoGrupos?.chatwoot_team_id ? Number(deptoGrupos.chatwoot_team_id) : null
 
-    for (const c of semTeam) {
-      let teamAlvo: number | null = null
-      let agenteAlvo: number | undefined
-      if (conversaEhGrupo(c)) {
-        teamAlvo = teamGrupos
-      } else {
-        const contactId = c.meta?.sender?.id
-        const metaContato = contactId ? metaPorContato.get(contactId) : undefined
-        let deptoAlvoId: string | null = null
-        if (metaContato?.departamento_padrao_id && teamPorDepto.has(metaContato.departamento_padrao_id)) {
-          deptoAlvoId = metaContato.departamento_padrao_id
-          teamAlvo = teamPorDepto.get(metaContato.departamento_padrao_id) || null
-          if (metaContato.atendente_padrao_chatwoot_id) agenteAlvo = Number(metaContato.atendente_padrao_chatwoot_id)
+    const batch = semTeam.slice(0, 5)
+    await Promise.allSettled(
+      batch.map(async (c) => {
+        let teamAlvo: number | null = null
+        let agenteAlvo: number | undefined
+        if (conversaEhGrupo(c)) {
+          teamAlvo = teamGrupos
         } else {
-          deptoAlvoId = deptoIdPorInbox.get(c.inbox_id) ?? null
-          teamAlvo = teamPorInbox.get(c.inbox_id) ?? null
+          const contactId = c.meta?.sender?.id
+          const metaContato = contactId ? metaPorContato.get(contactId) : undefined
+          let deptoAlvoId: string | null = null
+          if (metaContato?.departamento_padrao_id && teamPorDepto.has(metaContato.departamento_padrao_id)) {
+            deptoAlvoId = metaContato.departamento_padrao_id
+            teamAlvo = teamPorDepto.get(metaContato.departamento_padrao_id) || null
+            if (metaContato.atendente_padrao_chatwoot_id) agenteAlvo = Number(metaContato.atendente_padrao_chatwoot_id)
+          } else {
+            deptoAlvoId = deptoIdPorInbox.get(c.inbox_id) ?? null
+            teamAlvo = teamPorInbox.get(c.inbox_id) ?? null
+          }
+          if (agenteAlvo === undefined && deptoAlvoId) agenteAlvo = agentePadraoPorDepto.get(deptoAlvoId)
         }
-        // Sem atendente padrão do CONTATO: cai pro atendente padrão do
-        // DEPARTAMENTO alvo (fecha o ciclo do "Departamento padrão" já
-        // existente por conexão/instância).
-        if (agenteAlvo === undefined && deptoAlvoId) agenteAlvo = agentePadraoPorDepto.get(deptoAlvoId)
-      }
-      // Conversa já tem atendente (atribuição manual, ou de uma rodada
-      // anterior deste próprio roteamento): preserva o atendente atual ao
-      // setar o team, mesmo que exista atendente padrão do contato — nunca
-      // reatribui silenciosamente uma conversa que já tem dono. Isso também
-      // fecha a janela entre as duas chamadas do atribuir() em que o
-      // "Default Policy" do Chatwoot poderia assumir a conversa sozinho.
-      if (c.meta?.assignee?.id) agenteAlvo = c.meta.assignee.id
-      if (teamAlvo) {
-        try {
-          await cli.atribuir(c.id, { teamId: teamAlvo, ...(agenteAlvo !== undefined ? { assigneeId: agenteAlvo } : {}) })
-        } catch {
-          // best-effort: tenta de novo na próxima listagem
+        if (c.meta?.assignee?.id) agenteAlvo = c.meta.assignee.id
+        if (teamAlvo) {
+          try {
+            await cli.atribuir(c.id, { teamId: teamAlvo, ...(agenteAlvo !== undefined ? { assigneeId: agenteAlvo } : {}) })
+          } catch {
+            // best-effort
+          }
         }
-      }
-    }
+      })
+    )
   } catch (err) {
     console.error('[conversas] roteamento automático de departamento falhou', err)
   }
@@ -724,8 +727,9 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   }
 
   const conversas = payload.map((c) => {
-    // Sanitização síncrona/não-bloqueante de contatos salvos incorretamente com nome contendo 'Bruno'
     const senderName = c.meta?.sender?.name || ''
+    const contactId = c.meta?.sender?.id
+
     if (senderName && /bruno/i.test(senderName)) {
       const rawPhone = c.meta.sender?.phone_number || (c.meta.sender?.identifier ? String(c.meta.sender.identifier).split(':').pop()?.replace('@s.whatsapp.net', '') : '') || ''
       const limpo = rawPhone.replace(/\D/g, '')
@@ -741,12 +745,12 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
         if (c.meta.sender) {
           c.meta.sender.name = telefoneFormatado
         }
-        if (cli && c.meta.sender?.id) {
-          const contactId = c.meta.sender.id
+        if (cli && contactId && !contatosHigienizadosSet.has(contactId)) {
+          contatosHigienizadosSet.add(contactId)
           void cli.atualizarContato(contactId, { name: telefoneFormatado }).catch(() => {})
         }
-      } else if (!limpo && cli && c.meta.sender?.id) {
-        const contactId = c.meta.sender.id
+      } else if (!limpo && cli && contactId && !contatosHigienizadosSet.has(contactId)) {
+        contatosHigienizadosSet.add(contactId)
         void (async () => {
           try {
             const detalhe = await cli.detalharContato(contactId)
@@ -777,16 +781,16 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
         if (c.meta?.sender) {
           c.meta.sender.name = telefoneFormatado
         }
-        if (cli && c.meta?.sender?.id) {
-          const contactId = c.meta.sender.id
+        if (cli && contactId && !contatosHigienizadosSet.has(contactId)) {
+          contatosHigienizadosSet.add(contactId)
           void cli.atualizarContato(contactId, { name: telefoneFormatado }).catch(() => {})
         }
       } else {
         if (c.meta?.sender) {
           c.meta.sender.name = 'Contato WhatsApp'
         }
-        if (cli && c.meta?.sender?.id) {
-          const contactId = c.meta.sender.id
+        if (cli && contactId && !contatosHigienizadosSet.has(contactId)) {
+          contatosHigienizadosSet.add(contactId)
           const lidClean = senderName.split(':')[0]
           void (async () => {
             try {
@@ -802,15 +806,6 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
                 const digitsOnly = digitos.startsWith('55') && (digitos.length === 12 || digitos.length === 13) ? digitos.slice(2) : digitos
                 const fmt = digitsOnly.length === 11 ? digitsOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3') : digitsOnly.length === 10 ? digitsOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3') : digitos
                 await cli.atualizarContato(contactId, { name: fmt })
-              } else {
-                const detalhe = await cli.detalharContato(contactId)
-                const p = detalhe?.phone_number || detalhe?.identifier || ''
-                const l = p.replace(/\D/g, '')
-                if (l && l.length >= 10 && !l.includes('lid')) {
-                  const dOnly = l.startsWith('55') && (l.length === 12 || l.length === 13) ? l.slice(2) : l
-                  const fmt = dOnly.length === 11 ? dOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3') : dOnly.length === 10 ? dOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3') : l
-                  await cli.atualizarContato(contactId, { name: fmt })
-                }
               }
             } catch {}
           })()
@@ -1133,6 +1128,41 @@ export async function getMensagens(conversationId: number, before?: number): Pro
   return { ...r, payload: payload.map((m) => ({ ...m, reacoes: [] })) }
 }
 
+export type DadosConversaAberta = {
+  mensagens: MensagemComExtras[]
+  meta: ConversaMeta
+  tagsConversa: string[]
+  agendamentos: AcaoAgendada[]
+  contatoMeta: ContatoMeta | null
+  tagsContato: string[]
+}
+
+/**
+ * Busca consolidada de todos os dados necessários ao abrir/alternar uma conversa.
+ * Em vez de 6 Server Actions separadas (e 6 RTTs de rede), busca tudo em paralelo
+ * em uma única chamada de servidor.
+ */
+export async function getDadosConversaAberta(conversationId: number, contactId?: number): Promise<DadosConversaAberta> {
+  await requirePermission('conversas', 'can_view')
+  const [mensagensRes, metaRes, tagsRes, agendamentosRes, contatoMetaRes, tagsContatoRes] = await Promise.all([
+    getMensagens(conversationId).catch(() => ({ payload: [] as MensagemComExtras[], meta: {} })),
+    getMeta(conversationId, contactId).catch(() => ({ protocolo: '', observacoes: '', entidade: null })),
+    getTags(conversationId).catch(() => [] as string[]),
+    listarAgendamentos(conversationId).catch(() => [] as AcaoAgendada[]),
+    contactId ? getContatoMeta(contactId).catch(() => null) : Promise.resolve(null),
+    contactId ? getTagsContato(contactId).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+  ])
+
+  return {
+    mensagens: mensagensRes.payload || [],
+    meta: metaRes,
+    tagsConversa: tagsRes,
+    agendamentos: agendamentosRes,
+    contatoMeta: contatoMetaRes,
+    tagsContato: tagsContatoRes,
+  }
+}
+
 /**
  * `inReplyTo` = id (no Chatwoot) da mensagem citada — vira
  * `content_attributes.in_reply_to`, contrato nosso com o engine pro Baileys
@@ -1263,9 +1293,12 @@ export async function encerrarConversa(conversationId: number, motivo?: string):
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   const razao = String(motivo || '').trim()
-  if (razao) await cli.notaInterna(conversationId, `Encerrado: ${razao}`)
-  await cli.atribuir(conversationId, { assigneeId: null })
-  await cli.mudarStatus(conversationId, 'resolved')
+  const reqs: Promise<any>[] = [
+    cli.atribuir(conversationId, { assigneeId: null }),
+    cli.mudarStatus(conversationId, 'resolved'),
+  ]
+  if (razao) reqs.push(cli.notaInterna(conversationId, `Encerrado: ${razao}`))
+  await Promise.all(reqs)
   return { ok: true }
 }
 

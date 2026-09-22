@@ -213,12 +213,14 @@ export class ChatwootConta {
    * dois colem.
    */
   async atribuir(conversationId: number, params: { assigneeId?: number | null; teamId?: number | null }) {
+    const reqs: Promise<any>[] = []
     if (params.teamId !== undefined) {
-      await this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { team_id: params.teamId } })
+      reqs.push(this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { team_id: params.teamId } }))
     }
     if (params.assigneeId !== undefined) {
-      await this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { assignee_id: params.assigneeId } })
+      reqs.push(this.req(`/conversations/${conversationId}/assignments`, { method: 'POST', body: { assignee_id: params.assigneeId } }))
     }
+    if (reqs.length) await Promise.all(reqs)
     return { ok: true }
   }
 

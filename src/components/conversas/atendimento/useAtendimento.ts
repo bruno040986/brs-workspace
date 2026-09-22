@@ -17,6 +17,7 @@ import {
   getContadores,
   getContatoMeta,
   getConversas,
+  getDadosConversaAberta,
   getGaleriaConversa,
   getHistoricoContato,
   getMensagens,
@@ -307,13 +308,33 @@ export function useAtendimento() {
   useEffect(() => {
     if (!selecionada) return
     const contactId = selecionada.meta?.sender?.id
-    void Promise.all([
-      carregarThread(selecionada.id),
-      carregarMeta(selecionada.id, contactId),
-      carregarDadosContato(selecionada.id, contactId),
-    ])
+    const conversationId = selecionada.id
+
+    setCarregandoThread(true)
+    setAgendamentos([])
+    setContatoMeta(null)
+    setTagsContatoState([])
+    setHistorico(null)
+    setGaleria(null)
+
+    void (async () => {
+      try {
+        const dados = await getDadosConversaAberta(conversationId, contactId)
+        setMensagens((dados.mensagens || []).filter((m) => m.message_type !== 2 || m.content))
+        setSelecionada((prev) => (prev && prev.id === conversationId ? { ...prev, atendimentoMeta: dados.meta } : prev))
+        setTagsConversaState(dados.tagsConversa || [])
+        setAgendamentos(dados.agendamentos || [])
+        setContatoMeta(dados.contatoMeta || null)
+        setTagsContatoState(dados.tagsContato || [])
+      } catch (err) {
+        setErro(mensagem(err, 'Erro ao carregar dados da conversa.'))
+      } finally {
+        setCarregandoThread(false)
+      }
+    })()
+
     // Idem: rede de segurança, o Realtime é quem mantém a thread em dia.
-    return pollingVisivel(() => void carregarThread(selecionada.id, { silencioso: true }), 30_000, { imediato: false })
+    return pollingVisivel(() => void carregarThread(conversationId, { silencioso: true }), 30_000, { imediato: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selecionada?.id])
 
