@@ -5,14 +5,6 @@ import { requireCurrentUser } from '@/lib/auth/server'
 
 export type SubsistemaAgenda = 'colaborador' | 'if' | 'corban' | 'promotora' | 'comercial'
 
-export const SUBSISTEMAS_AGENDA: Array<{ id: SubsistemaAgenda; rotulo: string; icone: string }> = [
-  { id: 'colaborador', rotulo: 'Colaboradores', icone: 'User' },
-  { id: 'if', rotulo: 'Instituições Financeiras', icone: 'Building2' },
-  { id: 'corban', rotulo: 'Agente Corban', icone: 'Handshake' },
-  { id: 'promotora', rotulo: 'Promotoras', icone: 'Building' },
-  { id: 'comercial', rotulo: 'Comerciais', icone: 'Briefcase' },
-]
-
 export type ItemAgendaWorkspace = {
   id: string
   nome: string

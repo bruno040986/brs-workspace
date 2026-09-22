@@ -14,10 +14,17 @@ import {
 } from 'lucide-react'
 import {
   getAgendaWorkspace,
-  SUBSISTEMAS_AGENDA,
   type ItemAgendaWorkspace,
   type SubsistemaAgenda,
 } from '@/lib/central-conversas/workspace-agenda-actions'
+
+const SUBSISTEMAS_AGENDA: Array<{ id: SubsistemaAgenda; rotulo: string }> = [
+  { id: 'colaborador', rotulo: 'Colaboradores' },
+  { id: 'if', rotulo: 'Instituições Financeiras' },
+  { id: 'corban', rotulo: 'Agente Corban' },
+  { id: 'promotora', rotulo: 'Promotoras' },
+  { id: 'comercial', rotulo: 'Comerciais' },
+]
 
 const ICONES_SUBSISTEMA: Record<SubsistemaAgenda, typeof User> = {
   colaborador: User,
