@@ -102,8 +102,7 @@ carência_dias sozinhos, sem depender do PDF**:
 - "TC: 0,00" e observação "Aplicar Fator sobre Valor Liberado + TC" — parece
   existir um valor adicional (tarifa/custo) somado antes de aplicar o Fator;
   não investigado ainda.
-- Parser do Daycoval ainda não implementado (fica pra quando entrar de fato
-  no fluxo).
+- Parser do Daycoval implementado em 22/09/2026 — ver §6.
 
 ## 5. Aprimoramento futuro anotado (não implementado)
 
@@ -114,3 +113,32 @@ pagamento, tipo de averbação, documentação exigida, etc.), exibível no CRM
 como base de conhecimento pro atendente. Boa ideia, mesma direção da tabela
 de junção Instituição×Convênio que a fórmula avançada vai precisar — fica
 pra depois do essencial estar rodando.
+
+## 6. Formatos suportados pelo importador (22/09/2026)
+
+Contrato comum em `src/lib/comissionamento/importar-fatores-comum.ts`
+(`ArquivoFatores` = N tabelas, cada uma com código do banco, prazos, linhas
+por dia, avisos e `bloqueio`). A rota `/api/comissionamento/importar-fatores`
+escolhe o leitor pela instituição e resolve CADA tabela pelo código em
+`tabelas_comissao.codigo_tabela_banco` (instituição × convênio selecionados);
+o campo Tabela manual só vale pra PDF de tabela única. Upsert em lotes de 500.
+Testes de regressão com os PDFs reais em `src/lib/comissionamento/__fixtures__`.
+
+- **Santander, faixa em lista** (`Faixa Parcelas: 12;24;...;120`, Mesquita):
+  1 bloco PRAZO/TAXA, 1 página — formato original, segue igual.
+- **Santander, faixa em intervalo** (`Faixa Parcelas: 3-144`, SJC Regra
+  860021522): PAGINADO POR COLUNAS — cada página repete o cabeçalho e as 21
+  datas com até 13 prazos. Leitura por blocos (linha PRAZO define as colunas,
+  TAXA a taxa, datas somadas entre blocos). A "Faixa Parcelas" só confere; o
+  PDF de exemplo diz 3-144 mas só traz 17–96 (o resultado avisa). Taxas
+  diferentes por prazo → erro (não suportado).
+- **Daycoval "Fatores Price"** (SIC/MPPRICECVA): uma tabela por página; o
+  "Convênio: 731701 PREFSJC1DIG" do Daycoval é o código da tabela
+  (Novo 7317xx, Refin 7337xx, fidelidade 830001) → `codigo_tabela_banco`.
+  Colunas vazias casadas pela posição X do cabeçalho ("48 meses"...). Decisões:
+  (1) só dias úteis no relatório → dias sem fator ficam SEM coeficiente (nada
+  inventado; resultado avisa); (2) "Fator sobre Valor Liberado + TC": TC = 0 →
+  coeficiente = 1/Fator; TC > 0 → tabela BLOQUEADA até tratarmos TC; (3) "1º
+  Venc"/"Tx Cet" lidos e descartados (`coeficientes` não tem coluna) — o 1º
+  vencimento é a peça que faltou na investigação do §3, guardar quando houver
+  onde; (4) taxa não vem no PDF, então a conferência de taxa não se aplica.

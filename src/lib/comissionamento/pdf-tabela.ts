@@ -3,11 +3,16 @@
  * fatores dos bancos), agrupando os tokens extraídos por posição (Y = linha,
  * X = ordem das colunas) — mais robusto que confiar na ordem de extração
  * crua do PDF, que nem sempre preserva a leitura visual esquerda→direita.
+ *
+ * Cada linha guarda também a página e os tokens com X: leitores de layouts
+ * com células vazias (Daycoval) casam cada valor com a coluna do cabeçalho
+ * pela posição horizontal, em vez de confiar na ordem dos tokens.
  */
 
 import PDFParser from 'pdf2json'
 
-export type PdfLinha = { y: number; texto: string }
+export type PdfToken = { x: number; texto: string }
+export type PdfLinha = { pagina: number; y: number; texto: string; tokens: PdfToken[] }
 
 export async function extrairLinhasPdf(buffer: Buffer): Promise<PdfLinha[]> {
   const pdfParser = new (PDFParser as unknown as { new (): any })()
@@ -18,20 +23,22 @@ export async function extrairLinhasPdf(buffer: Buffer): Promise<PdfLinha[]> {
   })
 
   const linhas: PdfLinha[] = []
-  for (const pagina of dados?.Pages || []) {
-    const porY = new Map<number, Array<{ x: number; texto: string }>>()
-    for (const item of pagina.Texts || []) {
+  let pagina = 0
+  for (const pag of dados?.Pages || []) {
+    pagina += 1
+    const porY = new Map<number, PdfToken[]>()
+    for (const item of pag.Texts || []) {
       // Tolerância pequena pra tokens da "mesma linha visual" com Y ligeiramente diferente.
       const y = Math.round(item.y * 20) / 20
       const texto = (item.R || []).map((r: any) => decodeURIComponent(r.T)).join('')
       if (!texto.trim()) continue
       if (!porY.has(y)) porY.set(y, [])
-      porY.get(y)!.push({ x: item.x, texto })
+      porY.get(y)!.push({ x: Number(item.x), texto })
     }
     const ysOrdenados = [...porY.keys()].sort((a, b) => a - b)
     for (const y of ysOrdenados) {
       const tokens = porY.get(y)!.sort((a, b) => a.x - b.x)
-      linhas.push({ y, texto: tokens.map((t) => t.texto).join(' ').replace(/\s+/g, ' ').trim() })
+      linhas.push({ pagina, y, tokens, texto: tokens.map((t) => t.texto).join(' ').replace(/\s+/g, ' ').trim() })
     }
   }
   return linhas

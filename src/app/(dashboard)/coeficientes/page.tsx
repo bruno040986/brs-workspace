@@ -18,7 +18,7 @@ type Tabela = {
 }
 type Convenio = { id: string; nome: string; codigo: string | null }
 type Instituicao = { id: string; name: string }
-type ResultadoImportacao = { arquivo: string; ok: boolean; mensagem: string; gravados?: number }
+type ResultadoImportacao = { arquivo: string; ok: boolean; parcial?: boolean; mensagem: string; gravados?: number }
 type Coeficiente = {
   id: string
   tabela_comissao_id: string
@@ -45,6 +45,13 @@ const statusVigencia = (item: Pick<Coeficiente, 'vigencia_inicio' | 'vigencia_fi
 const formatDate = (value: string | null | undefined) => (value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : 'aberta')
 const seguroText = (value: boolean | null | undefined) => (value === true ? 'c/ seguro' : value === false ? 's/ seguro' : 'seguro n/i')
 const formatCoef = (value: number) => value.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
+/** Cores/título do card de resultado: sucesso, parcial (PDF com várias tabelas, nem todas gravadas) ou falha. */
+const tomResultado = (r: ResultadoImportacao) =>
+  r.parcial
+    ? { borda: '#FCD34D', fundo: '#FFFBEB', titulo: '#92400E', texto: '#B45309', icone: '#D97706', rotulo: 'Importação parcial' }
+    : r.ok
+      ? { borda: '#6EE7B7', fundo: '#ECFDF5', titulo: '#065F46', texto: '#047857', icone: '#059669', rotulo: 'Importação realizada com sucesso' }
+      : { borda: '#FECACA', fundo: '#FEF2F2', titulo: '#991B1B', texto: '#B91C1C', icone: '#DC2626', rotulo: 'Falha na importação' }
 
 export default function CoeficientesPage() {
   const [items, setItems] = useState<Coeficiente[]>([])
@@ -75,7 +82,8 @@ export default function CoeficientesPage() {
     () => instituicoes.find((item) => item.id === importInstituicaoId)?.name || '',
     [importInstituicaoId, instituicoes],
   )
-  const importEhSantander = /santander/i.test(importInstituicaoNome)
+  // Instituições com leitor de PDF pronto: a Tabela de Comissão é resolvida pelo código no PDF.
+  const importLeitorPronto = /santander|daycoval/i.test(importInstituicaoNome)
 
   const conveniosDaInstituicao = useMemo(() => {
     if (!importInstituicaoId) return convenios
@@ -313,21 +321,21 @@ export default function CoeficientesPage() {
             </div>
           </div>
           <div className="form-group" style={{ marginTop: '1rem' }}>
-            <label className="form-label">Tabela de Comissão {!importEhSantander && <span className="required">*</span>}</label>
+            <label className="form-label">Tabela de Comissão {!importLeitorPronto && <span className="required">*</span>}</label>
             <select
               className="form-control"
-              required={!!importInstituicaoId && !importEhSantander}
-              disabled={!importInstituicaoId || importEhSantander}
+              required={!!importInstituicaoId && !importLeitorPronto}
+              disabled={!importInstituicaoId || importLeitorPronto}
               value={importTabelaId}
               onChange={(e) => setImportTabelaId(e.target.value)}
             >
-              <option value="">{importEhSantander ? 'Resolvida automaticamente pela Regra do PDF' : 'Selecione'}</option>
+              <option value="">{importLeitorPronto ? 'Resolvida pelo código da tabela no PDF (Regra no Santander, Convênio no Daycoval)' : 'Selecione'}</option>
               {tabelas
                 .filter((item) => item.financial_institutions?.id === importInstituicaoId)
                 .filter((item) => (!importConvenioId || item.convenio_id === importConvenioId))
                 .map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}
             </select>
-            {!importEhSantander && importInstituicaoId && (
+            {!importLeitorPronto && importInstituicaoId && (
               <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '0.35rem' }}>
                 Leitor de PDF ainda não implementado para esta instituição — a tabela fica pronta pra quando o leitor for adicionado.
               </div>
@@ -347,37 +355,37 @@ export default function CoeficientesPage() {
 
           {resultadosImportacao && (
             <div style={{ marginTop: '1.25rem', display: 'grid', gap: '0.6rem' }}>
-              {resultadosImportacao.map((r, idx) => (
+              {resultadosImportacao.map((r, idx) => { const tom = tomResultado(r); return (
                 <div
                   key={idx}
                   style={{
                     padding: '0.9rem 1rem',
                     borderRadius: 10,
-                    border: `1.5px solid ${r.ok ? '#6EE7B7' : '#FECACA'}`,
-                    background: r.ok ? '#ECFDF5' : '#FEF2F2',
+                    border: `1.5px solid ${tom.borda}`,
+                    background: tom.fundo,
                     display: 'flex',
                     alignItems: 'flex-start',
                     gap: '0.65rem',
                   }}
                 >
                   {r.ok ? (
-                    <CheckCircle size={22} color="#059669" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <CheckCircle size={22} color={tom.icone} style={{ flexShrink: 0, marginTop: 1 }} />
                   ) : (
-                    <AlertCircle size={22} color="#DC2626" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <AlertCircle size={22} color={tom.icone} style={{ flexShrink: 0, marginTop: 1 }} />
                   )}
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: r.ok ? '#065F46' : '#991B1B' }}>
-                      {r.ok ? 'Importação realizada com sucesso' : 'Falha na importação'}
+                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: tom.titulo }}>
+                      {tom.rotulo}
                     </div>
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--brs-gray-600)', marginTop: '0.15rem' }}>
                       {r.arquivo}
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: r.ok ? '#047857' : '#B91C1C', marginTop: '0.15rem' }}>
+                    <div style={{ fontSize: '0.85rem', color: tom.texto, marginTop: '0.15rem', whiteSpace: 'pre-line' }}>
                       {r.mensagem}
                     </div>
                   </div>
                 </div>
-              ))}
+              ) })}
             </div>
           )}
         </div>
