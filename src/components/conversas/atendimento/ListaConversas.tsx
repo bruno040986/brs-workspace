@@ -9,6 +9,8 @@ import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
 import { buscarContatosConexao, criarGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
+import AgendaWorkspaceModal from './AgendaWorkspaceModal'
+import type { ItemAgendaWorkspace } from '@/lib/central-conversas/workspace-agenda-actions'
 
 type Presenca = 'online' | 'busy' | 'offline' | null
 
@@ -81,6 +83,7 @@ export default function ListaConversas({
   const [prefillModal, setPrefillModal] = useState<{ telefone: string; nome: string } | null>(null)
   const [menuPresencaAberto, setMenuPresencaAberto] = useState(false)
   const [modalGrupoAberto, setModalGrupoAberto] = useState(false)
+  const [agendaAberta, setAgendaAberta] = useState(false)
 
   const ABAS = useMemo(() => {
     const base: Array<{ id: AbaAtendimento; rotulo: string; Icone: typeof MessageCircle; badge?: number }> = [
@@ -135,16 +138,16 @@ export default function ListaConversas({
           </div>
           <button
             type="button"
-            onClick={onAlternarContatos}
-            title="Contatos"
+            onClick={() => setAgendaAberta(true)}
+            title="Agenda B2B do Workspace"
             style={{
               display: 'flex',
               alignItems: 'center',
-              border: `1px solid ${aba === 'contatos' ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
+              border: `1px solid ${agendaAberta ? 'var(--msn-accent)' : 'var(--msn-soft-border)'}`,
               borderRadius: 99,
               padding: 6,
-              background: aba === 'contatos' ? 'var(--msn-item-active)' : 'transparent',
-              color: aba === 'contatos' ? 'var(--msn-accent)' : 'var(--msn-muted)',
+              background: agendaAberta ? 'var(--msn-item-active)' : 'transparent',
+              color: agendaAberta ? 'var(--msn-accent)' : 'var(--msn-muted)',
               cursor: 'pointer',
             }}
           >
@@ -327,6 +330,30 @@ export default function ListaConversas({
               return r
             } catch (err) {
               return { resultado: 'incerto', mensagem: err instanceof Error ? err.message : 'Falha ao processar envio.' }
+            }
+          }}
+        />
+      )}
+
+      {agendaAberta && (
+        <AgendaWorkspaceModal
+          onFechar={() => setAgendaAberta(false)}
+          onErro={(msg) => alert(msg)}
+          onSelecionarContato={(item: ItemAgendaWorkspace) => {
+            const num = (item.whatsapp || '').replace(/\D/g, '')
+            if (!num) {
+              alert(`O contato "${item.nome}" não possui número de WhatsApp cadastrado.`)
+              return
+            }
+            const existente = conversas.find((c) => {
+              const telConv = (c.meta?.sender?.phone_number || c.meta?.sender?.identifier || '').replace(/\D/g, '')
+              return telConv && (telConv === num || telConv.endsWith(num.slice(-8)))
+            })
+            if (existente) {
+              onSelecionar(existente)
+            } else {
+              setPrefillModal({ telefone: num, nome: item.nome })
+              setModalAberto(true)
             }
           }}
         />
