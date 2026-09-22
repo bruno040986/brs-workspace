@@ -83,6 +83,7 @@ const SYSTEM_MODULES = [
   // Divisão: Operacional
   { id: 'cat-div-operacional', name: 'Divisão: Operacional', isHeader: true, level: 0 },
   { id: 'workspace-ops', name: 'Operacional (divisão + links do setor)', parentId: 'cat-div-operacional', level: 1 },
+  { id: 'operacional-simulador-portabilidade', name: 'Simulador de Portabilidade', parentId: 'cat-div-operacional', level: 1 },
   { id: 'operacional-nvti', name: 'Higienização de CPF (NVTI)', parentId: 'cat-div-operacional', level: 1 },
   { id: 'operacional-nvti-consumo', name: 'Consumo (todos os usuários)', parentId: 'operacional-nvti', level: 2 },
   { id: 'operacional-nvti-limites', name: 'Limites de Gasto', parentId: 'operacional-nvti', level: 2 },
