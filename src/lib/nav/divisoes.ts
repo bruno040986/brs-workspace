@@ -148,6 +148,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
     label: 'Operacional',
     icon: BriefcaseBusiness,
     itens: [
+      { label: 'Simulador de Portabilidade', href: '/simulador-portabilidade' },
       { label: 'Higienização de CPF', href: '/higienizacao-nvti', perms: [view('operacional-nvti')] },
       {
         label: 'Nuvidio',
