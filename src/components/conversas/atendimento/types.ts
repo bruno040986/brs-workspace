@@ -66,8 +66,24 @@ export function dataHoraCompleta(ts: number) {
   return `${dataCurta(ts)} - ${horaCurta(ts)}`
 }
 
+export function formatarNomeExibicao(nome?: string | null, telefone?: string | null): string {
+  if (!nome) return 'Contato WhatsApp'
+  const limpo = nome.trim()
+  if (/@lid/i.test(limpo)) {
+    const rawTel = (telefone || '').replace(/\D/g, '')
+    if (rawTel.length >= 10 && !rawTel.includes('lid')) {
+      const dOnly = rawTel.startsWith('55') && (rawTel.length === 12 || rawTel.length === 13) ? rawTel.slice(2) : rawTel
+      if (dOnly.length === 11) return dOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3')
+      if (dOnly.length === 10) return dOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3')
+      return rawTel
+    }
+    return 'Contato WhatsApp'
+  }
+  return limpo
+}
+
 export function iniciais(nome?: string | null) {
-  const limpo = (nome || '?').trim()
+  const limpo = formatarNomeExibicao(nome, null)
   return limpo.slice(0, 1).toUpperCase() || '?'
 }
 

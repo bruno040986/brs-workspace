@@ -761,6 +761,62 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
         })()
       }
     }
+
+    // Sanitização síncrona e auto-healing de contatos salvos com nome contendo '@lid'
+    if (senderName && /@lid/i.test(senderName)) {
+      const rawPhone = c.meta?.sender?.phone_number || (c.meta?.sender?.identifier ? String(c.meta.sender.identifier).split(':').pop()?.replace('@s.whatsapp.net', '') : '') || ''
+      const limpo = rawPhone.replace(/\D/g, '')
+      if (limpo && limpo.length >= 10 && !limpo.includes('lid')) {
+        const digitsOnly = limpo.startsWith('55') && (limpo.length === 12 || limpo.length === 13) ? limpo.slice(2) : limpo
+        let telefoneFormatado = limpo
+        if (digitsOnly.length === 11) {
+          telefoneFormatado = digitsOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3')
+        } else if (digitsOnly.length === 10) {
+          telefoneFormatado = digitsOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3')
+        }
+        if (c.meta?.sender) {
+          c.meta.sender.name = telefoneFormatado
+        }
+        if (cli && c.meta?.sender?.id) {
+          const contactId = c.meta.sender.id
+          void cli.atualizarContato(contactId, { name: telefoneFormatado }).catch(() => {})
+        }
+      } else {
+        if (c.meta?.sender) {
+          c.meta.sender.name = 'Contato WhatsApp'
+        }
+        if (cli && c.meta?.sender?.id) {
+          const contactId = c.meta.sender.id
+          const lidClean = senderName.split(':')[0]
+          void (async () => {
+            try {
+              const admin = await createAdminClient()
+              const { data: aliasRow } = await admin
+                .from('chat_contato_alias')
+                .select('jid_telefone')
+                .eq('lid', lidClean.endsWith('@lid') ? lidClean : `${lidClean}@lid`)
+                .maybeSingle()
+
+              if (aliasRow?.jid_telefone) {
+                const digitos = String(aliasRow.jid_telefone).replace(/\D/g, '')
+                const digitsOnly = digitos.startsWith('55') && (digitos.length === 12 || digitos.length === 13) ? digitos.slice(2) : digitos
+                const fmt = digitsOnly.length === 11 ? digitsOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3') : digitsOnly.length === 10 ? digitsOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3') : digitos
+                await cli.atualizarContato(contactId, { name: fmt })
+              } else {
+                const detalhe = await cli.detalharContato(contactId)
+                const p = detalhe?.phone_number || detalhe?.identifier || ''
+                const l = p.replace(/\D/g, '')
+                if (l && l.length >= 10 && !l.includes('lid')) {
+                  const dOnly = l.startsWith('55') && (l.length === 12 || l.length === 13) ? l.slice(2) : l
+                  const fmt = dOnly.length === 11 ? dOnly.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3') : dOnly.length === 10 ? dOnly.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3') : l
+                  await cli.atualizarContato(contactId, { name: fmt })
+                }
+              }
+            } catch {}
+          })()
+        }
+      }
+    }
     return { ...c, atendimentoMeta: metaPorConversa.get(c.id) || null }
   })
   return { disponivel: true as const, conversas, meta: data.meta }
