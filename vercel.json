@@ -1,44 +1,44 @@
 {
   "crons": [
     {
-      "path": "/api/cron/process-jobs",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/wa-campaigns",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/nvti-batches",
-      "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/cron/agenda-sync",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/alvoconsig-expurgo",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/alvoconsig-conferencia",
-      "schedule": "*/30 * * * *"
-    },
-    {
       "path": "/api/cron/auth-healthcheck",
       "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/cron/messenger-agendamentos",
-      "schedule": "*/2 * * * *"
+      "schedule": "1-59/2 * * * *"
+    },
+    {
+      "path": "/api/cron/process-jobs",
+      "schedule": "2-57/5 * * * *"
     },
     {
       "path": "/api/cron/convenio-pesquisas",
-      "schedule": "*/10 * * * *"
+      "schedule": "9-59/10 * * * *"
+    },
+    {
+      "path": "/api/cron/agenda-sync",
+      "schedule": "3,18,33,48 * * * *"
+    },
+    {
+      "path": "/api/cron/wa-campaigns",
+      "schedule": "6-56/10 * * * *"
+    },
+    {
+      "path": "/api/cron/nvti-batches",
+      "schedule": "11,41 * * * *"
     },
     {
       "path": "/api/cron/if-higienizacao",
-      "schedule": "*/30 * * * *"
+      "schedule": "21,51 * * * *"
+    },
+    {
+      "path": "/api/cron/alvoconsig-conferencia",
+      "schedule": "13,43 * * * *"
+    },
+    {
+      "path": "/api/cron/alvoconsig-expurgo",
+      "schedule": "17 9 * * *"
     }
   ]
 }
