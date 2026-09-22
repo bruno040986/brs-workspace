@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CalendarOff, Calculator, CheckCircle, FileUp, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { createCoeficientes, encerrarCoeficiente, excluirCoeficiente, getCoeficientes, getCoeficientesLookups, getInstituicoesFinanceiras } from './actions'
+import { hojeSaoPaulo } from '@/lib/comissionamento-filtros'
 
 type Tabela = {
   id: string
@@ -30,7 +31,17 @@ type Coeficiente = {
 type Linha = { prazo: string; coeficiente: string }
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => hojeSaoPaulo()
+/**
+ * Status pela data de hoje (Brasília), não pelo fim estar preenchido: o
+ * importador de PDF grava um registro por dia (início = fim), então um
+ * coeficiente de 11/10 com fim 11/10 é FUTURO, não encerrado.
+ */
+const statusVigencia = (item: Pick<Coeficiente, 'vigencia_inicio' | 'vigencia_fim'>, hoje: string) => {
+  if (item.vigencia_inicio > hoje) return { label: 'Futuro', badge: 'badge-info' }
+  if (!item.vigencia_fim || item.vigencia_fim >= hoje) return { label: 'Vigente', badge: 'badge-success' }
+  return { label: 'Encerrado', badge: 'badge-gray' }
+}
 const formatDate = (value: string | null | undefined) => (value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : 'aberta')
 const seguroText = (value: boolean | null | undefined) => (value === true ? 'c/ seguro' : value === false ? 's/ seguro' : 'seguro n/i')
 const formatCoef = (value: number) => value.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
@@ -46,7 +57,7 @@ export default function CoeficientesPage() {
   const [message, setMessage] = useState<FeedbackMessage | null>(null)
   const [convenioFilter, setConvenioFilter] = useState('')
   const [tabelaFilter, setTabelaFilter] = useState('')
-  const [apenasVigentes, setApenasVigentes] = useState(true)
+  const [ocultarEncerrados, setOcultarEncerrados] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [tabelaId, setTabelaId] = useState('')
   const [vigenciaInicio, setVigenciaInicio] = useState(today())
@@ -74,11 +85,11 @@ export default function CoeficientesPage() {
     return convenios.filter((c) => idsComTabela.has(c.id))
   }, [convenios, tabelas, importInstituicaoId])
 
-  async function loadData(filters = { convenioId: convenioFilter, tabelaId: tabelaFilter, vigentes: apenasVigentes }) {
+  async function loadData(filters = { convenioId: convenioFilter, tabelaId: tabelaFilter, ocultarEncerrados }) {
     setLoading(true)
     try {
       const [itemsRes, lookupsRes, instituicoesRes] = await Promise.all([
-        getCoeficientes({ convenioId: filters.convenioId || undefined, tabelaComissaoId: filters.tabelaId || undefined, apenasVigentes: filters.vigentes }),
+        getCoeficientes({ convenioId: filters.convenioId || undefined, tabelaComissaoId: filters.tabelaId || undefined, ocultarEncerrados: filters.ocultarEncerrados }),
         getCoeficientesLookups(),
         getInstituicoesFinanceiras(),
       ])
@@ -97,17 +108,18 @@ export default function CoeficientesPage() {
   }
 
   useEffect(() => {
-    loadData({ convenioId: '', tabelaId: '', vigentes: true })
+    loadData({ convenioId: '', tabelaId: '', ocultarEncerrados: true })
   }, [])
 
-  async function updateFilters(next: Partial<{ convenioId: string; tabelaId: string; vigentes: boolean }>) {
-    const filters = { convenioId: convenioFilter, tabelaId: tabelaFilter, vigentes: apenasVigentes, ...next }
+  async function updateFilters(next: Partial<{ convenioId: string; tabelaId: string; ocultarEncerrados: boolean }>) {
+    const filters = { convenioId: convenioFilter, tabelaId: tabelaFilter, ocultarEncerrados, ...next }
     setConvenioFilter(filters.convenioId)
     setTabelaFilter(filters.tabelaId)
-    setApenasVigentes(filters.vigentes)
+    setOcultarEncerrados(filters.ocultarEncerrados)
     await loadData(filters)
   }
 
+  const hoje = today()
   const selectedTabela = useMemo(() => tabelas.find((item) => item.id === tabelaId) || null, [tabelaId, tabelas])
 
   function tabelaLabel(item: Tabela) {
@@ -234,7 +246,7 @@ export default function CoeficientesPage() {
       <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <select className="form-control" style={{ width: 260 }} value={convenioFilter} onChange={(e) => updateFilters({ convenioId: e.target.value })}><option value="">Todos os convênios</option>{convenios.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select>
         <select className="form-control" style={{ width: 320 }} value={tabelaFilter} onChange={(e) => updateFilters({ tabelaId: e.target.value })}><option value="">Todas as tabelas</option>{tabelas.map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}</select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', fontWeight: 600 }}><input type="checkbox" checked={apenasVigentes} onChange={(e) => updateFilters({ vigentes: e.target.checked })} />Apenas vigentes</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', fontWeight: 600 }}><input type="checkbox" checked={ocultarEncerrados} onChange={(e) => updateFilters({ ocultarEncerrados: e.target.checked })} />Ocultar encerrados</label>
       </div>
       <div className="card"><div className="table-wrapper"><table className="data-table"><thead><tr><th>Instituição/Tabela</th><th>Convênio</th><th>Prazo</th><th>Coeficiente</th><th>Vigência</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead><tbody>
         {loading ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr> : items.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Calculator size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum coeficiente encontrado</h3><p>Lance coeficientes para a tabela e prazo desejados.</p></div></td></tr> : items.map((item) => <tr key={item.id}>
@@ -243,7 +255,7 @@ export default function CoeficientesPage() {
           <td>{item.prazo}x</td>
           <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{formatCoef(Number(item.coeficiente))}</td>
           <td>{formatDate(item.vigencia_inicio)} → {formatDate(item.vigencia_fim)}</td>
-          <td><span className={`badge ${item.vigencia_fim ? 'badge-gray' : 'badge-success'}`}>{item.vigencia_fim ? 'Encerrado' : 'Vigente'}</span></td>
+          <td>{(() => { const st = statusVigencia(item, hoje); return <span className={`badge ${st.badge}`}>{st.label}</span> })()}</td>
           <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>{item.vigencia_fim ? null : <button type="button" className="btn btn-outline btn-sm btn-acao" onClick={() => handleClose(item)} disabled={busyId === item.id} title="Encerrar vigência" aria-label="Encerrar vigência">{busyId === item.id ? <Loader2 size={15} className="spinner" /> : <CalendarOff size={15} />}</button>}<button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => handleDelete(item)} disabled={busyId === item.id} title="Excluir" aria-label="Excluir">{busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Trash2 size={15} />}</button></div></td>
         </tr>)}
       </tbody></table></div></div>

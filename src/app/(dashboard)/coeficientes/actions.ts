@@ -9,6 +9,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
+import { hojeSaoPaulo } from '@/lib/comissionamento-filtros'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -65,7 +66,7 @@ export async function getInstituicoesFinanceiras() {
 export async function getCoeficientes(filtros?: {
   tabelaComissaoId?: string
   convenioId?: string
-  apenasVigentes?: boolean
+  ocultarEncerrados?: boolean
 }) {
   try {
     await requirePermission(PERMISSION_RESOURCE)
@@ -76,12 +77,17 @@ export async function getCoeficientes(filtros?: {
         'id, tabela_comissao_id, prazo, coeficiente, vigencia_inicio, vigencia_fim, created_at, ' +
           'tabelas_comissao!inner ( id, nome, codigo_tabela_banco, com_seguro, convenio_id, financial_institutions ( id, name ), formas_contrato ( id, nome ), convenios ( id, nome ) )',
       )
-      .order('vigencia_inicio', { ascending: false })
+      // Ocultando encerrados, o que interessa é o de hoje e os próximos dias
+      // (ascendente); no histórico completo, o mais recente primeiro.
+      .order('vigencia_inicio', { ascending: !!filtros?.ocultarEncerrados })
       .order('prazo', { ascending: true })
 
     if (filtros?.tabelaComissaoId) query = query.eq('tabela_comissao_id', filtros.tabelaComissaoId)
     if (filtros?.convenioId) query = query.eq('tabelas_comissao.convenio_id', filtros.convenioId)
-    if (filtros?.apenasVigentes) query = query.is('vigencia_fim', null)
+    // "Ocultar encerrados" = vigentes hoje + futuros. O importador de PDF grava
+    // um registro por dia (início = fim), então fim preenchido NÃO significa
+    // encerrado — encerrado é só o que terminou antes de hoje (Brasília).
+    if (filtros?.ocultarEncerrados) query = query.or(`vigencia_fim.is.null,vigencia_fim.gte.${hojeSaoPaulo()}`)
 
     const { data, error } = await query.limit(500)
     if (error) throw error
