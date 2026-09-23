@@ -148,7 +148,16 @@ export const NAV_DIVISOES: NavDivisao[] = [
     label: 'Operacional',
     icon: BriefcaseBusiness,
     itens: [
-      { label: 'Simulador de Portabilidade', href: '/simulador-portabilidade', perms: [view('operacional-simulador-portabilidade')] },
+      {
+        label: 'Simulador de Portabilidade',
+        href: '/simulador-portabilidade',
+        perms: [view('operacional-simulador-portabilidade')],
+        children: [
+          { label: 'Simulador', href: '/simulador-portabilidade' },
+          { label: 'Regras Individuais por IF', href: '/simulador-portabilidade/regras-ifs' },
+          { label: 'Coeficiente Global', href: '/simulador-portabilidade/coeficiente-global' },
+        ],
+      },
       { label: 'Higienização de CPF', href: '/higienizacao-nvti', perms: [view('operacional-nvti')] },
       {
         label: 'Nuvidio',

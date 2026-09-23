@@ -605,6 +605,22 @@ export function isNetworkBank(b: string): boolean {
   return NETWORK_BANKS.includes(b.toUpperCase())
 }
 
+export function bankBlockReason(c: ClientePortabilidade, r: RegraBancoPortabilidade): string | null {
+  if (r.blockRepresentative && c.representative === true) {
+    return r.representativeReason || 'Não faz representante'
+  }
+  if (r.blockLoas && c.speciesCode != null) {
+    const codes = String(r.loasSpecies || '87,88')
+      .split(',')
+      .map((x) => parseInt(x.trim(), 10))
+      .filter((x) => !isNaN(x))
+    if (codes.includes(c.speciesCode)) {
+      return r.loasReason || 'Não porta LOAS'
+    }
+  }
+  return null
+}
+
 export function generalBlockReason(c: ClientePortabilidade, config: ConfiguracoesGeraisPortabilidade = DEFAULT_GENERAL_RULES): string | null {
   if (config.blockRepresentative && c.representative === true) {
     return config.representativeReason || 'Não faz representante'
@@ -652,10 +668,10 @@ export function evalRule(
   generalConfig: ConfiguracoesGeraisPortabilidade = DEFAULT_GENERAL_RULES
 ): ResultadoBanco {
   const fail: Array<{ code: string; text: string }> = []
-  const generalReason = generalBlockReason(c, generalConfig)
+  const blockReason = bankBlockReason(c, r) || generalBlockReason(c, generalConfig)
   const origin = l.origin
 
-  if (generalReason) fail.push({ code: 'geral', text: generalReason })
+  if (blockReason) fail.push({ code: 'geral', text: blockReason })
   if ((r.blocked || []).includes(origin)) fail.push({ code: 'banco', text: 'Banco não porta' })
 
   const req = paidReq(r, origin)
@@ -679,7 +695,7 @@ export function evalRule(
   if (mr != null && release != null && release < mr) fail.push({ code: 'troco', text: 'Valor liberado insuficiente' })
   if (release != null && release <= 0) fail.push({ code: 'troco', text: 'Sem valor liberado' })
 
-  const special = !generalReason && (r.special || []).includes(origin)
+  const special = !blockReason && (r.special || []).includes(origin)
   const status = fail.length ? 'no' : special ? 'pending' : 'ok'
   const reason = fail[0]?.text || (special ? 'Tabela especial' : 'Aprovado')
 

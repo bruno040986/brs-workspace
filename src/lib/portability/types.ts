@@ -55,6 +55,16 @@ export interface RegraBancoPortabilidade {
   id: string
   name: string
   enabled: boolean
+  institutionId?: string
+  convenioId?: string
+  convenioCodigo?: string
+  logoUrl?: string | null
+  coeficienteNovoMedio?: number | null
+  blockLoas?: boolean
+  loasSpecies?: string
+  loasReason?: string
+  blockRepresentative?: boolean
+  representativeReason?: string
   portCoeff: number | null
   entry: number | null
   refiMin: number | null
