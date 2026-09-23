@@ -157,6 +157,15 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
       return
     }
 
+    // Validação de duplicidade na tela
+    const isDuplicate = rules.some(
+      (r) => r.institutionId === newRuleIfId && (r.convenioCodigo || 'INSS').toUpperCase() === newRuleConvenio.toUpperCase()
+    )
+    if (isDuplicate) {
+      alert('Já existe uma regra cadastrada para esta Instituição Financeira e Convênio. Por favor, edite a regra existente na lista.')
+      return
+    }
+
     const selectedIf = financialInstitutions.find((i) => i.id === newRuleIfId)
     if (!selectedIf) return
 
@@ -204,7 +213,6 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
     if (res.success) {
       showToast(`Regra para ${selectedIf.name} cadastrada com sucesso!`)
       setIsCreateOpen(false)
-      // Recarregar a página para exibir a nova regra atualizada
       window.location.reload()
     } else {
       alert(`Erro ao cadastrar regra: ${res.error}`)
@@ -264,7 +272,7 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
             Regras Individuais por Instituição Financeira
           </h1>
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#DCE6EF' }}>
-            Cadastre e personalize as regras de portabilidade, empréstimo novo, limites e bloqueios das instituições financeiras elegíveis.
+            Gerencie as regras de portabilidade, empréstimo novo e bloqueios por instituição e convênio cadastrados.
           </p>
         </div>
 
@@ -305,15 +313,15 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
         </div>
       </div>
 
-      {/* Empty State vs List */}
+      {/* List */}
       {filteredRules.length === 0 ? (
         <div className="card" style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
           <Building2 size={42} style={{ color: 'var(--brs-gray-400)', marginBottom: '0.75rem' }} />
           <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--brs-navy)' }}>
-            Nenhuma Regra Individual Cadastrada
+            Nenhuma Regra Cadastrada
           </h3>
           <p style={{ margin: '0.4rem 0 1.25rem', fontSize: '0.875rem' }}>
-            Clique no botão abaixo para cadastrar as regras da instituição financeira e convênio desejados.
+            Clique no botão abaixo para cadastrar uma nova regra de instituição financeira e convênio.
           </p>
           <button
             type="button"
@@ -733,7 +741,7 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
             </div>
 
             <form onSubmit={handleCreateSubmit} style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {/* Seleção de IF Elegível e Convênio */}
+              {/* Seleção de TODAS as IFs ativas do Workspace e Convênio */}
               <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label className="form-label" style={{ fontWeight: 800 }}>Instituição Financeira *</label>
@@ -751,7 +759,7 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
                     ))}
                   </select>
                   <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-500)', marginTop: '0.2rem' }}>
-                    Exibindo apenas IFs cadastradas no Workspace e suportadas pelo simulador.
+                    Todas as Instituições Financeiras ativas do Workspace.
                   </div>
                 </div>
 
