@@ -746,7 +746,13 @@ export default function SimuladorPortabilidadeClient({
                 {shownResults.map(({ bank, evaluation }) => {
                   const isOk = evaluation.status === 'ok'
                   const isPending = evaluation.status === 'pending'
-                  const logoSrc = bank.logoWideUrl || bank.logoUrl
+                  const instMatch = financialInstitutions.find(
+                    (fi) =>
+                      fi.id === bank.institutionId ||
+                      fi.name.toLowerCase().includes(bank.name.toLowerCase()) ||
+                      bank.name.toLowerCase().includes(fi.name.toLowerCase())
+                  )
+                  const logoSrc = instMatch?.logo_wide_url || bank.logoWideUrl || instMatch?.logo_url || bank.logoUrl
 
                   return (
                     <div
@@ -765,10 +771,21 @@ export default function SimuladorPortabilidadeClient({
                         boxShadow: isOk ? '0 2px 8px rgba(16,185,129,0.08)' : 'none',
                       }}
                     >
-                      {/* Cabeça do Card: Logo Retangular */}
-                      <div style={{ height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginBottom: '0.3rem' }}>
+                      {/* Cabeça do Card: Logo Retangular Horizontal */}
+                      <div style={{ height: '46px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginBottom: '0.3rem', padding: '0 0.1rem' }}>
                         {logoSrc ? (
-                          <img src={logoSrc} alt={bank.name} style={{ maxHeight: '36px', maxWidth: '90%', objectFit: 'contain' }} />
+                          <img
+                            src={logoSrc}
+                            alt={bank.name}
+                            style={{
+                              maxHeight: '44px',
+                              maxWidth: '100%',
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain',
+                              objectPosition: 'center',
+                            }}
+                          />
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(23,56,75,0.06)', padding: '0.35rem 0.6rem', borderRadius: '6px' }}>
                             <Building2 size={16} color="var(--brs-navy)" />

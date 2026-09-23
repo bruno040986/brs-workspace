@@ -79,12 +79,14 @@ export async function getPortabilidadeData() {
       regrasDb.forEach((dbRule: any) => {
         const inst = allWorkspaceIFs.find((i) => i.id === dbRule.institution_id)
         const name = inst ? inst.name : 'Instituição Financeira'
+        const logoWideUrl = inst ? inst.logo_wide_url || inst.logo_url || null : null
         const logoUrl = inst ? inst.logo_url || inst.logo_wide_url || null : null
 
         const ruleObj: RegraBancoPortabilidade = {
           id: dbRule.id,
           name,
           logoUrl,
+          logoWideUrl,
           institutionId: dbRule.institution_id,
           convenioCodigo: dbRule.convenio_codigo || 'INSS',
           enabled: dbRule.enabled !== false,
@@ -137,7 +139,8 @@ export async function getPortabilidadeData() {
         const seededRule: RegraBancoPortabilidade = {
           id: `seed-${inst.id}-INSS`,
           name: inst.name,
-          logoUrl: inst.logo_url || inst.logo_wide_url || null,
+          logoUrl: inst.logo_wide_url || inst.logo_url || null,
+          logoWideUrl: inst.logo_wide_url || inst.logo_url || null,
           institutionId: inst.id,
           convenioCodigo: 'INSS',
           enabled: true,
