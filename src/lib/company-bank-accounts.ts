@@ -118,8 +118,10 @@ export function normalizeAgencyValue(value: string) {
 }
 
 export function normalizeAccountValue(value: string) {
-  const digits = onlyDigits(value).slice(0, 11).padStart(11, '0')
-  return `${digits.slice(0, 10)}-${digits.slice(10)}`
+  // Até 15 dígitos (14 + verificador); contas curtas continuam completadas
+  // com zeros até 11, como sempre, e o hífen fica antes do último dígito.
+  const digits = onlyDigits(value).slice(0, 15).padStart(11, '0')
+  return `${digits.slice(0, -1)}-${digits.slice(-1)}`
 }
 
 export function formatBankAgencyWithDigitFromSeq(seq: string): string {
@@ -133,10 +135,12 @@ export function formatBankAgencyWithDigitFromSeq(seq: string): string {
 }
 
 export function formatBankAccountFromSeq(seq: string): string {
-  const d = String(seq || '').replace(/\D/g, '').slice(-11)
+  // Até 15 dígitos (14 + verificador). Contas de até 11 dígitos saem
+  // exatamente como antes (miolo completado com zeros até 10).
+  const d = String(seq || '').replace(/\D/g, '').slice(-15)
   if (!d) return ''
   const dv = d.slice(-1)
-  const core = d.slice(0, -1).slice(-10).padStart(10, '0')
+  const core = d.slice(0, -1).padStart(10, '0')
   return `${core}-${dv}`
 }
 
@@ -150,7 +154,7 @@ export function parseBankAgencySeq(value: string) {
 export function parseBankAccountSeq(value: string) {
   // Same rule for account numbers: return the editable sequence, not the
   // fully padded display string.
-  const digits = onlyDigits(value).slice(0, 11)
+  const digits = onlyDigits(value).slice(0, 15)
   return digits.replace(/^0+/, '')
 }
 

@@ -916,7 +916,7 @@ export const CONTACT_ORIGIN_OPTIONS: FieldOption[] = [
   { value: 'indicacao_conhecido', label: 'Indicação de um conhecido' },
   { value: 'comercial_adriene_marcelino', label: 'Adriene Marcelino (Comercial)' },
   { value: 'comercial_bruno_padro', label: 'Bruno Padro (Comercial)' },
-  { value: 'comercial_eduardo_de_sousa', label: 'Eduardo de Sousa (Comercial)' },
+  { value: 'comercial_eduardo_sousa', label: 'Eduardo Sousa (Comercial)' },
   { value: 'comercial_ketellen_freires', label: 'Ketellen Freires (Comercial)' },
   { value: 'comercial_mirella_domingos', label: 'Mirella Domingos (Comercial)' },
   { value: 'comercial_veridiana_costa', label: 'Veridiana Costa (Comercial)' },

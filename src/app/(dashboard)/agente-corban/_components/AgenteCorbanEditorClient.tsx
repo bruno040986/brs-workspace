@@ -171,7 +171,7 @@ function formatBankAgencyDisplay(seq: string) {
 }
 
 function formatBankAccountDisplay(seq: string) {
-  const digits = onlyDigits(seq).slice(0, 11)
+  const digits = onlyDigits(seq).slice(0, 15)
   if (!digits) return ''
   const core = digits.slice(0, -1) || '0'
   return `${core}-${digits.slice(-1)}`
@@ -2038,24 +2038,24 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                         value={formatBankAccountDisplay(bankAccountSeq || '')}
                         onChange={(e) => {
                           handleDigitSequenceChange(e, bankAccountSeq, (nextSeq) => {
-                            const seq = onlyDigits(nextSeq).slice(0, 11)
+                            const seq = onlyDigits(nextSeq).slice(0, 15)
                             setBankAccountSeq(seq)
                             patchDraft({ bank_account: seq })
-                          }, 11)
+                          }, 15)
                         }}
                         onKeyDown={(e) => {
                           handleDigitSequenceKeyDown(e, bankAccountSeq, (nextSeq) => {
-                            const seq = onlyDigits(nextSeq).slice(0, 11)
+                            const seq = onlyDigits(nextSeq).slice(0, 15)
                             setBankAccountSeq(seq)
                             patchDraft({ bank_account: seq })
-                          }, 11)
+                          }, 15)
                         }}
                         onPaste={(e) => {
                           handleDigitSequencePaste(e, bankAccountSeq, (nextSeq) => {
-                            const seq = onlyDigits(nextSeq).slice(0, 11)
+                            const seq = onlyDigits(nextSeq).slice(0, 15)
                             setBankAccountSeq(seq)
                             patchDraft({ bank_account: seq })
-                          }, 11)
+                          }, 15)
                         }}
                         placeholder="0000000000-0"
                       />
