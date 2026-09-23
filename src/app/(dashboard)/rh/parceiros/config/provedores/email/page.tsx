@@ -12,6 +12,7 @@ export default function EmailConfigPage() {
   // Resend State
   const [resendId, setResendId] = useState('')
   const [resendApiKey, setResendApiKey] = useState('')
+  const [resendHasApiKey, setResendHasApiKey] = useState(false)
   const [resendFromEmail, setResendFromEmail] = useState('')
   const [resendActive, setResendActive] = useState(false)
 
@@ -21,7 +22,11 @@ export default function EmailConfigPage() {
       const res = await getProvedoresConfig()
       if (res.success && res.resend) {
         setResendId(res.resend.id || '')
-        setResendApiKey(res.resend.api_key || '')
+        // O servidor nunca devolve a chave em claro (ver actions.ts) — o campo
+        // fica em branco de propósito; `has_api_key` é o único sinal de que já
+        // existe uma chave salva.
+        setResendApiKey('')
+        setResendHasApiKey(!!res.resend.has_api_key)
         setResendFromEmail(res.resend.from_email || '')
         setResendActive(res.resend.is_active ?? false)
       } else {
@@ -50,11 +55,13 @@ export default function EmailConfigPage() {
     const res = await saveProvedoresConfig(payload)
     if (res.success) {
       setMessage({ type: 'success', text: 'Configurações de e-mail salvas com sucesso!' })
-      if (!resendId) {
-        const configReload = await getProvedoresConfig()
-        if (configReload.success && configReload.resend) {
-          setResendId(configReload.resend.id || '')
-        }
+      // Sempre recarrega do servidor: limpa o campo da chave (nunca volta em
+      // claro) e atualiza o "chave já configurada" com o estado real salvo.
+      const configReload = await getProvedoresConfig()
+      if (configReload.success && configReload.resend) {
+        setResendId(configReload.resend.id || '')
+        setResendApiKey('')
+        setResendHasApiKey(!!configReload.resend.has_api_key)
       }
     } else {
       setMessage({ type: 'error', text: res.error || 'Erro ao salvar configurações.' })
@@ -114,20 +121,37 @@ export default function EmailConfigPage() {
           </div>
 
           <div className="form-group" style={{ marginBottom: '1rem' }}>
-            <label className="form-label">API Key do Resend</label>
+            <label className="form-label">
+              API Key do Resend
+              {resendHasApiKey && (
+                <span style={{ marginLeft: '0.5rem', fontWeight: 400, fontSize: '0.75rem', color: '#059669' }}>
+                  ✓ chave já configurada — deixe em branco para mantê-la
+                </span>
+              )}
+            </label>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--brs-gray-400)' }}>
                 <Key size={16} />
               </span>
-              <input 
-                type="password" 
-                className="form-control" 
+              <input
+                type="password"
+                className="form-control"
                 style={{ paddingLeft: '2.25rem' }}
-                placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx"
+                placeholder={resendHasApiKey ? '••••••••••••••••••••' : 're_xxxxxxxxxxxxxxxxxxxxxxxx'}
                 value={resendApiKey}
                 onChange={e => setResendApiKey(e.target.value)}
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
               />
             </div>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
+              Campo sempre em branco por segurança (a chave salva nunca volta pra tela). Preencha só quando for
+              TROCAR a chave — um gerenciador de senhas do navegador pode sugerir preencher este campo sozinho;
+              confira o que está escrito aqui antes de salvar.
+            </p>
           </div>
 
           <div className="form-group" style={{ marginBottom: '1.5rem' }}>
