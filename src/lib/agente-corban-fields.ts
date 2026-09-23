@@ -67,6 +67,7 @@ export type FieldGroup =
   | 'documents'
   | 'consent'
   | 'compliance'
+  | 'preenchedor'
 
 /** De onde vem a lista de opções, quando `kind === 'select' | 'multiselect'`. */
 export type FieldOptionsSource =
@@ -395,6 +396,23 @@ const COMPLIANCE_FIELDS: AgenteCorbanFieldDef[] = [
   { key: 'compliance_legal_capacity', path: 'compliance.legal_capacity', label: 'Declaração de Capacidade e Representação Legal', group: 'compliance', kind: 'acceptance', source: 'partner', notes: 'Declara ser sócio-proprietário ou representante legal autorizado; veracidade das informações sob as penas da lei.' },
 ]
 
+/**
+ * Quem preencheu o cadastro no portal (etapa 0 "Identificação", 23/09/2026).
+ * Não é sócio, testemunha nem signatário: é o contato operacional do cadastro.
+ * O e-mail é verificado por código antes da etapa Compliance e recebe o link
+ * mágico de retomada do rascunho e, depois, o link de correção. A função vem
+ * do catálogo public.corban_cadastro_funcoes (chave estável + nome na hora).
+ */
+const PREENCHEDOR_FIELDS: AgenteCorbanFieldDef[] = [
+  { key: 'filler_name', path: 'preenchedor.nome', label: 'Nome de quem preencheu', group: 'preenchedor', kind: 'text', source: 'partner' },
+  { key: 'filler_email', path: 'preenchedor.email', label: 'E-mail de quem preencheu', group: 'preenchedor', kind: 'email', source: 'partner', notes: 'Verificado por código de 6 dígitos (Resend). Destino do link mágico de retomada e do link de correção.' },
+  { key: 'filler_email_verified_at', path: 'preenchedor.email_verificado_em', label: 'E-mail verificado em', group: 'preenchedor', kind: 'text', source: 'system', notes: 'ISO 8601, carimbado pelo servidor quando o código conferiu.' },
+  { key: 'filler_whatsapp', path: 'preenchedor.whatsapp', label: 'WhatsApp de quem preencheu', group: 'preenchedor', kind: 'phone', source: 'partner', mask: 'phone' },
+  { key: 'filler_role_key', path: 'preenchedor.funcao_chave', label: 'Função na empresa (chave)', group: 'preenchedor', kind: 'text', source: 'partner', notes: 'Chave de public.corban_cadastro_funcoes (socio_administrador, funcionario, contador, outro…). Catálogo em Cadastros Recebidos › Funções.' },
+  { key: 'filler_role_name', path: 'preenchedor.funcao_nome', label: 'Função na empresa', group: 'preenchedor', kind: 'text', source: 'partner', notes: 'Nome da função no momento do preenchimento (o catálogo pode ser renomeado depois).' },
+  { key: 'filler_role_description', path: 'preenchedor.funcao_descricao', label: 'Descrição da função (quando "Outro")', group: 'preenchedor', kind: 'text', source: 'partner' },
+]
+
 /** Todos os campos canônicos do Agente Corban, na ordem das abas da tela. */
 export const AGENTE_CORBAN_FIELDS: AgenteCorbanFieldDef[] = [
   ...MASTER_FIELDS,
@@ -408,6 +426,7 @@ export const AGENTE_CORBAN_FIELDS: AgenteCorbanFieldDef[] = [
   ...DOCUMENT_FIELDS,
   ...CONSENT_FIELDS,
   ...COMPLIANCE_FIELDS,
+  ...PREENCHEDOR_FIELDS,
 ]
 
 export const AGENTE_CORBAN_FIELD_GROUP_LABELS: Record<FieldGroup, string> = {
@@ -422,6 +441,7 @@ export const AGENTE_CORBAN_FIELD_GROUP_LABELS: Record<FieldGroup, string> = {
   documents: 'Documentos',
   consent: 'Consentimento e Assinatura',
   compliance: 'Compliance e Declarações',
+  preenchedor: 'Quem Preencheu o Cadastro',
 }
 
 // =========================================================================

@@ -174,6 +174,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/rh/parceiros/config/provedores/figurinhas-gifs': any([view('sistema-config-figurinhas-gifs')]),
   '/operacoes': any([view('operacional-painel-operacoes')]),
   '/agente-corban/cadastros-recebidos/nuvidio': any([view('agente-corban-cadastros-recebidos')]),
+  '/agente-corban/cadastros-recebidos/funcoes': any([view('agente-corban-cadastros-recebidos')]),
   '/marketing/artes': any([view('marketing-biblioteca-artes')]),
   '/marketing/grupos': any([view('marketing-biblioteca-artes')]),
   '/marketing/categorias': any([view('marketing-biblioteca-artes')]),

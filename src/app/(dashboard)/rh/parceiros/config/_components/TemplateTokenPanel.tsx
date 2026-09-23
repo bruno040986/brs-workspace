@@ -28,6 +28,7 @@ const GROUP_ORDER: FieldGroup[] = [
   'access',
   'documents',
   'consent',
+  'preenchedor',
 ]
 
 export default function TemplateTokenPanel({
