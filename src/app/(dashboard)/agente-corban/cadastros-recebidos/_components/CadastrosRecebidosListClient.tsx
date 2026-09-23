@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, ClipboardCheck, Loader2, Plus, RefreshCw, Search } from 'lucide-react'
+import { AlertCircle, ClipboardCheck, Loader2, MessageCircle, Plus, RefreshCw, Search, Send } from 'lucide-react'
 import { formatCpfOrCnpjDisplay, normalizeText } from '@/lib/agente-corban'
 import {
   CORBAN_ONBOARDING_ETAPA_LABELS,
@@ -13,7 +13,26 @@ import {
   type CorbanOnboardingEtapa,
   type CorbanOnboardingProcessoStatus,
 } from '@/lib/agente-corban-onboarding'
-import { criarProcesso, type CadastroRecebidoListItem, type CadastroRecebidoSemProcesso } from '../actions'
+import {
+  criarProcesso,
+  reenviarLinkRascunho,
+  type CadastroRecebidoListItem,
+  type CadastroRecebidoSemProcesso,
+  type RascunhoEmPreenchimento,
+} from '../actions'
+
+/** StepId do wizard do portal (`brs-portal-parceiro/src/lib/cadastro/wizard-state.ts`) — só rótulo de exibição aqui. */
+const ETAPA_WIZARD_LABELS: Record<string, string> = {
+  identificacao: 'Identificação',
+  compliance: 'Compliance',
+  empresa: 'Empresa',
+  comercial: 'Comercial',
+  bancario: 'Bancário',
+  sociedade: 'Sociedade',
+  signatarios: 'Signatários',
+  documentos: 'Documentos',
+  revisao: 'Revisão',
+}
 
 type Row =
   | (CadastroRecebidoListItem & { key: string })
@@ -39,19 +58,25 @@ const STATUS_OPTIONS = [
 export default function CadastrosRecebidosListClient({
   initialItems,
   initialSemProcesso,
+  initialRascunhos,
 }: {
   initialItems: CadastroRecebidoListItem[]
   initialSemProcesso: CadastroRecebidoSemProcesso[]
+  initialRascunhos: RascunhoEmPreenchimento[]
 }) {
   const router = useRouter()
   const [items] = useState<CadastroRecebidoListItem[]>(initialItems || [])
   const [semProcesso] = useState<CadastroRecebidoSemProcesso[]>(initialSemProcesso || [])
+  const [rascunhos] = useState<RascunhoEmPreenchimento[]>(initialRascunhos || [])
+  const [tab, setTab] = useState<'cadastros' | 'em_preenchimento'>('cadastros')
   const [query, setQuery] = useState('')
   const [etapa, setEtapa] = useState<'all' | CorbanOnboardingEtapa>('all')
   const [status, setStatus] = useState<'all' | 'sem_processo' | CorbanOnboardingProcessoStatus>('all')
   const [criandoId, setCriandoId] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [reenviandoId, setReenviandoId] = useState<string | null>(null)
+  const [msgRascunho, setMsgRascunho] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null)
 
   const rows: Row[] = useMemo(
     () => [
@@ -74,6 +99,16 @@ export default function CadastrosRecebidosListClient({
       return queryMatch && etapaMatch && statusMatch
     })
   }, [rows, query, etapa, status])
+
+  function handleReenviarLink(rascunhoId: string) {
+    setReenviandoId(rascunhoId)
+    setMsgRascunho(null)
+    startTransition(async () => {
+      const result = await reenviarLinkRascunho(rascunhoId)
+      setReenviandoId(null)
+      setMsgRascunho(result.success ? { tipo: 'success', texto: 'Link reenviado.' } : { tipo: 'error', texto: result.error })
+    })
+  }
 
   function handleCriarProcesso(agenteParceiroId: string) {
     setCriandoId(agenteParceiroId)
@@ -108,6 +143,104 @@ export default function CadastrosRecebidosListClient({
         </button>
       </div>
 
+      <div className="tabs-list" style={{ marginBottom: '1.25rem' }}>
+        <button type="button" className={`tab-btn ${tab === 'cadastros' ? 'active' : ''}`} onClick={() => setTab('cadastros')}>
+          Cadastros
+        </button>
+        <button type="button" className={`tab-btn ${tab === 'em_preenchimento' ? 'active' : ''}`} onClick={() => setTab('em_preenchimento')}>
+          Em preenchimento ({rascunhos.length})
+        </button>
+      </div>
+
+      {tab === 'em_preenchimento' ? (
+        <div className="card">
+          {msgRascunho && (
+            <div
+              style={{
+                margin: '1rem 1rem 0',
+                padding: '0.7rem 0.9rem',
+                borderRadius: 8,
+                fontSize: '0.85rem',
+                border: `1px solid ${msgRascunho.tipo === 'success' ? '#A7F3D0' : '#FECACA'}`,
+                background: msgRascunho.tipo === 'success' ? '#ECFDF5' : '#FEF2F2',
+                color: msgRascunho.tipo === 'success' ? '#065F46' : '#991B1B',
+              }}
+            >
+              {msgRascunho.texto}
+            </div>
+          )}
+          <div style={{ padding: '1rem 1rem 0', color: 'var(--brs-gray-500)', fontSize: '0.85rem' }}>
+            Cadastros do Portal Parceiro com o e-mail já verificado, ainda não enviados. Nenhum agente ou processo é
+            criado a partir daqui — some sozinho quando enviado ou depois de 30 dias sem acesso.
+          </div>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Função</th>
+                  <th>Contato</th>
+                  <th>CNPJ</th>
+                  <th>Parou em</th>
+                  <th>Último acesso</th>
+                  <th style={{ textAlign: 'right' }}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rascunhos.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--brs-gray-500)' }}>
+                      Nenhum cadastro em preenchimento no momento.
+                    </td>
+                  </tr>
+                ) : (
+                  rascunhos.map((r) => (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 700, color: 'var(--brs-gray-900)' }}>{r.nome}</td>
+                      <td>{r.funcaoNome || '—'}</td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          <span>{r.email}</span>
+                          {r.whatsapp && (
+                            <a
+                              href={`https://wa.me/55${r.whatsapp}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: '#25D366' }}
+                            >
+                              <MessageCircle size={13} />
+                              WhatsApp
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ fontFamily: 'monospace' }}>{r.cnpj ? formatCpfOrCnpjDisplay(r.cnpj) : '—'}</td>
+                      <td>
+                        <span className="badge badge-navy">{r.etapaAtual ? ETAPA_WIZARD_LABELS[r.etapaAtual] || r.etapaAtual : '—'}</span>
+                      </td>
+                      <td>{diasEmAberto(r.ultimoAcessoEm)}d atrás</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm btn-acao"
+                          disabled={isPending && reenviandoId === r.id}
+                          onClick={() => handleReenviarLink(r.id)}
+                          title="Reenviar link"
+                          aria-label="Reenviar link"
+                        >
+                          {isPending && reenviandoId === r.id ? <Loader2 size={15} className="spinner" /> : <Send size={15} />}
+                          Reenviar link
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <>
       {erro && (
         <div
           style={{
@@ -245,6 +378,8 @@ export default function CadastrosRecebidosListClient({
           </table>
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

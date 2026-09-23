@@ -15,18 +15,26 @@ export type ContatoParceiro = {
   telefone: string | null
 }
 
-/** E-mail e WhatsApp do parceiro a partir do corban_data (master do cadastro). */
+/**
+ * E-mail e WhatsApp do parceiro a partir do corban_data (master do cadastro).
+ * Prioriza quem PREENCHEU o cadastro (etapa "Identificação" do portal,
+ * 23/09/2026) — é quem de fato vai abrir o link de correção — e só cai para
+ * o sócio/contatos gerais quando o cadastro é anterior a essa etapa.
+ */
 export function resolverContatoParceiro(corbanData: Record<string, any>, nomeAgente: string): ContatoParceiro {
+  const preenchedorEmail = String(corbanData?.preenchedor?.email || '').trim()
   const email =
+    preenchedorEmail ||
     String(corbanData?.socios?.[0]?.email || '').trim() ||
     String(corbanData?.contacts?.email_comissao || '').trim() ||
     null
   const telefone =
+    String(corbanData?.preenchedor?.whatsapp || '').trim() ||
     String(corbanData?.contacts?.phone_whatsapp || '').trim() ||
     String(corbanData?.commercial?.whatsapp_atendimento || '').trim() ||
     String(corbanData?.contacts?.phone_commercial || '').trim() ||
     null
-  const nome = String(corbanData?.socios?.[0]?.nome || nomeAgente || 'Parceiro').trim()
+  const nome = String((preenchedorEmail && corbanData?.preenchedor?.nome) || corbanData?.socios?.[0]?.nome || nomeAgente || 'Parceiro').trim()
   return { nome, email, telefone }
 }
 

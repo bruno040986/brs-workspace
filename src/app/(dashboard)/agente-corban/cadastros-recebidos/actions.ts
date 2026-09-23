@@ -1,12 +1,15 @@
 'use server'
 
+import { createHash, randomBytes } from 'crypto'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { enviarEmailOnboarding } from '@/lib/onboarding-comunicacao'
 import { getFieldByPath, normalizeFieldValue, setValueAtPath } from '@/lib/agente-corban-fields'
 import {
   buildAnaliseChecklistSpec,
   buildValidacaoChecklistSpec,
+  diasEmAberto,
   isValidacaoEspecial,
   itemDispensaAprovacao,
   PRESENCA_DIGITAL_CLASSIFICACAO_LABELS,
@@ -21,6 +24,9 @@ import {
 } from '@/lib/agente-corban-onboarding'
 
 const RESOURCE = 'agente-corban-cadastros-recebidos'
+// Mesmo padrão de etapas-actions.ts (link de correção): URL pública do Portal Parceiro.
+const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_URL || 'https://parceiro.brspromotora.com.br'
+const RASCUNHO_LINK_COOLDOWN_MS = 60_000
 const BUCKET = 'partner-analise'
 const SIGNED_URL_TTL_SECONDS = 3600
 const PIPELINE_STATUSES = ['novo', 'aguarda_assinatura', 'assinatura_realizada', 'validacao_final']
@@ -847,6 +853,110 @@ export async function assumirResponsavel(
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao assumir responsável:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// ===========================================================================
+// Aba "Em preenchimento" — rascunhos do Portal Parceiro que ainda não foram
+// enviados (identificação confirmada, cadastro em andamento). Só leitura +
+// reenviar o link mágico; NUNCA cria agente_parceiro nem processo a partir
+// daqui (isso só acontece no envio final, pelo próprio portal).
+// ===========================================================================
+
+export type RascunhoEmPreenchimento = {
+  id: string
+  nome: string
+  email: string
+  whatsapp: string | null
+  funcaoNome: string | null
+  cnpj: string | null
+  etapaAtual: string | null
+  ultimoAcessoEm: string
+}
+
+export async function getRascunhosEmPreenchimento(): Promise<
+  { success: true; items: RascunhoEmPreenchimento[] } | { success: false; error: string; items: [] }
+> {
+  try {
+    await requirePermission(RESOURCE, 'can_view')
+    const admin = await createAdminClient()
+
+    // Expiração lazy (sem cron novo — regra dos crons da Vercel): rascunhos
+    // vencidos saem da aba na próxima consulta.
+    await admin
+      .from('corban_cadastro_rascunhos')
+      .update({ status: 'expirado' })
+      .eq('status', 'em_preenchimento')
+      .lt('expira_em', new Date().toISOString())
+
+    const { data, error } = await admin
+      .from('corban_cadastro_rascunhos')
+      .select('id, preenchedor, email, cnpj, etapa_atual, ultimo_acesso_em')
+      .eq('status', 'em_preenchimento')
+      .order('ultimo_acesso_em', { ascending: false })
+    if (error) throw error
+
+    const items: RascunhoEmPreenchimento[] = (data || []).map((r: any) => ({
+      id: r.id,
+      nome: String(r.preenchedor?.nome || 'Sem nome'),
+      email: r.email,
+      whatsapp: r.preenchedor?.whatsapp || null,
+      funcaoNome: r.preenchedor?.funcao_nome || null,
+      cnpj: r.cnpj || null,
+      etapaAtual: r.etapa_atual || null,
+      ultimoAcessoEm: r.ultimo_acesso_em,
+    }))
+    return { success: true, items }
+  } catch (error: any) {
+    console.error('Erro ao listar rascunhos em preenchimento:', error)
+    return { success: false, error: error.message, items: [] }
+  }
+}
+
+/** Rotaciona o token de retomada do rascunho e reenvia o e-mail (cooldown de 60s). */
+export async function reenviarLinkRascunho(rascunhoId: string): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const { data: r, error } = await admin
+      .from('corban_cadastro_rascunhos')
+      .select('email, preenchedor, status, link_enviado_em')
+      .eq('id', rascunhoId)
+      .maybeSingle()
+    if (error) throw error
+    if (!r || r.status !== 'em_preenchimento') {
+      return { success: false, error: 'Este rascunho não está mais em preenchimento.' }
+    }
+
+    const enviadoEm = r.link_enviado_em ? new Date(r.link_enviado_em).getTime() : 0
+    if (Date.now() - enviadoEm < RASCUNHO_LINK_COOLDOWN_MS) {
+      const restam = Math.ceil((RASCUNHO_LINK_COOLDOWN_MS - (Date.now() - enviadoEm)) / 1000)
+      return { success: false, error: `Aguarde ${restam}s para reenviar de novo.` }
+    }
+
+    const token = randomBytes(32).toString('hex')
+    const now = new Date()
+    const { error: updErr } = await admin
+      .from('corban_cadastro_rascunhos')
+      .update({
+        token_hash: createHash('sha256').update(token).digest('hex'),
+        token_expira_em: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        link_enviado_em: now.toISOString(),
+      })
+      .eq('id', rascunhoId)
+    if (updErr) throw updErr
+
+    const nome = String(r.preenchedor?.nome || '').trim()
+    const primeiroNome = nome.split(/\s+/)[0] || 'tudo bem'
+    const url = `${PORTAL_URL}/cadastro/continuar/${token}`
+    const html = `<p>Olá, <strong>${primeiroNome}</strong>!</p><p>Aqui é da BRS Promotora. Segue o link para continuar o seu cadastro de parceiro de onde parou:</p><p><a href="${url}">${url}</a></p><p>O link vale por 30 dias.</p><p>Equipe BRS Promotora</p>`
+    const envio = await enviarEmailOnboarding({ to: r.email, subject: 'Continue o seu cadastro na BRS Promotora', html })
+    if (!envio.ok) return { success: false, error: envio.detalhe }
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao reenviar link do rascunho:', error)
     return { success: false, error: error.message }
   }
 }

@@ -334,6 +334,12 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             <div style={{ color: 'var(--brs-gray-500)', fontFamily: 'monospace', fontSize: '0.85rem' }}>
               {formatCpfOrCnpjDisplay(data.agente.cpf_cnpj || '')}
             </div>
+            {corbanData?.preenchedor?.nome && (
+              <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                Preenchido por <strong>{corbanData.preenchedor.nome}</strong>
+                {corbanData.preenchedor.funcao_nome ? ` (${corbanData.preenchedor.funcao_nome})` : ''} — {corbanData.preenchedor.email}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <span className={`badge ${CORBAN_ONBOARDING_STATUS_BADGE[data.processo.status as CorbanOnboardingProcessoStatus]}`}>

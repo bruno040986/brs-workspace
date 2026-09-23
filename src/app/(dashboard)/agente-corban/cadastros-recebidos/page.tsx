@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getCurrentUserEffectivePermissions } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
-import { getCadastrosRecebidosList } from './actions'
+import { getCadastrosRecebidosList, getRascunhosEmPreenchimento } from './actions'
 import CadastrosRecebidosListClient from './_components/CadastrosRecebidosListClient'
 
 export const dynamic = 'force-dynamic'
@@ -12,12 +12,13 @@ export default async function CadastrosRecebidosPage() {
     redirect('/acesso-negado')
   }
 
-  const result = await getCadastrosRecebidosList()
+  const [result, rascunhos] = await Promise.all([getCadastrosRecebidosList(), getRascunhosEmPreenchimento()])
 
   return (
     <CadastrosRecebidosListClient
       initialItems={result.success ? result.items : []}
       initialSemProcesso={result.success ? result.semProcesso : []}
+      initialRascunhos={rascunhos.success ? rascunhos.items : []}
     />
   )
 }
