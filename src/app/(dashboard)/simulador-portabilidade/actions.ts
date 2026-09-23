@@ -2,14 +2,44 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { DEFAULT_BANK_RULES, DEFAULT_GENERAL_RULES, DEFAULT_PORT_COEFF } from '@/lib/portability/evaluator'
-import { ConfiguracoesGeraisPortabilidade, RegraBancoPortabilidade } from '@/lib/portability/types'
+import { RegraBancoPortabilidade } from '@/lib/portability/types'
 import { revalidatePath } from 'next/cache'
+
+// Lista de padrões de nome de bancos que existem no HTML
+const HTML_BANK_PATTERNS = [
+  'FACTA',
+  'BMG',
+  'DAYCOVAL',
+  'C6',
+  'BRB',
+  'ICRED',
+  'DIGIO',
+  'PARANA',
+  'PARANÁ',
+  'QUALI',
+  'QUERO',
+  'SAFRA',
+  'PAN',
+  'FINANTO',
+  'BRASIL',
+  'BANCO DO BRASIL',
+  'BEM',
+  'PLAY',
+  'DIGA',
+  'HAPPY',
+]
+
+export function isIfInHtml(name: string): boolean {
+  if (!name) return false
+  const upper = name.toUpperCase()
+  return HTML_BANK_PATTERNS.some((pat) => upper.includes(pat))
+}
 
 export async function getPortabilidadeData() {
   try {
     const supabase = await createClient()
 
-    // 1. Buscar instituições financeiras ativas cadastradas no Workspace
+    // 1. Buscar todas as IFs ativas no Workspace
     const { data: instituicoesData } = await supabase
       .from('financial_institutions')
       .select('id, name, logo_url, logo_wide_url, is_active')
@@ -17,21 +47,22 @@ export async function getPortabilidadeData() {
       .is('deleted_at', null)
       .order('name')
 
-    const registeredIFs = instituicoesData || []
+    // 2. Interseção Estrita: Apenas IFs que existem no Workspace E que correspondem ao HTML
+    const elegibleIFs = (instituicoesData || []).filter((inst) => isIfInHtml(inst.name))
 
-    // 2. Buscar convênios cadastrados
+    // 3. Buscar convênios cadastrados
     const { data: conveniosData } = await supabase
       .from('convenios')
       .select('id, nome, codigo')
       .order('nome')
 
-    // 3. Buscar regras salvas no Supabase (se a tabela regras_portabilidade_ifs existir)
-    const { data: regrasDb, error: regrasError } = await supabase
+    // 4. Buscar regras efetivamente salvas no Supabase (tabela regras_portabilidade_ifs)
+    const { data: regrasDb } = await supabase
       .from('regras_portabilidade_ifs')
       .select('*')
       .eq('enabled', true)
 
-    // 4. Buscar coeficiente global
+    // 5. Buscar coeficiente global
     const { data: globalDb } = await supabase
       .from('regras_portabilidade_globais')
       .select('*')
@@ -41,75 +72,69 @@ export async function getPortabilidadeData() {
 
     const defaultPortCoeff = globalDb?.default_port_coeff ?? DEFAULT_PORT_COEFF
 
-    // Construir lista de regras APENAS para IFs cadastradas no Workspace
+    // Construir lista APENAS com as regras salvas ou inicializadas para IFs elegíveis
     let rules: RegraBancoPortabilidade[] = []
 
-    if (registeredIFs.length > 0) {
-      rules = registeredIFs.map((inst) => {
-        // Tentar mapear regra customizada salva para essa IF
-        const dbRule = regrasDb?.find((r: any) => r.institution_id === inst.id)
+    if (regrasDb && regrasDb.length > 0) {
+      rules = regrasDb
+        .map((dbRule: any) => {
+          const inst = elegibleIFs.find((i) => i.id === dbRule.institution_id)
+          if (!inst) return null // Se a IF não for elegível (interseção), não exibe
 
-        // Procurar semente por nome aproximado se não houver regra no banco
-        const defMatch = DEFAULT_BANK_RULES.find(
-          (d) => d.name.toLowerCase().includes(inst.name.toLowerCase()) || inst.name.toLowerCase().includes(d.name.toLowerCase())
-        )
-
-        return {
-          id: inst.id,
-          name: inst.name, // Nome Comercial do cadastro
-          logoUrl: inst.logo_url || inst.logo_wide_url || null,
-          institutionId: inst.id,
-          convenioCodigo: dbRule?.convenio_codigo || 'INSS',
-          enabled: dbRule?.enabled ?? (defMatch ? defMatch.enabled : true),
-          coeficienteNovoMedio: dbRule?.coeficiente_novo_medio ?? (inst.name.toUpperCase().includes('FACTA') ? 0.023896 : inst.name.toUpperCase().includes('BMG') ? 0.02245 : null),
-          portCoeff: dbRule?.port_coeff ?? (defMatch ? defMatch.portCoeff : null),
-          blockLoas: dbRule?.block_loas ?? (defMatch ? defMatch.blockLoas : false),
-          loasSpecies: dbRule?.loas_species ?? (defMatch ? defMatch.loasSpecies : '87,88'),
-          loasReason: dbRule?.loas_reason ?? (defMatch ? defMatch.loasReason : 'Não porta LOAS'),
-          blockRepresentative: dbRule?.block_representative ?? (defMatch ? defMatch.blockRepresentative : false),
-          representativeReason: dbRule?.representative_reason ?? (defMatch ? defMatch.representativeReason : 'Não faz representante'),
-          entry: dbRule?.entry ?? (defMatch ? defMatch.entry : null),
-          refiMin: dbRule?.refi_min ?? (defMatch ? defMatch.refiMin : null),
-          refiMax: dbRule?.refi_max ?? (defMatch ? defMatch.refiMax : null),
-          ageMin: dbRule?.age_min ?? (defMatch ? defMatch.ageMin : null),
-          ageMaxYears: dbRule?.age_max_years ?? (defMatch ? defMatch.ageMaxYears : null),
-          ageMaxMonths: dbRule?.age_max_months ?? (defMatch ? defMatch.ageMaxMonths : null),
-          endAgeYears: dbRule?.end_age_years ?? (defMatch ? defMatch.endAgeYears : null),
-          endAgeMonths: dbRule?.end_age_months ?? (defMatch ? defMatch.endAgeMonths : null),
-          minInstallment: dbRule?.min_installment ?? (defMatch ? defMatch.minInstallment : null),
-          minDebt: dbRule?.min_debt ?? (defMatch ? defMatch.minDebt : null),
-          minFinanced: dbRule?.min_financed ?? (defMatch ? defMatch.minFinanced : null),
-          minRelease: dbRule?.min_release ?? (defMatch ? defMatch.minRelease : null),
-          minReleaseMode: dbRule?.min_release_mode ?? (defMatch ? defMatch.minReleaseMode : 'fixed'),
-          minReleasePercent: dbRule?.min_release_percent ?? (defMatch ? defMatch.minReleasePercent : null),
-          blocked: dbRule?.blocked ?? (defMatch ? defMatch.blocked : []),
-          paid: dbRule?.paid ?? (defMatch ? defMatch.paid : {}),
-          defaultPaid: dbRule?.default_paid ?? (defMatch ? defMatch.defaultPaid : null),
-          networkPaid: dbRule?.network_paid ?? (defMatch ? defMatch.networkPaid : null),
-          special: dbRule?.special ?? (defMatch ? defMatch.special : []),
-          under12: dbRule?.under12 ?? (defMatch ? defMatch.under12 : []),
-          term: dbRule?.term ?? (defMatch ? defMatch.term : 108),
-          notes: dbRule?.notes ?? (defMatch ? defMatch.notes : ''),
-        }
-      })
+          return {
+            id: dbRule.id,
+            name: inst.name,
+            logoUrl: inst.logo_url || inst.logo_wide_url || null,
+            institutionId: inst.id,
+            convenioCodigo: dbRule.convenio_codigo || 'INSS',
+            enabled: dbRule.enabled !== false,
+            coeficienteNovoMedio: dbRule.coeficiente_novo_medio ?? null,
+            portCoeff: dbRule.port_coeff ?? null,
+            blockLoas: dbRule.block_loas ?? false,
+            loasSpecies: dbRule.loas_species || '87,88',
+            loasReason: dbRule.loas_reason || 'Não porta LOAS',
+            blockRepresentative: dbRule.block_representative ?? false,
+            representativeReason: dbRule.representative_reason || 'Não faz representante',
+            entry: dbRule.entry ?? null,
+            refiMin: dbRule.refi_min ?? null,
+            refiMax: dbRule.refi_max ?? null,
+            ageMin: dbRule.age_min ?? null,
+            ageMaxYears: dbRule.age_max_years ?? null,
+            ageMaxMonths: dbRule.age_max_months ?? null,
+            endAgeYears: dbRule.end_age_years ?? null,
+            endAgeMonths: dbRule.end_age_months ?? null,
+            minInstallment: dbRule.min_installment ?? null,
+            minDebt: dbRule.min_debt ?? null,
+            minFinanced: dbRule.min_financed ?? null,
+            minRelease: dbRule.min_release ?? null,
+            minReleaseMode: dbRule.min_release_mode || 'fixed',
+            minReleasePercent: dbRule.min_release_percent ?? null,
+            blocked: dbRule.blocked || [],
+            paid: dbRule.paid || {},
+            defaultPaid: dbRule.default_paid ?? null,
+            networkPaid: dbRule.network_paid ?? null,
+            special: dbRule.special || [],
+            under12: dbRule.under12 || [],
+            term: dbRule.term || 108,
+            notes: dbRule.notes || '',
+          } as RegraBancoPortabilidade
+        })
+        .filter(Boolean) as RegraBancoPortabilidade[]
     }
 
-    // Identificar os códigos dos convênios que possuem IFs ativas configuradas
+    // Filtrar a lista de convênios para exibir no seletor apenas os convênios com regras cadastradas
     const activeConvenioCodes = new Set(rules.map((r) => r.convenioCodigo || 'INSS'))
-
-    // Filtrar a lista de convênios para exibir no seletor apenas os convênios que possuem IFs vinculadas
     const filteredConvenios = (conveniosData && conveniosData.length > 0 ? conveniosData : [
       { id: 'inss', nome: 'INSS', codigo: 'INSS' },
       { id: 'siape', nome: 'SIAPE', codigo: 'SIAPE' },
-    ]).filter((c) => activeConvenioCodes.has(c.codigo?.toUpperCase() || c.nome?.toUpperCase()))
+    ]).filter((c) => activeConvenioCodes.size === 0 || activeConvenioCodes.has(c.codigo?.toUpperCase() || c.nome?.toUpperCase()))
 
-    // Garantir que pelo menos INSS apareça se a lista filtrada estivesse vazia
     const finalConvenios = filteredConvenios.length > 0 ? filteredConvenios : [{ id: 'inss', nome: 'INSS', codigo: 'INSS' }]
 
     return {
       success: true,
       convenios: finalConvenios,
-      financialInstitutions: registeredIFs,
+      financialInstitutions: elegibleIFs, // Retorna APENAS a interseção
       rules,
       generalConfig: {
         ...DEFAULT_GENERAL_RULES,
@@ -182,6 +207,23 @@ export async function saveRegraIfPortabilidade(payload: Partial<RegraBancoPortab
   } catch (error: any) {
     console.error('Erro ao salvar regra por IF:', error)
     return { success: false, error: error?.message || 'Erro ao salvar regra.' }
+  }
+}
+
+export async function deleteRegraIfPortabilidade(id: string) {
+  try {
+    const supabase = await createClient()
+
+    const { error } = await supabase.from('regras_portabilidade_ifs').delete().eq('id', id)
+
+    if (error) throw error
+
+    revalidatePath('/simulador-portabilidade')
+    revalidatePath('/simulador-portabilidade/regras-ifs')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao excluir regra:', error)
+    return { success: false, error: error?.message || 'Erro ao excluir regra.' }
   }
 }
 

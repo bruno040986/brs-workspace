@@ -6,13 +6,16 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Plus,
   RefreshCw,
   Save,
   Search,
   SlidersHorizontal,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { MinReleaseMode, RegraBancoPortabilidade } from '@/lib/portability/types'
-import { saveRegraIfPortabilidade } from '../../actions'
+import { deleteRegraIfPortabilidade, saveRegraIfPortabilidade } from '../../actions'
 
 interface Props {
   convenios: Array<{ id: string; nome: string; codigo: string }>
@@ -74,6 +77,36 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
   const [savingId, setSavingId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
+  // State do Modal de Cadastro de Regra
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [newRuleIfId, setNewRuleIfId] = useState<string>(financialInstitutions[0]?.id || '')
+  const [newRuleConvenio, setNewRuleConvenio] = useState<string>('INSS')
+  const [newRuleCoeffNovo, setNewRuleCoeffNovo] = useState<string>('')
+  const [newRulePortCoeff, setNewRulePortCoeff] = useState<string>('')
+  const [newRuleBlockLoas, setNewRuleBlockLoas] = useState(false)
+  const [newRuleLoasSpecies, setNewRuleLoasSpecies] = useState('87,88')
+  const [newRuleLoasReason, setNewRuleLoasReason] = useState('Não porta LOAS')
+  const [newRuleBlockRep, setNewRuleBlockRep] = useState(false)
+  const [newRuleRepReason, setNewRuleRepReason] = useState('Não faz representante')
+  const [newRuleEntry, setNewRuleEntry] = useState<string>('')
+  const [newRuleRefiMin, setNewRuleRefiMin] = useState<string>('')
+  const [newRuleRefiMax, setNewRuleRefiMax] = useState<string>('')
+  const [newRuleAgeMin, setNewRuleAgeMin] = useState<string>('')
+  const [newRuleAgeMax, setNewRuleAgeMax] = useState<string>('')
+  const [newRuleEndAge, setNewRuleEndAge] = useState<string>('')
+  const [newRuleTerm, setNewRuleTerm] = useState<string>('108')
+  const [newRuleMinInstallment, setNewRuleMinInstallment] = useState<string>('')
+  const [newRuleMinDebt, setNewRuleMinDebt] = useState<string>('')
+  const [newRuleMinFinanced, setNewRuleMinFinanced] = useState<string>('')
+  const [newRuleMinRelease, setNewRuleMinRelease] = useState<string>('')
+  const [newRuleMinReleaseMode, setNewRuleMinReleaseMode] = useState<MinReleaseMode>('fixed')
+  const [newRuleMinReleasePercent, setNewRuleMinReleasePercent] = useState<string>('')
+  const [newRuleDefaultPaid, setNewRuleDefaultPaid] = useState<string>('')
+  const [newRuleNetworkPaid, setNewRuleNetworkPaid] = useState<string>('')
+  const [newRuleBlocked, setNewRuleBlocked] = useState<string>('')
+  const [newRulePaid, setNewRulePaid] = useState<string>('')
+  const [newRuleNotes, setNewRuleNotes] = useState<string>('')
+
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
@@ -100,6 +133,81 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
       showToast(`Regras de ${rule.name} salvas com sucesso!`)
     } else {
       alert(`Erro ao salvar regra: ${res.error}`)
+    }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (confirm(`Tem certeza que deseja excluir a regra de ${name}?`)) {
+      setSavingId(id)
+      const res = await deleteRegraIfPortabilidade(id)
+      setSavingId(null)
+      if (res.success) {
+        setRules((prev) => prev.filter((r) => r.id !== id))
+        showToast(`Regra de ${name} excluída com sucesso.`)
+      } else {
+        alert(`Erro ao excluir regra: ${res.error}`)
+      }
+    }
+  }
+
+  async function handleCreateSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newRuleIfId) {
+      alert('Selecione uma Instituição Financeira.')
+      return
+    }
+
+    const selectedIf = financialInstitutions.find((i) => i.id === newRuleIfId)
+    if (!selectedIf) return
+
+    const parsedAgeMax = parseAgeText(newRuleAgeMax)
+    const parsedEndAge = parseAgeText(newRuleEndAge)
+
+    const payload: Partial<RegraBancoPortabilidade> = {
+      institutionId: selectedIf.id,
+      name: selectedIf.name,
+      convenioCodigo: newRuleConvenio,
+      enabled: true,
+      coeficienteNovoMedio: newRuleCoeffNovo ? parseFloat(newRuleCoeffNovo) : null,
+      portCoeff: newRulePortCoeff ? parseFloat(newRulePortCoeff) : null,
+      blockLoas: newRuleBlockLoas,
+      loasSpecies: newRuleLoasSpecies,
+      loasReason: newRuleLoasReason,
+      blockRepresentative: newRuleBlockRep,
+      representativeReason: newRuleRepReason,
+      entry: newRuleEntry ? parseFloat(newRuleEntry) : null,
+      refiMin: newRuleRefiMin ? parseFloat(newRuleRefiMin) : null,
+      refiMax: newRuleRefiMax ? parseFloat(newRuleRefiMax) : null,
+      ageMin: newRuleAgeMin ? parseInt(newRuleAgeMin, 10) : null,
+      ageMaxYears: parsedAgeMax.years,
+      ageMaxMonths: parsedAgeMax.months,
+      endAgeYears: parsedEndAge.years,
+      endAgeMonths: parsedEndAge.months,
+      term: newRuleTerm ? parseInt(newRuleTerm, 10) : 108,
+      minInstallment: newRuleMinInstallment ? parseFloat(newRuleMinInstallment) : null,
+      minDebt: newRuleMinDebt ? parseFloat(newRuleMinDebt) : null,
+      minFinanced: newRuleMinFinanced ? parseFloat(newRuleMinFinanced) : null,
+      minRelease: newRuleMinRelease ? parseFloat(newRuleMinRelease) : null,
+      minReleaseMode: newRuleMinReleaseMode,
+      minReleasePercent: newRuleMinReleasePercent ? parseFloat(newRuleMinReleasePercent) : null,
+      defaultPaid: newRuleDefaultPaid ? parseInt(newRuleDefaultPaid, 10) : null,
+      networkPaid: newRuleNetworkPaid ? parseInt(newRuleNetworkPaid, 10) : null,
+      blocked: txtToList(newRuleBlocked),
+      paid: txtToMap(newRulePaid),
+      notes: newRuleNotes,
+    }
+
+    setSavingId('new')
+    const res = await saveRegraIfPortabilidade(payload)
+    setSavingId(null)
+
+    if (res.success) {
+      showToast(`Regra para ${selectedIf.name} cadastrada com sucesso!`)
+      setIsCreateOpen(false)
+      // Recarregar a página para exibir a nova regra atualizada
+      window.location.reload()
+    } else {
+      alert(`Erro ao cadastrar regra: ${res.error}`)
     }
   }
 
@@ -156,27 +264,65 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
             Regras Individuais por Instituição Financeira
           </h1>
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#DCE6EF' }}>
-            Gerencie as regras de portabilidade, empréstimo novo, limites e bloqueios das instituições financeiras cadastradas no Workspace.
+            Cadastre e personalize as regras de portabilidade, empréstimo novo, limites e bloqueios das instituições financeiras elegíveis.
           </p>
         </div>
 
-        <div style={{ position: 'relative', width: '240px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-          <input
-            type="text"
-            className="form-control"
-            placeholder="Buscar instituição..."
-            style={{ paddingLeft: '2.2rem', fontSize: '0.85rem', height: '38px', background: 'rgba(255,255,255,0.15)', color: '#fff', borderColor: 'rgba(255,255,255,0.25)' }}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ position: 'relative', width: '220px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Buscar regra..."
+              style={{ paddingLeft: '2.2rem', fontSize: '0.85rem', height: '38px', background: 'rgba(255,255,255,0.15)', color: '#fff', borderColor: 'rgba(255,255,255,0.25)' }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="btn"
+            style={{
+              background: '#D97706',
+              color: '#fff',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              padding: '0.6rem 1.1rem',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              cursor: 'pointer',
+              border: 0,
+              boxShadow: '0 4px 12px rgba(217,119,6,0.3)',
+            }}
+            onClick={() => setIsCreateOpen(true)}
+          >
+            <Plus size={18} /> Cadastrar Regra Individual
+          </button>
         </div>
       </div>
 
-      {/* Rules List */}
+      {/* Empty State vs List */}
       {filteredRules.length === 0 ? (
-        <div className="card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
-          Nenhuma Instituição Financeira encontrada cadastrada no Workspace.
+        <div className="card" style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
+          <Building2 size={42} style={{ color: 'var(--brs-gray-400)', marginBottom: '0.75rem' }} />
+          <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--brs-navy)' }}>
+            Nenhuma Regra Individual Cadastrada
+          </h3>
+          <p style={{ margin: '0.4rem 0 1.25rem', fontSize: '0.875rem' }}>
+            Clique no botão abaixo para cadastrar as regras da instituição financeira e convênio desejados.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem' }}
+            onClick={() => setIsCreateOpen(true)}
+          >
+            <Plus size={18} /> Cadastrar Regra Individual
+          </button>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -246,15 +392,16 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
                         {r.name}
                       </h3>
                       <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', marginTop: '0.1rem' }}>
-                        Convênio: {r.convenioCodigo || 'INSS'}
+                        Convênio: <strong>{r.convenioCodigo || 'INSS'}</strong>
+                        {r.coeficienteNovoMedio ? ` • Coef. Novo: ${r.coeficienteNovoMedio}` : ''}
                       </div>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-outline btn-sm"
                       disabled={isSaving}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -263,7 +410,20 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
                       style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}
                     >
                       {isSaving ? <RefreshCw className="spin" size={14} /> : <Save size={14} />}
-                      {isSaving ? 'Salvando...' : 'Salvar Regras'}
+                      {isSaving ? 'Salvando...' : 'Salvar'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon btn-sm"
+                      style={{ color: '#DC2626' }}
+                      title="Excluir Regra"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(r.id, r.name)
+                      }}
+                    >
+                      <Trash2 size={16} />
                     </button>
 
                     {isOpen ? <ChevronUp size={20} color="#64748B" /> : <ChevronDown size={20} color="#64748B" />}
@@ -552,6 +712,176 @@ export default function RegrasIfsClient({ convenios, financialInstitutions, init
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Modal "+ Cadastrar Regra Individual" */}
+      {isCreateOpen && (
+        <div className="modal-backdrop" onClick={() => setIsCreateOpen(false)}>
+          <div
+            className="modal"
+            style={{ maxWidth: 800, width: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, borderRadius: '16px', overflow: 'hidden' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '1.25rem 1.5rem', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--brs-navy)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Plus size={20} color="#D97706" /> Cadastrar Regra Individual de Portabilidade
+              </h3>
+              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setIsCreateOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSubmit} style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Seleção de IF Elegível e Convênio */}
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 800 }}>Instituição Financeira *</label>
+                  <select
+                    className="form-control"
+                    style={{ fontWeight: 700, fontSize: '0.85rem' }}
+                    value={newRuleIfId}
+                    onChange={(e) => setNewRuleIfId(e.target.value)}
+                    required
+                  >
+                    {financialInstitutions.map((inst) => (
+                      <option key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-500)', marginTop: '0.2rem' }}>
+                    Exibindo apenas IFs cadastradas no Workspace e suportadas pelo simulador.
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 800 }}>Convênio *</label>
+                  <select
+                    className="form-control"
+                    style={{ fontWeight: 700, fontSize: '0.85rem' }}
+                    value={newRuleConvenio}
+                    onChange={(e) => setNewRuleConvenio(e.target.value)}
+                    required
+                  >
+                    <option value="INSS">INSS</option>
+                    <option value="SIAPE">SIAPE</option>
+                    <option value="OUTROS">OUTROS</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Coeficiente Novo & Portabilidade */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.8rem' }}>Coeficiente Empréstimo Novo Médio</label>
+                  <input
+                    type="number"
+                    step="0.00001"
+                    className="form-control"
+                    style={{ fontSize: '0.85rem' }}
+                    placeholder="Ex.: 0.023896"
+                    value={newRuleCoeffNovo}
+                    onChange={(e) => setNewRuleCoeffNovo(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.8rem' }}>Coeficiente Portabilidade Específico</label>
+                  <input
+                    type="number"
+                    step="0.00001"
+                    className="form-control"
+                    style={{ fontSize: '0.85rem' }}
+                    placeholder="Usa padrão global se vazio"
+                    value={newRulePortCoeff}
+                    onChange={(e) => setNewRulePortCoeff(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Bloqueios LOAS e Rep. Legal */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={newRuleBlockLoas}
+                      onChange={(e) => setNewRuleBlockLoas(e.target.checked)}
+                      style={{ width: '16px', height: '16px' }}
+                    />
+                    Bloquear espécies LOAS nesta IF
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    style={{ fontSize: '0.82rem' }}
+                    placeholder="Espécies (87,88)"
+                    value={newRuleLoasSpecies}
+                    onChange={(e) => setNewRuleLoasSpecies(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={newRuleBlockRep}
+                      onChange={(e) => setNewRuleBlockRep(e.target.checked)}
+                      style={{ width: '16px', height: '16px' }}
+                    />
+                    Não operar com representante legal nesta IF
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    style={{ fontSize: '0.82rem' }}
+                    placeholder="Motivo exibido"
+                    value={newRuleRepReason}
+                    onChange={(e) => setNewRuleRepReason(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Limites e Taxas */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Taxa Mínima Entrada (%)</label>
+                  <input type="number" step="0.01" className="form-control" style={{ fontSize: '0.82rem' }} value={newRuleEntry} onChange={(e) => setNewRuleEntry(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Refin Mínimo (%)</label>
+                  <input type="number" step="0.01" className="form-control" style={{ fontSize: '0.82rem' }} value={newRuleRefiMin} onChange={(e) => setNewRuleRefiMin(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Refin Máximo (%)</label>
+                  <input type="number" step="0.01" className="form-control" style={{ fontSize: '0.82rem' }} value={newRuleRefiMax} onChange={(e) => setNewRuleRefiMax(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Idade Mínima</label>
+                  <input type="number" className="form-control" style={{ fontSize: '0.82rem' }} value={newRuleAgeMin} onChange={(e) => setNewRuleAgeMin(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Idade Máxima</label>
+                  <input type="text" className="form-control" style={{ fontSize: '0.82rem' }} placeholder="71 anos e 11 meses" value={newRuleAgeMax} onChange={(e) => setNewRuleAgeMax(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.78rem' }}>Prazo Padrão</label>
+                  <input type="number" className="form-control" style={{ fontSize: '0.82rem' }} value={newRuleTerm} onChange={(e) => setNewRuleTerm(e.target.value)} />
+                </div>
+              </div>
+
+              {/* Botões do Modal */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-outline" onClick={() => setIsCreateOpen(false)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={savingId === 'new'} style={{ fontWeight: 800, padding: '0.6rem 1.5rem' }}>
+                  {savingId === 'new' ? 'Cadastrando...' : 'Cadastrar Regra'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
