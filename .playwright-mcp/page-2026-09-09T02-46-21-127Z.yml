@@ -1,0 +1,46 @@
+- generic [ref=e1]:
+  - generic [active]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - navigation [ref=e7]:
+          - button [disabled] [ref=e8]:
+            - img "previous" [ref=e9]
+          - generic [ref=e11]:
+            - generic [ref=e12]: 1/
+            - text: "1"
+          - button [disabled] [ref=e13]:
+            - img "next" [ref=e14]
+        - link "Next.js 16.2.12 (stale) Turbopack" [ref=e17] [cursor=pointer]:
+          - /url: https://nextjs.org/docs/messages/version-staleness
+          - generic "There is a newer version (16.3.4) available, upgrade recommended!" [ref=e20]: Next.js 16.2.12 (stale)
+          - generic [ref=e21]: Turbopack
+      - dialog "Runtime Error" [ref=e23]:
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e29]:
+              - generic [ref=e30]: Runtime Error
+              - generic [ref=e31]: Server
+            - generic [ref=e32]:
+              - button "Copy Error Info" [ref=e33] [cursor=pointer]
+              - button "No related documentation found" [disabled] [ref=e36]
+              - button "Attach Node.js inspector" [ref=e39] [cursor=pointer]
+          - generic [ref=e49]:
+            - text: Your project's URL and Key are required to create a Supabase client! Check your Supabase project's API settings to find these values
+            - link "https://supabase.com/dashboard/project/_/settings/api" [ref=e50] [cursor=pointer]:
+              - /url: https://supabase.com/dashboard/project/_/settings/api
+        - generic [ref=e51]: "1"
+        - generic [ref=e52]: "2"
+    - generic [ref=e57] [cursor=pointer]:
+      - button "Open Next.js Dev Tools" [ref=e58]
+      - generic [ref=e62]:
+        - button "Open issues overlay" [ref=e63]:
+          - generic [ref=e64]:
+            - generic [aria-hidden] [ref=e65]: "0"
+            - generic [ref=e66]: "1"
+          - generic [ref=e67]: Issue
+        - button "Collapse issues badge" [ref=e68]
+  - generic [ref=e72]:
+    - heading "This page couldn’t load" [level=1] [ref=e75]
+    - paragraph [ref=e76]: A server error occurred. Reload to try again.
+    - button "Reload" [ref=e79] [cursor=pointer]
+  - paragraph [ref=e80]: ERROR 3701508995

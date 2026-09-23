@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260601183000_workspace_chat_bucket_sql", "label": "20260601183000_workspace_chat_bucket.sql", "file_type": "code", "source_file": "supabase/migrations/20260601183000_workspace_chat_bucket.sql", "source_location": null}], "edges": []}

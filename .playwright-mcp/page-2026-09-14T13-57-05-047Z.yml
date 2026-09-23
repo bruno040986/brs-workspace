@@ -1,0 +1,3 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]: "2026-09-14T13:56:17.903Z verifyOtp: ok uid=40083975-1368-42c2-afcb-63c8d87bb5c1 2026-09-14T13:56:17.910Z getSession no browser client: TEM sessão 2026-09-14T13:56:18.050Z canal instrumentado: SUBSCRIBED 2026-09-14T13:56:56.753Z canal instrumentado: EVENTO status=pago 2026-09-14T13:56:56.753Z HOOK REAL useCobrancaPaga: onPago() chamado"
+  - alert [ref=e3]

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260825110000_reset_senha_bruno_sql", "label": "20260825110000_reset_senha_bruno.sql", "file_type": "code", "source_file": "supabase/migrations/20260825110000_reset_senha_bruno.sql", "source_location": null}], "edges": []}

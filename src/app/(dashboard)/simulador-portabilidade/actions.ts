@@ -319,3 +319,38 @@ export async function saveCoeficienteGlobalPortabilidade(defaultPortCoeff: numbe
     return { success: false, error: error?.message || 'Erro ao salvar coeficiente global.' }
   }
 }
+
+export async function parsePdfExtratoAction(formData: FormData) {
+  try {
+    const file = formData.get('file') as File | null
+    if (!file) {
+      return { success: false, error: 'Nenhum arquivo PDF selecionado.' }
+    }
+
+    const bytes = Buffer.from(await file.arrayBuffer())
+    const mime = file.type || 'application/pdf'
+
+    const { extrairTexto } = await import('@/lib/convenios/pesquisa/extrair-texto')
+    const { parseClient, parseLoans } = await import('@/lib/portability/parser')
+
+    const { texto } = await extrairTexto(bytes, mime)
+    if (!texto || texto.trim().length === 0) {
+      return { success: false, error: 'Não foi possível extrair texto legível do PDF enviado.' }
+    }
+
+    const convenioInput = (formData.get('convenio') as any) || 'INSS'
+    const client = parseClient(texto, convenioInput)
+    const loans = parseLoans(texto)
+
+    return {
+      success: true,
+      rawText: texto,
+      client,
+      loans,
+    }
+  } catch (error: any) {
+    console.error('Erro ao ler PDF do extrato:', error)
+    return { success: false, error: error?.message || 'Falha ao processar arquivo PDF.' }
+  }
+}
+

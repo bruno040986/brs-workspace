@@ -1,5 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
@@ -20,7 +23,26 @@
       "Bash(git diff *)",
       "Bash(git push:*)",
       "Bash(git log *)",
-      "mcp__claude-flow__*"
+      "mcp__claude-flow__*",
+      "Bash(python3 -m venv ~/.local/share/graphify-venv)",
+      "Bash(~/.local/share/graphify-venv/bin/pip install *)",
+      "Read(//home/bruno0409/.local/share/graphify-venv/**)",
+      "Bash(python3 -m ensurepip --version)",
+      "Bash(python3 -m pip --version)",
+      "Bash(dpkg -l python3-venv python3-pip)",
+      "WebFetch(domain:pypi.org)",
+      "Bash(sudo -n true)",
+      "Bash(pipx install *)",
+      "Bash(command -v graphify)",
+      "Bash(graphify --version)",
+      "Bash(graphify install *)",
+      "Bash(tail -25 /home/bruno0409/.claude/CLAUDE.md)",
+      "Read(//home/bruno0409/.claude/**)",
+      "Bash(command -v headroom)",
+      "Bash(headroom --version)",
+      "Bash(headroom init *)",
+      "Bash(claude plugin *)",
+      "Bash(python3 -c ' *)"
     ],
     "deny": [
       "Bash(git reset *)",
@@ -31,8 +53,5 @@
       "Bash(wget *)",
       "Bash(rm -rf *)"
     ]
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

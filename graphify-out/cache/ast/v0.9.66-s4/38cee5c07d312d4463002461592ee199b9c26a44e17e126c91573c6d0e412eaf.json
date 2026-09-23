@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260911223100_chat_alias_seed_homologacao_disparo_sql", "label": "20260911223100_chat_alias_seed_homologacao_disparo.sql", "file_type": "code", "source_file": "supabase/migrations/20260911223100_chat_alias_seed_homologacao_disparo.sql", "source_location": null}], "edges": []}

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260813120001_seed_hub_banners_permissions_sql", "label": "20260813120001_seed_hub_banners_permissions.sql", "file_type": "code", "source_file": "supabase/migrations/20260813120001_seed_hub_banners_permissions.sql", "source_location": null}], "edges": []}

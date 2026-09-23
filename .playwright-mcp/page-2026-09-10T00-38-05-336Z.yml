@@ -1,0 +1,17 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - button "Nova mensagem (simula chegada no fim)" [ref=e3]
+    - button "Carregar histórico (prepend)" [ref=e4]
+    - button "Envio próprio" [ref=e5]
+    - button "Simular mídia tardia crescendo" [ref=e6]
+    - button "Trocar de conversa (remount)" [active] [ref=e7]
+  - generic [ref=e9]:
+    - generic [ref=e145]: Nova conversa msg 0
+    - generic [ref=e146]: Nova conversa msg 1
+    - generic [ref=e147]: Nova conversa msg 2
+    - generic [ref=e148]: Nova conversa msg 3
+    - generic [ref=e149]: Nova conversa msg 4
+    - generic [ref=e150]: Nova conversa msg 5
+    - generic [ref=e151]: Nova conversa msg 6
+    - generic [ref=e152]: Nova conversa msg 7
+  - generic [ref=e18]: "{ \"evento\": \"scroll-manual\", \"seguindoFim\": true, \"novasNaoLidas\": 0, \"scrollTop\": 0, \"scrollHeight\": 500, \"clientHeight\": 500, \"itens\": 8 }"

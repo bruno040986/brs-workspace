@@ -6,7 +6,11 @@ import {
   Calculator,
   CheckCircle2,
   Copy,
+  FileCheck,
+  FileText,
+  Loader2,
   Sparkles,
+  UploadCloud,
 } from 'lucide-react'
 import { parseClient, parseLoans } from '@/lib/portability/parser'
 import { evalAll } from '@/lib/portability/evaluator'
@@ -17,6 +21,7 @@ import {
   ConvenioTipo,
   RegraBancoPortabilidade,
 } from '@/lib/portability/types'
+import { parsePdfExtratoAction } from '../actions'
 
 interface Props {
   convenios: Array<{ id: string; nome: string; codigo: string }>
@@ -56,7 +61,11 @@ export default function SimuladorPortabilidadeClient({
   initialGeneralConfig,
 }: Props) {
   const [selectedConvenio, setSelectedConvenio] = useState<ConvenioTipo>('INSS')
+  const [inputMode, setInputMode] = useState<'text' | 'pdf'>('text')
   const [inputText, setInputText] = useState('')
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false)
+  const [pdfFileName, setPdfFileName] = useState<string | null>(null)
+
   const [rules] = useState<RegraBancoPortabilidade[]>(initialRules)
   const [generalConfig] = useState<ConfiguracoesGeraisPortabilidade>(initialGeneralConfig)
 
@@ -97,10 +106,45 @@ export default function SimuladorPortabilidadeClient({
     })
   }
 
+  async function handlePdfUpload(file: File) {
+    if (!file) return
+    setIsUploadingPdf(true)
+    setPdfFileName(file.name)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('convenio', selectedConvenio)
+
+      const res = await parsePdfExtratoAction(formData)
+      if (res.success && res.client) {
+        setInputText(res.rawText || '')
+        setClient(res.client)
+        setLoans(res.loans || [])
+
+        const initialPorts: Record<string, boolean> = {}
+        ;(res.loans || []).forEach((l, i) => {
+          initialPorts[l.contract || String(i)] = true
+        })
+        setSelections({
+          newContract: true,
+          ports: initialPorts,
+        })
+        showToast(`PDF "${file.name}" lido com sucesso! ${res.loans?.length || 0} contrato(s) identificado(s).`)
+      } else {
+        alert(res.error || 'Erro ao processar o arquivo PDF.')
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Erro ao importar arquivo PDF.')
+    } finally {
+      setIsUploadingPdf(false)
+    }
+  }
+
   function handleLimpar() {
     setInputText('')
     setClient(null)
     setLoans([])
+    setPdfFileName(null)
     setSelections({ newContract: true, ports: {} })
   }
 
@@ -230,7 +274,7 @@ export default function SimuladorPortabilidadeClient({
             Simulador de Portabilidade BRS
           </h1>
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#DCE6EF' }}>
-            Cole a consulta de benefício, identifique o cliente e analise em tempo real as instituições financeiras cadastradas elegíveis.
+            Cole a consulta (Vanguard / Promosys / Meu INSS) ou faça upload do PDF do extrato oficial (HISCON / SouGov) para calcular troco e simular.
           </p>
         </div>
       </div>
@@ -240,11 +284,49 @@ export default function SimuladorPortabilidadeClient({
         {/* Step 1: Input Panel */}
         <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--brs-navy, #17384B)' }}>
-              1. Cole aqui o extrato ou consulta
-            </h2>
+            {/* Abas de Entrada */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#F1F5F9', padding: '0.25rem', borderRadius: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  background: inputMode === 'text' ? 'var(--brs-navy, #17384B)' : 'transparent',
+                  color: inputMode === 'text' ? '#fff' : '#64748B',
+                  fontWeight: 800,
+                  fontSize: '0.78rem',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  border: 0,
+                  padding: '0.35rem 0.75rem',
+                }}
+                onClick={() => setInputMode('text')}
+              >
+                <FileText size={15} /> Vanguard / Promosys (Texto)
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  background: inputMode === 'pdf' ? 'var(--brs-navy, #17384B)' : 'transparent',
+                  color: inputMode === 'pdf' ? '#fff' : '#64748B',
+                  fontWeight: 800,
+                  fontSize: '0.78rem',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  border: 0,
+                  padding: '0.35rem 0.75rem',
+                }}
+                onClick={() => setInputMode('pdf')}
+              >
+                <UploadCloud size={15} /> Extrato PDF (HISCON)
+              </button>
+            </div>
 
-            {/* Convênio Selector (Exibe apenas convênios ativos vinculados a IFs) */}
+            {/* Convênio Selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--brs-gray-600)' }}>Convênio:</span>
               <select
@@ -262,19 +344,78 @@ export default function SimuladorPortabilidadeClient({
             </div>
           </div>
 
-          <textarea
-            className="form-control"
-            style={{
-              height: '160px',
-              fontFamily: 'ui-monospace, monospace',
-              fontSize: '0.82rem',
-              lineHeight: 1.4,
-              resize: 'vertical',
-            }}
-            placeholder="Cole o texto da consulta do extrato (INSS / SIAPE / Vanguard / Promosys)..."
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-          />
+          {inputMode === 'text' ? (
+            <textarea
+              className="form-control"
+              style={{
+                height: '160px',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: '0.82rem',
+                lineHeight: 1.4,
+                resize: 'vertical',
+              }}
+              placeholder="Cole aqui o texto bruto da consulta do extrato (INSS / SIAPE / Vanguard / Promosys / Meu INSS)..."
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+            />
+          ) : (
+            <div
+              style={{
+                height: '160px',
+                border: '2px dashed #CBD5E1',
+                borderRadius: '12px',
+                background: '#F8FAFC',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1rem',
+                textAlign: 'center',
+                cursor: 'pointer',
+                position: 'relative',
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                const file = e.dataTransfer.files?.[0]
+                if (file && file.type.includes('pdf')) {
+                  handlePdfUpload(file)
+                } else {
+                  alert('Por favor, selecione um arquivo no formato PDF.')
+                }
+              }}
+            >
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handlePdfUpload(file)
+                }}
+              />
+              {isUploadingPdf ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', color: 'var(--brs-navy)' }}>
+                  <Loader2 size={32} className="spin" color="#D97706" />
+                  <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>Lendo e processando extrato PDF...</span>
+                </div>
+              ) : pdfFileName ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', color: '#10B981' }}>
+                  <FileCheck size={36} />
+                  <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>{pdfFileName}</span>
+                  <span style={{ fontSize: '0.78rem', color: '#64748B' }}>Clique ou arraste outro PDF para substituir</span>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
+                  <UploadCloud size={36} color="#D97706" />
+                  <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--brs-navy)' }}>
+                    Arraste aqui o arquivo PDF do Extrato (HISCON / Meu INSS / SIAPE)
+                  </span>
+                  <span style={{ fontSize: '0.78rem' }}>ou clique para selecionar do seu computador</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
@@ -284,10 +425,12 @@ export default function SimuladorPortabilidadeClient({
               <button type="button" className="btn btn-outline" onClick={handleLimpar}>
                 Limpar
               </button>
-              <button type="button" className="btn btn-primary" onClick={handleAnalisar} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Sparkles size={16} />
-                Analisar Portabilidade
-              </button>
+              {inputMode === 'text' && (
+                <button type="button" className="btn btn-primary" onClick={handleAnalisar} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Sparkles size={16} />
+                  Analisar Portabilidade
+                </button>
+              )}
             </div>
           </div>
         </div>

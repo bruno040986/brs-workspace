@@ -262,55 +262,98 @@ export function parseClient(t: string, convenio: ConvenioTipo = 'INSS'): Cliente
   }
 }
 
+export function estimateDebtFromInstallment(installment: number, remaining: number, monthlyRate: number = 0.0166): number {
+  if (remaining <= 0 || installment <= 0) return 0
+  const rate = monthlyRate > 0 ? monthlyRate : 0.0166
+  const pv = installment * ((1 - Math.pow(1 + rate, -remaining)) / rate)
+  return Math.round(pv * 100) / 100
+}
+
+export function calculatePaidFromStartMonth(startStr: string): number | null {
+  if (!startStr) return null
+  const m = startStr.match(/(\d{2})\/(\d{4})/) || startStr.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+  if (!m) return null
+  const month = parseInt(m[1], 10) - 1
+  const year = parseInt(m[m.length - 1], 10)
+  const start = new Date(year, month, 1)
+  const now = new Date()
+  const diffMonths = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
+  return diffMonths > 0 ? diffMonths : 0
+}
+
 export function parseLoans(t: string): ContratoPortabilidade[] {
   const s = nexPlain(t)
   const loans: ContratoPortabilidade[] = []
 
-  const blockMatches = [...s.matchAll(/(Empr[eé]stimo\s+Banc[aá]rio\s+[\s\S]*?)(?=(Empr[eé]stimo\s+Banc[aá]rio|$))/gi)]
-  const blocks = blockMatches.length ? blockMatches.map((m) => m[1]) : [s]
+  // Divide o texto em blocos por palavras-chave de contrato/empréstimo ou linhas numeradas
+  const blockMatches = [...s.matchAll(/(Empr[eé]stimo\s+Banc[aá]rio|CONTRATO\s*:?|Empr[eé]stimo\s+Consignado|Consignado\s+INSS|Rubrica\s*:?[\s\S]*?)(?=(Empr[eé]stimo\s+Banc[aá]rio|CONTRATO\s*:?|Empr[eé]stimo\s+Consignado|Consignado\s+INSS|Rubrica\s*:?|$))/gi)]
+  const blocks = blockMatches.length ? blockMatches.map((m) => m[1]) : s.split(/\n\s*\n/).filter(Boolean)
 
   let globalIdx = 0
 
   for (const b of blocks) {
-    if (!/Empr[eé]stimo|Contrato|Parcela|Saldo|Banco/i.test(b)) continue
+    if (!/Empr[eé]stimo|Contrato|Parcela|Saldo|Banco|Rubrica|Consignad[oa]/i.test(b)) continue
 
-    const contractM = b.match(/Contrato\s*[:\-]?\s*([A-Za-z0-9\-\/.]+)/i)
-    const instM = b.match(/Parcela\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/i) || b.match(/Valor\s+Parcela\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/i)
+    const contractM = b.match(/(?:Contrato|Nº\s*Contrato|C[oó]digo)\s*[:\-]?\s*([A-Za-z0-9\-\/.]+)/i)
+    const instM =
+      b.match(/Parcela\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/i) ||
+      b.match(/Valor\s+Parcela\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/i) ||
+      b.match(/Vl\.?\s*Parcela\s*[:\-]?\s*R?\$\s*([\d.]+,\d{2})/i) ||
+      b.match(/R\$\s*([\d.]+,\d{2})\s*(?:mensal|por\s*m[eê]s)/i)
+    
     const debtM = b.match(/Saldo\s*(?:Devedor|Apx\.?|Aproximado)?\s*[:\-]?\s*R\$\s*([\d.]+,\d{2})/i)
-    const paidM = b.match(/Pagas\s*\/\s*Total\s*[:\-]?\s*(\d+)\s*\/\s*(\d+)/i) || b.match(/Pagas\s*[:\-]?\s*(\d+)/i)
-    const totalM = b.match(/Total\s*(?:de\s*Parcelas)?\s*[:\-]?\s*(\d+)/i)
-    const remM = b.match(/Restantes\s*[:\-]?\s*(\d+)/i)
+    const paidM = b.match(/Pagas\s*\/\s*Total\s*[:\-]?\s*(\d+)\s*\/\s*(\d+)/i) || b.match(/Pagas\s*[:\-]?\s*(\d+)/i) || b.match(/Qtd\.?\s*Pagas\s*[:\-]?\s*(\d+)/i)
+    const totalM = b.match(/Total\s*(?:de\s*Parcelas)?\s*[:\-]?\s*(\d+)/i) || b.match(/Prazo\s*[:\-]?\s*(\d+)/i)
+    const remM = b.match(/Restantes\s*[:\-]?\s*(\d+)/i) || b.match(/Qtd\.?\s*Restantes?\s*[:\-]?\s*(\d+)/i)
     const rateM = b.match(/Taxa\s*[:\-]?\s*([\d.,]+)\s*%/i)
     const bankM =
       b.match(/Banco\s*[:\-]?\s*([0-9]{2,4}\s*-\s*[A-ZÀ-Ÿ ]+|[A-ZÀ-Ÿ ]+)/i) ||
-      b.match(/Empr[eé]stimo\s+Banc[aá]rio\s*-\s*([^\n\r]+)/i)
+      b.match(/Empr[eé]stimo\s+Banc[aá]rio\s*-\s*([^\n\r]+)/i) ||
+      b.match(/(?:Institui[cç][aã]o|Consignat[aá]ria)\s*[:\-]?\s*([^\n\r]+)/i)
 
-    const startM = b.match(/(?:In[ií]cio|Data\s+In[ií]cio)\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4})/i)
+    const startM = b.match(/(?:In[ií]cio|Data\s+In[ií]cio|Comp\.?\s*In[ií]cio)\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{4})/i)
 
-    if (instM && debtM) {
+    if (instM) {
       const inst = numBR(instM[1])
-      const debt = numBR(debtM[1])
-      if (inst && debt && inst > 0 && debt > 0) {
-        globalIdx++
-        const originRaw = bankM ? bankM[1].trim() : 'Desconhecido'
-        const originNormalized = normBank(originRaw)
-        const paidVal = paidM ? parseInt(paidM[1], 10) : null
-        const totalVal = paidM && paidM[2] ? parseInt(paidM[2], 10) : totalM ? parseInt(totalM[1], 10) : 108
+      if (inst && inst > 0) {
+        let debt = debtM ? numBR(debtM[1]) : null
+        
+        let paidVal = paidM ? parseInt(paidM[1], 10) : null
+        if (paidVal == null && startM) {
+          paidVal = calculatePaidFromStartMonth(startM[1])
+        }
 
-        loans.push({
-          id: `loan_${globalIdx}_${Date.now()}`,
-          origin: originNormalized || originRaw,
-          originLabel: originRaw,
-          contract: contractM ? contractM[1] : `${globalIdx}`,
-          installment: inst,
-          debt,
-          paid: paidVal,
-          total: totalVal,
-          remaining: remM ? parseInt(remM[1], 10) : paidVal && totalVal ? totalVal - paidVal : null,
-          rate: rateM ? numBR(rateM[1]) : null,
-          startDate: startM ? startM[1] : '',
-          code: contractM ? contractM[1] : '',
-        })
+        let totalVal = paidM && paidM[2] ? parseInt(paidM[2], 10) : totalM ? parseInt(totalM[1], 10) : 84
+        let remainingVal = remM ? parseInt(remM[1], 10) : paidVal != null && totalVal ? Math.max(0, totalVal - paidVal) : null
+
+        const rateVal = rateM ? numBR(rateM[1]) : null
+
+        // Se o saldo devedor não veio no extrato (comum no HISCON INSS), estimar via Valor Presente (Price)
+        if ((debt == null || debt <= 0) && remainingVal != null && remainingVal > 0) {
+          const rateMonthly = rateVal && rateVal > 0 ? rateVal / 100 : 0.0166
+          debt = estimateDebtFromInstallment(inst, remainingVal, rateMonthly)
+        }
+
+        if (debt && debt > 0) {
+          globalIdx++
+          const originRaw = bankM ? bankM[1].trim() : 'Desconhecido'
+          const originNormalized = normBank(originRaw)
+
+          loans.push({
+            id: `loan_${globalIdx}_${Date.now()}`,
+            origin: originNormalized || originRaw,
+            originLabel: originRaw,
+            contract: contractM ? contractM[1] : `CTR-${globalIdx}`,
+            installment: inst,
+            debt,
+            paid: paidVal,
+            total: totalVal,
+            remaining: remainingVal,
+            rate: rateVal,
+            startDate: startM ? startM[1] : '',
+            code: contractM ? contractM[1] : '',
+          })
+        }
       }
     }
   }

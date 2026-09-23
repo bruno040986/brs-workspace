@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260830190000_remove_elogio_ketellen_bruno_sql", "label": "20260830190000_remove_elogio_ketellen_bruno.sql", "file_type": "code", "source_file": "supabase/migrations/20260830190000_remove_elogio_ketellen_bruno.sql", "source_location": null}], "edges": []}

@@ -1,0 +1,3 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e2]: "2026-09-14T13:59:15.953Z modo nologin: sessão só dos cookies (como em produção) 2026-09-14T13:59:15.965Z getSession no browser client: TEM sessão 2026-09-14T13:59:16.114Z canal instrumentado: SUBSCRIBED"
+  - alert [ref=f3e3]

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260601153000_cleanup_legacy_rls_policies_sql", "label": "20260601153000_cleanup_legacy_rls_policies.sql", "file_type": "code", "source_file": "supabase/migrations/20260601153000_cleanup_legacy_rls_policies.sql", "source_location": null}], "edges": []}

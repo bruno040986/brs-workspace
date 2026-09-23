@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260611090001_seed_tax_regimes_permissions_sql", "label": "20260611090001_seed_tax_regimes_permissions.sql", "file_type": "code", "source_file": "supabase/migrations/20260611090001_seed_tax_regimes_permissions.sql", "source_location": null}], "edges": []}

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260824190000_fix_ajuste_adicional_corrompido_sql", "label": "20260824190000_fix_ajuste_adicional_corrompido.sql", "file_type": "code", "source_file": "supabase/migrations/20260824190000_fix_ajuste_adicional_corrompido.sql", "source_location": null}], "edges": []}

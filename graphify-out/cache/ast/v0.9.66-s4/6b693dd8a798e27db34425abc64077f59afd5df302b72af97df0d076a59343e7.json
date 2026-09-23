@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260823200000_permissao_financeiro_parceiros_sql", "label": "20260823200000_permissao_financeiro_parceiros.sql", "file_type": "code", "source_file": "supabase/migrations/20260823200000_permissao_financeiro_parceiros.sql", "source_location": null}], "edges": []}

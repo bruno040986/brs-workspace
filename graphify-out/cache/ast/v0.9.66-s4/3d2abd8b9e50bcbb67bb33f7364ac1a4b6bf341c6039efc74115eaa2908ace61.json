@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_20260612000225_seed_cnaes_permissions_sql", "label": "20260612000225_seed_cnaes_permissions.sql", "file_type": "code", "source_file": "supabase/migrations/20260612000225_seed_cnaes_permissions.sql", "source_location": null}], "edges": []}
