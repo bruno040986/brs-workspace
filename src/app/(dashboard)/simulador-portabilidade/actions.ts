@@ -29,7 +29,7 @@ const HTML_BANK_PATTERNS = [
   'HAPPY',
 ]
 
-export function matchesHtmlBank(name: string): boolean {
+function matchesHtmlBank(name: string): boolean {
   if (!name) return false
   const upper = name.toUpperCase()
   return HTML_BANK_PATTERNS.some((pat) => upper.includes(pat))
