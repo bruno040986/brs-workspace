@@ -59,6 +59,7 @@ export interface RegraBancoPortabilidade {
   convenioId?: string
   convenioCodigo?: string
   logoUrl?: string | null
+  logoWideUrl?: string | null
   coeficienteNovoMedio?: number | null
   blockLoas?: boolean
   loasSpecies?: string

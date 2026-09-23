@@ -54,6 +54,34 @@ function pct(v: number | null | undefined) {
   return `${v.toFixed(2).replace('.', ',')}%`
 }
 
+function getFormattedDateTime() {
+  const now = new Date()
+  const day = String(now.getDate()).padStart(2, '0')
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const year = now.getFullYear()
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  return `${day}/${month}/${year} - ${hours}:${minutes}`
+}
+
+function ageYearsFromDob(dob: string): number | null {
+  if (!dob) return null
+  const parts = dob.split('/')
+  if (parts.length !== 3) return null
+  const day = parseInt(parts[0], 10)
+  const month = parseInt(parts[1], 10) - 1
+  const year = parseInt(parts[2], 10)
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null
+  const birthDate = new Date(year, month, day)
+  const today = new Date()
+  let age = today.getFullYear() - birthDate.getFullYear()
+  const m = today.getMonth() - birthDate.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--
+  }
+  return age >= 0 && age < 120 ? age : null
+}
+
 export default function SimuladorPortabilidadeClient({
   convenios,
   financialInstitutions,
@@ -65,6 +93,9 @@ export default function SimuladorPortabilidadeClient({
   const [inputText, setInputText] = useState('')
   const [isUploadingPdf, setIsUploadingPdf] = useState(false)
   const [pdfFileName, setPdfFileName] = useState<string | null>(null)
+
+  const [optionalCpf, setOptionalCpf] = useState('')
+  const [optionalDob, setOptionalDob] = useState('')
 
   const [rules] = useState<RegraBancoPortabilidade[]>(initialRules)
   const [generalConfig] = useState<ConfiguracoesGeraisPortabilidade>(initialGeneralConfig)
@@ -93,6 +124,15 @@ export default function SimuladorPortabilidadeClient({
     const parsedClient = parseClient(inputText, selectedConvenio)
     const parsedLoans = parseLoans(inputText)
 
+    if (optionalCpf.trim()) {
+      parsedClient.cpf = optionalCpf.replace(/\D/g, '')
+    }
+    if (optionalDob.trim()) {
+      parsedClient.dob = optionalDob.trim()
+      const ageCalc = ageYearsFromDob(optionalDob.trim())
+      if (ageCalc != null) parsedClient.age = ageCalc
+    }
+
     setClient(parsedClient)
     setLoans(parsedLoans)
 
@@ -118,7 +158,18 @@ export default function SimuladorPortabilidadeClient({
       const res = await parsePdfExtratoAction(formData)
       if (res.success && res.client) {
         setInputText(res.rawText || '')
-        setClient(res.client)
+
+        const finalClient = res.client
+        if (optionalCpf.trim()) {
+          finalClient.cpf = optionalCpf.replace(/\D/g, '')
+        }
+        if (optionalDob.trim()) {
+          finalClient.dob = optionalDob.trim()
+          const ageCalc = ageYearsFromDob(optionalDob.trim())
+          if (ageCalc != null) finalClient.age = ageCalc
+        }
+
+        setClient(finalClient)
         setLoans(res.loans || [])
 
         const initialPorts: Record<string, boolean> = {}
@@ -145,6 +196,8 @@ export default function SimuladorPortabilidadeClient({
     setClient(null)
     setLoans([])
     setPdfFileName(null)
+    setOptionalCpf('')
+    setOptionalDob('')
     setSelections({ newContract: true, ports: {} })
   }
 
@@ -173,20 +226,24 @@ export default function SimuladorPortabilidadeClient({
 
   function handleCopyProposal() {
     if (!client) return
+
+    const dateTimeStr = getFormattedDateTime()
     const lines: string[] = [
-      `*BRS GESTÃO — SIMULAÇÃO DE PORTABILIDADE*`,
-      `*Convênio:* ${selectedConvenio}`,
-      `*Cliente:* ${client.name}`,
-      `*CPF:* ${client.cpf ? formatCPF(client.cpf) : '—'}`,
+      `SIMULAÇÃO DE PORTABILIDADE - BRS PROMOTORA`,
+      `Convênio: ${selectedConvenio}`,
+      `Cliente: ${client.name || '—'}`,
+      `CPF: ${client.cpf ? formatCPF(client.cpf) : '—'}`,
+      `N° MATRÍCULA/BENEFÍCIO: ${client.nb ? formatNB(client.nb) : '—'}`,
+      `DATA SIMULAÇÃO: ${dateTimeStr}`,
       '',
     ]
 
     if (selections.newContract && newContractValue && newContractValue > 0) {
-      lines.push('*MARGEM NOVA*')
+      lines.push('MARGEM NOVA')
       lines.push(`Banco: ${selectedIfRule?.name || selectedNewBank}`)
       lines.push(`Parcela: ${money(client.margin)}`)
       lines.push(`Prazo: 84x / 108x`)
-      lines.push(`Valor liberado: ${money(newContractValue)}`)
+      lines.push(`Valor Liberado: ${money(newContractValue)}`)
       lines.push('----------------')
     }
 
@@ -200,7 +257,7 @@ export default function SimuladorPortabilidadeClient({
 
       if (!best) return
 
-      lines.push('*PORTABILIDADE*')
+      lines.push('PORTABILIDADE')
       lines.push(`Banco de Origem: ${b.loan.originLabel || b.loan.origin}`)
       lines.push(`Contrato: ${b.loan.contract || '—'}`)
       lines.push(`Parcela: ${money(b.loan.installment)}`)
@@ -210,11 +267,11 @@ export default function SimuladorPortabilidadeClient({
       lines.push('----------------')
     })
 
-    if (lines[lines.length - 1] === '----------------') lines.pop()
+    if (lines[lines.length - 1] === '') lines.pop()
 
     const textToCopy = lines.join('\n')
     navigator.clipboard.writeText(textToCopy).then(() => {
-      showToast('Simulação copiada para a área de transferência!')
+      showToast('Simulação copiada no padrão WhatsApp!')
     })
   }
 
@@ -359,61 +416,107 @@ export default function SimuladorPortabilidadeClient({
               onChange={(e) => setInputText(e.target.value)}
             />
           ) : (
-            <div
-              style={{
-                height: '160px',
-                border: '2px dashed #CBD5E1',
-                borderRadius: '12px',
-                background: '#F8FAFC',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '1rem',
-                textAlign: 'center',
-                cursor: 'pointer',
-                position: 'relative',
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault()
-                const file = e.dataTransfer.files?.[0]
-                if (file && file.type.includes('pdf')) {
-                  handlePdfUpload(file)
-                } else {
-                  alert('Por favor, selecione um arquivo no formato PDF.')
-                }
-              }}
-            >
-              <input
-                type="file"
-                accept=".pdf,application/pdf"
-                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) handlePdfUpload(file)
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div
+                style={{
+                  height: '130px',
+                  border: '2px dashed #CBD5E1',
+                  borderRadius: '12px',
+                  background: '#F8FAFC',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0.75rem',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  position: 'relative',
                 }}
-              />
-              {isUploadingPdf ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', color: 'var(--brs-navy)' }}>
-                  <Loader2 size={32} className="spin" color="#D97706" />
-                  <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>Lendo e processando extrato PDF...</span>
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const file = e.dataTransfer.files?.[0]
+                  if (file && file.type.includes('pdf')) {
+                    handlePdfUpload(file)
+                  } else {
+                    alert('Por favor, selecione um arquivo no formato PDF.')
+                  }
+                }}
+              >
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handlePdfUpload(file)
+                  }}
+                />
+                {isUploadingPdf ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', color: 'var(--brs-navy)' }}>
+                    <Loader2 size={28} className="spin" color="#D97706" />
+                    <span style={{ fontWeight: 800, fontSize: '0.85rem' }}>Lendo e processando extrato PDF...</span>
+                  </div>
+                ) : pdfFileName ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem', color: '#10B981' }}>
+                    <FileCheck size={30} />
+                    <span style={{ fontWeight: 800, fontSize: '0.85rem' }}>{pdfFileName}</span>
+                    <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Clique ou arraste outro PDF para substituir</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem', color: '#64748B' }}>
+                    <UploadCloud size={30} color="#D97706" />
+                    <span style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--brs-navy)' }}>
+                      Arraste aqui o arquivo PDF do Extrato (HISCON / Meu INSS / SIAPE)
+                    </span>
+                    <span style={{ fontSize: '0.75rem' }}>ou clique para selecionar do seu computador</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Campos Opcionais de CPF e Data de Nascimento */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', background: '#F8FAFC', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-navy)', marginBottom: '0.2rem' }}>
+                    CPF (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                    placeholder="000.000.000-00"
+                    value={optionalCpf}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setOptionalCpf(val)
+                      if (client) {
+                        setClient({ ...client, cpf: val.replace(/\D/g, '') })
+                      }
+                    }}
+                  />
                 </div>
-              ) : pdfFileName ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', color: '#10B981' }}>
-                  <FileCheck size={36} />
-                  <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>{pdfFileName}</span>
-                  <span style={{ fontSize: '0.78rem', color: '#64748B' }}>Clique ou arraste outro PDF para substituir</span>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-navy)', marginBottom: '0.2rem' }}>
+                    Data Nascimento (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                    placeholder="DD/MM/AAAA"
+                    value={optionalDob}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setOptionalDob(val)
+                      if (client) {
+                        const ageCalc = ageYearsFromDob(val)
+                        setClient({ ...client, dob: val || '—', age: ageCalc ?? client.age })
+                      }
+                    }}
+                  />
                 </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', color: '#64748B' }}>
-                  <UploadCloud size={36} color="#D97706" />
-                  <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--brs-navy)' }}>
-                    Arraste aqui o arquivo PDF do Extrato (HISCON / Meu INSS / SIAPE)
-                  </span>
-                  <span style={{ fontSize: '0.78rem' }}>ou clique para selecionar do seu computador</span>
-                </div>
-              )}
+              </div>
             </div>
           )}
 
@@ -552,7 +655,7 @@ export default function SimuladorPortabilidadeClient({
           const l = bundle.loan
           const key = l.contract || String(idx)
           const isSelected = selections.ports[key] ?? true
-          const shownResults = bundle.results.slice(0, 12)
+          const shownResults = bundle.results.slice(0, 16)
 
           const positives = bundle.results.filter(
             (x) => x.evaluation.status === 'ok' && x.evaluation.release != null && x.evaluation.release > 0
@@ -638,53 +741,137 @@ export default function SimuladorPortabilidadeClient({
                 </div>
               </div>
 
-              {/* Bank Grid Badges com Logo da IF */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.5rem' }}>
+              {/* Bank Grid Cards Quadratas (2x Maior, Logo Retangular no Topo) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
                 {shownResults.map(({ bank, evaluation }) => {
                   const isOk = evaluation.status === 'ok'
                   const isPending = evaluation.status === 'pending'
+                  const logoSrc = bank.logoWideUrl || bank.logoUrl
 
                   return (
                     <div
                       key={bank.id}
                       style={{
                         background: isOk ? '#F0FDF4' : isPending ? '#FFFBEB' : '#FEF2F2',
-                        border: `1px solid ${isOk ? '#BBF7D0' : isPending ? '#FDE68A' : '#FECACA'}`,
-                        borderRadius: '10px',
-                        padding: '0.5rem 0.6rem',
-                        fontSize: '0.78rem',
+                        border: `1px solid ${isOk ? '#86EFAC' : isPending ? '#FDE68A' : '#FCA5A5'}`,
+                        borderRadius: '14px',
+                        padding: '0.85rem 0.65rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        textAlign: 'center',
+                        minHeight: '155px',
+                        boxShadow: isOk ? '0 2px 8px rgba(16,185,129,0.08)' : 'none',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                        {bank.logoUrl ? (
-                          <img src={bank.logoUrl} alt="" style={{ width: 18, height: 18, objectFit: 'contain', borderRadius: 3 }} />
+                      {/* Cabeça do Card: Logo Retangular */}
+                      <div style={{ height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginBottom: '0.3rem' }}>
+                        {logoSrc ? (
+                          <img src={logoSrc} alt={bank.name} style={{ maxHeight: '36px', maxWidth: '90%', objectFit: 'contain' }} />
                         ) : (
-                          <Building2 size={15} style={{ color: 'var(--brs-navy)' }} />
-                        )}
-                        <strong style={{ fontSize: '0.78rem', color: 'var(--brs-navy)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                          {bank.name}
-                        </strong>
-                        {isOk ? (
-                          <span style={{ color: '#16A34A', fontWeight: 900, fontSize: '0.72rem' }}>✓ SIM</span>
-                        ) : isPending ? (
-                          <span style={{ color: '#D97706', fontWeight: 900, fontSize: '0.7rem' }}>! CONF</span>
-                        ) : (
-                          <span style={{ color: '#DC2626', fontWeight: 900, fontSize: '0.72rem' }}>× NÃO</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(23,56,75,0.06)', padding: '0.35rem 0.6rem', borderRadius: '6px' }}>
+                            <Building2 size={16} color="var(--brs-navy)" />
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--brs-navy)' }}>{bank.name}</span>
+                          </div>
                         )}
                       </div>
 
+                      {/* Nome da IF */}
                       <div
                         style={{
-                          fontSize: '0.68rem',
-                          color: isOk ? '#15803D' : isPending ? '#B45309' : '#B91C1C',
-                          whiteSpace: 'nowrap',
+                          fontWeight: 800,
+                          fontSize: '0.82rem',
+                          color: 'var(--brs-navy, #17384B)',
+                          marginBottom: '0.4rem',
+                          lineHeight: 1.2,
+                          maxHeight: '2.4em',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          fontWeight: 700,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
                         }}
-                        title={evaluation.reason}
+                        title={bank.name}
                       >
-                        {isOk ? (evaluation.release ? money(evaluation.release) : 'Aprovado') : evaluation.reason}
+                        {bank.name}
+                      </div>
+
+                      {/* Informação de SIM ou NÃO */}
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        {isOk ? (
+                          <span
+                            style={{
+                              background: '#16A34A',
+                              color: '#FFF',
+                              padding: '0.2rem 0.65rem',
+                              borderRadius: '999px',
+                              fontWeight: 900,
+                              fontSize: '0.72rem',
+                              letterSpacing: '0.5px',
+                              display: 'inline-block',
+                            }}
+                          >
+                            ✓ SIM
+                          </span>
+                        ) : isPending ? (
+                          <span
+                            style={{
+                              background: '#D97706',
+                              color: '#FFF',
+                              padding: '0.2rem 0.65rem',
+                              borderRadius: '999px',
+                              fontWeight: 900,
+                              fontSize: '0.72rem',
+                              letterSpacing: '0.5px',
+                              display: 'inline-block',
+                            }}
+                          >
+                            ! CONF
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              background: '#DC2626',
+                              color: '#FFF',
+                              padding: '0.2rem 0.65rem',
+                              borderRadius: '999px',
+                              fontWeight: 900,
+                              fontSize: '0.72rem',
+                              letterSpacing: '0.5px',
+                              display: 'inline-block',
+                            }}
+                          >
+                            ✕ NÃO
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Valor Liberado ou Motivo de NÃO */}
+                      <div style={{ width: '100%' }}>
+                        {isOk ? (
+                          <div style={{ fontWeight: 900, fontSize: '0.95rem', color: '#15803D', wordBreak: 'break-word' }}>
+                            {evaluation.release ? money(evaluation.release) : 'Aprovado'}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: '#991B1B',
+                              lineHeight: 1.25,
+                              maxHeight: '2.5em',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                            }}
+                            title={evaluation.reason}
+                          >
+                            {evaluation.reason || 'Não elegível'}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
