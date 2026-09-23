@@ -7,7 +7,7 @@
  *   - `socios[]`            N sócios, PF ou PJ; PJ sócia carrega o próprio
  *                           contrato social e os sócios PF relacionados (1 nível).
  *   - `administracao[]`     administradores/diretores/procuradores.
- *   - `pessoas[]`           pessoas físicas externas à estrutura (ex.: Coobrigado 2).
+ *   - `pessoas[]`           pessoas físicas externas à estrutura (legado; hoje sem uso).
  *   - `witness`             testemunha do parceiro (grupo legado, reusado).
  *   - `signatarios`         papéis contratuais referenciando pessoas por CPF.
  *   - `revisao_societaria`  pendência obrigatória quando existe sócio PJ.
@@ -134,7 +134,9 @@ export type TestemunhaBrsRef = {
 export type Signatarios = {
   /** Array para suportar representação conjunta. */
   representante_cnpj?: PersonRef[]
+  /** Responsável Garantidor (chave histórica, já gravada em cadastros). */
   coobrigado_solidario_1?: PersonRef
+  /** Descontinuado: a posição deixou de existir (24/09/2026); só aparece em cadastros antigos. */
   coobrigado_solidario_2?: PersonRef
   testemunha_parceiro?: PersonRef
   testemunha_brs?: TestemunhaBrsRef
@@ -349,7 +351,7 @@ export function resolveSignatario(
 }
 
 // =========================================================================
-// Elegibilidade dos Coobrigados Solidários
+// Elegibilidade do Responsável Garantidor
 // =========================================================================
 
 export type CoobrigadoCandidato = {
@@ -363,10 +365,10 @@ export type CoobrigadoCandidato = {
 }
 
 /**
- * Candidatos a Coobrigado Solidário, na ordem de elegibilidade definida:
+ * Candidatos a Responsável Garantidor, na ordem de elegibilidade definida:
  *   1º sócios PF diretos (sugestão: maior participação);
  *   2º na ausência de PF direto, sócios PF das PJs sócias;
- *   3º sem duas pessoas elegíveis → pendência manual do backoffice
+ *   3º sem pessoa elegível → pendência manual do backoffice
  *      (`externo` NÃO é oferecido automaticamente nesse cenário).
  */
 export function listCoobrigadoCandidatos(
@@ -402,7 +404,7 @@ export function listCoobrigadoCandidatos(
   return indiretos
 }
 
-/** Sugestão inicial de Coobrigado 1: sócio PF de maior participação (editável). */
+/** Sugestão inicial de Responsável Garantidor: sócio PF de maior participação (editável). */
 export function suggestCoobrigado1(
   corbanData: Record<string, any> | null | undefined,
 ): CoobrigadoCandidato | null {
@@ -473,11 +475,10 @@ export function validateCapitalSocial(
 /**
  * Matriz de compatibilidade de papéis (regras fechadas com o Bruno):
  *
- *   PERMITIDO  representante + coobrigado (1 ou 2); acúmulos societários.
- *   BLOQUEADO  coobrigado 1 == coobrigado 2;
- *              testemunha do parceiro == qualquer parte obrigada
- *              (representante, coobrigado 1, coobrigado 2);
- *              coobrigado que não seja PF.
+ *   PERMITIDO  representante + Responsável Garantidor; acúmulos societários.
+ *   BLOQUEADO  testemunha do parceiro == qualquer parte obrigada
+ *              (representante, Responsável Garantidor);
+ *              garantidor que não seja PF.
  */
 export function validateSignatarios(
   corbanData: Record<string, any> | null | undefined,
@@ -488,27 +489,16 @@ export function validateSignatarios(
 
   const rep = (sig.representante_cnpj || []).map((r) => onlyDigits(r?.cpf)).filter(Boolean)
   const c1 = onlyDigits(sig.coobrigado_solidario_1?.cpf)
-  const c2 = onlyDigits(sig.coobrigado_solidario_2?.cpf)
   const test = onlyDigits(sig.testemunha_parceiro?.cpf)
 
   if (rep.length === 0) {
     issues.push({ code: 'representante_ausente', message: 'Informe o representante do CNPJ.' })
   }
   if (!c1) {
-    issues.push({ code: 'coobrigado_1_ausente', message: 'Informe o Coobrigado Solidário 1.' })
-  }
-  if (!c2) {
-    issues.push({ code: 'coobrigado_2_ausente', message: 'Informe o Coobrigado Solidário 2.' })
+    issues.push({ code: 'garantidor_ausente', message: 'Informe o Responsável Garantidor.' })
   }
   if (!test) {
     issues.push({ code: 'testemunha_ausente', message: 'Informe a Testemunha do Parceiro.' })
-  }
-
-  if (c1 && c2 && c1 === c2) {
-    issues.push({
-      code: 'coobrigados_iguais',
-      message: 'Os Coobrigados Solidários 1 e 2 devem ser pessoas diferentes.',
-    })
   }
 
   if (test) {
@@ -518,23 +508,23 @@ export function validateSignatarios(
         message: 'A Testemunha do Parceiro não pode ser o representante do CNPJ.',
       })
     }
-    if (test === c1 || test === c2) {
+    if (test === c1) {
       issues.push({
-        code: 'testemunha_coobrigado',
-        message: 'A Testemunha do Parceiro não pode ser um dos Coobrigados Solidários.',
+        code: 'testemunha_garantidor',
+        message: 'A Testemunha do Parceiro não pode ser o Responsável Garantidor.',
       })
     }
   }
 
-  // Coobrigado 1 deve respeitar a ordem de elegibilidade quando há sócios.
+  // O garantidor deve respeitar a ordem de elegibilidade quando há sócios.
   if (c1) {
     const candidatos = listCoobrigadoCandidatos(corbanData)
     const elegivel = candidatos.some((cand) => cand.cpf === c1)
     if (!isFluxoSimplificado(empresaTipo) && candidatos.length > 0 && !elegivel) {
       issues.push({
-        code: 'coobrigado_1_inelegivel',
+        code: 'garantidor_inelegivel',
         message:
-          'O Coobrigado Solidário 1 deve ser um sócio PF da empresa (ou, na ausência, sócio PF de uma PJ sócia).',
+          'O Responsável Garantidor deve ser um sócio PF da empresa (ou, na ausência, sócio PF de uma PJ sócia).',
       })
     }
   }
@@ -542,8 +532,7 @@ export function validateSignatarios(
   // Pessoas referenciadas precisam existir na estrutura.
   for (const [papel, cpf] of [
     ['Representante', rep[0]],
-    ['Coobrigado 1', c1],
-    ['Coobrigado 2', c2],
+    ['Responsável Garantidor', c1],
     ['Testemunha do Parceiro', test],
   ] as Array<[string, string | undefined]>) {
     if (cpf && !resolvePersonByCpf(corbanData, cpf)) {

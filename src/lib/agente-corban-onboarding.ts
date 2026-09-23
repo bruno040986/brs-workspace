@@ -25,8 +25,6 @@ import { maskPhone } from './company-bank-accounts'
 import { getFieldProvenance, provenanceValuesDiffer, type FieldProvenanceEntry } from './agente-corban-provenance'
 import {
   getAdministracao,
-  getPessoasExternas,
-  getSignatarios,
   getSocios,
   type AdministracaoItem,
   type SocioItem,
@@ -634,20 +632,8 @@ export function buildValidacaoChecklistSpec(corbanData: Record<string, any> | nu
   })
 
   // ----- Signatários ----------------------------------------------------------
-  const signatarios = getSignatarios(data)
-  const pessoas = getPessoasExternas(data)
-
-  // Representante e Coobrigado 1 são só referência a alguém já validado como
-  // sócio/administrador acima — informativo, sem item de aprovação.
-
-  // Coobrigado 2: só vira validação completa quando é pessoa nova ("externo").
-  if (signatarios.coobrigado_solidario_2?.fonte === 'pessoas') {
-    const cpf = onlyDigits(signatarios.coobrigado_solidario_2.cpf)
-    const pessoaIndex = pessoas.findIndex((p) => onlyDigits(p.cpf) === cpf)
-    if (pessoaIndex >= 0) {
-      pushPersonFields(specs, data, `pessoas.${pessoaIndex}`, 'Coobrigado Solidário 2', '')
-    }
-  }
+  // Representante e Responsável Garantidor são só referência a alguém já validado
+  // como sócio/administrador acima — informativo, sem item de aprovação.
 
   // Testemunha do parceiro: sempre pessoa nova, sempre validação completa.
   if (hasValue(getValueAtPath(data, 'witness.cpf'))) {
@@ -703,21 +689,6 @@ export function buildValidacaoChecklistSpec(corbanData: Record<string, any> | nu
       })
     }
   })
-
-  if (signatarios.coobrigado_solidario_2?.fonte === 'pessoas') {
-    const files = normalizeFiles(arquivosPorDocumento.coobrigado2_doc)
-    if (files.length > 0) {
-      const cpf = onlyDigits(signatarios.coobrigado_solidario_2.cpf)
-      const pessoa = pessoas.find((p) => onlyDigits(p.cpf) === cpf)
-      specs.push({
-        etapa: 'validacao',
-        chave: 'documents.arquivos_por_documento.coobrigado2_doc',
-        rotulo: `Documento com foto — ${pessoa?.name || 'Coobrigado Solidário 2'}`,
-        tipo: 'documento',
-        valor: files,
-      })
-    }
-  }
 
   const witnessFiles = normalizeFiles(arquivosPorDocumento.witness_doc)
   if (witnessFiles.length > 0) {

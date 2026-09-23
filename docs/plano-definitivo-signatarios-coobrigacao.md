@@ -11,6 +11,13 @@
 > excepcional de sócios PJ definido (1 nível extra + revisão obrigatória
 > do backoffice). Ver seções marcadas [REV2].
 
+> **ATUALIZAÇÃO 24/09/2026 (decisão do Bruno):** o "Coobrigado Solidário 1" passou a se chamar
+> **Responsável Garantidor** e o "Coobrigado Solidário 2" **deixou de existir** — a garantia é de UMA
+> pessoa física. Só rótulos/regras mudaram: a chave gravada continua `signatarios.coobrigado_solidario_1`
+> (sem migração de dados); `coobrigado_solidario_2`/`pessoas[]` ficam só como legado de cadastros antigos.
+> O template do Assinafy precisa refletir um único papel "Responsável Garantidor". As seções abaixo
+> descrevem o desenho original de dois coobrigados.
+
 ## [REV2] Decisões incorporadas nesta revisão
 
 1. **Interveniente Anuente / cônjuge / regime de bens: FORA DO ESCOPO.**

@@ -1439,11 +1439,7 @@ function SignatariosSecao({
 }) {
   const signatarios = getSignatarios(corbanData)
   const representante = signatarios.representante_cnpj?.[0] ? resolvePersonByCpf(corbanData, signatarios.representante_cnpj[0].cpf) : null
-  const coobrigado1 = signatarios.coobrigado_solidario_1 ? resolvePersonByCpf(corbanData, signatarios.coobrigado_solidario_1.cpf) : null
-  const coobrigado2Externo = signatarios.coobrigado_solidario_2?.fonte === 'pessoas'
-  const coobrigado2 = signatarios.coobrigado_solidario_2 ? resolvePersonByCpf(corbanData, signatarios.coobrigado_solidario_2.cpf) : null
-
-  const coobrigado2Items = coobrigado2Externo ? items.filter((i) => i.chave.startsWith('pessoas.')) : []
+  const garantidor = signatarios.coobrigado_solidario_1 ? resolvePersonByCpf(corbanData, signatarios.coobrigado_solidario_1.cpf) : null
   const testemunhaItems = items.filter((i) => i.chave.startsWith('witness.'))
   const itensContaveis = items.filter((i) => !itemDispensaAprovacao(i, corbanData))
 
@@ -1453,21 +1449,9 @@ function SignatariosSecao({
         <div style={{ display: 'grid', gap: '0.9rem' }}>
           <div style={{ display: 'grid', gap: '0.25rem' }}>
             <InfoRow label="Representante da Empresa" value={representante ? `${representante.name} (já validado como ${representante.fonte === 'socio' ? 'sócio' : 'administração'} acima)` : '—'} />
-            <InfoRow label="Coobrigado Solidário 1" value={coobrigado1 ? `${coobrigado1.name} (já validado acima)` : '—'} />
-            {!coobrigado2Externo && (
-              <InfoRow label="Coobrigado Solidário 2" value={coobrigado2 ? `${coobrigado2.name} (já validado acima)` : '—'} />
-            )}
+            <InfoRow label="Responsável Garantidor" value={garantidor ? `${garantidor.name} (já validado acima)` : '—'} />
             <InfoRow label="Testemunha da BRS" value="Definida automaticamente na geração do contrato (Agente Corban)." />
           </div>
-
-          {coobrigado2Externo && coobrigado2Items.length > 0 && (
-            <div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.4rem' }}>
-                Coobrigado Solidário 2 (pessoa nova, fora da estrutura societária) {coobrigado2?.name ? `— ${coobrigado2.name}` : ''}
-              </div>
-              <GradeCampos items={coobrigado2Items} corbanData={corbanData} modoEdicao={modoEdicao} busyId={busyId} onAbrirEditar={onAbrirEditar} onAbrirReprovar={onAbrirReprovar} />
-            </div>
-          )}
 
           {testemunhaItems.length > 0 && (
             <div>
