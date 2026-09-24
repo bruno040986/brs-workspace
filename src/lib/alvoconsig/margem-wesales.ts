@@ -20,6 +20,7 @@ import {
   customFieldValue,
   ensureCustomField,
   findContactByCpf,
+  getContact,
   normalizeCpfDigits,
   setContactsBusiness,
   updateContact,
@@ -46,6 +47,12 @@ export type LinhaMargem = {
   margens: Partial<Record<ProdutoMargem, number | null>>
   /** Data da foto, AAAA-MM-DD. */
   data: string
+  /**
+   * Contato já resolvido pelo chamador (ex.: API Kaizom, que cria o contato
+   * via NVTI antes de gravar margem). Quando vem, o núcleo NÃO busca por CPF
+   * nem cria contato — só atualiza este id.
+   */
+  contactId?: string
 }
 
 export type ResultadoLinhaMargem = { cpf: string; contactId?: string; erro?: string }
@@ -166,9 +173,16 @@ export async function gravarContatoWesales(p: {
     await addContactTags(existente.id, p.tags)
     return existente.id
   }
+  // Sem telefone/e-mail (caso da API Kaizom), o WeSales só aceita criar o
+  // contato com firstName/lastName — `name` sozinho dá 422 ("Contacts
+  // without email, phone, firstName and lastName are not allowed"),
+  // visto no 1º envio real em 24/09/2026. `phone: null` também não vai.
+  const [firstName, ...resto] = nome.split(/\s+/).filter(Boolean)
+  const telefone = phoneToE164(p.telefone)
   const { contact, duplicateOfId } = await createContact({
-    name: nome || undefined,
-    phone: phoneToE164(p.telefone),
+    firstName: firstName || undefined,
+    lastName: resto.length ? resto.join(' ') : undefined,
+    phone: telefone || undefined,
     tags: p.tags,
     source: p.source || 'AlvoConsig — Importação API',
     customFields,
@@ -228,7 +242,8 @@ export async function gravarFotoMargemWesales(p: {
           customFields.push({ id: fieldDefs[DUPLAS_MARGEM[prod].valor].id, fieldValue: valor })
           customFields.push({ id: fieldDefs[DUPLAS_MARGEM[prod].data].id, fieldValue: linha.data })
         }
-        const existente = await findContactByCpf(linha.cpf)
+        const existente = linha.contactId ? await getContact(linha.contactId) : await findContactByCpf(linha.cpf)
+        if (linha.contactId && !existente) throw new Error(`Contato ${linha.contactId} não encontrado no WeSales.`)
         const contactId = await gravarContatoWesales({ ...linha, convenio: convenioCampos, customFields, existente, fieldDefs, tags, source: p.source })
         return { cpf: linha.cpf, contactId }
       } catch (error: any) {

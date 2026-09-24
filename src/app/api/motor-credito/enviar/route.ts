@@ -6,13 +6,22 @@
  * igual ao do Excel. A gravação em si é o núcleo compartilhado
  * `gravarFotoMargemWesales()` (D8).
  *
+ * Contato que ainda NÃO existe no WeSales passa antes pela NVTI (decisão do
+ * Bruno 24/09/2026, mesmo caminho da Higienização Amigoz): a higienização
+ * cria o contato com nome/telefones/endereço e só então a margem é gravada.
+ * A Kaizom não manda telefone — criar contato "nu" dava 422 no WeSales e,
+ * mesmo que passasse, nasceria um lead sem como ser contatado. NVTI usa o
+ * cache dela (`cache_days`), então reenviar não cobra de novo.
+ *
  * Body: { ids?: string[]; tarefaId?: number } — um dos dois.
  * Exige alvoconsig-motor-credito (can_include).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
-import { gravarFotoMargemWesales, numeradorImportacaoHoje, slugSegmento, type LinhaMargem } from '@/lib/alvoconsig/margem-wesales'
+import { comConcorrenciaLimitada, CONCORRENCIA_WESALES, gravarFotoMargemWesales, numeradorImportacaoHoje, slugSegmento, type LinhaMargem } from '@/lib/alvoconsig/margem-wesales'
+import { findContactByCpf } from '@/lib/wesales/client'
+import { higienizarCpf } from '@/lib/nvti/service'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -132,12 +141,40 @@ export async function POST(request: NextRequest) {
       const repetidas: Linha[] = []
       for (const l of grupo) (vistos.has(l.cpf) ? repetidas : (vistos.add(l.cpf), unicas)).push(l)
 
-      const entrada: LinhaMargem[] = unicas.map((l) => ({
+      // Resolve o contato: existe → usa; não existe → NVTI cria; NVTI falha → erro_envio (nunca contato nu).
+      const resolvidos = await comConcorrenciaLimitada(
+        unicas.map((l) => async (): Promise<{ linha: Linha; contactId?: string; erro?: string }> => {
+          try {
+            const existente = await findContactByCpf(l.cpf)
+            if (existente) return { linha: l, contactId: existente.id }
+            const outcome = await higienizarCpf({ cpf: l.cpf, userId: user.id, origin: 'service', serviceName: 'api-kaizom' })
+            if (outcome.status !== 'ok') return { linha: l, erro: `NVTI: ${outcome.error}` }
+            // A sync NVTI→WeSales é best-effort dentro do higienizarCpf; confirma que o contato nasceu.
+            for (let tentativa = 0; tentativa < 3; tentativa++) {
+              const criado = await findContactByCpf(l.cpf)
+              if (criado) return { linha: l, contactId: criado.id }
+              await new Promise((res) => setTimeout(res, 1500))
+            }
+            return { linha: l, erro: 'NVTI consultou, mas o contato não apareceu no WeSales.' }
+          } catch (error: any) {
+            return { linha: l, erro: error?.message || String(error) }
+          }
+        }),
+        CONCORRENCIA_WESALES,
+      )
+      const semContato = resolvidos.filter((r) => !r.contactId)
+      if (semContato.length) {
+        await Promise.all(semContato.map((r) => admin.from('motor_credito_consultas').update({ status: 'erro_envio', erro_envio: r.erro || 'Sem contato no WeSales.', crm_import_id: importRow.id }).eq('id', r.linha.id)))
+      }
+      const comContato = resolvidos.filter((r): r is { linha: Linha; contactId: string } => Boolean(r.contactId))
+
+      const entrada: LinhaMargem[] = comContato.map(({ linha: l, contactId }) => ({
         cpf: l.cpf,
         nome: l.nome,
         matricula: l.matricula,
         margens: { novo: l.margem_novo_disp, rmc: l.margem_rmc_disp, rcc: l.margem_rcc_disp },
         data: dataDaFoto(l.consultado_em, hojeBr),
+        contactId,
       }))
       const r = await gravarFotoMargemWesales({ admin, convenio: { ...convenio, codigo_sistema: convenio.codigo_sistema as string }, linhas: entrada, baseTagSlug, source: 'AlvoConsig — API Kaizom' })
 
@@ -149,22 +186,22 @@ export async function POST(request: NextRequest) {
             .update(res.contactId
               ? { status: 'enviada', wesales_contact_id: res.contactId, crm_import_id: importRow.id, erro_envio: null, revisado_em: agora }
               : { status: 'erro_envio', erro_envio: res.erro || 'Falha desconhecida', crm_import_id: importRow.id })
-            .eq('id', unicas[i].id),
+            .eq('id', comContato[i].linha.id),
         ),
         ...(repetidas.length
           ? [admin.from('motor_credito_consultas').update({ status: 'erro_envio', erro_envio: 'CPF repetido no mesmo envio — outra linha já gravou a foto.', crm_import_id: importRow.id }).in('id', repetidas.map((l) => l.id))]
           : []),
       ])
       enviadas += r.importadas
-      comErro += r.erros.length + repetidas.length
+      comErro += r.erros.length + repetidas.length + semContato.length
 
       await admin
         .from('crm_imports')
         .update({
-          status: r.erros.length > 0 && r.importadas === 0 ? 'erro' : 'concluido',
+          status: r.importadas === 0 && (r.erros.length + semContato.length) > 0 ? 'erro' : 'concluido',
           importadas: r.importadas,
-          descartadas: r.erros.length + repetidas.length,
-          erro: r.erros.length ? r.erros.slice(0, 20).join(' | ') : null,
+          descartadas: r.erros.length + repetidas.length + semContato.length,
+          erro: [...semContato.map((x) => `CPF ${x.linha.cpf}: ${x.erro}`), ...r.erros].slice(0, 20).join(' | ') || null,
           concluido_em: agora,
         })
         .eq('id', importRow.id)
