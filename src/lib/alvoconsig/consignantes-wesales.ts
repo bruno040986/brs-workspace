@@ -66,7 +66,18 @@ export async function resolverOuCriarConsignante(admin: AdminClient, convenio: C
   if (convenio.cep) properties.postalcode = convenio.cep
 
   if (convenio.wesales_business_id) {
-    await updateBusinessRecord(convenio.wesales_business_id, properties)
+    // Atualização é melhor-esforço: desde 24/08 o WeSales recusa PUT com
+    // `name`/`description` ("searchableProperties cannot be modified via the
+    // OAUTH channel", HTTP 400). Antes o erro subia e o chamador ficava sem
+    // id → contatos NUNCA eram vinculados ao Consignante quando o convênio já
+    // tinha empresa (achado 24/09/2026 no 1º envio da API Kaizom). O registro
+    // existe: devolve o id e o vínculo acontece; só o refresh dos dados fica
+    // pra quando a API permitir.
+    try {
+      await updateBusinessRecord(convenio.wesales_business_id, properties)
+    } catch (error: unknown) {
+      console.warn('[consignante] atualização recusada pelo WeSales, mantendo o registro existente:', error instanceof Error ? error.message : error)
+    }
     return convenio.wesales_business_id
   }
 
