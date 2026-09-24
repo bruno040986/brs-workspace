@@ -8,15 +8,19 @@
  * aprovadas ao WeSales. Padrão visual de alvoconsig/importacoes.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, ChevronRight, Loader2, Save, Send, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { AlertCircle, CheckCircle, ChevronRight, Loader2, Save, SearchCheck, Send, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { maskCpf } from '@/lib/company-bank-accounts'
 import {
   definirConvenioLoteKaizom,
+  estimarNvtiKaizom,
   listarConveniosParaRevisao,
   listarLinhasKaizom,
   listarLotesKaizom,
   revisarLinhasKaizom,
+  submeterNvtiKaizom,
+  verificarCadastrosKaizom,
   type ConvenioOpcao,
+  type EstimativaNvti,
   type LinhaStaging,
   type LoteKaizom,
   type StatusStaging,
@@ -29,6 +33,7 @@ const STATUS_LABEL: Record<StatusStaging, string> = {
   aprovada: 'Aprovada',
   rejeitada: 'Rejeitada',
   falha: 'Falha (Kaizom)',
+  sem_cadastro: 'Sem cadastro',
   enviando: 'Enviando…',
   enviada: 'Enviada',
   erro_envio: 'Erro no envio',
@@ -39,6 +44,7 @@ const STATUS_BADGE: Record<StatusStaging, string> = {
   aprovada: 'badge-info',
   rejeitada: 'badge-warning',
   falha: 'badge-danger',
+  sem_cadastro: 'badge-warning',
   enviando: 'badge-gray',
   enviada: 'badge-success',
   erro_envio: 'badge-danger',
@@ -70,6 +76,7 @@ export default function MotorCreditoRevisaoPage() {
   const [processando, setProcessando] = useState(false)
   const [convenioEscolhido, setConvenioEscolhido] = useState('')
   const [lembrarConvenio, setLembrarConvenio] = useState(true)
+  const [estimativa, setEstimativa] = useState<EstimativaNvti | null>(null)
 
   async function carregarLotes() {
     setLoadingLotes(true)
@@ -93,17 +100,57 @@ export default function MotorCreditoRevisaoPage() {
     setMessage(null)
     setConvenioEscolhido(l.convenioId || '')
     setLoadingLinhas(true)
-    const res = await listarLinhasKaizom(l.tarefaId)
+    const [res, est] = await Promise.all([listarLinhasKaizom(l.tarefaId), estimarNvtiKaizom(l.tarefaId)])
     if (res.success) setLinhas(res.data || [])
     else setMessage({ type: 'error', text: res.error || 'Erro ao carregar as linhas do lote.' })
+    setEstimativa(est.success ? est.data || null : null)
     setLoadingLinhas(false)
   }
 
   async function recarregarLoteAtivo() {
     if (!lote) return
-    const [lotesRes, linhasRes] = await Promise.all([listarLotesKaizom(), listarLinhasKaizom(lote.tarefaId)])
+    const [lotesRes, linhasRes, est] = await Promise.all([listarLotesKaizom(), listarLinhasKaizom(lote.tarefaId), estimarNvtiKaizom(lote.tarefaId)])
     if (lotesRes.success) setLotes(lotesRes.data || [])
     if (linhasRes.success) setLinhas(linhasRes.data || [])
+    setEstimativa(est.success ? est.data || null : null)
+  }
+
+  async function verificarCadastros() {
+    if (!lote) return
+    setProcessando(true)
+    setMessage(null)
+    const res = await verificarCadastrosKaizom(lote.tarefaId)
+    if (res.success) {
+      const d = res.data
+      setMessage({ type: 'success', text: `${d?.verificadas ?? 0} CPF(s) verificado(s) no WeSales: ${d?.cadastradas ?? 0} com cadastro, ${d?.semCadastro ?? 0} sem cadastro.` })
+      await recarregarLoteAtivo()
+    } else {
+      setMessage({ type: 'error', text: res.error || 'Erro ao verificar cadastros.' })
+    }
+    setProcessando(false)
+  }
+
+  async function submeterNvti() {
+    if (!lote || !estimativa?.candidatos) return
+    const ok = window.confirm(
+      `Submeter ${estimativa.candidatos} CPF(s) sem cadastro à NVTI?\n\n` +
+      `Isso cria os cadastros no WeSales (nome, telefones, endereço) pra receberem a atualização de margem.\n` +
+      `CUSTO ESTIMADO: ${estimativa.custoEstimado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (consulta paga, entra no limite mensal da NVTI).\n\n` +
+      `Alternativa SEM custo: cadastre antes pelo menu Gestão de Leads › Cadastro de Leads, usando a exportação do CRM da Kaizom (CPF, nome, sobrenome, telefone e convênio). ` +
+      `Depois clique em "Verificar cadastros" de novo.\n\n` +
+      `Confirmar o envio à NVTI?`,
+    )
+    if (!ok) return
+    setProcessando(true)
+    setMessage(null)
+    const res = await submeterNvtiKaizom(lote.tarefaId)
+    if (res.success) {
+      setMessage({ type: 'success', text: `${res.data?.enviados ?? 0} CPF(s) enviados ao lote NVTI. Acompanhe em Higienização NVTI; quando terminar, clique em "Verificar cadastros" aqui.` })
+      await recarregarLoteAtivo()
+    } else {
+      setMessage({ type: 'error', text: res.error || 'Erro ao submeter à NVTI.' })
+    }
+    setProcessando(false)
   }
 
   function toggleSelecao(id: string) {
@@ -194,7 +241,8 @@ export default function MotorCreditoRevisaoPage() {
         </div>
         <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
           Consultas lidas direto do banco da Kaizom, uma por lote (a &ldquo;tarefa&rdquo; do higienizador deles). Aprove ou rejeite,
-          confirme o convênio quando não veio casado, e só então envie ao WeSales — nunca vai automático.
+          confirme o convênio quando não veio casado, e só então envie ao WeSales — nunca vai automático. O envio só atualiza
+          margem de quem já é contato: verifique os cadastros antes e resolva os &ldquo;sem cadastro&rdquo; pelo Cadastro de Leads (grátis) ou pela NVTI (pago).
         </div>
       </div>
 
@@ -305,7 +353,23 @@ export default function MotorCreditoRevisaoPage() {
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => revisar('rejeitada')} disabled={processando || !selecionadas.size}>
                   <ThumbsDown size={14} /> Rejeitar selecionadas
                 </button>
+                <div style={{ flex: 1 }} />
+                <button type="button" className="btn btn-outline btn-sm" onClick={verificarCadastros} disabled={processando} title="Consulta o CPF de cada linha no WeSales. Não cria nada, não tem custo.">
+                  <SearchCheck size={14} /> Verificar cadastros no WeSales
+                </button>
+                {estimativa?.podeSubmeter && (
+                  <button type="button" className="btn btn-outline btn-sm" onClick={submeterNvti} disabled={processando || !estimativa.candidatos || !estimativa.nvtiAtiva} title={!estimativa.nvtiAtiva ? 'NVTI não configurada/inativa' : 'Cria os cadastros via NVTI — consulta PAGA. Cadastro de Leads é a alternativa gratuita.'}>
+                    <Sparkles size={14} /> Submeter sem cadastro à NVTI ({estimativa.candidatos})
+                  </button>
+                )}
               </div>
+              {estimativa && estimativa.candidatos > 0 && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)', marginBottom: '0.75rem' }}>
+                  {estimativa.candidatos} CPF(s) verificado(s) e sem cadastro no WeSales. O Enviar só grava margem em quem já é contato.
+                  Cadastre-os sem custo em <a href="/alvoconsig/cadastro-leads">Cadastro de Leads</a> (exportação do CRM da Kaizom serve de base)
+                  {estimativa.podeSubmeter ? ' ou submeta à NVTI (consulta paga).' : '. Submeter à NVTI exige a permissão de Higienização NVTI.'}
+                </div>
+              )}
 
               <div className="table-wrapper">
                 <table className="data-table">
@@ -324,14 +388,15 @@ export default function MotorCreditoRevisaoPage() {
                       <th>Novo</th>
                       <th>Cartão RMC</th>
                       <th>Cartão RCC</th>
+                      <th>Cadastro</th>
                       <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loadingLinhas ? (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
                     ) : linhas.length === 0 ? (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>Nenhuma linha neste lote.</td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: '2rem' }}>Nenhuma linha neste lote.</td></tr>
                     ) : (
                       linhas.map((l) => (
                         <tr key={l.id}>
@@ -342,6 +407,15 @@ export default function MotorCreditoRevisaoPage() {
                           <td>{fmtMoney(l.margem_novo_disp)}</td>
                           <td>{fmtMoney(l.margem_rmc_disp)}</td>
                           <td>{fmtMoney(l.margem_rcc_disp)}</td>
+                          <td>
+                            {l.wesales_contact_id ? (
+                              <span className="badge badge-success" title={`Contato ${l.wesales_contact_id}`}>Cadastrado</span>
+                            ) : l.wesales_verificado_em ? (
+                              <span className="badge badge-warning" title={`Verificado em ${fmtData(l.wesales_verificado_em)}`}>Sem cadastro</span>
+                            ) : (
+                              <span className="badge badge-gray" title="Clique em Verificar cadastros">Não verificado</span>
+                            )}
+                          </td>
                           <td>
                             <span className={`badge ${STATUS_BADGE[l.status]}`} title={l.observacao || l.erro_envio || ''}>
                               {STATUS_LABEL[l.status]}

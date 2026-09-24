@@ -6,12 +6,11 @@
  * igual ao do Excel. A gravação em si é o núcleo compartilhado
  * `gravarFotoMargemWesales()` (D8).
  *
- * Contato que ainda NÃO existe no WeSales passa antes pela NVTI (decisão do
- * Bruno 24/09/2026, mesmo caminho da Higienização Amigoz): a higienização
- * cria o contato com nome/telefones/endereço e só então a margem é gravada.
- * A Kaizom não manda telefone — criar contato "nu" dava 422 no WeSales e,
- * mesmo que passasse, nasceria um lead sem como ser contatado. NVTI usa o
- * cache dela (`cache_days`), então reenviar não cobra de novo.
+ * Só grava margem em quem JÁ é contato no WeSales (decisão do Bruno
+ * 24/09/2026: NVTI é ação orientada, não automática). Linha aprovada cujo
+ * CPF não existe vira `sem_cadastro` — o operador resolve pelo Cadastro de
+ * Leads (grátis, com a exportação do CRM da Kaizom) ou submetendo à NVTI
+ * pelo botão da tela (custo explícito). Nunca cria contato "nu".
  *
  * Body: { ids?: string[]; tarefaId?: number } — um dos dois.
  * Exige alvoconsig-motor-credito (can_include).
@@ -21,7 +20,6 @@ import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import { comConcorrenciaLimitada, CONCORRENCIA_WESALES, gravarFotoMargemWesales, numeradorImportacaoHoje, slugSegmento, type LinhaMargem } from '@/lib/alvoconsig/margem-wesales'
 import { findContactByCpf } from '@/lib/wesales/client'
-import { higienizarCpf } from '@/lib/nvti/service'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -35,6 +33,7 @@ type Linha = {
   nome: string | null
   matricula: string | null
   convenio_id: string
+  wesales_contact_id: string | null
   margem_novo_disp: number | null
   margem_rmc_disp: number | null
   margem_rcc_disp: number | null
@@ -66,7 +65,7 @@ export async function POST(request: NextRequest) {
     const admin = await createAdminClient()
     let q = admin
       .from('motor_credito_consultas')
-      .select('id, tarefa_id, cpf, nome, matricula, convenio_id, margem_novo_disp, margem_rmc_disp, margem_rcc_disp, consultado_em')
+      .select('id, tarefa_id, cpf, nome, matricula, convenio_id, wesales_contact_id, margem_novo_disp, margem_rmc_disp, margem_rcc_disp, consultado_em')
       .eq('status', 'aprovada')
       .not('convenio_id', 'is', null)
       .not('cpf', 'is', null)
@@ -141,21 +140,12 @@ export async function POST(request: NextRequest) {
       const repetidas: Linha[] = []
       for (const l of grupo) (vistos.has(l.cpf) ? repetidas : (vistos.add(l.cpf), unicas)).push(l)
 
-      // Resolve o contato: existe → usa; não existe → NVTI cria; NVTI falha → erro_envio (nunca contato nu).
+      // Resolve o contato: id já verificado na tela ou busca por CPF agora. Sem contato → sem_cadastro (nunca cria).
       const resolvidos = await comConcorrenciaLimitada(
         unicas.map((l) => async (): Promise<{ linha: Linha; contactId?: string; erro?: string }> => {
           try {
-            const existente = await findContactByCpf(l.cpf)
-            if (existente) return { linha: l, contactId: existente.id }
-            const outcome = await higienizarCpf({ cpf: l.cpf, userId: user.id, origin: 'service', serviceName: 'api-kaizom' })
-            if (outcome.status !== 'ok') return { linha: l, erro: `NVTI: ${outcome.error}` }
-            // A sync NVTI→WeSales é best-effort dentro do higienizarCpf; confirma que o contato nasceu.
-            for (let tentativa = 0; tentativa < 3; tentativa++) {
-              const criado = await findContactByCpf(l.cpf)
-              if (criado) return { linha: l, contactId: criado.id }
-              await new Promise((res) => setTimeout(res, 1500))
-            }
-            return { linha: l, erro: 'NVTI consultou, mas o contato não apareceu no WeSales.' }
+            const existente = l.wesales_contact_id ? { id: l.wesales_contact_id } : await findContactByCpf(l.cpf)
+            return existente ? { linha: l, contactId: existente.id } : { linha: l, erro: 'CPF ainda não é contato no WeSales — cadastre pelo Cadastro de Leads ou submeta à NVTI.' }
           } catch (error: any) {
             return { linha: l, erro: error?.message || String(error) }
           }
@@ -164,7 +154,7 @@ export async function POST(request: NextRequest) {
       )
       const semContato = resolvidos.filter((r) => !r.contactId)
       if (semContato.length) {
-        await Promise.all(semContato.map((r) => admin.from('motor_credito_consultas').update({ status: 'erro_envio', erro_envio: r.erro || 'Sem contato no WeSales.', crm_import_id: importRow.id }).eq('id', r.linha.id)))
+        await Promise.all(semContato.map((r) => admin.from('motor_credito_consultas').update({ status: 'sem_cadastro', erro_envio: r.erro || 'Sem contato no WeSales.', wesales_contact_id: null, wesales_verificado_em: new Date().toISOString(), crm_import_id: importRow.id }).eq('id', r.linha.id)))
       }
       const comContato = resolvidos.filter((r): r is { linha: Linha; contactId: string } => Boolean(r.contactId))
 

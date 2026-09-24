@@ -300,6 +300,30 @@ Fica pra depois (não bloqueia): expurgo da staging no mesmo prazo do
   RCC Margem + Data, tag `base:margem-...`, Convênio Código/Nome) → só então
   liberar pro operacional. E a regressão do D8: 1 import Excel de margem.
 
+## 7.2 Cadastro no WeSales — NVTI orientada, não automática (24/09/2026)
+
+1º envio real deu 422: a Kaizom não manda telefone e o WeSales recusa criar
+contato sem telefone/e-mail/nome dividido. Primeiro reflexo (fix `4174bbf`,
+NVTI automática dentro do Enviar) foi **revertido por decisão do Bruno**: o
+custo da NVTI tem que ser uma escolha consciente do operador. Vale:
+
+- **Enviar só grava margem em quem JÁ é contato.** Linha aprovada sem
+  contato vira `sem_cadastro` (status novo, migration `20260924145833`, com
+  `wesales_verificado_em`). Nunca cria contato "nu".
+- **"Verificar cadastros no WeSales"** (só no clique): busca cada CPF do
+  lote, grava `wesales_contact_id` + carimbo; coluna "Cadastro" mostra
+  Cadastrado / Sem cadastro / Não verificado. `sem_cadastro` que ganhou
+  contato volta pra `pendente`.
+- **"Submeter sem cadastro à NVTI (N)"**: só aparece pra quem tem
+  `operacional-nvti` (incluir); confirm mostra quantidade + custo estimado
+  (cascata do mês, `costForCount`) + orientação do caminho gratuito; cria
+  `nvti_batches` + itens e chama `kickNvtiWorker()` (mesmo caminho da
+  Higienização Amigoz). Depois o operador clica Verificar de novo.
+- **Caminho gratuito:** Gestão de Leads › Cadastro de Leads (CPF, nome,
+  sobrenome, telefone, convênio) com a exportação do CRM da Kaizom.
+- Núcleo `gravarFotoMargemWesales` aceita `contactId` já resolvido; o
+  fallback de criação (Excel sem telefone) manda firstName/lastName.
+
 ## 8. Roteiro de execução — quem faz o quê
 
 Uma sessão, uma worktree (`motor-credito/fase-2`, receita na §6); a troca de
