@@ -22,24 +22,29 @@ import * as XLSX from 'xlsx'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { hasPermissionForUser } from '@/lib/auth/server'
 import {
-  addContactTags,
-  createContact,
   createOpportunity,
-  customFieldValue,
   ensureCustomField,
   findContactByCpf,
   findOpportunitiesByContactDetalhadas,
-  normalizeCpfDigits,
   opportunityFieldValue,
   setContactsBusiness,
-  updateContact,
   updateOpportunity,
   type WesalesContact,
   type WesalesOpportunity,
 } from '@/lib/wesales/client'
-import { tagBase, TAG_DISPONIVEL, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
-import { MARGEM_FIELD_KEYS, MARGEM_FIELD_LABELS, OFERTA_FIELD_KEYS, OFERTA_FIELD_LABELS, nomeOportunidade, resolverPipelineOfertas, ETAPA_DISPONIVEL } from '@/lib/alvoconsig/ofertas-wesales'
+import { tagBase, TAG_DISPONIVEL } from '@/lib/alvoconsig/campos-sync'
+import { OFERTA_FIELD_KEYS, OFERTA_FIELD_LABELS, nomeOportunidade, resolverPipelineOfertas, ETAPA_DISPONIVEL } from '@/lib/alvoconsig/ofertas-wesales'
 import { resolverOuCriarConsignante } from '@/lib/alvoconsig/consignantes-wesales'
+import {
+  CONCORRENCIA_WESALES,
+  comConcorrenciaLimitada,
+  garantirCamposContato,
+  gravarContatoWesales,
+  gravarFotoMargemWesales,
+  slugSegmento,
+  type FieldDefs,
+  type LinhaMargem,
+} from '@/lib/alvoconsig/margem-wesales'
 import {
   camposParaTipo,
   cleanDigits,
@@ -61,7 +66,7 @@ const MAX_OFERTAS_POR_CPF_POR_IMPORTACAO = 20
 // Reduzido de 10 pra 5 após incidente de 429 (24/08/2026) — o client já tenta
 // de novo com backoff (src/lib/wesales/client.ts), mas menos rajada = menos
 // tempo perdido em retry.
-const CONCORRENCIA = 5
+const CONCORRENCIA = CONCORRENCIA_WESALES
 
 type Workbook = { headers: string[]; rows: unknown[][] }
 
@@ -80,23 +85,6 @@ function celula(row: unknown[], idx: number | undefined) {
   return row[idx] ?? null
 }
 
-/** Um segmento de tag: minúsculo, sem acento, sem espaço — pra compor tags automáticas. */
-function slugSegmento(s: string): string {
-  return String(s || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'x'
-}
-
-/** Telefone BR de planilha (10-11 dígitos) → E.164 (+55...). */
-function phoneToE164(telefone: string | null | undefined): string | null {
-  const d = String(telefone || '').replace(/\D/g, '')
-  if (d.length < 10 || d.length > 13) return null
-  if (d.startsWith('55') && d.length >= 12) return `+${d}`
-  return `+55${d}`
-}
 
 /**
  * Taxa de juros pra exibição — a planilha pode trazer fração decimal
@@ -111,19 +99,6 @@ function formatarTaxaPercentual(bruto: string | null): string | null {
   return `${percentual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
 }
 
-/** Executa `tarefas` com no máximo `limite` em paralelo. */
-async function comConcorrenciaLimitada<T>(tarefas: Array<() => Promise<T>>, limite: number): Promise<T[]> {
-  const resultados: T[] = new Array(tarefas.length)
-  let indice = 0
-  async function worker() {
-    while (indice < tarefas.length) {
-      const i = indice++
-      resultados[i] = await tarefas[i]()
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limite, tarefas.length) }, worker))
-  return resultados
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -288,57 +263,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Falha ao registrar a importação.' }, { status: 500 })
     }
 
-    // Garante os campos personalizados de CONTATO que serão gravados (1x, fora do loop).
+    // Campos personalizados de CONTATO garantidos 1x, fora do loop (núcleo
+    // compartilhado em margem-wesales.ts). Margem faz isso dentro de
+    // gravarFotoMargemWesales(), inclusive Consignante — aqui só REFIN/elegibilidade.
     const temNome = mapeamento.nome !== undefined
     const temTelefone = mapeamento.telefone !== undefined
     const temMatricula = mapeamento.matricula !== undefined
     const temConvenio = mapeamento.codigo_convenio !== undefined || !!codigoConvenioPadrao
 
-    const fieldsContatoAGarantir: Array<[string, string]> = [[WESALES_FIELD_KEYS.cpf, 'CPF']]
-    if (temMatricula) fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.matricula, 'Matrícula Funcional'])
-    if (temConvenio) {
-      fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.convenioCodigo, 'Convênio (Código Workspace)'])
-      // nome_reduzido cadastrado no convênio — mesmo fieldKey que o CLT usa,
-      // pra padronizar "nome do convênio" entre os dois fluxos (Bruno, 29/08).
-      if (convenioSelecionado.nome_reduzido) {
-        fieldsContatoAGarantir.push([WESALES_FIELD_KEYS.nomeConvenio, 'Convênio (Nome)'])
-      }
-    }
-    if (tipo === 'margem') {
-      // Convênio da margem NÃO é mais um campo por produto — é o mesmo
-      // "Convênio (Código)"/"Convênio (Nome)" compartilhado acima (Bruno,
-      // 29/08/2026): uma pessoa só tem um convênio por vez, não um por produto.
-      if (mapeamento.margem_novo !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.novoValor, MARGEM_FIELD_LABELS.novoValor], [MARGEM_FIELD_KEYS.novoData, MARGEM_FIELD_LABELS.novoData])
-      if (mapeamento.margem_cartao_rmc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rmcValor, MARGEM_FIELD_LABELS.rmcValor], [MARGEM_FIELD_KEYS.rmcData, MARGEM_FIELD_LABELS.rmcData])
-      if (mapeamento.margem_cartao_rcc !== undefined) fieldsContatoAGarantir.push([MARGEM_FIELD_KEYS.rccValor, MARGEM_FIELD_LABELS.rccValor], [MARGEM_FIELD_KEYS.rccData, MARGEM_FIELD_LABELS.rccData])
-    }
-
-    let fieldDefs: Record<string, { id: string }>
+    let fieldDefs: FieldDefs = {}
     let ofertaFieldDefs: Record<string, { id: string }> = {}
     let pipelineOfertas: Awaited<ReturnType<typeof resolverPipelineOfertas>> | null = null
-    try {
-      const resolved = await Promise.all(fieldsContatoAGarantir.map(([key, name]) => ensureCustomField(key, name, 'contact')))
-      fieldDefs = Object.fromEntries(fieldsContatoAGarantir.map(([key], i) => [key, resolved[i]]))
-
-      if (tipo === 'refin' || tipo === 'elegibilidade') {
+    if (tipo !== 'margem') {
+      try {
+        fieldDefs = await garantirCamposContato({ matricula: temMatricula, convenio: temConvenio, nomeConvenio: Boolean(convenioSelecionado.nome_reduzido) })
         const entradasOferta = Object.entries(OFERTA_FIELD_KEYS) as Array<[keyof typeof OFERTA_FIELD_KEYS, string]>
         const resolvedOferta = await Promise.all(entradasOferta.map(([campo, key]) => ensureCustomField(key, OFERTA_FIELD_LABELS[campo], 'opportunity')))
         ofertaFieldDefs = Object.fromEntries(entradasOferta.map(([, key], i) => [key, resolvedOferta[i]]))
         pipelineOfertas = await resolverPipelineOfertas()
+      } catch (error: any) {
+        await admin.from('crm_imports').update({ status: 'erro', erro: `Falha ao preparar campos/pipeline no WeSales: ${error?.message || error}`, concluido_em: new Date().toISOString() }).eq('id', importRow.id)
+        return NextResponse.json({ error: `Não foi possível preparar o WeSales: ${error?.message || error}` }, { status: 502 })
       }
-    } catch (error: any) {
-      await admin.from('crm_imports').update({ status: 'erro', erro: `Falha ao preparar campos/pipeline no WeSales: ${error?.message || error}`, concluido_em: new Date().toISOString() }).eq('id', importRow.id)
-      return NextResponse.json({ error: `Não foi possível preparar o WeSales: ${error?.message || error}` }, { status: 502 })
     }
 
     // Consignante/Empregador do convênio no WeSales — não bloqueia a
     // importação se falhar (contatos/ofertas continuam sendo o essencial);
     // só fica sem o vínculo de Empresa desta vez.
     let consignanteBusinessId: string | null = null
-    try {
-      consignanteBusinessId = await resolverOuCriarConsignante(admin, convenioSelecionado)
-    } catch (error: any) {
-      console.error('Falha ao resolver Consignante/Empregador no WeSales:', error?.message || error)
+    if (tipo !== 'margem') {
+      try {
+        consignanteBusinessId = await resolverOuCriarConsignante(admin, convenioSelecionado)
+      } catch (error: any) {
+        console.error('Falha ao resolver Consignante/Empregador no WeSales:', error?.message || error)
+      }
     }
     const contactIdsTocados: string[] = []
 
@@ -347,54 +305,27 @@ export async function POST(request: NextRequest) {
     let descartadas = 0
     const erros: string[] = []
 
-    /** Escreve os campos comuns (matrícula/convênio) + nome/telefone + tags no contato (cria se preciso). */
+    /** Linha da planilha → núcleo compartilhado (matrícula nunca sobrescreve; convênio único; tags). */
     async function gravarContato(cpf: string, row: unknown[], customFields: Array<{ id: string; fieldValue: string | number }>, existente: WesalesContact | null): Promise<string> {
-      customFields.unshift({ id: fieldDefs[WESALES_FIELD_KEYS.cpf].id, fieldValue: normalizeCpfDigits(cpf) })
-      if (temMatricula) {
-        const valor = String(celula(row, mapeamento.matricula) ?? '').trim()
-        // Preenche, mas NUNCA sobrescreve matrícula já registrada (decisão
-        // 02/09/2026: importação de margem/REFIN é oportunidade, não cadastro
-        // — quem manda no dado do lead é o Cadastro/a Atualização NVTI).
-        const matriculaAtual = existente ? customFieldValue(existente, fieldDefs[WESALES_FIELD_KEYS.matricula].id) : null
-        if (valor && !String(matriculaAtual || '').trim()) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.matricula].id, fieldValue: valor })
-      }
-      if (temConvenio) {
-        const codigo = codigoConvenioDaLinha(row)
-        if (codigo) customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.convenioCodigo].id, fieldValue: codigo })
-        const nomeReduzido = convenioSelecionado?.nome_reduzido as string | null
-        if (nomeReduzido && fieldDefs[WESALES_FIELD_KEYS.nomeConvenio]) {
-          customFields.push({ id: fieldDefs[WESALES_FIELD_KEYS.nomeConvenio].id, fieldValue: nomeReduzido })
-        }
-      }
-      const nome = temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : undefined
-      const telefone = temTelefone ? cleanDigits(celula(row, mapeamento.telefone)) : ''
-
-      if (existente) {
-        await updateContact(existente.id, { customFields })
-        await addContactTags(existente.id, tags)
-        return existente.id
-      }
-      const { contact, duplicateOfId } = await createContact({
-        name: nome || undefined,
-        phone: phoneToE164(telefone),
-        tags,
-        source: 'AlvoConsig — Importação API',
+      return gravarContatoWesales({
+        cpf,
+        nome: temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : null,
+        telefone: temTelefone ? cleanDigits(celula(row, mapeamento.telefone)) : null,
+        matricula: temMatricula ? String(celula(row, mapeamento.matricula) ?? '').trim() : null,
+        convenio: temConvenio ? { codigo: codigoConvenioDaLinha(row), nomeReduzido: (convenioSelecionado?.nome_reduzido as string | null) || null } : null,
         customFields,
+        existente,
+        fieldDefs,
+        tags,
       })
-      const contactId = contact?.id || duplicateOfId
-      if (!contactId) throw new Error('Criação bloqueada pela location (duplicado sem contactId).')
-      if (!contact) {
-        // Telefone já pertence a outro contato: vincula sem sobrescrever nome/telefone.
-        await updateContact(contactId, { customFields })
-        await addContactTags(contactId, tags)
-      }
-      return contactId
     }
 
     if (tipo === 'margem') {
-      // 1 "foto" de margem por pessoa — mantém o comportamento antigo (primeira linha do CPF ganha).
+      // 1 "foto" de margem por pessoa — primeira linha do CPF ganha; sem
+      // nenhuma margem, descarta. A gravação em si é o núcleo compartilhado
+      // com a API Kaizom (gravarFotoMargemWesales, D8).
       const vistos = new Set<string>()
-      const linhasValidas: Array<{ cpf: string; row: unknown[] }> = []
+      const linhasMargem: LinhaMargem[] = []
       for (const row of planilha.rows) {
         if (!Array.isArray(row)) continue
         const cpf = normalizeCpfCell(celula(row, mapeamento.cpf))
@@ -402,48 +333,31 @@ export async function POST(request: NextRequest) {
           descartadas += 1
           continue
         }
-        const algumaMargem = margensMapeadas.some((key) => parseMoney(celula(row, mapeamento[key])) !== null)
-        if (!algumaMargem) {
+        const margens: LinhaMargem['margens'] = {
+          novo: mapeamento.margem_novo !== undefined ? parseMoney(celula(row, mapeamento.margem_novo)) : null,
+          rmc: mapeamento.margem_cartao_rmc !== undefined ? parseMoney(celula(row, mapeamento.margem_cartao_rmc)) : null,
+          rcc: mapeamento.margem_cartao_rcc !== undefined ? parseMoney(celula(row, mapeamento.margem_cartao_rcc)) : null,
+        }
+        if (Object.values(margens).every((v) => v === null)) {
           descartadas += 1
           continue
         }
         vistos.add(cpf)
-        linhasValidas.push({ cpf, row })
+        linhasMargem.push({
+          cpf,
+          nome: temNome ? String(celula(row, mapeamento.nome) ?? '').trim() : null,
+          telefone: temTelefone ? cleanDigits(celula(row, mapeamento.telefone)) : null,
+          matricula: temMatricula ? String(celula(row, mapeamento.matricula) ?? '').trim() : null,
+          margens,
+          // Data da foto = hoje em Brasília (antes era o dia UTC — divergia entre 21h e 0h).
+          data: hojeBr,
+        })
       }
 
-      const hoje = new Date().toISOString().slice(0, 10)
-      // Convênio da margem: NÃO é mais gravado por produto aqui — é o mesmo
-      // campo único "Convênio (Código/Nome)" que gravarContato() já escreve
-      // pra todo contato tocado nesta importação (Bruno, 29/08/2026).
-      const DUPLAS = {
-        margem_novo: { valor: MARGEM_FIELD_KEYS.novoValor, data: MARGEM_FIELD_KEYS.novoData },
-        margem_cartao_rmc: { valor: MARGEM_FIELD_KEYS.rmcValor, data: MARGEM_FIELD_KEYS.rmcData },
-        margem_cartao_rcc: { valor: MARGEM_FIELD_KEYS.rccValor, data: MARGEM_FIELD_KEYS.rccData },
-      } as const
-
-      await comConcorrenciaLimitada(
-        linhasValidas.map(({ cpf, row }) => async () => {
-          try {
-            // Margem é MONETORY e data é DATE no WeSales: mandar NÚMERO e
-            // AAAA-MM-DD (string com vírgula viraria 123456; data BR dá 400).
-            const customFields: Array<{ id: string; fieldValue: string | number }> = []
-            for (const key of margensMapeadas) {
-              const valor = parseMoney(celula(row, mapeamento[key]))
-              if (valor === null) continue
-              const dupla = DUPLAS[key]
-              customFields.push({ id: fieldDefs[dupla.valor].id, fieldValue: valor })
-              customFields.push({ id: fieldDefs[dupla.data].id, fieldValue: hoje })
-            }
-            const existente = await findContactByCpf(cpf)
-            const contactId = await gravarContato(cpf, row, customFields, existente)
-            contactIdsTocados.push(contactId)
-            importadas += 1
-          } catch (error: any) {
-            erros.push(`CPF ${cpf}: ${error?.message || error}`)
-          }
-        }),
-        CONCORRENCIA,
-      )
+      const r = await gravarFotoMargemWesales({ admin, convenio: { ...convenioSelecionado, codigo_sistema: codigoConvenioPadrao }, linhas: linhasMargem, baseTagSlug })
+      importadas = r.importadas
+      erros.push(...r.erros)
+      contactIdsTocados.push(...r.contactIds)
     } else if (tipo === 'refin') {
       // REFIN: agrupa por CPF (cada linha = uma oferta = uma Oportunidade).
       // Reimportar a MESMA oferta (mesma instituição+tabela) atualiza a
