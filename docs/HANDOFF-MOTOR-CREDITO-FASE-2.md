@@ -287,9 +287,18 @@ Fica pra depois (não bloqueia): expurgo da staging no mesmo prazo do
 - **Ressalva a conferir na Etapa 3:** `consultado_em` é lido como texto e
   assumido em horário de Brasília (`parser.ts` › `consultadoEmParaIso`);
   comparar 1 linha real com "detalhes da tarefa" no higienizador.
-- **Falta (Etapa 2, Sonnet):** tela `/alvoconsig/motor-credito` sobre as
-  actions prontas; campo "Código na API Kaizom" no formulário de Convênio;
-  card com cursor/última leitura/botões. Depois Etapa 3 (Fable).
+- **Etapas 2 e 3 FEITAS (24/09, tarde):** tela `/alvoconsig/motor-credito`,
+  campo "Código na API Kaizom" no Convênio, card de sincronização (Sonnet);
+  revisão + `next build` + merge na main (`6ec7efd`) + `db push` (Fable).
+  **Primeira leitura do cron em produção OK** (17:15 UTC): 10 linhas do lote
+  2158, `convenio_externo = "GOVERNO SP"`, todas `pendente` e sem convênio
+  casado (de-para ainda vazio — esperado), cursor `1486890`, lease solto.
+  `consultado_em` gravado como 17:26:53 -03:00 (hipótese Brasília) — **falta
+  Bruno comparar com o higienizador**.
+- **Falta (Bruno, na tela):** definir o convênio do lote 2158 com "lembrar"
+  → aprovar 1 CPF → Enviar ao WeSales → conferir o contato (campos Novo/RMC/
+  RCC Margem + Data, tag `base:margem-...`, Convênio Código/Nome) → só então
+  liberar pro operacional. E a regressão do D8: 1 import Excel de margem.
 
 ## 8. Roteiro de execução — quem faz o quê
 
