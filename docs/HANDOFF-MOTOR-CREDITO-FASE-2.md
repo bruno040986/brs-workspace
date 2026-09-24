@@ -271,6 +271,26 @@ leitura (quando/quantas linhas), botão "Ler agora" (mesma função do cron) e
 Fica pra depois (não bloqueia): expurgo da staging no mesmo prazo do
 `alvoconsig-expurgo`; espelhar tarefas (b) se precisar de metadados do lote.
 
+## 7.1 Estado em 24/09/2026 (retomada)
+
+- Card renomeado **"API Kaizom"** (main `1cb629c`).
+- Kaizom entregou a coluna `consultas.convenio` (**só o nome**, ex.
+  "GOVERNO SP" — sem id). D2 fica: `convenios.codigo_motor_credito` guarda
+  esse nome NORMALIZADO (trim/maiúsculas/sem acento); o leitor casa por ele.
+- **Etapa 1 FEITA** na worktree `brs-workspace-motor-credito` (branch
+  `motor-credito/fase-2`, 3 commits): migration `20260924113756`, REGRA FIXA
+  (4 pontos), `tipos.ts`, `parser.ts` (+ teste anonimizado), `leitor.ts`,
+  cron `/api/cron/motor-credito` (*/5), actions do card (Ler agora /
+  Reposicionar cursor), D8 (`src/lib/alvoconsig/margem-wesales.ts`, commit
+  isolado `0fda85e`), `staging-actions.ts`, `POST /api/motor-credito/enviar`.
+  O parser (Etapa 2.1) já foi escrito junto porque o leitor depende dele.
+- **Ressalva a conferir na Etapa 3:** `consultado_em` é lido como texto e
+  assumido em horário de Brasília (`parser.ts` › `consultadoEmParaIso`);
+  comparar 1 linha real com "detalhes da tarefa" no higienizador.
+- **Falta (Etapa 2, Sonnet):** tela `/alvoconsig/motor-credito` sobre as
+  actions prontas; campo "Código na API Kaizom" no formulário de Convênio;
+  card com cursor/última leitura/botões. Depois Etapa 3 (Fable).
+
 ## 8. Roteiro de execução — quem faz o quê
 
 Uma sessão, uma worktree (`motor-credito/fase-2`, receita na §6); a troca de
