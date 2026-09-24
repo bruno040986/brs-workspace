@@ -30,6 +30,8 @@ export type MotorCreditoConfigPublica = {
   ativo: boolean
   cursorColuna: string | null
   cursorValor: string | null
+  ultimaLeituraEm: string | null
+  ultimaLeituraQtd: number | null
   atualizadoEm: string | null
 }
 
@@ -43,6 +45,8 @@ type ConfigRow = {
   senha_enc: string | null
   cursor_coluna: string | null
   cursor_valor: string | null
+  ultima_leitura_em?: string | null
+  ultima_leitura_qtd?: number | null
   ativo: boolean
   updated_at: string | null
 }
@@ -69,6 +73,8 @@ export async function lerMotorCreditoConfigPublica(): Promise<MotorCreditoConfig
     ativo: row?.ativo !== false,
     cursorColuna: row?.cursor_coluna || null,
     cursorValor: row?.cursor_valor || null,
+    ultimaLeituraEm: row?.ultima_leitura_em || null,
+    ultimaLeituraQtd: row?.ultima_leitura_qtd ?? null,
     atualizadoEm: row?.updated_at || null,
   }
 }
@@ -104,13 +110,13 @@ export async function salvarMotorCreditoConfig(input: {
 }
 
 /** Nome de coluna/tabela só pode ir direto na query (mysql2 não parametriza identificador) depois de validado assim — sem isso, injeção via `tabela` salva na config. */
-function identificadorSeguro(nome: string, rotulo: string): string {
+export function identificadorSeguro(nome: string, rotulo: string): string {
   const limpo = String(nome || '').trim()
   if (!/^[a-zA-Z0-9_]{1,64}$/.test(limpo)) throw new Error(`${rotulo} inválido: só letras, números e _ (recebido: "${nome}").`)
   return limpo
 }
 
-async function abrirConexao(): Promise<{ conn: Connection; tabela: string }> {
+export async function abrirConexao(): Promise<{ conn: Connection; tabela: string }> {
   const row = await lerMotorCreditoConfigRow()
   if (!row?.host || !row.senha_enc) throw new Error('API Kaizom (MySQL) não configurada (Provedores e APIs › API Kaizom).')
   const tabela = identificadorSeguro(row.tabela || 'consultas', 'Nome da tabela')
@@ -121,6 +127,9 @@ async function abrirConexao(): Promise<{ conn: Connection; tabela: string }> {
     user: row.usuario,
     password: decifrarTexto(row.senha_enc),
     connectTimeout: 8000,
+    // Datas como texto cru ("AAAA-MM-DD HH:MM:SS") no fuso do servidor deles —
+    // o parser decide o fuso, em vez do mysql2 chutar o do Vercel (UTC).
+    dateStrings: true,
     // TCP puro: o fornecedor não expôs TLS pra essa integração até aqui.
     // Se eles ligarem SSL/TLS depois, ajusta pra ssl: { rejectUnauthorized: true }.
   })

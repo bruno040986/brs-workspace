@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/alvoconsig-expurgo",
       "schedule": "17 9 * * *"
+    },
+    {
+      "path": "/api/cron/motor-credito",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

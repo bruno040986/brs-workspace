@@ -8,6 +8,8 @@
  */
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
+import { lerConsultasKaizom, type ResultadoLeitura } from './leitor'
+import { createAdminClient } from '@/lib/supabase/server'
 import {
   amostrarLinhasMotorCredito,
   descreverTabelaMotorCredito,
@@ -68,6 +70,37 @@ export async function explorarMotorCreditoSchema(): Promise<{ success: boolean; 
     await requirePermission(RESOURCE, 'can_edit')
     const [colunas, amostra] = await Promise.all([descreverTabelaMotorCredito(), amostrarLinhasMotorCredito(5)])
     return { success: true, data: { colunas, amostra } }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+/** D10 — "Ler agora": mesma função do cron, disparada pela tela (respeita o lease). */
+export async function lerAgoraMotorCredito(): Promise<{ success: boolean; data?: ResultadoLeitura; error?: string }> {
+  try {
+    await requirePermission(RESOURCE, 'can_edit')
+    const data = await lerConsultasKaizom()
+    revalidatePath('/rh/parceiros/config/provedores/motor-credito')
+    return { success: true, data }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * D10 — "Reposicionar cursor" (só root). Seguro pelo D5: reler linhas já
+ * vistas não duplica nada (`mysql_id` unique + insert ignorando duplicata).
+ */
+export async function reposicionarCursorMotorCredito(novoCursor: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requirePermission('sistema-usuarios-root', 'can_edit')
+    const valor = String(novoCursor || '').trim()
+    if (!/^\d{1,18}$/.test(valor)) throw new Error('Cursor deve ser um número inteiro (id da consulta).')
+    const admin = await createAdminClient()
+    const { error } = await admin.from('motor_credito_mysql_config').update({ cursor_coluna: 'id', cursor_valor: valor }).eq('id', 1)
+    if (error) throw error
+    revalidatePath('/rh/parceiros/config/provedores/motor-credito')
+    return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message }
   }

@@ -99,6 +99,7 @@ const SYSTEM_MODULES = [
   { id: 'alvoconsig-gestao', name: 'AlvoConsig — Gestão de Leads', parentId: 'cat-div-comercial', level: 1 },
   { id: 'alvoconsig-certificacao', name: 'Certificação de Clientes', parentId: 'alvoconsig-gestao', level: 2 },
   { id: 'alvoconsig-higienizacao-amigoz', name: 'Higienização Amigoz (margens de crédito)', parentId: 'alvoconsig-gestao', level: 2 },
+  { id: 'alvoconsig-motor-credito', name: 'API Kaizom — Revisão de Margens', parentId: 'alvoconsig-gestao', level: 2 },
 
   // Divisão: Tecnologia
   { id: 'cat-div-tecnologia', name: 'Divisão: Tecnologia', isHeader: true, level: 0 },
