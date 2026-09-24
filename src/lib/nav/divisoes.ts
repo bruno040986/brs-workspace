@@ -10,10 +10,20 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
   BriefcaseBusiness,
+  Clock,
   Cpu,
+  Database,
+  FileSpreadsheet,
   FolderKanban,
+  GraduationCap,
+  Landmark,
+  Megaphone,
+  Rocket,
   Settings2,
+  Shield,
   TrendingUp,
+  UserCog,
+  UserPlus,
   Users,
 } from 'lucide-react'
 import type { EffectivePermission, PermissionRequirement } from '@/lib/auth/permissions'
@@ -24,6 +34,14 @@ export type NavSubItem = {
   href: string
   /** requisitos: qualquer um libera (vazio = herda o do pai) */
   perms?: PermissionRequirement[]
+  /** Ativa/expande só em match EXATO de rota, não por prefixo — necessário quando
+   * este href é prefixo de outro item irmão (ex.: /alvoconsig × /alvoconsig/alocacao),
+   * senão os dois itens do menu ficam ativos/abertos ao mesmo tempo. */
+  exact?: boolean
+  soon?: boolean
+  /** Usado pela tela de cards (CardsDoItem) — opcional, sem efeito na sidebar. */
+  desc?: string
+  icon?: LucideIcon
 }
 
 export type NavItemDef = {
@@ -205,21 +223,49 @@ export const NAV_DIVISOES: NavDivisao[] = [
         ],
       },
       {
+        // Preparo de leads, independente de convênio ou frente comercial —
+        // reorganizado 24/09/2026 (era um único item com 11 filhos misturando
+        // AlvoConsig/Amigoz/Kaizom/CLT; "AlvoConsig" no rótulo era enganoso
+        // porque esta etapa NÃO é específica do AlvoConsig).
         label: 'Gestão de Leads',
         href: '/gestao-leads',
-        perms: [view('alvoconsig-gestao'), view('central-integracoes')],
+        perms: [
+          view('alvoconsig-gestao'),
+          view('alvoconsig-higienizacao-amigoz'),
+          view('alvoconsig-motor-credito'),
+          view('alvoconsig-consulta-fydigital'),
+        ],
         children: [
-          { label: 'AlvoConsig — Visão Geral', href: '/alvoconsig', perms: [view('alvoconsig-gestao')] },
-          { label: 'Cadastro de Leads', href: '/alvoconsig/cadastro-leads', perms: [view('alvoconsig-gestao')] },
-          { label: 'Importações', href: '/alvoconsig/importacoes', perms: [view('alvoconsig-gestao')] },
-          { label: 'Alocação de Leads', href: '/alvoconsig/alocacao', perms: [view('alvoconsig-gestao')] },
-          { label: 'Certificação', href: '/alvoconsig/certificacao', perms: [view('alvoconsig-certificacao')] },
-          { label: 'Higienização Amigoz', href: '/gestao-leads/higienizacao-amigoz', perms: [view('alvoconsig-higienizacao-amigoz')] },
-          { label: 'API Kaizom — Revisão de Margens', href: '/alvoconsig/motor-credito', perms: [view('alvoconsig-motor-credito')] },
-          { label: 'Contatos', href: '/alvoconsig/contatos', perms: [view('alvoconsig-gestao')] },
-          { label: 'Perfis de Usuário', href: '/alvoconsig/perfis', perms: [view('alvoconsig-gestao')] },
-          { label: 'Ações Manuais', href: '/central-integracoes/acoes', perms: [view('central-integracoes')] },
-          { label: 'Importação de Bases', href: '/central-integracoes/bases', perms: [view('central-integracoes')] },
+          { label: 'Visão Geral', href: '/alvoconsig', exact: true, perms: [view('alvoconsig-gestao')], desc: 'Painel da gestão de leads do pool WeSales.', icon: Users },
+          { label: 'Cadastro de Leads', href: '/alvoconsig/cadastro-leads', perms: [view('alvoconsig-gestao')], desc: 'Cadastro em lote — só cria; CPF que já existe é ignorado, nunca atualizado.', icon: UserPlus },
+          { label: 'Importações', href: '/alvoconsig/importacoes', perms: [view('alvoconsig-gestao')], desc: 'Margens, REFIN e Elegibilidade — nunca cadastra ou atualiza lead, só oportunidade/margem.', icon: FileSpreadsheet },
+          { label: 'Consulta Amigoz', href: '/gestao-leads/higienizacao-amigoz', perms: [view('alvoconsig-higienizacao-amigoz')], desc: 'Margem de crédito via API do Amigoz — unitária, por planilha ou selecionando contatos do WeSales.', icon: Landmark },
+          { label: 'Consulta Kaizom', href: '/alvoconsig/motor-credito', perms: [view('alvoconsig-motor-credito')], desc: 'Margem lida direto do banco da Kaizom — revise, confirme o convênio e envie ao WeSales.', icon: Database },
+          { label: 'Consulta Fy.Digital', href: '/gestao-leads/consulta-fydigital', soon: true, perms: [view('alvoconsig-consulta-fydigital')], desc: 'Margem via API da FyDigital — em homologação (aguardando definição do webhook).', icon: Clock },
+        ],
+      },
+      {
+        // Específico do AlvoConsig (carteira dos parceiros de correspondente
+        // bancário) — separado da preparação de leads em 24/09/2026.
+        label: 'CRM AlvoConsig',
+        href: '/crm-alvoconsig',
+        perms: [view('alvoconsig-gestao'), view('alvoconsig-certificacao')],
+        children: [
+          { label: 'Alocação de Leads', href: '/alvoconsig/alocacao', perms: [view('alvoconsig-gestao')], desc: 'Entrega de leads do pool à carteira dos parceiros.', icon: Megaphone },
+          { label: 'Leads Alocados', href: '/alvoconsig/contatos', perms: [view('alvoconsig-gestao')], desc: 'Leads e contatos já alocados aos parceiros — cópia de trabalho sincronizada.', icon: UserCog },
+          { label: 'Carteira de Parceiros', href: '/alvoconsig/certificacao', perms: [view('alvoconsig-certificacao')], desc: 'Certificação de parceiros para receber leads.', icon: GraduationCap },
+          { label: 'Perfis de Usuário', href: '/alvoconsig/perfis', perms: [view('alvoconsig-gestao')], desc: 'Perfis e permissões dos usuários do AlvoConsig.', icon: Shield },
+        ],
+      },
+      {
+        // Disparo/orquestração do CLT (CallFace + WhatsApp oficial + Vende.Ai),
+        // via Central de Integrações — separado da preparação de leads em 24/09/2026.
+        label: 'CRM Vende.Ai CLT',
+        href: '/crm-vende-ai-clt',
+        perms: [view('central-integracoes')],
+        children: [
+          { label: 'Ações Manuais', href: '/central-integracoes/acoes', perms: [view('central-integracoes')], desc: 'Wizard de disparos: público por filtro, preview e job (CallFace, template WhatsApp).', icon: Rocket },
+          { label: 'Importação de Bases (CLT)', href: '/central-integracoes/bases', perms: [view('central-integracoes')], desc: 'Upload de base do motor de crédito — vira tag e público de disparo.', icon: Database },
         ],
       },
     ],

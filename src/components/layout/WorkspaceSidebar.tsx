@@ -18,6 +18,7 @@ import {
   itemVisivel,
   type NavDivisao,
   type NavItemDef,
+  type NavSubItem,
 } from '@/lib/nav/divisoes'
 import { carregarMinhasPermissoes } from '@/lib/auth/permissions-client-cache'
 import type { EffectivePermission } from '@/lib/auth/permissions'
@@ -62,9 +63,16 @@ export default function WorkspaceSidebar() {
     return pathname === href || pathname.startsWith(`${href}/`)
   }
 
+  /** Como rotaAtiva, mas respeita `exact` — necessário quando o href de um filho
+   * é prefixo de outro item irmão (ex.: /alvoconsig × /alvoconsig/alocacao). */
+  function rotaAtivaFilho(c: NavSubItem): boolean {
+    if (!c.href.startsWith('/')) return false
+    return c.exact ? pathname === c.href : rotaAtiva(c.href)
+  }
+
   function renderItem(divisao: NavDivisao, item: NavItemDef, contexto: 'acordeao' | 'flyout') {
     const filhos = (item.children || []).filter((c) => itemVisivel(permissions, c, item.perms))
-    const filhoAtivo = filhos.some((c) => rotaAtiva(c.href))
+    const filhoAtivo = filhos.some((c) => rotaAtivaFilho(c))
     const ativo = rotaAtiva(item.href) || filhoAtivo
     const mostrarFilhos = contexto === 'acordeao' && ativo && filhos.length > 0
     return (
@@ -81,16 +89,23 @@ export default function WorkspaceSidebar() {
         )}
         {mostrarFilhos && filhos.length > 0 && (
           <div className="ws-nav-children">
-            {filhos.map((c) => (
-              <Link
-                key={c.href}
-                href={c.href}
-                prefetch={false}
-                className={`ws-nav-item ws-nav-child${pathname === c.href || pathname.startsWith(`${c.href}/`) ? ' is-active' : ''}`}
-              >
-                {c.label}
-              </Link>
-            ))}
+            {filhos.map((c) =>
+              c.soon ? (
+                <Link key={c.href} href={c.href} prefetch={false} className={`ws-nav-item ws-nav-child is-soon${rotaAtivaFilho(c) ? ' is-active' : ''}`}>
+                  {c.label}
+                  <span className="ws-soon-badge">breve</span>
+                </Link>
+              ) : (
+                <Link
+                  key={c.href}
+                  href={c.href}
+                  prefetch={false}
+                  className={`ws-nav-item ws-nav-child${rotaAtivaFilho(c) ? ' is-active' : ''}`}
+                >
+                  {c.label}
+                </Link>
+              ),
+            )}
           </div>
         )}
       </div>

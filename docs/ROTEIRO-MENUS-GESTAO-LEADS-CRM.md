@@ -103,13 +103,20 @@ Server component com `requirePermission('alvoconsig-consulta-fydigital')`.
    - Rotas `/alvoconsig*`, `/central-integracoes*` não mudam.
 4. Seed — migration já na branch.
 
-## 5. Checklist de entrega (Sonnet)
+## 5. Checklist de entrega (Sonnet) — EXECUTADO 24/09/2026
 
-- [ ] `tsc --noEmit` limpo; `npm test` verde; `next build` OK
-- [ ] Nenhuma lista de cards manual restante (grep `gridTemplateColumns: 'repeat(auto-fill, minmax(270px`)
-- [ ] Em `/alvoconsig/alocacao` só o grupo "CRM AlvoConsig" abre; em
-      `/alvoconsig` só "Gestão de Leads"
-- [ ] Usuário só com `central-integracoes` vê "CRM Vende.Ai CLT" e NÃO vê
-      "Gestão de Leads"
-- [ ] GRUPO.md: atualizar a linha "Sidebar por DIVISÕES" e a tabela de
-      sistemas se citarem os nomes antigos (Fable faz no merge)
+- [x] `tsc --noEmit` limpo; `npm test` verde (116/116); `next build` OK
+      (3 rotas novas confirmadas no app-paths-manifest.json)
+- [x] Nenhuma lista de cards manual restante — `gestao-leads/page.tsx`
+      reescrita sobre `CardsDoItem`; grep de `gridTemplateColumns:
+      'repeat(auto-fill, minmax(270px` não bate em nenhuma página
+- [x] `exact: true` em "Visão Geral" (`/alvoconsig`) — sem ele, estar em
+      `/alvoconsig/alocacao` (item "CRM AlvoConsig") também marcava
+      "Visão Geral" (item "Gestão de Leads") como ativo, abrindo os dois
+      grupos ao mesmo tempo (o bug relatado pelo Bruno). `rotaAtivaFilho()`
+      em `WorkspaceSidebar.tsx` centraliza a checagem (usada nas duas
+      classes `is-active` e no `filhoAtivo`)
+- [x] Lint: nenhum problema NOVO — os 31 do arquivo `usuarios/page.tsx` +
+      `WorkspaceSidebar.tsx` (setState em effect, `any`) já existem
+      idênticos na main, em linhas que esta entrega não tocou
+- [ ] GRUPO.md: nomes antigos citados lá — Fable atualiza no merge
