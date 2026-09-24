@@ -112,7 +112,7 @@ function identificadorSeguro(nome: string, rotulo: string): string {
 
 async function abrirConexao(): Promise<{ conn: Connection; tabela: string }> {
   const row = await lerMotorCreditoConfigRow()
-  if (!row?.host || !row.senha_enc) throw new Error('Motor de crédito (MySQL) não configurado (Provedores e APIs › Motor de Crédito).')
+  if (!row?.host || !row.senha_enc) throw new Error('API Kaizom (MySQL) não configurada (Provedores e APIs › API Kaizom).')
   const tabela = identificadorSeguro(row.tabela || 'consultas', 'Nome da tabela')
   const conn = await createConnection({
     host: row.host,

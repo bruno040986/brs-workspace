@@ -143,7 +143,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-config-recalculo-tributario', name: 'Recálculo Tributário', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-quarkrh', name: 'API QuarkRH', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-if-credito', name: 'APIs de Instituições Financeiras de Crédito', parentId: 'sistema-config-root', level: 2 },
-  { id: 'sistema-config-motor-credito', name: 'Motor de Crédito (MySQL)', parentId: 'sistema-config-root', level: 2 },
+  { id: 'sistema-config-motor-credito', name: 'API Kaizom', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-figurinhas-gifs', name: 'Figurinhas/GIFs (GIPHY)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-contaazul', name: 'API Conta Azul (em breve)', parentId: 'sistema-config-root', level: 2 },
   { id: 'sistema-config-arw', name: 'API ARW (em breve)', parentId: 'sistema-config-root', level: 2 },

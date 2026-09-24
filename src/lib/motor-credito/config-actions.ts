@@ -1,7 +1,7 @@
 'use server'
 
 /**
- * Card "Motor de Crédito (MySQL)" em Provedores e APIs — credencial no
+ * Card "API Kaizom" (ex-"Motor de Crédito (MySQL)") em Provedores e APIs — credencial no
  * cofre AES, teste de conexão e exploração de schema (DESCRIBE + amostra),
  * pra mapear a tabela `consultas` do fornecedor antes de escrever a
  * sincronização de verdade. Permissão: `sistema-config-motor-credito`.

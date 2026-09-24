@@ -1,4 +1,4 @@
-# HANDOFF — Motor de Crédito (MySQL), Fase 2
+# HANDOFF — API Kaizom (ex-"Motor de Crédito (MySQL)"), Fase 2
 
 > Escrito em 10/09/2026 para abrir uma sessão nova só deste assunto.
 > A sessão anterior segue com a Base de Conhecimento de Convênios.

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Provedores e APIs › Motor de Crédito (MySQL) — credencial do banco do
+ * Provedores e APIs › API Kaizom (ex-"Motor de Crédito (MySQL)") — credencial do banco do
  * fornecedor de higienização de margem (convênios públicos), cofre AES +
  * Testar conexão + Explorar schema (DESCRIBE + amostra), pra mapear a
  * tabela `consultas` antes da sincronização de verdade (fase 2, depois de
@@ -122,10 +122,10 @@ export default function MotorCreditoProvedorPage() {
   return (
     <div style={{ maxWidth: 820 }}>
       <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Database size={24} /> Motor de Crédito (MySQL)
+        <Database size={24} /> API Kaizom
       </h1>
       <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.88rem', margin: '0 0 1.25rem' }}>
-        Banco do fornecedor de higienização de margem (convênios públicos). A senha fica cifrada no cofre — nunca
+        Banco MySQL da Kaizom, fornecedora de higienização de margem (convênios públicos). A senha fica cifrada no cofre — nunca
         aparece na tela depois de salva. Fase 1: só credencial + exploração de schema; a sincronização automática
         (leitura periódica → revisão → envio ao WeSales) vem depois do mapeamento das colunas.
       </p>
