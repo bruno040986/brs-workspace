@@ -55,10 +55,30 @@ export type LinhaStaging = {
   wesales_contact_id: string | null
 }
 
+export type ConvenioOpcao = { id: string; nome: string; nome_reduzido: string; codigo_motor_credito: string | null }
+
 type Resp<T = undefined> = { success: boolean; data?: T; error?: string }
 
 function erro<T>(err: unknown): Resp<T> {
   return { success: false, error: err instanceof Error ? err.message : String(err) }
+}
+
+/** Convênios ativos pro seletor da revisão — permissão própria (quem revisa margem não precisa ver Gestão de Leads inteira). */
+export async function listarConveniosParaRevisao(): Promise<Resp<ConvenioOpcao[]>> {
+  try {
+    await requirePermission(RESOURCE)
+    const admin = await createAdminClient()
+    const { data, error } = await admin
+      .from('convenios')
+      .select('id, nome, nome_reduzido, codigo_motor_credito')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .order('nome', { ascending: true })
+    if (error) throw error
+    return { success: true, data: (data || []) as ConvenioOpcao[] }
+  } catch (err) {
+    return erro(err)
+  }
 }
 
 /** Lotes (tarefa_id) com contadores por status — agregação em memória. ponytail: staging é pequena; virar RPC se passar de dezenas de milhares de linhas. */
@@ -72,8 +92,9 @@ export async function listarLotesKaizom(): Promise<Resp<LoteKaizom[]>> {
       .order('mysql_id', { ascending: false })
       .limit(20000)
     if (error) throw error
+    type LinhaAgregada = { tarefa_id: number | null; status: StatusStaging; convenio_externo: string | null; convenio_id: string | null; consultado_em: string | null; convenios: { nome_reduzido: string | null; nome: string | null } | null }
     const lotes = new Map<string, LoteKaizom>()
-    for (const r of (data || []) as any[]) {
+    for (const r of (data || []) as unknown as LinhaAgregada[]) {
       const chave = String(r.tarefa_id ?? 'sem-tarefa')
       let lote = lotes.get(chave)
       if (!lote) {
@@ -172,7 +193,7 @@ export async function definirConvenioLoteKaizom(tarefaId: number, convenioId: st
     if (error) throw error
 
     if (lembrar) {
-      const externo = (data || []).map((r: any) => normalizarChave(r.convenio_externo)).find(Boolean)
+      const externo = (data || []).map((r: { convenio_externo: string | null }) => normalizarChave(r.convenio_externo)).find(Boolean)
       if (!externo) throw new Error('Convênio do lote definido, mas a Kaizom não mandou o nome do convênio nestas linhas — não há o que lembrar.')
       const { error: upErr } = await admin.from('convenios').update({ codigo_motor_credito: externo }).eq('id', convenioId)
       if (upErr) {

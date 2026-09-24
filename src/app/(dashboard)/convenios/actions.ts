@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { normalizarUrl } from '@/lib/url-site'
+import { normalizarChave } from '@/lib/motor-credito/parser'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,6 +31,10 @@ export type ConvenioRecord = {
   nome_reduzido: string
   codigo?: string | null // Código ARW — opcional, só usado pelo importador de comissionamento
   codigo_sistema?: string // gerado pelo banco, não editável
+  // De-para com a API Kaizom (D2, Fase 2): nome do convênio como aparece no
+  // higienizador deles, normalizado (maiúsculas/sem acento) na gravação —
+  // o leitor casa `consultas.convenio` com este valor pra achar o convênio.
+  codigo_motor_credito?: string | null
   tipo_convenio_id?: string | null // obrigatório; a esfera deriva dele
   esfera?: string // derivado do tipo — não é mais digitado
   cnpj?: string | null
@@ -55,7 +60,7 @@ export type ConvenioRecord = {
 }
 
 const CONVENIO_SELECT =
-  'id, nome, nome_reduzido, codigo, codigo_sistema, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, logradouro, numero, complemento, bairro, numero_servidores, abrangencia, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)'
+  'id, nome, nome_reduzido, codigo, codigo_sistema, codigo_motor_credito, esfera, tipo_convenio_id, cnpj, razao_social, cidade, uf, cep, logradouro, numero, complemento, bairro, numero_servidores, abrangencia, max_comprometimento_salarial, prazo_minimo_geral, prazo_maximo_geral, bc_observacoes, averbadora_id, site_averbador, tipo_autenticacao_id, is_active, created_at, tipo:tipo_convenio_id(nome, esfera:esfera_id(nome)), averbadora:averbadora_id(nome)'
 
 function mapConvenioRow(r: any) {
   return {
@@ -181,6 +186,7 @@ export async function saveConvenio(payload: ConvenioRecord) {
       nome,
       nome_reduzido: nomeReduzido,
       codigo: String(payload.codigo || '').trim() || null,
+      codigo_motor_credito: normalizarChave(payload.codigo_motor_credito) || null,
       tipo_convenio_id: tipoConvenioId,
       esfera,
       cnpj: onlyDigitsOrNull(payload.cnpj),
@@ -214,7 +220,7 @@ export async function saveConvenio(payload: ConvenioRecord) {
   } catch (error: any) {
     console.error('Erro ao salvar convênio:', error)
     if ((error as any)?.code === '23505') {
-      return { success: false, error: 'Já existe um convênio com esse nome ou código.' }
+      return { success: false, error: 'Já existe um convênio com esse nome, código ou código na API Kaizom.' }
     }
     return { success: false, error: error.message }
   }

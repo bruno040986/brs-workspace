@@ -111,6 +111,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
           nome: '',
           nome_reduzido: '',
           codigo: '',
+          codigo_motor_credito: '',
           tipo_convenio_id: '',
           cnpj: '',
           razao_social: '',
@@ -265,6 +266,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
         nome: String(dados.nome || ''),
         nome_reduzido: String(dados.nome_reduzido || ''),
         codigo: String(dados.codigo || ''),
+        codigo_motor_credito: String(dados.codigo_motor_credito || ''),
         tipo_convenio_id: String(dados.tipo_convenio_id || ''),
         cnpj: String(dados.cnpj || ''),
         razao_social: String(dados.razao_social || ''),
@@ -406,6 +408,17 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
                   placeholder="Se já cadastrado no ARW"
                   value={dados.codigo || ''}
                   onChange={(e) => setDados({ ...dados, codigo: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Código na API Kaizom</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder='Nome do convênio no higienizador (ex.: "GOVERNO SP")'
+                  value={dados.codigo_motor_credito || ''}
+                  onChange={(e) => setDados({ ...dados, codigo_motor_credito: e.target.value })}
+                  title="Usado pra casar automaticamente as consultas da API Kaizom com este convênio. Também pode ser preenchido pela tela de revisão (opção “lembrar”)."
                 />
               </div>
               <div className="form-group">

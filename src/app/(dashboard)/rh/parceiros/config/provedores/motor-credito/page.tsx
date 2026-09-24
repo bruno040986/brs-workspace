@@ -8,10 +8,12 @@
  * conhecido o schema). Permissão: sistema-config-motor-credito.
  */
 import { useEffect, useState } from 'react'
-import { Database, KeyRound, Loader2, PlugZap, Save, Search } from 'lucide-react'
+import { Database, Download, KeyRound, Loader2, PlugZap, RotateCcw, Save, Search } from 'lucide-react'
 import {
   explorarMotorCreditoSchema,
   getMotorCreditoConfig,
+  lerAgoraMotorCredito,
+  reposicionarCursorMotorCredito,
   saveMotorCreditoConfig,
   testMotorCreditoConnection,
   type ExploracaoMotorCredito,
@@ -34,6 +36,25 @@ export default function MotorCreditoProvedorPage() {
   const [senha, setSenha] = useState('')
   const [ativo, setAtivo] = useState(true)
   const [exploracao, setExploracao] = useState<ExploracaoMotorCredito | null>(null)
+  const [cursorValor, setCursorValor] = useState<string | null>(null)
+  const [ultimaLeituraEm, setUltimaLeituraEm] = useState<string | null>(null)
+  const [ultimaLeituraQtd, setUltimaLeituraQtd] = useState<number | null>(null)
+  const [lendo, setLendo] = useState(false)
+  const [reposicionando, setReposicionando] = useState(false)
+  const [novoCursor, setNovoCursor] = useState('')
+
+  function aplicarConfig(data: NonNullable<Awaited<ReturnType<typeof getMotorCreditoConfig>>['data']>) {
+    setTemSenha(data.temSenha)
+    setHost(data.host)
+    setPorta(String(data.porta))
+    setBanco(data.banco)
+    setTabela(data.tabela)
+    setUsuario(data.usuario)
+    setAtivo(data.ativo)
+    setCursorValor(data.cursorValor)
+    setUltimaLeituraEm(data.ultimaLeituraEm)
+    setUltimaLeituraQtd(data.ultimaLeituraQtd)
+  }
 
   useEffect(() => {
     getMotorCreditoConfig()
@@ -42,13 +63,7 @@ export default function MotorCreditoProvedorPage() {
           setErro(res.error || 'Sem permissão.')
           return
         }
-        setTemSenha(res.data.temSenha)
-        setHost(res.data.host)
-        setPorta(String(res.data.porta))
-        setBanco(res.data.banco)
-        setTabela(res.data.tabela)
-        setUsuario(res.data.usuario)
-        setAtivo(res.data.ativo)
+        aplicarConfig(res.data)
       })
       .catch(() => setErro('Erro ao carregar.'))
       .finally(() => setCarregando(false))
@@ -109,6 +124,47 @@ export default function MotorCreditoProvedorPage() {
     }
   }
 
+  async function lerAgora() {
+    setLendo(true)
+    setErro('')
+    setOkMsg('')
+    try {
+      const res = await lerAgoraMotorCredito()
+      if (!res.success) throw new Error(res.error)
+      const r = res.data
+      if (r?.pulado === 'lease') setOkMsg('Já tem uma leitura em andamento (lease ocupado) — tente de novo em alguns segundos.')
+      else if (r?.pulado === 'inativo') setOkMsg('Integração desativada — ligue "Integração ativa" e salve antes de ler.')
+      else if (r?.pulado === 'nao_configurado') setOkMsg('Configure a credencial antes de ler.')
+      else setOkMsg(`Lidas ${r?.lidas ?? 0} linha(s) novas (${r?.inseridas ?? 0} inserida(s) na staging).`)
+      const cfg = await getMotorCreditoConfig()
+      if (cfg.success && cfg.data) aplicarConfig(cfg.data)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao ler agora.')
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  async function reposicionarCursor() {
+    if (!novoCursor.trim()) return
+    if (!window.confirm(`Reposicionar o cursor pra "${novoCursor.trim()}"? A próxima leitura vai reler tudo que estiver DEPOIS deste id (linhas repetidas são ignoradas — id já existente na staging).`)) return
+    setReposicionando(true)
+    setErro('')
+    setOkMsg('')
+    try {
+      const res = await reposicionarCursorMotorCredito(novoCursor.trim())
+      if (!res.success) throw new Error(res.error)
+      setOkMsg('Cursor reposicionado.')
+      setNovoCursor('')
+      const cfg = await getMotorCreditoConfig()
+      if (cfg.success && cfg.data) aplicarConfig(cfg.data)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao reposicionar o cursor (só root).')
+    } finally {
+      setReposicionando(false)
+    }
+  }
+
   const rotulo: React.CSSProperties = { fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.3rem' }
 
   if (carregando) {
@@ -126,8 +182,8 @@ export default function MotorCreditoProvedorPage() {
       </h1>
       <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.88rem', margin: '0 0 1.25rem' }}>
         Banco MySQL da Kaizom, fornecedora de higienização de margem (convênios públicos). A senha fica cifrada no cofre — nunca
-        aparece na tela depois de salva. Fase 1: só credencial + exploração de schema; a sincronização automática
-        (leitura periódica → revisão → envio ao WeSales) vem depois do mapeamento das colunas.
+        aparece na tela depois de salva. O cron lê a tabela a cada 5 min pra uma staging de revisão — nada vai direto ao
+        WeSales (ver Gestão de Leads › API Kaizom — Revisão de Margens).
       </p>
 
       {erro && (
@@ -181,6 +237,41 @@ export default function MotorCreditoProvedorPage() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600 }}>
             <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> Integração ativa
           </label>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '1.2rem', marginBottom: '1rem' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 0.4rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Download size={17} /> Sincronização
+        </h2>
+        <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', margin: '0 0 0.8rem' }}>
+          O cron lê até 500 linhas novas a cada 5 min pra staging (revisão em Gestão de Leads › API Kaizom — Revisão de Margens).
+        </p>
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', fontSize: '0.82rem', marginBottom: '0.9rem' }}>
+          <div>
+            <span style={{ color: 'var(--brs-gray-400)' }}>Cursor atual (id): </span>
+            <strong style={{ fontFamily: 'monospace' }}>{cursorValor ?? '—'}</strong>
+          </div>
+          <div>
+            <span style={{ color: 'var(--brs-gray-400)' }}>Última leitura: </span>
+            <strong>{ultimaLeituraEm ? new Date(ultimaLeituraEm).toLocaleString('pt-BR') : '—'}{ultimaLeituraQtd !== null ? ` (${ultimaLeituraQtd} linha${ultimaLeituraQtd === 1 ? '' : 's'})` : ''}</strong>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-outline btn-sm" onClick={lerAgora} disabled={lendo || !temSenha} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {lendo ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Ler agora
+          </button>
+          <input
+            className="form-control"
+            style={{ maxWidth: 160 }}
+            value={novoCursor}
+            onChange={(e) => setNovoCursor(e.target.value.replace(/\D/g, ''))}
+            placeholder="novo cursor (id)"
+            inputMode="numeric"
+          />
+          <button className="btn btn-outline btn-sm" onClick={reposicionarCursor} disabled={reposicionando || !novoCursor.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Só root">
+            {reposicionando ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />} Reposicionar cursor
+          </button>
         </div>
       </div>
 
