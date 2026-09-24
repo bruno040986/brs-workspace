@@ -206,6 +206,11 @@ const authenticatedOpenRoutes = new Set([
   '/api/chat/upload',
   '/api/chat/conversations',
   '/api/chat/messages',
+  '/api/chat/read',
+  '/api/conversas/bootstrap',
+  '/api/conversas/lista',
+  '/api/conversas/contadores',
+  '/api/conversas/contatos',
 ])
 
 const prefixRouteRules: Array<[string, RouteAccessRule]> = [
@@ -253,6 +258,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ['/central-conversas', any([view('central-conversas')])],
   ['/conversas/agora', any([view('conversas-agora')])],
   ['/conversas', any([view('conversas')])],
+  ['/api/conversas', any([view('conversas'), view('conversas-agora'), view('central-conversas')])],
   ['/convenios', any([view('workspace-convenios')])],
   ['/api/convenios', any([include('workspace-convenios')])],
   ['/averbadoras', any([view('workspace-averbadoras')])],

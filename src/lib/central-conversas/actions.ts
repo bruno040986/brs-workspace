@@ -636,9 +636,22 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   const user = await requireCurrentUser()
   const cli = await clienteChatwootBrs()
   if (!cli) return { disponivel: false as const, conversas: [], meta: {} }
-  const assigneeType = params.aba === 'meus' ? 'me' : params.aba === 'fila' ? 'unassigned' : 'all'
+  // Fila = abertas sem atendente; Geral = tudo (inclui resolvidas); Meus =
+  // abertas DO USUÁRIO LOGADO. `assignee_type=me` não serve pra "Meus": o token
+  // da conta é um só, então "me" era sempre o dono do token, pra todo mundo.
   const status = params.aba === 'geral' ? 'all' : 'open'
-  const data = await cli.listarConversas({ status, assigneeType, q: params.q, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
+  let data: { meta: Record<string, number>; payload: ChatwootConversa[] }
+  if (params.aba === 'meus') {
+    const agenteId = await meuAgenteId(cli, user.id)
+    if (agenteId === null) data = { meta: {}, payload: [] }
+    else if (params.q) {
+      // Busca textual só existe no GET /conversations — filtra o agente aqui.
+      const r = await cli.listarConversas({ status, assigneeType: 'all', q: params.q, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
+      data = { ...r, payload: (r.payload || []).filter((c) => c.meta?.assignee?.id === agenteId) }
+    } else data = await cli.filtrarConversas({ assigneeId: agenteId, status, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
+  } else {
+    data = await cli.listarConversas({ status, assigneeType: params.aba === 'fila' ? 'unassigned' : 'all', q: params.q, page: params.page, inboxId: params.inboxId, teamId: params.teamId })
+  }
 
   const conta = await contaBrs()
   let payload = data.payload || []
@@ -820,11 +833,16 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
 /** Contadores por aba (Chats/Fila/Geral), opcionalmente restritos a um departamento. */
 export async function getContadores(teamId?: number): Promise<{ mine: number; unassigned: number; all: number }> {
   await requirePermission('conversas', 'can_view')
+  const user = await requireCurrentUser()
   const cli = await clienteChatwootBrs()
   if (!cli) return { mine: 0, unassigned: 0, all: 0 }
   try {
-    const meta = await cli.metaConversas({ teamId })
-    return { mine: meta.mine_count, unassigned: meta.unassigned_count, all: meta.all_count }
+    const [meta, agenteId] = await Promise.all([cli.metaConversas({ teamId }), meuAgenteId(cli, user.id)])
+    // `mine_count` da API é do dono do token — o badge "Chats" tem que contar o
+    // mesmo universo que a aba lista: abertas atribuídas ao agente do usuário.
+    const minhas = agenteId === null ? null : await cli.filtrarConversas({ assigneeId: agenteId, status: 'open', teamId }).catch(() => null)
+    const mine = minhas ? (minhas.meta?.all_count ?? minhas.payload?.length ?? 0) : 0
+    return { mine, unassigned: meta.unassigned_count, all: meta.all_count }
   } catch {
     return { mine: 0, unassigned: 0, all: 0 }
   }
@@ -835,6 +853,28 @@ export async function getContadores(teamId?: number): Promise<{ mine: number; un
  * chat_conversa_meta on-demand na primeira leitura — o protocolo é gerado
  * por trigger no banco (inserimos sem protocolo e lemos de volta).
  */
+/**
+ * Leitura de metadados da conversa sem efeitos colaterais de escrita (GET idôneo).
+ * Não realiza INSERT se a linha ainda não existir.
+ */
+export async function getMetaReadOnly(conversationId: number, contactId?: number): Promise<ConversaMeta> {
+  await requirePermission('conversas', 'can_view')
+  const admin = await createAdminClient()
+  const conta = await contaBrs()
+  if (!conta) return { protocolo: '', observacoes: '', entidade: null }
+
+  const COLS = 'chatwoot_conversation_id, protocolo, observacoes, entidade_tipo, entidade_id'
+  const { data: existente } = await admin
+    .from('chat_conversa_meta')
+    .select(COLS)
+    .eq('conta_id', conta.id)
+    .eq('chatwoot_conversation_id', conversationId)
+    .maybeSingle()
+
+  if (existente) return metaRowParaView(existente as MetaRow)
+  return { protocolo: '', observacoes: '', entidade: null }
+}
+
 export async function getMeta(conversationId: number, contactId?: number): Promise<ConversaMeta> {
   await requirePermission('conversas', 'can_view')
   const row = await garantirMetaRow(conversationId, contactId)
@@ -991,6 +1031,27 @@ async function garantirContatoMetaRow(contactId: number): Promise<ContatoMetaRow
     .single()
   if (errLeitura) throw errLeitura
   return criada as ContatoMetaRow
+}
+
+/**
+ * Leitura de metadados de contato sem efeitos colaterais de escrita (GET idôneo).
+ * Não realiza INSERT se a linha ainda não existir.
+ */
+export async function getContatoMetaReadOnly(contactId: number): Promise<ContatoMeta> {
+  await requirePermission('conversas', 'can_view')
+  const admin = await createAdminClient()
+  const conta = await contaBrs()
+  if (!conta) return { entidade: null, departamentoPadraoId: null, atendentePadraoChatwootId: null }
+
+  const { data: existente } = await admin
+    .from('chat_contato_meta')
+    .select(CONTATO_META_COLS)
+    .eq('conta_id', conta.id)
+    .eq('chatwoot_contact_id', contactId)
+    .maybeSingle()
+
+  if (existente) return contatoMetaParaView(existente as ContatoMetaRow)
+  return { entidade: null, departamentoPadraoId: null, atendentePadraoChatwootId: null }
 }
 
 export async function getContatoMeta(contactId: number): Promise<ContatoMeta> {
@@ -1697,6 +1758,22 @@ async function meuEmail(userId: string): Promise<string | null> {
   return data?.email ? String(data.email) : null
 }
 
+// Agente Chatwoot do usuário logado (mesmo par e-mail da presença e do
+// "Assumir para mim"). Cache curto: lista e contadores refazem isto a cada
+// poll/Realtime. `null` (usuário ainda não sincronizado como agente) não fica
+// em cache — a sincronização roda no bootstrap e ele aparece em seguida.
+const cacheAgentePorEmail = new Map<string, { id: number; em: number }>()
+async function meuAgenteId(cli: ChatwootConta, userId: string): Promise<number | null> {
+  const email = (await meuEmail(userId))?.toLowerCase()
+  if (!email) return null
+  const hit = cacheAgentePorEmail.get(email)
+  if (hit && Date.now() - hit.em < 5 * 60_000) return hit.id
+  const agente = (await cli.agentes()).find((a) => String(a.email || '').toLowerCase() === email)
+  if (!agente) return null
+  cacheAgentePorEmail.set(email, { id: Number(agente.id), em: Date.now() })
+  return Number(agente.id)
+}
+
 export async function setMinhaDisponibilidade(status: 'online' | 'busy' | 'offline'): Promise<{ ok: boolean; erro?: string }> {
   try {
     await requirePermission('conversas', 'can_view')
@@ -1778,4 +1855,99 @@ export async function getAgentesChat() {
     console.error('[conversas] sincronização de agentes falhou', err)
   }
   return cli.agentes()
+}
+
+export type BootstrapData = {
+  agentes: any[]
+  canaisAtendimento: {
+    inboxes: Array<{ id: number; nome: string; tipo: string }>
+    instancias: Array<{ id: string; nome: string; inboxId: number | null; papel: 'receptiva' | 'disparo'; provedor: 'baileys' | 'zapi'; status: string }>
+    conta: { nome: string; chatwootAccountId: number } | null
+  }
+  tagsConta: Array<{ titulo: string; cor: string | null }>
+  departamentos: DepartamentoResumo[]
+  ehSupervisor: boolean
+  presenca: 'online' | 'busy' | 'offline' | null
+  respostasRapidas: Array<{ id: number; atalho: string; conteudo: string }> | null
+}
+
+/**
+ * Agregador de bootstrap otimizado: realiza autenticação, autorização de rota,
+ * busca da conta e cliente Chatwoot uma única vez, reutilizando o contexto em paralelo.
+ */
+export async function getBootstrapData(): Promise<BootstrapData> {
+  const { user, permissions } = await requirePermission('conversas', 'can_view')
+
+  const conta = await contaBrs()
+  const cli = conta ? new ChatwootConta(Number(conta.chatwoot_account_id), decifrarTexto(String(conta.token_cifrado))) : null
+
+  const ehSupervisor = permissions.some((p) => p.resource_name === 'central-conversas' && Boolean(p.can_view))
+  let departamentos: DepartamentoResumo[] = []
+
+  const admin = await createAdminClient()
+
+  if (conta) {
+    if (ehSupervisor) {
+      const { data } = await admin.from('chat_departamentos').select('id, nome, chatwoot_team_id, eh_grupos').eq('conta_id', conta.id).eq('ativo', true)
+      departamentos = mapDepartamentos(data)
+    } else {
+      const { data: membros } = await admin.from('chat_departamento_membros').select('departamento_id').eq('user_id', user.id)
+      const ids = [...new Set((membros || []).map((m: any) => m.departamento_id))]
+      if (ids.length) {
+        const { data } = await admin.from('chat_departamentos').select('id, nome, chatwoot_team_id, eh_grupos').in('id', ids).eq('ativo', true)
+        departamentos = mapDepartamentos(data)
+      }
+    }
+  }
+
+  const email = user.email || ''
+
+  const [agentesRes, canaisInstanciasRes, inboxesRes, labelsRes, respostasRes] = await Promise.all([
+    cli ? cli.agentes().catch(() => []) : Promise.resolve([]),
+    conta ? admin.from('chat_instancias').select('id, nome, chatwoot_inbox_id, papel, provedor, status').eq('conta_id', conta.id).is('deleted_at', null).order('ordem') : Promise.resolve({ data: [] }),
+    cli ? cli.listarInboxes().catch(() => []) : Promise.resolve([]),
+    cli ? cli.listarLabelsConta().catch(() => []) : Promise.resolve([]),
+    cli ? cli.respostasRapidas().catch(() => []) : Promise.resolve([]),
+  ])
+
+  const agentes = agentesRes || []
+  const agente = email ? agentes.find((a) => String(a.email || '').toLowerCase() === email.toLowerCase()) : null
+  const presenca = (agente?.availability_status as 'online' | 'busy' | 'offline' | undefined) || null
+
+  const instanciasData = canaisInstanciasRes.data || []
+  const canaisAtendimento = {
+    inboxes: (inboxesRes || []).map((i) => ({ id: i.id, nome: String(i.name), tipo: String(i.channel_type || '') })),
+    instancias: instanciasData.map((i) => ({
+      id: String(i.id),
+      nome: String(i.nome),
+      inboxId: i.chatwoot_inbox_id === null ? null : Number(i.chatwoot_inbox_id),
+      papel: i.papel as 'receptiva' | 'disparo',
+      provedor: i.provedor as 'baileys' | 'zapi',
+      status: String(i.status || ''),
+    })),
+    conta: conta ? { nome: String(conta.nome), chatwootAccountId: Number(conta.chatwoot_account_id) } : null,
+  }
+
+  const tagsConta = (labelsRes || []).map((l) => ({
+    titulo: String(l.title),
+    cor: l.color || null,
+  }))
+
+  const respostasRapidas = respostasRes
+    ? respostasRes.map((c) => ({
+        id: c.id,
+        atalho: String(c.short_code || ''),
+        conteudo: String(c.content || ''),
+      }))
+    : null
+
+  return {
+    agentes,
+    canaisAtendimento,
+    tagsConta,
+    departamentos,
+    ehSupervisor,
+    presenca,
+    respostasRapidas,
+  }
 }

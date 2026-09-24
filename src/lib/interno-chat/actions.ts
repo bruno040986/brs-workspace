@@ -11,6 +11,7 @@
 import { requireCurrentUser } from '@/lib/auth/server'
 import {
   abrirDireta,
+  atualizarLeitura,
   inserirMensagem,
   listarCanais,
   listarMensagens,
@@ -26,10 +27,21 @@ export async function getCanaisInterno(): Promise<CanalInterno[]> {
   return listarCanais(user.id)
 }
 
-/** Mensagens da conversa (asc); marca como lidas pro usuário da sessão. */
-export async function getMensagensInterno(conversationId: string): Promise<MensagemInterno[]> {
+/** Mensagens da conversa (asc); aceita cursores para paginação. */
+export async function getMensagensInterno(
+  conversationId: string,
+  before?: string,
+  beforeId?: string,
+  limit?: number,
+): Promise<MensagemInterno[]> {
   const user = await requireCurrentUser()
-  return listarMensagens(user.id, String(conversationId))
+  return listarMensagens(user.id, String(conversationId), { before, beforeId, limit })
+}
+
+/** Confirmação explícita de leitura no chat interno. */
+export async function marcarLeituraInterno(conversationId: string): Promise<{ ok: boolean }> {
+  const user = await requireCurrentUser()
+  return atualizarLeitura(user.id, String(conversationId))
 }
 
 /** Envia mensagem — insert normal em workspace_chat_messages (direct, equipe ou self). */

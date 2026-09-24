@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { pollingVisivel } from '@/lib/polling-visivel'
+import { mergeChatwootMessages, type ChatwootMensagem } from '@/lib/central-conversas/chatwoot'
 import {
   addNotaInterna,
   apagarMensagem as apagarMensagemAction,
@@ -145,6 +146,11 @@ export function useAtendimento() {
     departamentoIds.size === 1 ? departamentos.find((d) => departamentoIds.has(d.id))?.chatwootTeamId ?? undefined : undefined
 
   const cacheConversasRef = useRef<Partial<Record<AbaAtendimento, ConversaAtendimento[]>>>({})
+  // O Chatwoot pagina de 25 em 25 e a lista só mostrava a página 1 (a Fila
+  // tinha 60 em 24/09 e 35 ficavam invisíveis). N = páginas já pedidas nesta
+  // aba ("Carregar mais"); volta a 1 quando aba/busca/filtros mudam.
+  const paginasRef = useRef(1)
+  const [temMaisConversas, setTemMaisConversas] = useState(false)
   const abaRef = useRef(aba)
   useEffect(() => {
     abaRef.current = aba
@@ -153,14 +159,44 @@ export function useAtendimento() {
   // Invalida cache quando a busca ou filtros de canal/departamento mudam
   useEffect(() => {
     cacheConversasRef.current = {}
+    paginasRef.current = 1
   }, [busca, canalIds, departamentoIds])
 
   const carregarLista = useCallback(async (): Promise<ConversaAtendimento[]> => {
     if (aba === 'contatos') return []
     const abaSolicitada = aba
     try {
-      const r = await getConversas({ aba, q: busca || undefined, inboxId: canalIdServidor, teamId: teamIdFiltro ?? undefined })
-      let lista = (r.conversas || []) as ConversaAtendimento[]
+      const params = new URLSearchParams()
+      params.set('aba', aba)
+      if (busca) params.set('q', busca)
+      if (canalIdServidor) params.set('inboxId', String(canalIdServidor))
+      if (teamIdFiltro) params.set('teamId', String(teamIdFiltro))
+
+      // Refaz TODAS as páginas já pedidas (1..N): poll/Realtime substituem a
+      // lista inteira, e só a página 1 faria a página 2 sumir a cada 30 s.
+      const respostas = await Promise.all(
+        Array.from({ length: paginasRef.current }, (_, i) => {
+          const p = new URLSearchParams(params)
+          p.set('page', String(i + 1))
+          return fetch(`/api/conversas/lista?${p.toString()}`).then(async (res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            return res.json()
+          })
+        }),
+      )
+      const r = respostas[0]
+      const vistos = new Set<number>()
+      let lista: ConversaAtendimento[] = []
+      for (const resp of respostas) {
+        for (const c of (resp.conversas || []) as ConversaAtendimento[]) {
+          if (!vistos.has(c.id)) {
+            vistos.add(c.id)
+            lista.push(c)
+          }
+        }
+      }
+      const ultimaPagina = (respostas[respostas.length - 1].conversas || []) as ConversaAtendimento[]
+      if (abaSolicitada === abaRef.current) setTemMaisConversas(ultimaPagina.length >= 25)
       if (canalIds.size > 1) lista = lista.filter((c) => canalIds.has(c.inbox_id))
       if (departamentoIds.size > 1) {
         const teamsAlvo = new Set(departamentos.filter((d) => departamentoIds.has(d.id)).map((d) => d.chatwootTeamId).filter((x): x is number => x !== null))
@@ -170,14 +206,15 @@ export function useAtendimento() {
       cacheConversasRef.current[abaSolicitada] = lista
 
       if (abaSolicitada === abaRef.current) {
-        setConversas(lista)
+        const selId = selecionadaIdRef.current
+        const listaAjustada = selId ? lista.map((c) => (c.id === selId ? { ...c, unread_count: 0 } : c)) : lista
+        setConversas(listaAjustada)
       }
       // Mantém a conversa aberta em dia com a lista (atendente, última mensagem):
-      // sem isso o select de Atendente ficava "Sem atendente" até reabrir a conversa.
       setSelecionada((prev) => {
         if (!prev) return prev
         const fresca = lista.find((c) => c.id === prev.id)
-        return fresca ? { ...fresca, atendimentoMeta: fresca.atendimentoMeta ?? prev.atendimentoMeta } : prev
+        return fresca ? { ...fresca, unread_count: 0, atendimentoMeta: fresca.atendimentoMeta ?? prev.atendimentoMeta } : prev
       })
       setErro(null)
       return lista
@@ -191,9 +228,17 @@ export function useAtendimento() {
     }
   }, [aba, busca, canalIds, departamentoIds, departamentos, canalIdServidor, teamIdFiltro])
 
+  const carregarMaisConversas = useCallback(async () => {
+    paginasRef.current += 1
+    await carregarLista()
+  }, [carregarLista])
+
   const carregarContadores = useCallback(async () => {
     try {
-      const c = await getContadores(teamIdFiltro ?? undefined)
+      const url = teamIdFiltro ? `/api/conversas/contadores?teamId=${teamIdFiltro}` : '/api/conversas/contadores'
+      const res = await fetch(url)
+      if (!res.ok) return
+      const c = await res.json()
       setContadores(c)
       setFilaCount(c.unassigned)
     } catch {
@@ -204,7 +249,10 @@ export function useAtendimento() {
   const carregarContatos = useCallback(async () => {
     setCarregandoContatos(true)
     try {
-      const lista = await listarContatos({ q: busca || undefined })
+      const url = busca ? `/api/conversas/contatos?q=${encodeURIComponent(busca)}` : '/api/conversas/contatos'
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const lista = await res.json()
       setContatos(lista)
     } catch (err) {
       setErro(mensagem(err, 'Erro ao carregar contatos.'))
@@ -216,20 +264,34 @@ export function useAtendimento() {
   const carregarThread = useCallback(async (conversationId: number, opts: { silencioso?: boolean } = {}) => {
     if (!opts.silencioso) setCarregandoThread(true)
     try {
-      const r = await getMensagens(conversationId)
-      setMensagens((r.payload || []).filter((m) => m.message_type !== 2 || m.content))
+      const res = await fetch(`/api/conversas/${conversationId}/mensagens`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const r = await res.json()
+      if (selecionadaIdRef.current === conversationId) {
+        const fresh = (r.payload || []).filter((m: ChatwootMensagem) => m.message_type !== 2 || m.content)
+        if (opts.silencioso) {
+          setMensagens((prev) => mergeChatwootMessages(prev, fresh))
+        } else {
+          setMensagens(fresh)
+        }
+      }
     } catch (err) {
-      if (!opts.silencioso) setErro(mensagem(err, 'Erro ao carregar mensagens.'))
+      if (!opts.silencioso && selecionadaIdRef.current === conversationId) setErro(mensagem(err, 'Erro ao carregar mensagens.'))
     } finally {
-      if (!opts.silencioso) setCarregandoThread(false)
+      if (!opts.silencioso && selecionadaIdRef.current === conversationId) setCarregandoThread(false)
     }
   }, [])
 
   const carregarMeta = useCallback(async (conversationId: number, contactId?: number) => {
     try {
-      const [meta, tags] = await Promise.all([getMeta(conversationId, contactId), getTags(conversationId).catch(() => [])])
-      setSelecionada((prev) => (prev && prev.id === conversationId ? { ...prev, atendimentoMeta: meta } : prev))
-      setTagsConversaState(tags)
+      const url = `/api/conversas/${conversationId}/meta${contactId ? `?contactId=${contactId}` : ''}`
+      const res = await fetch(url)
+      if (!res.ok) return
+      const data = await res.json()
+      if (selecionadaIdRef.current === conversationId) {
+        setSelecionada((prev) => (prev && prev.id === conversationId ? { ...prev, atendimentoMeta: data.meta } : prev))
+        setTagsConversaState(data.tags || [])
+      }
     } catch {
       // meta é auxiliar — segue exibindo a conversa sem ela
     }
@@ -237,6 +299,7 @@ export function useAtendimento() {
 
   /** Dados por CONTATO (Fase B §a/b/c): vínculo/departamento/atendente padrão, tags, agendamentos da conversa. */
   const carregarDadosContato = useCallback(async (conversationId: number, contactId?: number) => {
+    if (selecionadaIdRef.current !== conversationId) return
     setAgendamentos([])
     setContatoMeta(null)
     setTagsContatoState([])
@@ -244,43 +307,62 @@ export function useAtendimento() {
     setGaleria(null)
     try {
       const agend = await listarAgendamentos(conversationId)
-      setAgendamentos(agend)
+      if (selecionadaIdRef.current === conversationId) setAgendamentos(agend)
     } catch {
       // agendamentos são auxiliares
     }
     if (!contactId) return
     try {
-      const [cm, tc] = await Promise.all([getContatoMeta(contactId), getTagsContato(contactId).catch(() => [])])
-      setContatoMeta(cm)
-      setTagsContatoState(tc)
+      const res = await fetch(`/api/conversas/contatos/${contactId}/meta`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (selecionadaIdRef.current === conversationId) {
+        setContatoMeta(data.contatoMeta)
+        setTagsContatoState(data.tagsContato || [])
+      }
     } catch {
       // meta de contato é auxiliar — segue exibindo a conversa sem ela
     }
   }, [])
 
-  // Bootstrap: lista, agentes, canais, tags da conta, respostas rápidas (feature opcional).
+  // Bootstrap: lista, agentes, canais, tags da conta, respostas rápidas via GET HTTP endpoint único
   useEffect(() => {
     void (async () => {
-      const [ag, canais, tags, deps, pres] = await Promise.allSettled([getAgentesChat(), getCanaisAtendimento(), getTagsConta(), meusDepartamentos(), getMinhaDisponibilidade()])
-      if (ag.status === 'fulfilled') setAgentes(ag.value || [])
-      if (canais.status === 'fulfilled') setCanaisAtendimento(canais.value)
-      if (tags.status === 'fulfilled') setTagsConta(tags.value || [])
-      if (deps.status === 'fulfilled') {
-        setDepartamentos(deps.value.departamentos)
-        setEhSupervisor(deps.value.ehSupervisor)
-      }
-      if (pres.status === 'fulfilled') setPresenca(pres.value)
       try {
-        const r = await getRespostasRapidas()
-        setRespostasRapidas(r || [])
+        const res = await fetch('/api/conversas/bootstrap')
+        if (!res.ok) throw new Error('Bootstrap HTTP Error')
+        const data = await res.json()
+        setAgentes(data.agentes || [])
+        setCanaisAtendimento(data.canaisAtendimento || { inboxes: [], instancias: [], conta: null })
+        setTagsConta(data.tagsConta || [])
+        setDepartamentos(data.departamentos || [])
+        setEhSupervisor(Boolean(data.ehSupervisor))
+        if (data.presenca) setPresenca(data.presenca)
+        setRespostasRapidas(data.respostasRapidas || null)
       } catch {
-        setRespostasRapidas(null)
+        // Fallback gracioso para Server Actions se a rota HTTP falhar por qualquer motivo
+        const [ag, canais, tags, deps, pres] = await Promise.allSettled([getAgentesChat(), getCanaisAtendimento(), getTagsConta(), meusDepartamentos(), getMinhaDisponibilidade()])
+        if (ag.status === 'fulfilled') setAgentes(ag.value || [])
+        if (canais.status === 'fulfilled') setCanaisAtendimento(canais.value)
+        if (tags.status === 'fulfilled') setTagsConta(tags.value || [])
+        if (deps.status === 'fulfilled') {
+          setDepartamentos(deps.value.departamentos)
+          setEhSupervisor(deps.value.ehSupervisor)
+        }
+        if (pres.status === 'fulfilled') setPresenca(pres.value)
+        try {
+          const r = await getRespostasRapidas()
+          setRespostasRapidas(r || [])
+        } catch {
+          setRespostasRapidas(null)
+        }
       }
     })()
   }, [])
 
   useEffect(() => {
     if (aba === 'contatos') return
+    paginasRef.current = 1
     const cacheExistente = cacheConversasRef.current[aba]
     if (cacheExistente) {
       setConversas(cacheExistente)
@@ -292,10 +374,7 @@ export function useAtendimento() {
     void Promise.all([carregarLista(), carregarContadores()])
 
     return pollingVisivel(
-      () => {
-        void carregarLista()
-        void carregarContadores()
-      },
+      () => Promise.all([carregarLista(), carregarContadores()]),
       30_000,
       { imediato: false },
     )
@@ -310,31 +389,15 @@ export function useAtendimento() {
     const contactId = selecionada.meta?.sender?.id
     const conversationId = selecionada.id
 
-    setCarregandoThread(true)
-    setAgendamentos([])
-    setContatoMeta(null)
-    setTagsContatoState([])
-    setHistorico(null)
-    setGaleria(null)
+    // 1. Exibe mensagens da thread IMEDIATAMENTE (carregamento prioritário)
+    void carregarThread(conversationId)
 
-    void (async () => {
-      try {
-        const dados = await getDadosConversaAberta(conversationId, contactId)
-        setMensagens((dados.mensagens || []).filter((m) => m.message_type !== 2 || m.content))
-        setSelecionada((prev) => (prev && prev.id === conversationId ? { ...prev, atendimentoMeta: dados.meta } : prev))
-        setTagsConversaState(dados.tagsConversa || [])
-        setAgendamentos(dados.agendamentos || [])
-        setContatoMeta(dados.contatoMeta || null)
-        setTagsContatoState(dados.tagsContato || [])
-      } catch (err) {
-        setErro(mensagem(err, 'Erro ao carregar dados da conversa.'))
-      } finally {
-        setCarregandoThread(false)
-      }
-    })()
+    // 2. Carrega metadados auxiliares em segundo plano (não bloqueia exibição das mensagens)
+    void carregarMeta(conversationId, contactId)
+    void carregarDadosContato(conversationId, contactId)
 
-    // Idem: rede de segurança, o Realtime é quem mantém a thread em dia.
-    return pollingVisivel(() => void carregarThread(conversationId, { silencioso: true }), 30_000, { imediato: false })
+    // Redes de segurança: polling visível que retorna a Promise
+    return pollingVisivel(() => carregarThread(conversationId, { silencioso: true }), 30_000, { imediato: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selecionada?.id])
 
@@ -347,10 +410,12 @@ export function useAtendimento() {
   // O canal assina UMA vez por conta e chama sempre a versão atual.
   const carregarListaRef = useRef(carregarLista)
   const carregarThreadRef = useRef(carregarThread)
+  const carregarContadoresRef = useRef(carregarContadores)
   useEffect(() => {
     carregarListaRef.current = carregarLista
     carregarThreadRef.current = carregarThread
-  }, [carregarLista, carregarThread])
+    carregarContadoresRef.current = carregarContadores
+  }, [carregarLista, carregarThread, carregarContadores])
   useEffect(() => {
     if (!accountId) return
     const supabase = createClient()
@@ -374,6 +439,7 @@ export function useAtendimento() {
         (payload) => {
           const ev = payload.new as { payload?: { conversation_id?: number } }
           void carregarLista()
+          void carregarContadoresRef.current()
           if (selecionadaIdRef.current && ev.payload?.conversation_id === selecionadaIdRef.current) {
             void carregarThread(selecionadaIdRef.current, { silencioso: true })
           }
@@ -458,6 +524,7 @@ export function useAtendimento() {
     try {
       await responderConversa(selecionada.id, texto.trim(), citacao?.id, mentions)
       setCitacao(null)
+      void marcarConversaLida(selecionada.id).catch(() => {})
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
@@ -479,6 +546,7 @@ export function useAtendimento() {
     setErro(null)
     try {
       await enviarRespostaRapida(selecionada.id, respostaId)
+      void marcarConversaLida(selecionada.id).catch(() => {})
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
@@ -513,6 +581,7 @@ export function useAtendimento() {
       form.append('file', file)
       if (legenda) form.append('legenda', legenda)
       await enviarAnexoConversa(selecionada.id, form)
+      void marcarConversaLida(selecionada.id).catch(() => {})
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
@@ -531,6 +600,7 @@ export function useAtendimento() {
       const form = new FormData()
       form.append('file', new File([blob], 'audio.ogg', { type: blob.type || 'audio/ogg' }))
       await enviarAudioConversa(selecionada.id, form)
+      void marcarConversaLida(selecionada.id).catch(() => {})
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
     } catch (err) {
@@ -867,6 +937,8 @@ export function useAtendimento() {
     disponivel,
     carregandoLista,
     conversas,
+    carregarMaisConversas,
+    temMaisConversas,
     filaCount,
     selecionada,
     selecionarConversa,

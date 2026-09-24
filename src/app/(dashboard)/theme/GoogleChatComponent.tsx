@@ -6,7 +6,8 @@ import { EllipsisVertical, MessageSquareText, MessagesSquare, Mic, Paperclip, Se
 import { useMessengerDock } from '@/components/layout/MessengerDockContext'
 import { deriveChatStatus, normalizeManualStatus, type ChatStatus } from '@/lib/chat/presence'
 import { getMinhaAssinatura, setMinhaAssinatura } from '@/lib/central-conversas/actions'
-import { enviarMensagemInterno, getCanaisInterno, getMensagensInterno, type CanalInterno, type MensagemInterno } from '@/lib/interno-chat/actions'
+import { enviarMensagemInterno, getCanaisInterno, getMensagensInterno, marcarLeituraInterno, type CanalInterno, type MensagemInterno } from '@/lib/interno-chat/actions'
+import { mergeMessages } from '@/lib/interno-chat/cursor'
 import { getIaIdentidade } from '@/lib/ia/actions'
 import { pollingVisivel } from '@/lib/polling-visivel'
 import { createClient } from '@/lib/supabase/client'
@@ -247,28 +248,28 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   // caminho principal. pollingVisivel pausa com a aba em segundo plano e
   // refaz uma vez ao voltar (13/09/2026, custo de Observability na Vercel).
   useEffect(() => {
-    return pollingVisivel(() => void fetchConversations(), 30000, { imediato: false })
+    return pollingVisivel(() => fetchConversations(), 30000, { imediato: false })
   }, [])
 
   useEffect(() => {
-    return pollingVisivel(() => void fetchContacts(), 30000, { imediato: false })
+    return pollingVisivel(() => fetchContacts(), 30000, { imediato: false })
   }, [])
 
   useEffect(() => {
     if (!selectedConversation) return
     // imediato:false — openConversation já carrega ao abrir; aqui é só segurança.
-    return pollingVisivel(() => void loadMessages(selectedConversation.id, true), 15000, { imediato: false })
+    return pollingVisivel(() => loadMessages(selectedConversation.id, true), 15000, { imediato: false })
   }, [selectedConversation?.id])
 
   // "Você" e "Equipe BRS" fixos no topo da lista (kinds 'self'/'equipe' —
   // não aparecem em /api/chat/conversations, que só lista 'direct').
   useEffect(() => {
-    return pollingVisivel(() => void fetchCanaisFixos(), 30000, { imediato: false })
+    return pollingVisivel(() => fetchCanaisFixos(), 30000, { imediato: false })
   }, [])
 
   useEffect(() => {
     if (!canalFixoAberto) return
-    return pollingVisivel(() => void loadMensagensFixo(canalFixoAberto.id, true), 15000, { imediato: false })
+    return pollingVisivel(() => loadMensagensFixo(canalFixoAberto.id, true), 15000, { imediato: false })
   }, [canalFixoAberto?.id])
 
   // Push via Supabase Realtime: workspace_chat_messages e
@@ -390,13 +391,26 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
     }
   }
 
+  const [hasMoreMessages, setHasMoreMessages] = useState(false)
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
+  const [hasMoreFixo, setHasMoreFixo] = useState(false)
+  const [carregandoMaisFixo, setCarregandoMaisFixo] = useState(false)
+
   async function loadMensagensFixo(conversationId: string, silent = false) {
+    canalFixoIdRef.current = conversationId
     if (!silent) setCarregandoFixo(true)
     try {
-      const data = await getMensagensInterno(conversationId)
-      setMensagensFixo(data)
+      const data = await getMensagensInterno(conversationId, undefined, undefined, 50)
+      if (canalFixoIdRef.current !== conversationId) return
+      if (silent) {
+        setMensagensFixo((prev) => mergeMessages(prev, data))
+      } else {
+        setMensagensFixo(data)
+        setHasMoreFixo(data.length >= 50)
+      }
+      void marcarLeituraInterno(conversationId).catch(() => {})
     } finally {
-      if (!silent) setCarregandoFixo(false)
+      if (canalFixoIdRef.current === conversationId && !silent) setCarregandoFixo(false)
     }
     const shouldStickToBottom = !silent || stickToBottomRef.current
     if (shouldStickToBottom) {
@@ -405,6 +419,38 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       }, 50)
     }
     void fetchCanaisFixos()
+  }
+
+  async function loadOlderMensagensFixo() {
+    if (!canalFixoAberto || mensagensFixo.length === 0 || carregandoMaisFixo) return
+    const oldest = mensagensFixo[0]
+    const convId = canalFixoAberto.id
+    setCarregandoMaisFixo(true)
+
+    const container = messagesContainerRef.current
+    const oldScrollHeight = container ? container.scrollHeight : 0
+
+    try {
+      const data = await getMensagensInterno(convId, oldest.timestamp, oldest.id, 50)
+      if (canalFixoIdRef.current !== convId) return
+      if (data.length < 50) setHasMoreFixo(false)
+
+      setMensagensFixo((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id))
+        const novos = data.filter((m) => !existingIds.has(m.id))
+        return [...novos, ...prev]
+      })
+
+      setTimeout(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight - oldScrollHeight
+        }
+      }, 30)
+    } catch {
+      // Silencioso
+    } finally {
+      if (canalFixoIdRef.current === convId) setCarregandoMaisFixo(false)
+    }
   }
 
   async function abrirCanalFixo(canal: CanalInterno) {
@@ -712,13 +758,30 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
   }
 
   async function loadMessages(conversationId: string, silent = false) {
+    selectedConversationIdRef.current = conversationId
     if (!silent) setLoadingMessages(true)
-    const response = await fetch(`/api/chat/messages?conversationId=${conversationId}`)
-    const data = await response.json()
-    if (Array.isArray(data)) {
-      setMessages(data)
+    try {
+      const response = await fetch(`/api/chat/messages?conversationId=${conversationId}&limit=50`)
+      const data = await response.json()
+      if (selectedConversationIdRef.current !== conversationId) return
+      if (Array.isArray(data)) {
+        if (silent) {
+          setMessages((prev) => mergeMessages(prev, data))
+        } else {
+          setMessages(data)
+          setHasMoreMessages(data.length >= 50)
+        }
+      }
+      void fetch('/api/chat/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId }),
+      }).catch(() => {})
+    } finally {
+      if (selectedConversationIdRef.current === conversationId && !silent) {
+        setLoadingMessages(false)
+      }
     }
-    if (!silent) setLoadingMessages(false)
     const shouldStickToBottom = !silent || stickToBottomRef.current
     if (shouldStickToBottom) {
       setTimeout(() => {
@@ -726,6 +789,45 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
       }, 50)
     }
     await fetchConversations()
+  }
+
+  async function loadOlderMessages() {
+    if (!selectedConversation || messages.length === 0 || loadingOlderMessages) return
+    const oldest = messages[0]
+    const convId = selectedConversation.id
+    setLoadingOlderMessages(true)
+
+    const scrollContainer = messagesContainerRef.current
+    const oldScrollHeight = scrollContainer ? scrollContainer.scrollHeight : 0
+
+    try {
+      const response = await fetch(
+        `/api/chat/messages?conversationId=${convId}&before=${encodeURIComponent(oldest.timestamp)}&beforeId=${encodeURIComponent(oldest.id)}&limit=50`,
+      )
+      const data = await response.json()
+      if (selectedConversationIdRef.current !== convId) return
+
+      if (Array.isArray(data)) {
+        if (data.length < 50) setHasMoreMessages(false)
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id))
+          const novos = data.filter((m: ChatMessage) => !existingIds.has(m.id))
+          return [...novos, ...prev]
+        })
+
+        setTimeout(() => {
+          if (scrollContainer) {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight - oldScrollHeight
+          }
+        }, 30)
+      }
+    } catch {
+      // Silencioso
+    } finally {
+      if (selectedConversationIdRef.current === convId) {
+        setLoadingOlderMessages(false)
+      }
+    }
   }
 
   async function sendMessage() {
@@ -1134,6 +1236,18 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                     <div className="text-xs text-gray-500">Carregando mensagens...</div>
                   ) : (
                     <div className="space-y-2">
+                      {hasMoreFixo && (
+                        <div className="text-center py-2">
+                          <button
+                            type="button"
+                            onClick={() => void loadOlderMensagensFixo()}
+                            disabled={carregandoMaisFixo}
+                            className="text-xs text-blue-600 hover:underline px-3 py-1 rounded bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+                          >
+                            {carregandoMaisFixo ? 'Carregando anteriores...' : 'Carregar mensagens anteriores'}
+                          </button>
+                        </div>
+                      )}
                       {mensagensFixo.map((m) => {
                         const mine = m.sender.id === myProfile.user?.id
                         const lembrete = m.text.startsWith(PREFIXO_LEMBRETE)
@@ -1270,6 +1384,18 @@ export function GoogleChatComponent({ variant = 'widget' }: GoogleChatComponentP
                     <div className="text-xs text-gray-500">Carregando mensagens...</div>
                   ) : (
                     <div className="space-y-2">
+                      {hasMoreMessages && (
+                        <div className="text-center py-2">
+                          <button
+                            type="button"
+                            onClick={() => void loadOlderMessages()}
+                            disabled={loadingOlderMessages}
+                            className="text-xs text-blue-600 hover:underline px-3 py-1 rounded bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+                          >
+                            {loadingOlderMessages ? 'Carregando anteriores...' : 'Carregar mensagens anteriores'}
+                          </button>
+                        </div>
+                      )}
                       {messages.map((m) => {
                         const mine = m.sender.id === myProfile.user?.id
                         return (

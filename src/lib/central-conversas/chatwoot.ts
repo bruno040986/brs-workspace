@@ -8,11 +8,55 @@ function base(): string {
   return String(process.env.CHATWOOT_URL || 'https://chat.brspromotora.com.br').replace(/\/$/, '')
 }
 
+export function mergeChatwootMessages<T extends ChatwootMensagem>(existing: T[], fresh: ChatwootMensagem[]): T[] {
+  if (existing.length === 0) return fresh as T[]
+  if (fresh.length === 0) return existing
+
+  const freshMap = new Map(fresh.map((m) => [m.id, m]))
+  const merged: T[] = []
+  const seenIds = new Set<number>()
+
+  for (const msg of existing) {
+    const updated = freshMap.has(msg.id) ? ({ ...msg, ...freshMap.get(msg.id) } as T) : msg
+    merged.push(updated)
+    seenIds.add(msg.id)
+  }
+
+  for (const msg of fresh) {
+    if (!seenIds.has(msg.id)) {
+      merged.push(msg as T)
+      seenIds.add(msg.id)
+    }
+  }
+
+  merged.sort((a, b) => (a.created_at || 0) - (b.created_at || 0) || a.id - b.id)
+  return merged
+}
+
+/**
+ * Corpo do POST /conversations/filter. A API só tem `assignee_type=me`, e "me"
+ * é o dono do TOKEN da conta — o mesmo pra todo usuário do Workspace. "Conversas
+ * do agente X" exige filtrar por `assignee_id`. Puro; testado em __tests__.
+ */
+export function payloadFiltroConversas(params: { assigneeId: number; status?: 'open' | 'resolved' | 'pending' | 'all'; inboxId?: number; teamId?: number }) {
+  const itens: Array<{ attribute_key: string; filter_operator: 'equal_to'; values: Array<number | string>; query_operator: 'AND' | null }> = [
+    { attribute_key: 'assignee_id', filter_operator: 'equal_to', values: [params.assigneeId], query_operator: null },
+  ]
+  if (params.status && params.status !== 'all') itens.push({ attribute_key: 'status', filter_operator: 'equal_to', values: [params.status], query_operator: null })
+  if (params.inboxId) itens.push({ attribute_key: 'inbox_id', filter_operator: 'equal_to', values: [params.inboxId], query_operator: null })
+  if (params.teamId) itens.push({ attribute_key: 'team_id', filter_operator: 'equal_to', values: [params.teamId], query_operator: null })
+  for (let i = 0; i < itens.length - 1; i++) itens[i].query_operator = 'AND'
+  return itens
+}
+
 export class ChatwootConta {
-  constructor(
-    readonly accountId: number,
-    private readonly token: string,
-  ) {}
+  readonly accountId: number
+  private readonly token: string
+
+  constructor(accountId: number, token: string) {
+    this.accountId = accountId
+    this.token = token
+  }
 
   async req<T>(path: string, init?: { method?: string; body?: unknown; form?: FormData; timeoutMs?: number }): Promise<T> {
     const headers: Record<string, string> = { api_access_token: this.token }
@@ -85,6 +129,11 @@ export class ChatwootConta {
     if (params.inboxId) s.set('inbox_id', String(params.inboxId))
     if (params.teamId) s.set('team_id', String(params.teamId))
     return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => r.data)
+  }
+
+  /** Conversas de UM agente (ver payloadFiltroConversas); mesmo formato do listarConversas. `meta.all_count` = total filtrado. */
+  filtrarConversas(params: { assigneeId: number; status?: 'open' | 'resolved' | 'pending' | 'all'; page?: number; inboxId?: number; teamId?: number }) {
+    return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations/filter?page=${params.page || 1}`, { method: 'POST', body: { payload: payloadFiltroConversas(params) } }).then((r) => r.data)
   }
 
   /** Conversa única — usado pelo worker de agendamento pra revalidar status antes de enviar (Fase B §5). */
@@ -197,7 +246,8 @@ export class ChatwootConta {
    * de quando a mensagem chegou mesmo depois do atendente responder.
    */
   marcarLida(conversationId: number) {
-    return this.req(`/conversations/${conversationId}/update_last_seen`, { method: 'POST', body: {} })
+    const now = Math.floor(Date.now() / 1000)
+    return this.req(`/conversations/${conversationId}/update_last_seen`, { method: 'POST', body: { agent_last_seen_at: now, last_seen_at: now } })
   }
 
   /** Respostas rápidas (canned responses) da conta. */

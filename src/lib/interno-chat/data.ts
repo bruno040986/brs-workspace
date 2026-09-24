@@ -53,16 +53,44 @@ type Admin = Awaited<ReturnType<typeof createAdminClient>>
 const JANELA_MENSAGENS_DIAS = 90
 const LIMITE_MENSAGENS_LISTA = 2000
 
-async function assinarAnexos(admin: Admin, raw: unknown): Promise<ChatAttachment[]> {
-  const lista = Array.isArray(raw) ? (raw as ChatAttachment[]) : []
-  return Promise.all(
-    lista.map(async (att) => {
+async function assinarAnexosEmLote(admin: Admin, mensagens: any[]): Promise<Map<string, string>> {
+  const signedUrlMap = new Map<string, string>()
+  const paths: string[] = []
+
+  for (const m of mensagens) {
+    const list = Array.isArray(m.attachments) ? (m.attachments as ChatAttachment[]) : []
+    for (const att of list) {
       const path = chatAttachmentPath(att)
-      if (!path) return att
-      const { data: signed } = await admin.storage.from(CHAT_ATTACHMENT_BUCKET).createSignedUrl(path, CHAT_SIGNED_URL_TTL)
-      return { ...att, url: signed?.signedUrl || att.url }
-    }),
-  )
+      if (path) paths.push(path)
+    }
+  }
+
+  if (paths.length) {
+    const uniquePaths = [...new Set(paths)]
+    try {
+      const { data: signedResults } = await admin.storage
+        .from(CHAT_ATTACHMENT_BUCKET)
+        .createSignedUrls(uniquePaths, CHAT_SIGNED_URL_TTL)
+      for (const res of signedResults || []) {
+        if (res.path && res.signedUrl) {
+          signedUrlMap.set(res.path, res.signedUrl)
+        }
+      }
+    } catch {
+      // Best-effort: fallback on empty map if batch signing fails
+    }
+  }
+
+  return signedUrlMap
+}
+
+function aplicarAnexosAssinados(raw: unknown, signedUrlMap: Map<string, string>): ChatAttachment[] {
+  const lista = Array.isArray(raw) ? (raw as ChatAttachment[]) : []
+  return lista.map((att) => {
+    const path = chatAttachmentPath(att)
+    if (!path) return att
+    return { ...att, url: signedUrlMap.get(path) || att.url }
+  })
 }
 
 /**
@@ -206,10 +234,19 @@ async function conferirParticipacao(admin: Admin, userId: string, conversationId
   return { kind: kind as CanalInternoKind }
 }
 
-/** Mensagens da conversa (asc) e marca como lidas pro usuário. */
-export async function listarMensagens(userId: string, conversationId: string): Promise<MensagemInterno[]> {
+import { construirFiltroCursorComposto, mergeMessages } from './cursor'
+export { construirFiltroCursorComposto, mergeMessages }
+
+/** Mensagens da conversa (asc) paginadas e marca como lidas pro usuário. */
+export async function listarMensagens(
+  userId: string,
+  conversationId: string,
+  opts?: { limit?: number; before?: string; beforeId?: string },
+): Promise<MensagemInterno[]> {
   const admin = await createAdminClient()
   const { kind } = await conferirParticipacao(admin, userId, conversationId)
+
+  const limit = Math.min(Math.max(1, opts?.limit || 50), 100)
 
   // "lido pelo outro" só faz sentido no 1-a-1.
   let lidoPeloOutroAte: string | null = null
@@ -223,43 +260,70 @@ export async function listarMensagens(userId: string, conversationId: string): P
     lidoPeloOutroAte = (outro?.last_read_at as string | null) || null
   }
 
-  const { data: mensagens, error } = await admin
+  let query = admin
     .from('workspace_chat_messages')
     .select('id, sender_id, body, created_at, text_style, attachments')
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+
+  const filtroCursor = construirFiltroCursorComposto(opts?.before, opts?.beforeId)
+  if (filtroCursor) {
+    if (opts?.before && opts?.beforeId) {
+      query = query.or(filtroCursor)
+    } else if (opts?.before) {
+      query = query.lt('created_at', opts.before)
+    }
+  }
+
+  const { data: rawMensagens, error } = await query
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit)
+
   if (error) throw error
 
-  const senderIds = [...new Set((mensagens || []).map((m) => String(m.sender_id)))]
+  // Inverte para ordem cronológica ascendente na exibição
+  const mensagens = (rawMensagens || []).reverse()
+
+  const senderIds = [...new Set(mensagens.map((m) => String(m.sender_id)))]
   const { data: usuarios } = senderIds.length
     ? await admin.from('users').select('id, name, email').in('id', senderIds)
     : { data: [] as Array<{ id: string; name: string | null; email: string | null }> }
   const usuarioPorId = new Map((usuarios || []).map((u) => [String(u.id), u]))
 
-  const resultado = await Promise.all(
-    (mensagens || []).map(async (m) => {
-      const sender = usuarioPorId.get(String(m.sender_id))
-      const minha = String(m.sender_id) === userId
-      const lida = minha && kind === 'direct' && Boolean(lidoPeloOutroAte) && new Date(m.created_at).getTime() <= new Date(lidoPeloOutroAte || 0).getTime()
-      return {
-        id: String(m.id),
-        text: String(m.body),
-        timestamp: String(m.created_at),
-        sender: { id: String(sender?.id || m.sender_id), email: String(sender?.email || ''), full_name: sender?.name || undefined },
-        text_style: (m.text_style as MensagemInterno['text_style']) || null,
-        attachments: await assinarAnexos(admin, m.attachments),
-        delivery_status: minha ? (lida ? ('read' as const) : ('sent' as const)) : null,
-      }
-    }),
-  )
+  // Assinatura em lote de anexos
+  const signedUrlMap = await assinarAnexosEmLote(admin, mensagens)
 
-  await admin
+  const resultado: MensagemInterno[] = mensagens.map((m) => {
+    const sender = usuarioPorId.get(String(m.sender_id))
+    const minha = String(m.sender_id) === userId
+    const lida = minha && kind === 'direct' && Boolean(lidoPeloOutroAte) && new Date(m.created_at).getTime() <= new Date(lidoPeloOutroAte || 0).getTime()
+    return {
+      id: String(m.id),
+      text: String(m.body),
+      timestamp: String(m.created_at),
+      sender: { id: String(sender?.id || m.sender_id), email: String(sender?.email || ''), full_name: sender?.name || undefined },
+      text_style: (m.text_style as MensagemInterno['text_style']) || null,
+      attachments: aplicarAnexosAssinados(m.attachments, signedUrlMap),
+      delivery_status: minha ? (lida ? ('read' as const) : ('sent' as const)) : null,
+    }
+  })
+
+  return resultado
+}
+
+/** Atualização explícita e auditada da confirmação de leitura do chat interno. */
+export async function atualizarLeitura(userId: string, conversationId: string): Promise<{ ok: boolean }> {
+  const admin = await createAdminClient()
+  const { error } = await admin
     .from('workspace_chat_participants')
     .update({ last_read_at: new Date().toISOString() })
     .eq('conversation_id', conversationId)
     .eq('user_id', userId)
 
-  return resultado
+  if (error) {
+    console.error('Erro ao marcar leitura no chat interno:', error)
+  }
+  return { ok: !error }
 }
 
 /** Insert normal em workspace_chat_messages (vale pra direct, equipe e self). */

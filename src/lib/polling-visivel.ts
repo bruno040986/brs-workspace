@@ -9,7 +9,7 @@
  * dia inteiro, inclusive em abas esquecidas abertas.
  */
 export function pollingVisivel(
-  fn: () => void | Promise<void>,
+  fn: () => Promise<unknown> | unknown,
   ms: number,
   opcoes: { imediato?: boolean } = {},
 ): () => void {
@@ -19,6 +19,8 @@ export function pollingVisivel(
     executando = true
     try {
       await fn()
+    } catch {
+      // Silencia exceções para não interromper o timer do polling
     } finally {
       executando = false
     }

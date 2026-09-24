@@ -132,6 +132,8 @@ export default function AtendimentoCompacto() {
             selecionadaId={null}
             onSelecionar={at.selecionarConversa}
             onNovaConversa={at.novaConversa}
+            temMais={at.temMaisConversas}
+            onCarregarMais={at.carregarMaisConversas}
           />
         )}
       </div>

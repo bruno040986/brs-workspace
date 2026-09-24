@@ -42,6 +42,8 @@ type Props = {
   selecionadaId: number | null
   onSelecionar: (c: ConversaAtendimento) => void
   onNovaConversa: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<ResultadoNovaConversa>
+  temMais?: boolean
+  onCarregarMais?: () => void
 }
 
 const PRESENCA_INFO: Record<NonNullable<Presenca>, { cor: string; rotulo: string }> = {
@@ -78,6 +80,8 @@ export default function ListaConversas({
   selecionadaId,
   onSelecionar,
   onNovaConversa,
+  temMais,
+  onCarregarMais,
 }: Props) {
   const [modalAberto, setModalAberto] = useState(false)
   const [prefillModal, setPrefillModal] = useState<{ telefone: string; nome: string } | null>(null)
@@ -272,17 +276,28 @@ export default function ListaConversas({
             Não existem conversas abertas{aba === 'meus' ? ' para você' : ''}.
           </div>
         ) : (
-          listaOrdenada.map((c, idx) => (
-            <ItemConversa
-              key={c.id}
-              conversa={c}
-              selecionada={selecionadaId === c.id}
-              onSelecionar={onSelecionar}
-              nomeInstancia={nomeInstanciaPorInbox.get(c.inbox_id)}
-              aba={aba}
-              posicaoFila={aba === 'fila' ? idx + 1 : undefined}
-            />
-          ))
+          <>
+            {listaOrdenada.map((c, idx) => (
+              <ItemConversa
+                key={c.id}
+                conversa={c}
+                selecionada={selecionadaId === c.id}
+                onSelecionar={onSelecionar}
+                nomeInstancia={nomeInstanciaPorInbox.get(c.inbox_id)}
+                aba={aba}
+                posicaoFila={aba === 'fila' ? idx + 1 : undefined}
+              />
+            ))}
+            {temMais && onCarregarMais && (
+              <button
+                type="button"
+                onClick={onCarregarMais}
+                style={{ display: 'block', width: '100%', padding: '10px 12px', fontSize: 12.5, color: 'var(--msn-muted)', background: 'transparent', border: 0, cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Carregar mais conversas
+              </button>
+            )}
+          </>
         )}
       </div>
 

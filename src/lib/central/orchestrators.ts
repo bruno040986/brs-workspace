@@ -46,13 +46,14 @@ export function orchestratorConfigured(def: OrchestratorDef): boolean {
 }
 
 export class OrchestratorApiError extends Error {
-  constructor(
-    readonly slug: string,
-    readonly status: number,
-    message: string,
-  ) {
+  readonly slug: string
+  readonly status: number
+
+  constructor(slug: string, status: number, message: string) {
     super(message)
     this.name = 'OrchestratorApiError'
+    this.slug = slug
+    this.status = status
   }
 }
 

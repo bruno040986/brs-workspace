@@ -50,6 +50,8 @@ export default function AtendimentoCompleto() {
           selecionadaId={at.selecionada?.id ?? null}
           onSelecionar={at.selecionarConversa}
           onNovaConversa={at.novaConversa}
+          temMais={at.temMaisConversas}
+          onCarregarMais={at.carregarMaisConversas}
         />
       </div>
       <div style={{ minHeight: 0, minWidth: 0 }}>

@@ -8,6 +8,8 @@ import {
 } from './permissions'
 import { getEffectivePermissionsForUserId } from './effectivePermissions'
 
+import { cache } from 'react'
+
 // Identidade minima derivada do JWT ja validado (id/email/app_metadata),
 // suficiente pra tudo que o app usa hoje (so .id e .app_metadata). Ver
 // getCurrentUser() abaixo pra motivo de nao usar mais o User completo do
@@ -26,7 +28,8 @@ export type AuthenticatedUser = {
 // (simetrico), getClaims() cai de volta pra rede (mesmo custo de getUser());
 // o ganho fica automatico assim que o Bruno revogar o legado a favor das
 // novas JWT Signing Keys assimetricas no painel do Supabase.
-export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
+// React.cache deduplica chamadas na mesma requisicao HTTP.
+export const getCurrentUser = cache(async (): Promise<AuthenticatedUser | null> => {
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getClaims()
   if (error) throw error
@@ -39,7 +42,7 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
     app_metadata: (claims.app_metadata as Record<string, unknown>) ?? {},
     user_metadata: (claims.user_metadata as Record<string, unknown>) ?? {},
   }
-}
+})
 
 export async function requireCurrentUser(): Promise<AuthenticatedUser> {
   const user = await getCurrentUser()
@@ -47,10 +50,10 @@ export async function requireCurrentUser(): Promise<AuthenticatedUser> {
   return user
 }
 
-export async function getEffectivePermissionsForUser(userId: string): Promise<EffectivePermission[]> {
+export const getEffectivePermissionsForUser = cache(async (userId: string): Promise<EffectivePermission[]> => {
   const supabase = await createAdminClient()
   return getEffectivePermissionsForUserId(supabase, userId)
-}
+})
 
 export async function getCurrentUserEffectivePermissions(): Promise<EffectivePermission[]> {
   const user = await requireCurrentUser()
