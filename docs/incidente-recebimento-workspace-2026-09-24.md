@@ -8,9 +8,14 @@ o que foi verificado". Horários em UTC com o BRT (UTC−3) entre parênteses.
 
 ## 0. Resumo
 
-- **Produção rodava (e roda até o deploy desta entrega) o commit `5d6525be`**
-  (deploy `dpl_GBE1jyQZfnPgvbKQ26FTWxrM21tw`). Nada do que o Gemini alterou
-  chegou a ser publicado: estava tudo sem commit na pasta principal.
+- **Produção roda o commit `5d6525be`** (deploy
+  `dpl_GBE1jyQZfnPgvbKQ26FTWxrM21tw`, confirmado pelo header
+  `x-deployment-id` na sessão autenticada). Nada do que o Gemini alterou
+  chegou a ser publicado: estava tudo sem commit na pasta principal. **A
+  correção desta entrega também NÃO está publicada**: está no commit
+  `5810f6dd` da branch `chat/recebimento-e-performance` (worktree
+  `brs-workspace-chat-recebimento`); o `git push` foi bloqueado pela
+  política do ambiente desta sessão — publicar é passo do Bruno (§9).
 - **Suporte ficou surda das 17:27:40 às 19:34:43 UTC (14:27→16:34 BRT)**: o
   socket reconectou após um "Stream Errored (ack)" e, a partir daí, o engine
   não decifrou mais NADA dessa instância (nem entradas, nem o eco do que o
@@ -234,9 +239,9 @@ dono do token) — comportamento anterior, fora do escopo.
 | "130 testes, 0 falhas" | Verdadeiro, mas nenhum teste exercita o fluxo real; a suíte não pegaria nenhum dos itens acima. |
 | Build/tsc OK | Confirmado localmente (baseline). |
 
-## 8. Validação e pendências
+## 8. Pendências
 
-Ver §9 (preenchida após o deploy). Pendências reais:
+Pendências reais (a validação executada está na §9):
 
 1. **Teste identificável nas três instâncias** (mensagem com marcador único,
    ex. `TESTE-<instância>-<hhmm>`), enviado pelo Bruno: só isso comprova o
@@ -254,3 +259,60 @@ Ver §9 (preenchida após o deploy). Pendências reais:
    a Vercel registrou 15 × 504 nas últimas 4 h, todos em
    `/api/cron/agenda-sync` — nenhum no chat.
 5. Envio continua com a identidade do dono do token (fora do escopo).
+
+## 9. Validação executada e versões
+
+**Versão local testada:** branch `chat/recebimento-e-performance`, commit
+`5810f6dd` (base `5d6525be`), worktree `brs-workspace-chat-recebimento`.
+
+| Verificação | Resultado |
+|---|---|
+| `npx tsc --noEmit --incremental false` | 0 erros |
+| `npm test` (node --test) | 135 testes: 132 ok, 0 falhas, 3 pulados (fixtures de PDF ausentes) — inclui o novo `filtro-conversas.test.ts` |
+| `npm run build` | compilado (55 s), rotas novas geradas |
+| Engine `tsc --noEmit` (branch `engine/log-mensagem-nao-decifrada`) | 0 erros |
+
+**Versão publicada observada:** `5d6525be` (código antigo), sessão do Bruno
+em `workspace.brspromotora.com.br/conversas` às 23:06–23:15 UTC:
+
+- Abas: "Chats 1", "Fila 60", "Geral" (supervisor). A Fila mostra 25 itens
+  (#1 14:23 … #25 19:21 BRT) — a página 1 do Chatwoot; os outros 35 não têm
+  como ser vistos nesse código.
+- Conv **100** (Financeiro, entrada real 19:21 BRT) aparece na Fila (#25) e
+  na Geral (#1, "Aberta", "sem atendente"): recebimento + exibição
+  comprovados para o Financeiro.
+- Conv **184** (Atendimento, teste das 16h36 BRT) não aparece na página 1 da
+  Fila nem da Geral (ver §2.2).
+- Rede: em poucos minutos a página fez ~60 `POST /conversas` (Server
+  Actions: lista, contadores, bootstrap, polls), todos 200; nenhum 5xx de
+  chat na Vercel nas últimas 4 h (só `/api/cron/agenda-sync`, 15 × 504).
+- Console/Realtime do código novo não puderam ser observados em produção
+  (não publicado).
+
+**Não validado:** o código novo em produção (Chats do usuário logado,
+`POST /conversations/filter`, "Carregar mais", contadores por agente,
+Realtime + contadores) — só localmente (tipos/testes/build). Publicar e
+conferir na mesma sessão autenticada: (1) badge "Chats" passa a contar as
+conversas do agente do usuário; (2) Fila continua 60 e "Carregar mais
+conversas" traz #26–#50; (3) abrir a conv 100 mostra as duas mensagens das
+19:21 BRT; (4) enviar um teste identificável em cada instância e ver
+aparecer na aba certa sem F5.
+
+**Como publicar (processo da sessão):**
+
+```
+cd "SITES/BRS GESTÃO/brs-workspace"          # pasta principal, em main
+git merge --ff-only chat/recebimento-e-performance
+git push origin main                          # Vercel publica interno-brs
+```
+
+Depois do deploy (Vercel → interno-brs → commit `5810f6dd` READY), validar
+os itens acima; se a aba Chats vier vazia com erro "HTTP 500", o suspeito é
+o corpo do `POST /conversations/filter` (ver `payloadFiltroConversas`) —
+Fila e Geral não dependem dele.
+
+**Metas de performance** (p95 ≤ 2 s navegação, ≤ 1,5 s abertura quente):
+**não medidas** nesta rodada. O código novo troca ~6 Server Actions
+encadeadas por GETs paralelos autorizados no handler; o ganho precisa ser
+medido depois da publicação, na mesma sessão autenticada, com 30 aberturas
+por cenário.
