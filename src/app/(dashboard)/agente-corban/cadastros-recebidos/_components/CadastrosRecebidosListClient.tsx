@@ -347,6 +347,11 @@ export default function CadastrosRecebidosListClient({
                       ) : (
                         <span className="badge badge-gray">Sem processo</span>
                       )}
+                      {row.alertaReprovacao && (
+                        <span className="badge badge-danger" style={{ marginLeft: 6 }} title="Já houve reprovação com este CNPJ/CPF — abra o processo para ver o histórico">
+                          Reprovado antes
+                        </span>
+                      )}
                     </td>
                     <td>{diasEmAberto(row.createdAt)}</td>
                     <td>{row.hasProcesso ? row.responsavelNome || '—' : '—'}</td>

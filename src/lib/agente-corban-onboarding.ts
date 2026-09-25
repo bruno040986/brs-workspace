@@ -76,6 +76,7 @@ export type CorbanOnboardingProcessoStatus =
   | 'correcao_recebida'
   | 'concluido'
   | 'cancelado'
+  | 'reprovado'
 
 export const CORBAN_ONBOARDING_STATUS_LABELS: Record<CorbanOnboardingProcessoStatus, string> = {
   em_andamento: 'Em andamento',
@@ -83,6 +84,7 @@ export const CORBAN_ONBOARDING_STATUS_LABELS: Record<CorbanOnboardingProcessoSta
   correcao_recebida: 'Correção recebida',
   concluido: 'Concluído',
   cancelado: 'Cancelado',
+  reprovado: 'Reprovado',
 }
 
 export const CORBAN_ONBOARDING_STATUS_BADGE: Record<CorbanOnboardingProcessoStatus, string> = {
@@ -91,6 +93,7 @@ export const CORBAN_ONBOARDING_STATUS_BADGE: Record<CorbanOnboardingProcessoStat
   correcao_recebida: 'badge-gold',
   concluido: 'badge-success',
   cancelado: 'badge-danger',
+  reprovado: 'badge-danger',
 }
 
 export type CorbanOnboardingItemEtapa = 'validacao' | 'analise'
@@ -129,6 +132,12 @@ export type CorbanOnboardingProcesso = {
   created_by: string | null
   created_at: string
   updated_at: string
+  /** Reprovação final (fatia 2). `cadastro_snapshot` é a cópia congelada do cadastro na hora. */
+  reprovacao_categoria?: ReprovacaoCategoria | null
+  reprovacao_motivo?: string | null
+  reprovado_por?: string | null
+  reprovado_em?: string | null
+  cadastro_snapshot?: Record<string, any> | null
 }
 
 export type CorbanOnboardingItem = {
@@ -727,9 +736,22 @@ export function buildAnaliseChecklistSpec(
   corbanData: Record<string, any> | null | undefined,
   personType: 'PF' | 'PJ',
   cpfCnpj: string,
+  reprovacoesAnteriores: ReprovacaoAnterior[] = [],
 ): ChecklistItemSpec[] {
   const data = corbanData || {}
   const specs: ChecklistItemSpec[] = []
+
+  // Fatia 2: houve reprovação anterior com algum documento deste cadastro →
+  // item informativo que o operador precisa dar ciência (aprovar) para seguir.
+  if (reprovacoesAnteriores.length > 0) {
+    specs.push({
+      etapa: 'analise',
+      chave: CHAVE_HISTORICO_REPROVACOES,
+      rotulo: 'Tentativas anteriores reprovadas (ciência)',
+      tipo: 'analise',
+      valor: { reprovacoes: reprovacoesAnteriores },
+    })
+  }
 
   const cpfsAnalisados = new Set<string>()
   for (const socio of getSocios(data)) {
@@ -1000,3 +1022,36 @@ export const INSTRUCOES_EVIDENCIA: Record<EvidenciaTipo, { fazer: string[]; anex
     anexar: 'PDF do Cartão CNPJ emitido pela Receita. Só PDF.',
   },
 }
+
+// =========================================================================
+// Reprovação final + histórico por documento (fatia 2, 25/09/2026)
+// =========================================================================
+
+export type ReprovacaoCategoria = 'serasa' | 'judicial' | 'documentacao' | 'improcedencia' | 'outro'
+
+export const REPROVACAO_CATEGORIA_LABELS: Record<ReprovacaoCategoria, string> = {
+  serasa: 'Serasa / restrições',
+  judicial: 'Judicial',
+  documentacao: 'Documentação',
+  improcedencia: 'Improcedência',
+  outro: 'Outro',
+}
+
+export const CHAVE_HISTORICO_REPROVACOES = 'analise:historico:reprovacoes'
+
+export { coletarDocumentosDoCadastro, type DocumentoDoCadastro, type DocumentoPapel } from './onboarding-documentos'
+import type { DocumentoPapel } from './onboarding-documentos'
+
+/** Linha de `corban_onboarding_reprovacoes_docs` que bateu com um documento do cadastro atual. */
+export type ReprovacaoAnterior = {
+  processo_id: string
+  agente_parceiro_id: string
+  documento: string
+  tipo: 'cpf' | 'cnpj'
+  papel: DocumentoPapel
+  nome: string
+  categoria: ReprovacaoCategoria
+  motivo: string
+  reprovado_em: string
+}
+

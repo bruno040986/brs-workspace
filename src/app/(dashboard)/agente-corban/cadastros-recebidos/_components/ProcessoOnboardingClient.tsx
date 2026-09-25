@@ -4,7 +4,9 @@ import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
+  Ban,
   Check,
   CheckCircle,
   Edit2,
@@ -19,6 +21,7 @@ import {
   CHECKLIST_PORTAL_STEP_LABELS,
   CHECKLIST_PROVENANCIA_BADGE,
   CHECKLIST_PROVENANCIA_LABELS,
+  CHAVE_HISTORICO_REPROVACOES,
   CORBAN_ONBOARDING_ETAPAS,
   CORBAN_ONBOARDING_ETAPAS_ATIVAS,
   CORBAN_ONBOARDING_ETAPA_LABELS,
@@ -27,6 +30,7 @@ import {
   CORBAN_ONBOARDING_STATUS_BADGE,
   CORBAN_ONBOARDING_STATUS_LABELS,
   PRESENCA_DIGITAL_CLASSIFICACAO_LABELS,
+  REPROVACAO_CATEGORIA_LABELS,
   formatChecklistItemValue,
   formatEventoDescricao,
   getAdministracao,
@@ -46,6 +50,8 @@ import {
   type CorbanOnboardingItem,
   type CorbanOnboardingProcessoStatus,
   type PresencaDigitalClassificacao,
+  type ReprovacaoAnterior,
+  type ReprovacaoCategoria,
 } from '@/lib/agente-corban-onboarding'
 import DocumentViewer, { type DocumentViewerFile } from './DocumentViewer'
 import EtapasFinaisPanel from './EtapasFinaisPanel'
@@ -62,6 +68,7 @@ import {
   concluirEtapaValidacao,
   editarItemValor,
   getProcesso,
+  reprovarCadastro,
   uploadDocAnalise,
   type ProcessoDetalhe,
 } from '../actions'
@@ -102,6 +109,29 @@ function toDocumentFiles(valor: any): DocumentViewerFile[] {
   return []
 }
 
+function ReprovacoesAnterioresLista({ lista }: { lista: ReprovacaoAnterior[] }) {
+  const papel: Record<string, string> = { empresa: 'Empresa', titular: 'Titular', socio: 'Sócio', administrador: 'Administrador', testemunha: 'Testemunha' }
+  if (lista.length === 0) return <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-400)' }}>Nenhuma reprovação anterior.</div>
+  return (
+    <div style={{ display: 'grid', gap: '0.35rem', marginTop: '0.4rem', fontSize: '0.82rem', color: 'var(--brs-gray-700)' }}>
+      {lista.map((r, i) => (
+        <div key={`${r.processo_id}:${r.documento}:${i}`}>
+          <strong>{papel[r.papel] || r.papel}</strong> {r.nome ? `${r.nome} · ` : ''}
+          <span style={{ fontFamily: 'monospace' }}>{formatCpfOrCnpjDisplay(r.documento)}</span>
+          {' — '}
+          {REPROVACAO_CATEGORIA_LABELS[r.categoria] || r.categoria}: {r.motivo}
+          {' · '}
+          {new Date(r.reprovado_em).toLocaleDateString('pt-BR')}
+          {' · '}
+          <Link href={`/agente-corban/cadastros-recebidos/${r.processo_id}`} style={{ color: 'var(--brs-navy)' }}>
+            ver processo
+          </Link>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null
   return (
@@ -140,6 +170,10 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
   const [busyId, setBusyId] = useState<string | null>(null)
   const [message, setMessage] = useState<Message | null>(null)
   const [reprovarItem, setReprovarItem] = useState<CorbanOnboardingItem | null>(null)
+  const [reprovarCadastroAberto, setReprovarCadastroAberto] = useState(false)
+  const [reprovacaoCategoria, setReprovacaoCategoria] = useState<ReprovacaoCategoria>('documentacao')
+  const [reprovacaoMotivo, setReprovacaoMotivo] = useState('')
+  const [reprovandoCadastro, setReprovandoCadastro] = useState(false)
   const [motivo, setMotivo] = useState('')
   const [instrucoes, setInstrucoes] = useState('')
   const [editarItem, setEditarItem] = useState<CorbanOnboardingItem | null>(null)
@@ -220,6 +254,20 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
       return
     }
     setMessage({ type: 'success', text: `${CHECKLIST_PORTAL_STEP_LABELS[passo]}: ${result.aprovados} campo(s) aprovado(s).` })
+    await refresh()
+  }
+
+  async function handleReprovarCadastro() {
+    if (reprovandoCadastro) return
+    setReprovandoCadastro(true)
+    const result = await reprovarCadastro(data.processo.id, { categoria: reprovacaoCategoria, motivo: reprovacaoMotivo })
+    setReprovandoCadastro(false)
+    if (!result.success) {
+      setMessage({ type: 'error', text: result.error })
+      return
+    }
+    setReprovarCadastroAberto(false)
+    setMessage({ type: 'success', text: 'Cadastro reprovado. O processo foi encerrado e os documentos entraram no histórico de reprovações.' })
     await refresh()
   }
 
@@ -321,6 +369,8 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
     return map
   }, [data.docs])
 
+  const encerrado = data.processo.status === 'reprovado'
+
   return (
     <div className="page-content">
       <Link href="/agente-corban/cadastros-recebidos" className="btn btn-ghost btn-sm" style={{ marginBottom: '0.75rem' }}>
@@ -354,11 +404,50 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                 Assumir processo
               </button>
             )}
+            {!encerrado && data.processo.status !== 'concluido' && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+                disabled={loading}
+                title="Encerra o processo em definitivo e registra CNPJ/CPFs no histórico de reprovações"
+                onClick={() => setReprovarCadastroAberto(true)}
+              >
+                <Ban size={15} />
+                Reprovar cadastro
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       <MessageBanner message={message} />
+
+      {encerrado && (
+        <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1rem', borderLeft: '4px solid #b91c1c' }}>
+          <div style={{ fontWeight: 800, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Ban size={16} /> Cadastro reprovado
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-700)', marginTop: '0.3rem' }}>
+            <strong>{REPROVACAO_CATEGORIA_LABELS[(data.processo.reprovacao_categoria || 'outro') as ReprovacaoCategoria]}</strong>
+            {' — '}
+            {data.processo.reprovacao_motivo}
+            {data.processo.reprovado_em ? ` · ${new Date(data.processo.reprovado_em).toLocaleString('pt-BR')}` : ''}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-400)', marginTop: '0.3rem' }}>
+            Processo encerrado. A cópia do cadastro, dos itens e das evidências ficou congelada neste processo; CNPJ e CPFs entraram no histórico de reprovações.
+          </div>
+        </div>
+      )}
+
+      {data.reprovacoesAnteriores.length > 0 && (
+        <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1rem', borderLeft: '4px solid #d97706' }}>
+          <div style={{ fontWeight: 800, color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <AlertTriangle size={16} /> Reprovado anteriormente
+          </div>
+          <ReprovacoesAnterioresLista lista={data.reprovacoesAnteriores} />
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
         {CORBAN_ONBOARDING_ETAPAS.map((etapa, idx) => {
@@ -397,7 +486,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             {etapaEhChecklist ? 'Checklist — ' : ''}{CORBAN_ONBOARDING_ETAPA_LABELS[etapaSelecionada]}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {temReprovados && (
+            {temReprovados && !encerrado && (
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
@@ -408,7 +497,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                 Solicitar correção ao parceiro
               </button>
             )}
-            {etapaEhChecklist && etapaSelecionada === data.processo.etapa_atual && (
+            {etapaEhChecklist && etapaSelecionada === data.processo.etapa_atual && !encerrado && (
               <button type="button" className="btn btn-primary btn-sm" disabled={!podeConcluirEtapa || loading} onClick={handleConcluirEtapa}>
                 {loading ? <Loader2 size={15} className="spinner" /> : <Check size={15} />}
                 Concluir etapa
@@ -558,7 +647,9 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                     </span>
                   </div>
 
-                  {item.chave.startsWith('analise:conferencia:') ? (
+                  {item.chave === CHAVE_HISTORICO_REPROVACOES ? (
+                    <ReprovacoesAnterioresLista lista={(item.valor?.reprovacoes || []) as ReprovacaoAnterior[]} />
+                  ) : item.chave.startsWith('analise:conferencia:') ? (
                     <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-700)', display: 'grid', gap: '0.15rem' }}>
                       <div>Declarado: {(item.valor?.declarados || []).join(', ') || '—'}</div>
                       <div>Receita: {(item.valor?.receita || []).join(', ') || '—'}</div>
@@ -627,6 +718,60 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
           )}
         </div>
       </div>
+
+      {reprovarCadastroAberto && (
+        <div className="modal-backdrop" onClick={() => setReprovarCadastroAberto(false)}>
+          <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Reprovar cadastro</h3>
+              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setReprovarCadastroAberto(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'grid', gap: '0.75rem' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--brs-gray-600)' }}>
+                Encerra o processo em definitivo. O cadastro, os itens e as evidências ficam congelados aqui, e o CNPJ e os CPFs
+                dos envolvidos entram no histórico: uma tentativa futura nasce com o alerta. O parceiro pode tentar de novo pelo portal.
+              </p>
+              <div>
+                <label className="form-label">Categoria *</label>
+                <select className="form-control" value={reprovacaoCategoria} onChange={(e) => setReprovacaoCategoria(e.target.value as ReprovacaoCategoria)}>
+                  {(Object.entries(REPROVACAO_CATEGORIA_LABELS) as Array<[ReprovacaoCategoria, string]>).map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Motivo * (fica no histórico e aparece numa tentativa futura)</label>
+                <textarea
+                  className="form-control"
+                  rows={4}
+                  value={reprovacaoMotivo}
+                  onChange={(e) => setReprovacaoMotivo(e.target.value)}
+                  placeholder="Ex.: restrição no Serasa do sócio principal em 25/09/2026; ver PDF anexado na Análise."
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-outline" onClick={() => setReprovarCadastroAberto(false)}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: '#b91c1c', borderColor: '#b91c1c' }}
+                disabled={reprovandoCadastro || reprovacaoMotivo.trim().length < 10}
+                onClick={handleReprovarCadastro}
+              >
+                {reprovandoCadastro ? <Loader2 size={15} className="spinner" /> : <Ban size={15} />}
+                Reprovar cadastro
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {reprovarItem && (
         <div className="modal-backdrop" onClick={() => setReprovarItem(null)}>

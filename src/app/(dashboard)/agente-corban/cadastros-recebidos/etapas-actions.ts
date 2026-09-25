@@ -41,6 +41,7 @@ async function carregarProcessoAgente(admin: Awaited<ReturnType<typeof createAdm
     .eq('id', processoId)
     .single()
   if (pErr || !processo) throw pErr || new Error('Processo não encontrado.')
+  if (processo.status === 'reprovado') throw new Error('Cadastro reprovado: o processo está encerrado.')
   const { data: agente, error: aErr } = await admin
     .from('agentes_parceiros')
     .select('id,name,cpf_cnpj,corban_data,arw_code,filial,nivel_acesso,tipo_agente,superintendente_id,supervisor_id,gerente_id')

@@ -3,6 +3,12 @@
 import type { ComercialResumo } from '@/lib/comerciais-hierarquia'
 import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
 import { EVIDENCIA_ACEITA, resolveEvidenciaTipo, type CorbanOnboardingEvidencia } from '@/lib/agente-corban-onboarding'
+import {
+  REPROVACAO_CATEGORIA_LABELS,
+  coletarDocumentosDoCadastro,
+  type ReprovacaoAnterior,
+  type ReprovacaoCategoria,
+} from '@/lib/agente-corban-onboarding'
 import { createHash, randomBytes } from 'crypto'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
@@ -69,6 +75,8 @@ async function ensureChecklistItems(admin: SupabaseAdmin, processoId: string, sp
 }
 
 export type CadastroRecebidoListItem = {
+  /** Fatia 2: algum documento deste cadastro já esteve numa reprovação anterior. */
+  alertaReprovacao: boolean
   hasProcesso: true
   processoId: string
   agenteParceiroId: string
@@ -82,6 +90,7 @@ export type CadastroRecebidoListItem = {
 }
 
 export type CadastroRecebidoSemProcesso = {
+  alertaReprovacao: boolean
   hasProcesso: false
   agenteParceiroId: string
   nome: string
@@ -126,10 +135,24 @@ export async function getCadastrosRecebidosList(): Promise<
     const responsavelNomeById = new Map((responsaveisResult.data || []).map((r: any) => [r.id, r.name]))
     const idsComProcesso = new Set(agenteIds)
 
+    // Fatia 2: selo "Reprovado antes" — cruza o CNPJ/CPF do agente com o índice
+    // de reprovações, ignorando o próprio processo da linha.
+    const { data: reprovDocs } = await admin.from('corban_onboarding_reprovacoes_docs').select('documento,processo_id')
+    const processosPorDocumento = new Map<string, Set<string>>()
+    for (const r of reprovDocs || []) {
+      processosPorDocumento.set(r.documento, new Set([...(processosPorDocumento.get(r.documento) || []), r.processo_id]))
+    }
+    const alertaReprovacao = (cpfCnpj: string | null | undefined, processoId: string | null) => {
+      const set = processosPorDocumento.get(String(cpfCnpj || '').replace(/\D/g, ''))
+      if (!set) return false
+      return [...set].some((id) => id !== processoId)
+    }
+
     const items: CadastroRecebidoListItem[] = (processos || []).map((processo: any) => {
       const agente = agenteById.get(processo.agente_parceiro_id)
       return {
         hasProcesso: true,
+        alertaReprovacao: alertaReprovacao(agente?.cpf_cnpj, processo.id),
         processoId: processo.id,
         agenteParceiroId: processo.agente_parceiro_id,
         nome: agente?.name || 'Sem nome',
@@ -146,6 +169,7 @@ export async function getCadastrosRecebidosList(): Promise<
       .filter((agente: any) => !idsComProcesso.has(agente.id))
       .map((agente: any) => ({
         hasProcesso: false,
+        alertaReprovacao: alertaReprovacao(agente.cpf_cnpj, null),
         agenteParceiroId: agente.id,
         nome: agente.name || 'Sem nome',
         cpfCnpj: agente.cpf_cnpj || '',
@@ -171,6 +195,7 @@ export async function criarProcesso(
       .from('corban_onboarding_processos')
       .select('id')
       .eq('agente_parceiro_id', agenteParceiroId)
+      .not('status', 'in', '("reprovado","cancelado")')
       .maybeSingle()
     if (existing) return { success: true, processoId: existing.id }
 
@@ -200,6 +225,8 @@ export type ProcessoDetalhe = {
   itens: CorbanOnboardingItem[]
   docs: Array<CorbanOnboardingDocAnalise & { signedUrl: string | null }>
   evidencias: Array<CorbanOnboardingEvidencia & { signedUrl: string | null; autorNome: string | null }>
+  /** Fatia 2: reprovações anteriores que batem com CNPJ/CPFs deste cadastro (fora deste processo). */
+  reprovacoesAnteriores: ReprovacaoAnterior[]
   eventos: Array<CorbanOnboardingEvento & { actorNome: string | null }>
   responsavelNome: string | null
   currentUserId: string
@@ -229,6 +256,8 @@ export async function getProcesso(
       .single()
     if (agenteError || !agente) throw agenteError || new Error('Agente não encontrado.')
 
+    const reprovacoesAnteriores = await buscarReprovacoesAnteriores(admin, agente, processoId)
+
     await ensureChecklistItems(
       admin,
       processoId,
@@ -238,7 +267,7 @@ export async function getProcesso(
       await ensureChecklistItems(
         admin,
         processoId,
-        buildAnaliseChecklistSpec(agente.corban_data, agente.person_type, agente.cpf_cnpj),
+        buildAnaliseChecklistSpec(agente.corban_data, agente.person_type, agente.cpf_cnpj, reprovacoesAnteriores),
       )
     }
 
@@ -304,6 +333,7 @@ export async function getProcesso(
       itens: itensResult.data || [],
       docs,
       evidencias,
+      reprovacoesAnteriores,
       eventos,
       responsavelNome,
       currentUserId: user.id,
@@ -312,6 +342,122 @@ export async function getProcesso(
     }
   } catch (error: any) {
     console.error('Erro ao buscar processo de cadastro recebido:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Processo reprovado é final: nenhuma etapa avança nem correção sai. */
+function assertProcessoAberto(processo: { status?: string | null } | null | undefined) {
+  if (processo?.status === 'reprovado') throw new Error('Cadastro reprovado: o processo está encerrado.')
+}
+
+/** Reprovações anteriores que batem com os documentos deste cadastro, fora do próprio processo. */
+async function buscarReprovacoesAnteriores(
+  admin: SupabaseAdmin,
+  agente: { corban_data: any; person_type: 'PF' | 'PJ'; cpf_cnpj: string },
+  processoIdAtual: string | null,
+): Promise<ReprovacaoAnterior[]> {
+  const documentos = coletarDocumentosDoCadastro(agente.corban_data, agente.person_type, agente.cpf_cnpj).map((d) => d.documento)
+  if (documentos.length === 0) return []
+  let query = admin
+    .from('corban_onboarding_reprovacoes_docs')
+    .select('processo_id,agente_parceiro_id,documento,tipo,papel,nome,categoria,motivo,reprovado_em')
+    .in('documento', documentos)
+    .order('reprovado_em', { ascending: false })
+  if (processoIdAtual) query = query.neq('processo_id', processoIdAtual)
+  const { data, error } = await query
+  if (error) throw error
+  return (data || []) as ReprovacaoAnterior[]
+}
+
+/**
+ * Reprovação FINAL do cadastro (fatia 2): encerra o processo em qualquer etapa,
+ * congela a cópia do cadastro (agente + itens + docs + evidências) e indexa
+ * CNPJ/CPFs em `corban_onboarding_reprovacoes_docs` para alertar numa
+ * tentativa futura. O agente pode tentar de novo pelo portal: o processo novo
+ * nasce com o item "Tentativas anteriores reprovadas" na Análise.
+ */
+export async function reprovarCadastro(
+  processoId: string,
+  input: { categoria: ReprovacaoCategoria; motivo: string },
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const categoria = input.categoria
+    if (!REPROVACAO_CATEGORIA_LABELS[categoria]) throw new Error('Categoria de reprovação inválida.')
+    const motivo = String(input.motivo || '').trim()
+    if (motivo.length < 10) throw new Error('Descreva o motivo da reprovação (mínimo 10 caracteres).')
+
+    const { data: processo, error: pErr } = await admin.from('corban_onboarding_processos').select('*').eq('id', processoId).single()
+    if (pErr || !processo) throw pErr || new Error('Processo não encontrado.')
+    if (processo.status === 'reprovado') throw new Error('Este cadastro já está reprovado.')
+    if (processo.status === 'concluido') throw new Error('Processo concluído não pode ser reprovado por aqui.')
+
+    const { data: agente, error: aErr } = await admin.from('agentes_parceiros').select('*').eq('id', processo.agente_parceiro_id).single()
+    if (aErr || !agente) throw aErr || new Error('Agente não encontrado.')
+
+    const [itens, docs, evidencias] = await Promise.all([
+      admin.from('corban_onboarding_itens').select('*').eq('processo_id', processoId),
+      admin.from('corban_onboarding_docs_analise').select('*').eq('processo_id', processoId),
+      admin.from('corban_onboarding_evidencias').select('*').eq('processo_id', processoId),
+    ])
+    const nowIso = new Date().toISOString()
+    // Cópia congelada: uma nova tentativa sobrescreve o cadastro do agente; a
+    // prova do que foi analisado (e por quê reprovou) fica aqui, no processo.
+    const snapshot = {
+      congelado_em: nowIso,
+      agente,
+      itens: itens.data || [],
+      docs_analise: docs.data || [],
+      evidencias: evidencias.data || [],
+    }
+
+    const { error: upErr } = await admin
+      .from('corban_onboarding_processos')
+      .update({
+        status: 'reprovado',
+        reprovacao_categoria: categoria,
+        reprovacao_motivo: motivo,
+        reprovado_por: user.id,
+        reprovado_em: nowIso,
+        cadastro_snapshot: snapshot,
+        updated_at: nowIso,
+      })
+      .eq('id', processoId)
+    if (upErr) throw upErr
+
+    const documentos = coletarDocumentosDoCadastro(agente.corban_data, agente.person_type, agente.cpf_cnpj)
+    if (documentos.length > 0) {
+      const { error: dErr } = await admin.from('corban_onboarding_reprovacoes_docs').insert(
+        documentos.map((d) => ({
+          processo_id: processoId,
+          agente_parceiro_id: agente.id,
+          documento: d.documento,
+          tipo: d.tipo,
+          papel: d.papel,
+          nome: d.nome,
+          categoria,
+          motivo,
+          reprovado_em: nowIso,
+          reprovado_por: user.id,
+        })),
+      )
+      if (dErr) throw dErr
+    }
+
+    await admin.from('corban_onboarding_eventos').insert({
+      processo_id: processoId,
+      tipo: 'cadastro_reprovado',
+      detalhe: { categoria, motivo, etapa: processo.etapa_atual, documentos: documentos.length },
+      actor_id: user.id,
+    })
+
+    revalidatePath(`/agente-corban/cadastros-recebidos/${processoId}`)
+    revalidatePath('/agente-corban/cadastros-recebidos')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao reprovar cadastro:', error)
     return { success: false, error: error.message }
   }
 }
@@ -687,10 +833,11 @@ export async function concluirEtapaValidacao(
 
     const { data: processo, error: processoError } = await admin
       .from('corban_onboarding_processos')
-      .select('etapas,agente_parceiro_id')
+      .select('etapas,agente_parceiro_id,status')
       .eq('id', processoId)
       .single()
     if (processoError || !processo) throw processoError || new Error('Processo não encontrado.')
+    assertProcessoAberto(processo)
 
     const { data: agente, error: agenteError } = await admin
       .from('agentes_parceiros')
@@ -727,7 +874,12 @@ export async function concluirEtapaValidacao(
     await ensureChecklistItems(
       admin,
       processoId,
-      buildAnaliseChecklistSpec(agente.corban_data, agente.person_type, agente.cpf_cnpj),
+      buildAnaliseChecklistSpec(
+        agente.corban_data,
+        agente.person_type,
+        agente.cpf_cnpj,
+        await buscarReprovacoesAnteriores(admin, agente, processoId),
+      ),
     )
 
     await admin.from('corban_onboarding_eventos').insert({
@@ -752,6 +904,8 @@ export async function concluirEtapaAnalise(
   try {
     const { user } = await requirePermission(RESOURCE, 'can_edit')
     const admin = await createAdminClient()
+    const { data: processoAtual } = await admin.from('corban_onboarding_processos').select('status').eq('id', processoId).single()
+    assertProcessoAberto(processoAtual)
 
     const { data: itens, error: itensError } = await admin
       .from('corban_onboarding_itens')
