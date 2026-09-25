@@ -2,6 +2,7 @@
 
 import type { ComercialResumo } from '@/lib/comerciais-hierarquia'
 import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
+import { EVIDENCIA_ACEITA, resolveEvidenciaTipo, type CorbanOnboardingEvidencia } from '@/lib/agente-corban-onboarding'
 import { createHash, randomBytes } from 'crypto'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
@@ -198,6 +199,7 @@ export type ProcessoDetalhe = {
   agente: Record<string, any>
   itens: CorbanOnboardingItem[]
   docs: Array<CorbanOnboardingDocAnalise & { signedUrl: string | null }>
+  evidencias: Array<CorbanOnboardingEvidencia & { signedUrl: string | null; autorNome: string | null }>
   eventos: Array<CorbanOnboardingEvento & { actorNome: string | null }>
   responsavelNome: string | null
   currentUserId: string
@@ -240,19 +242,27 @@ export async function getProcesso(
       )
     }
 
-    const [itensResult, docsResult, eventosResult] = await Promise.all([
+    const [itensResult, docsResult, eventosResult, evidenciasResult] = await Promise.all([
       admin.from('corban_onboarding_itens').select('*').eq('processo_id', processoId).order('created_at', { ascending: true }),
       admin.from('corban_onboarding_docs_analise').select('*').eq('processo_id', processoId).order('created_at', { ascending: false }),
       admin.from('corban_onboarding_eventos').select('*').eq('processo_id', processoId).order('created_at', { ascending: false }),
+      admin.from('corban_onboarding_evidencias').select('*').eq('processo_id', processoId).order('created_at', { ascending: true }),
     ])
     if (itensResult.error) throw itensResult.error
     if (docsResult.error) throw docsResult.error
     if (eventosResult.error) throw eventosResult.error
+    if (evidenciasResult.error) throw evidenciasResult.error
 
     const docs = await Promise.all(
       (docsResult.data || []).map(async (doc: any) => {
         const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(doc.arquivo_url, SIGNED_URL_TTL_SECONDS)
         return { ...doc, signedUrl: signed?.signedUrl || null }
+      }),
+    )
+    const evidenciasAssinadas = await Promise.all(
+      ((evidenciasResult.data || []) as CorbanOnboardingEvidencia[]).map(async (ev) => {
+        const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(ev.arquivo_url, SIGNED_URL_TTL_SECONDS)
+        return { ...ev, signedUrl: signed?.signedUrl || null }
       }),
     )
 
@@ -269,10 +279,19 @@ export async function getProcesso(
       admin.from('agente_corban_tipos_agente').select('id,name,is_active').is('deleted_at', null).order('name', { ascending: true }),
     ])
 
-    const actorIds = Array.from(new Set((eventosResult.data || []).map((e: any) => e.actor_id).filter(Boolean)))
+    const actorIds = Array.from(
+      new Set([
+        ...(eventosResult.data || []).map((e: any) => e.actor_id),
+        ...evidenciasAssinadas.map((e) => e.created_by),
+      ].filter(Boolean)),
+    )
     const { data: actores } =
       actorIds.length > 0 ? await admin.from('users').select('id,name').in('id', actorIds) : { data: [] as any[] }
     const actorNomeById = new Map((actores || []).map((a: any) => [a.id, a.name]))
+    const evidencias = evidenciasAssinadas.map((ev) => ({
+      ...ev,
+      autorNome: ev.created_by ? actorNomeById.get(ev.created_by) || null : null,
+    }))
     const eventos = (eventosResult.data || []).map((evento: any) => ({
       ...evento,
       actorNome: evento.actor_id ? actorNomeById.get(evento.actor_id) || null : null,
@@ -284,6 +303,7 @@ export async function getProcesso(
       agente,
       itens: itensResult.data || [],
       docs,
+      evidencias,
       eventos,
       responsavelNome,
       currentUserId: user.id,
@@ -294,6 +314,41 @@ export async function getProcesso(
     console.error('Erro ao buscar processo de cadastro recebido:', error)
     return { success: false, error: error.message }
   }
+}
+
+function sha256Hex(bytes: ArrayBuffer): string {
+  return createHash('sha256').update(Buffer.from(bytes)).digest('hex')
+}
+
+function nomeArquivoSeguro(name: string): string {
+  return String(name || 'arquivo').replace(/[^\w.\-]+/g, '_').slice(0, 80)
+}
+
+/**
+ * Fatia 1 (25/09/2026): verificação externa só aprova com prova anexada.
+ * Presença Digital / PIX → `corban_onboarding_evidencias` do item.
+ * Serasa / Cartão CNPJ → upload da Análise (`docs_analise`) do mesmo alvo,
+ * não reprovado. Itens sem tipo de evidência passam direto.
+ */
+async function exigirEvidencia(admin: SupabaseAdmin, item: { id: string; chave: string; processo_id: string }) {
+  const tipo = resolveEvidenciaTipo(item.chave)
+  if (!tipo) return
+  if (tipo === 'serasa' || tipo === 'cartao_cnpj') {
+    const m = item.chave.match(/^analise:(serasa|cartao_cnpj):(cpf|cnpj):(.+)$/)
+    if (!m) return
+    const { count } = await admin
+      .from('corban_onboarding_docs_analise')
+      .select('id', { count: 'exact', head: true })
+      .eq('processo_id', item.processo_id)
+      .eq('tipo_documento', m[1])
+      .eq('alvo_tipo', m[2])
+      .eq('alvo_valor', m[3])
+      .neq('status', 'reprovado')
+    if (!count) throw new Error(`Anexe o PDF do ${tipo === 'serasa' ? 'Serasa' : 'Cartão CNPJ'} deste item antes de aprovar.`)
+    return
+  }
+  const { count } = await admin.from('corban_onboarding_evidencias').select('id', { count: 'exact', head: true }).eq('item_id', item.id)
+  if (!count) throw new Error('Anexe o print da verificação antes de aprovar este item.')
 }
 
 export async function avaliarItem(
@@ -314,6 +369,7 @@ export async function avaliarItem(
       .eq('id', itemId)
       .single()
     if (itemError || !item) throw itemError || new Error('Item não encontrado.')
+    if (input.status === 'aprovado') await exigirEvidencia(admin, item)
 
     const { error } = await admin
       .from('corban_onboarding_itens')
@@ -517,6 +573,8 @@ export async function avaliarPresencaDigital(
       .single()
     if (itemError || !item) throw itemError || new Error('Item não encontrado.')
 
+    if (input.classificacao === 'verificado') await exigirEvidencia(admin, item)
+
     const textoFinal = input.texto !== undefined ? input.texto.trim() : String(item.valor?.texto || '')
     const novoValor = { texto: textoFinal, classificacao: input.classificacao }
     const status = input.classificacao === 'verificado' ? 'aprovado' : 'reprovado'
@@ -585,6 +643,7 @@ export async function avaliarChavePix(
     if (itemError || !item) throw itemError || new Error('Item não encontrado.')
 
     const tudoOk = respostas.existe && respostas.pertenceCnpj && respostas.mesmaInstituicao
+    if (tudoOk) await exigirEvidencia(admin, item)
     const falhas = [
       !respostas.existe ? 'a chave não existe' : null,
       !respostas.pertenceCnpj ? 'a chave não pertence ao CNPJ' : null,
@@ -749,6 +808,90 @@ export async function concluirEtapaAnalise(
   }
 }
 
+export async function anexarEvidencia(
+  itemId: string,
+  formData: FormData,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_include')
+    const admin = await createAdminClient()
+    const file = formData.get('file')
+    if (!(file instanceof File)) throw new Error('Nenhum arquivo enviado.')
+    const observacao = String(formData.get('observacao') || '').trim() || null
+
+    const { data: item, error: itemError } = await admin
+      .from('corban_onboarding_itens')
+      .select('id,processo_id,chave,rotulo,status')
+      .eq('id', itemId)
+      .single()
+    if (itemError || !item) throw itemError || new Error('Item não encontrado.')
+    const tipo = resolveEvidenciaTipo(item.chave)
+    if (!tipo || tipo === 'serasa' || tipo === 'cartao_cnpj') throw new Error('Este item não recebe evidência por aqui.')
+    if (!EVIDENCIA_ACEITA[tipo].includes(file.type)) {
+      throw new Error(`Formato não aceito (${file.type || 'desconhecido'}). Aceitos: ${EVIDENCIA_ACEITA[tipo].join(', ')}.`)
+    }
+    if (file.size > 20 * 1024 * 1024) throw new Error('Arquivo acima de 20 MB.')
+
+    const bytes = await file.arrayBuffer()
+    const hash = sha256Hex(bytes)
+    const path = `${item.processo_id}/evidencias/${item.id}/${Date.now()}-${nomeArquivoSeguro(file.name)}`
+    const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, { contentType: file.type, upsert: false })
+    if (upErr) throw upErr
+
+    const { error } = await admin.from('corban_onboarding_evidencias').insert({
+      processo_id: item.processo_id,
+      item_id: item.id,
+      arquivo_url: path,
+      file_name: file.name,
+      mime_type: file.type,
+      tamanho_bytes: file.size,
+      hash_sha256: hash,
+      observacao,
+      created_by: user.id,
+    })
+    if (error) throw error
+
+    await admin.from('corban_onboarding_eventos').insert({
+      processo_id: item.processo_id,
+      tipo: 'evidencia_anexada',
+      detalhe: { item_id: item.id, chave: item.chave, rotulo: item.rotulo, file_name: file.name, hash_sha256: hash },
+      actor_id: user.id,
+    })
+    revalidatePath(`/agente-corban/cadastros-recebidos/${item.processo_id}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao anexar evidência:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Só enquanto o item não foi aprovado — depois a evidência é registro. A remoção fica no histórico com o hash. */
+export async function removerEvidencia(evidenciaId: string): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const { data: ev, error: evError } = await admin.from('corban_onboarding_evidencias').select('*').eq('id', evidenciaId).single()
+    if (evError || !ev) throw evError || new Error('Evidência não encontrada.')
+    const { data: item } = await admin.from('corban_onboarding_itens').select('id,chave,rotulo,status').eq('id', ev.item_id).single()
+    if (item?.status === 'aprovado') throw new Error('Item já aprovado: a evidência faz parte do registro e não pode ser removida.')
+
+    const { error } = await admin.from('corban_onboarding_evidencias').delete().eq('id', evidenciaId)
+    if (error) throw error
+    await admin.storage.from(BUCKET).remove([ev.arquivo_url])
+    await admin.from('corban_onboarding_eventos').insert({
+      processo_id: ev.processo_id,
+      tipo: 'evidencia_removida',
+      detalhe: { item_id: ev.item_id, chave: item?.chave, rotulo: item?.rotulo, file_name: ev.file_name, hash_sha256: ev.hash_sha256 },
+      actor_id: user.id,
+    })
+    revalidatePath(`/agente-corban/cadastros-recebidos/${ev.processo_id}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao remover evidência:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export async function uploadDocAnalise(
   processoId: string,
   formData: FormData,
@@ -767,6 +910,11 @@ export async function uploadDocAnalise(
     if (!['serasa', 'cartao_cnpj', 'video_nuvidio', 'outro'].includes(tipoDocumento)) {
       throw new Error('Tipo de documento inválido.')
     }
+    // Fatia 1: Serasa e Cartão CNPJ são a evidência do item — só o PDF original.
+    if ((tipoDocumento === 'serasa' || tipoDocumento === 'cartao_cnpj') && file.type !== 'application/pdf') {
+      throw new Error('Serasa e Cartão CNPJ só aceitam o PDF original.')
+    }
+    const hashDoc = sha256Hex(await file.arrayBuffer())
 
     // Segurança (path traversal): a extensão vem do NOME do arquivo enviado —
     // só letras/números curtos entram no path do storage; o resto vira 'bin'.
@@ -789,6 +937,9 @@ export async function uploadDocAnalise(
         tipo_documento: tipoDocumento,
         arquivo_url: path,
         file_name: file.name,
+        hash_sha256: hashDoc,
+        tamanho_bytes: file.size,
+        mime_type: file.type,
         created_by: user.id,
       })
       .select('id')

@@ -49,6 +49,7 @@ import {
 } from '@/lib/agente-corban-onboarding'
 import DocumentViewer, { type DocumentViewerFile } from './DocumentViewer'
 import EtapasFinaisPanel from './EtapasFinaisPanel'
+import EvidenciasBloco, { InstrucoesEvidencia, type EvidenciaComUrl } from './EvidenciasBloco'
 import { solicitarCorrecao } from '../etapas-actions'
 import {
   aprovarSecao,
@@ -450,6 +451,9 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
               corbanData={corbanData}
               busyId={busyId}
               onClassificar={handlePresencaDigital}
+              evidencias={data.evidencias}
+              onEvidenciasChanged={refresh}
+              onErro={(texto) => setMessage({ type: 'error', text: texto })}
             />
 
             <BancarioSecao
@@ -461,6 +465,9 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
               onAbrirEditar={openEditar}
               onAbrirReprovar={openReprovar}
               onAvaliarPix={handleChavePix}
+              evidencias={data.evidencias}
+              onEvidenciasChanged={refresh}
+              onErro={(texto) => setMessage({ type: 'error', text: texto })}
             />
 
             <SociedadeSecao
@@ -539,6 +546,8 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
               const docsRelacionados = analiseSpec
                 ? docsByAlvo.get(`${analiseSpec.tipoDocumento}:${analiseSpec.alvoTipo}:${analiseSpec.alvoValor}`) || []
                 : []
+              // Fatia 1: Serasa/Cartão CNPJ só aprovam com o PDF anexado (não reprovado).
+              const faltaEvidencia = !!analiseSpec && !docsRelacionados.some((d) => d.status !== 'reprovado')
 
               return (
                 <div key={item.id} style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 10, padding: '1rem' }}>
@@ -555,12 +564,15 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                       <div>Receita: {(item.valor?.receita || []).join(', ') || '—'}</div>
                     </div>
                   ) : (
-                    <AnaliseDocSection
-                      processoId={data.processo.id}
-                      spec={analiseSpec}
-                      docs={docsRelacionados}
-                      onChanged={refresh}
-                    />
+                    <>
+                      {analiseSpec && <InstrucoesEvidencia tipo={analiseSpec.tipoDocumento} />}
+                      <AnaliseDocSection
+                        processoId={data.processo.id}
+                        spec={analiseSpec}
+                        docs={docsRelacionados}
+                        onChanged={refresh}
+                      />
+                    </>
                   )}
 
                   {item.status === 'reprovado' && item.motivo_reprovacao && (
@@ -573,7 +585,8 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                     <button
                       type="button"
                       className="btn btn-outline btn-sm"
-                      disabled={busyId === item.id || item.status === 'aprovado'}
+                      disabled={busyId === item.id || item.status === 'aprovado' || faltaEvidencia}
+                      title={faltaEvidencia ? 'Anexe o PDF deste item antes de aprovar' : undefined}
                       onClick={() => handleAprovarItem(item)}
                     >
                       {busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Check size={15} />}
@@ -1108,11 +1121,17 @@ function ComercialSecao({
   corbanData,
   busyId,
   onClassificar,
+  evidencias,
+  onEvidenciasChanged,
+  onErro,
 }: {
   items: CorbanOnboardingItem[]
   corbanData: Record<string, any>
   busyId: string | null
   onClassificar: (item: CorbanOnboardingItem, classificacao: PresencaDigitalClassificacao, texto?: string) => void
+  evidencias: EvidenciaComUrl[]
+  onEvidenciasChanged: () => Promise<void>
+  onErro: (texto: string) => void
 }) {
   const commercial = corbanData?.commercial || {}
   const totalAprovados = items.filter((i) => i.status === 'aprovado').length
@@ -1141,7 +1160,15 @@ function ComercialSecao({
       </div>
       <div style={{ display: 'grid', gap: '0.6rem' }}>
         {items.map((item) => (
-          <PresencaDigitalCampo key={item.id} item={item} busyId={busyId} onClassificar={onClassificar} />
+          <PresencaDigitalCampo
+            key={item.id}
+            item={item}
+            busyId={busyId}
+            onClassificar={onClassificar}
+            evidencias={evidencias.filter((e) => e.item_id === item.id)}
+            onEvidenciasChanged={onEvidenciasChanged}
+            onErro={onErro}
+          />
         ))}
       </div>
     </div>
@@ -1152,11 +1179,18 @@ function PresencaDigitalCampo({
   item,
   busyId,
   onClassificar,
+  evidencias,
+  onEvidenciasChanged,
+  onErro,
 }: {
   item: CorbanOnboardingItem
   busyId: string | null
   onClassificar: (item: CorbanOnboardingItem, classificacao: PresencaDigitalClassificacao, texto?: string) => void
+  evidencias: EvidenciaComUrl[]
+  onEvidenciasChanged: () => Promise<void>
+  onErro: (texto: string) => void
 }) {
+  const semEvidencia = evidencias.length === 0
   const [editando, setEditando] = useState(false)
   const [texto, setTexto] = useState(String(item.valor?.texto ?? ''))
   const classificacaoAtual = item.valor?.classificacao as PresencaDigitalClassificacao | null
@@ -1185,13 +1219,25 @@ function PresencaDigitalCampo({
         <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
       </div>
 
+      <div style={{ marginTop: '0.5rem' }}>
+        <EvidenciasBloco
+          tipo="presenca_digital"
+          itemId={item.id}
+          bloqueado={item.status === 'aprovado'}
+          evidencias={evidencias}
+          onChanged={onEvidenciasChanged}
+          onErro={onErro}
+        />
+      </div>
+
       <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         {opcoes.map((op) => (
           <button
             key={op}
             type="button"
             className="btn btn-sm"
-            disabled={busyId === item.id}
+            disabled={busyId === item.id || (op === 'verificado' && semEvidencia)}
+            title={op === 'verificado' && semEvidencia ? 'Anexe o print da verificação antes de marcar como Verificado' : undefined}
             onClick={() => onClassificar(item, op, editando ? texto : undefined)}
             style={{
               background: classificacaoAtual === op ? (op === 'verificado' ? '#15803d' : '#b91c1c') : 'var(--brs-gray-100)',
@@ -1224,6 +1270,9 @@ function BancarioSecao({
   onAbrirEditar,
   onAbrirReprovar,
   onAvaliarPix,
+  evidencias,
+  onEvidenciasChanged,
+  onErro,
 }: {
   items: CorbanOnboardingItem[]
   corbanData: Record<string, any>
@@ -1233,6 +1282,9 @@ function BancarioSecao({
   onAbrirEditar: (item: CorbanOnboardingItem) => void
   onAbrirReprovar: (item: CorbanOnboardingItem) => void
   onAvaliarPix: (item: CorbanOnboardingItem, respostas: { existe: boolean; pertenceCnpj: boolean; mesmaInstituicao: boolean }) => void
+  evidencias: EvidenciaComUrl[]
+  onEvidenciasChanged: () => Promise<void>
+  onErro: (texto: string) => void
 }) {
   const bank = corbanData?.bank || {}
   const pixItem = items.find((i) => isChavePixChave(i.chave))
@@ -1251,7 +1303,16 @@ function BancarioSecao({
 
           <GradeCampos items={camposItems} corbanData={corbanData} modoEdicao={modoEdicao} busyId={busyId} onAbrirEditar={onAbrirEditar} onAbrirReprovar={onAbrirReprovar} />
 
-          {pixItem && <ChavePixCampo item={pixItem} busyId={busyId} onAvaliar={onAvaliarPix} />}
+          {pixItem && (
+            <ChavePixCampo
+              item={pixItem}
+              busyId={busyId}
+              onAvaliar={onAvaliarPix}
+              evidencias={evidencias.filter((e) => e.item_id === pixItem.id)}
+              onEvidenciasChanged={onEvidenciasChanged}
+              onErro={onErro}
+            />
+          )}
         </div>
       )}
     </SecaoShell>
@@ -1262,10 +1323,16 @@ function ChavePixCampo({
   item,
   busyId,
   onAvaliar,
+  evidencias,
+  onEvidenciasChanged,
+  onErro,
 }: {
   item: CorbanOnboardingItem
   busyId: string | null
   onAvaliar: (item: CorbanOnboardingItem, respostas: { existe: boolean; pertenceCnpj: boolean; mesmaInstituicao: boolean }) => void
+  evidencias: EvidenciaComUrl[]
+  onEvidenciasChanged: () => Promise<void>
+  onErro: (texto: string) => void
 }) {
   const respostasAtuais = item.valor?.respostas as { existe: boolean; pertenceCnpj: boolean; mesmaInstituicao: boolean } | null
   const [existe, setExiste] = useState<boolean | null>(respostasAtuais?.existe ?? null)
@@ -1279,6 +1346,8 @@ function ChavePixCampo({
   ]
 
   const podeConfirmar = existe !== null && pertenceCnpj !== null && mesmaInstituicao !== null
+  // Fatia 1: "tudo sim" (aprovação) exige o print da tela do Pix anexado.
+  const faltaEvidencia = existe === true && pertenceCnpj === true && mesmaInstituicao === true && evidencias.length === 0
 
   return (
     <div style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 8, padding: '0.8rem 1rem' }}>
@@ -1290,8 +1359,15 @@ function ChavePixCampo({
         <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
       </div>
 
-      <div style={{ fontSize: '0.78rem', color: 'var(--brs-gray-500)', marginBottom: '0.5rem' }}>
-        Consulte a chave no aplicativo do banco antes de responder.
+      <div style={{ marginBottom: '0.6rem' }}>
+        <EvidenciasBloco
+          tipo="pix"
+          itemId={item.id}
+          bloqueado={item.status === 'aprovado'}
+          evidencias={evidencias}
+          onChanged={onEvidenciasChanged}
+          onErro={onErro}
+        />
       </div>
 
       <div style={{ display: 'grid', gap: '0.5rem' }}>
@@ -1318,8 +1394,9 @@ function ChavePixCampo({
         type="button"
         className="btn btn-primary btn-sm"
         style={{ marginTop: '0.6rem' }}
-        disabled={!podeConfirmar || busyId === item.id}
-        onClick={() => podeConfirmar && onAvaliar(item, { existe: existe!, pertenceCnpj: pertenceCnpj!, mesmaInstituicao: mesmaInstituicao! })}
+        disabled={!podeConfirmar || faltaEvidencia || busyId === item.id}
+        title={faltaEvidencia ? 'Anexe o print da tela do Pix antes de confirmar' : undefined}
+        onClick={() => podeConfirmar && !faltaEvidencia && onAvaliar(item, { existe: existe!, pertenceCnpj: pertenceCnpj!, mesmaInstituicao: mesmaInstituicao! })}
       >
         {busyId === item.id ? <Loader2 size={14} className="spinner" /> : <Check size={14} />}
         Confirmar conferência
@@ -1514,7 +1591,14 @@ function AnaliseDocSection({
       {docs.map((doc) => (
         <div key={doc.id} style={{ border: '1px dashed var(--brs-gray-200)', borderRadius: 8, padding: '0.6rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.4rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--brs-gray-700)' }}>{doc.file_name}</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--brs-gray-700)' }}>
+              {doc.file_name}
+              {doc.hash_sha256 && (
+                <code title={`SHA-256 ${doc.hash_sha256}`} style={{ marginLeft: 6, fontSize: '0.68rem', color: 'var(--brs-gray-400)' }}>
+                  sha256 {doc.hash_sha256.slice(0, 12)}…
+                </code>
+              )}
+            </span>
             <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[doc.status as keyof typeof CORBAN_ONBOARDING_ITEM_STATUS_BADGE] || 'badge-gray'}`}>
               {doc.status}
             </span>
@@ -1537,7 +1621,7 @@ function AnaliseDocSection({
         <label className="btn btn-outline btn-sm" style={{ justifySelf: 'start', cursor: 'pointer' }}>
           {uploading ? <Loader2 size={15} className="spinner" /> : <UploadCloud size={15} />}
           Enviar documento
-          <input type="file" style={{ display: 'none' }} onChange={handleUpload} disabled={uploading} />
+          <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleUpload} disabled={uploading} />
         </label>
       )}
     </div>

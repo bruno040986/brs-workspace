@@ -163,6 +163,10 @@ export type CorbanOnboardingDocAnalise = {
   file_name: string
   status: CorbanOnboardingDocAnaliseStatus
   observacao: string | null
+  /** Evidência (fatia 1): hash/tamanho/mime do arquivo, nulos em uploads antigos. */
+  hash_sha256?: string | null
+  tamanho_bytes?: number | null
+  mime_type?: string | null
   created_by: string | null
   created_at: string
   avaliado_por: string | null
@@ -926,3 +930,73 @@ export {
 
 export type CatalogoArwRow = { id: string; name: string; is_active: boolean | null }
 export type CatalogosArw = { niveis_acesso: CatalogoArwRow[]; tipos_agente: CatalogoArwRow[] }
+
+// =========================================================================
+// Evidências — prova anexada às verificações externas (fatia 1, 25/09/2026)
+// =========================================================================
+
+export type CorbanOnboardingEvidencia = {
+  id: string
+  processo_id: string
+  item_id: string
+  /** Path dentro do bucket privado `partner-analise`. */
+  arquivo_url: string
+  file_name: string
+  mime_type: string
+  tamanho_bytes: number
+  hash_sha256: string
+  observacao: string | null
+  capturado_em: string
+  created_by: string | null
+  created_at: string
+}
+
+export type EvidenciaTipo = 'presenca_digital' | 'pix' | 'serasa' | 'cartao_cnpj'
+
+/**
+ * Qual verificação externa o item representa (null = não exige evidência).
+ * Presença Digital e PIX anexam em `corban_onboarding_evidencias`; Serasa e
+ * Cartão CNPJ usam o upload da Análise (`corban_onboarding_docs_analise`).
+ */
+export function resolveEvidenciaTipo(chave: string): EvidenciaTipo | null {
+  if (isPresencaDigitalChave(chave)) return 'presenca_digital'
+  if (isChavePixChave(chave)) return 'pix'
+  if (chave.startsWith('analise:serasa:')) return 'serasa'
+  if (chave.startsWith('analise:cartao_cnpj:')) return 'cartao_cnpj'
+  return null
+}
+
+export const EVIDENCIA_ACEITA: Record<EvidenciaTipo, string[]> = {
+  presenca_digital: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
+  pix: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
+  serasa: ['application/pdf'],
+  cartao_cnpj: ['application/pdf'],
+}
+
+/** Instruções fixas do operador — texto interno, não vai ao parceiro. */
+export const INSTRUCOES_EVIDENCIA: Record<EvidenciaTipo, { fazer: string[]; anexar: string }> = {
+  presenca_digital: {
+    fazer: [
+      'Abra o perfil ou site informado no navegador.',
+      'Confira se pertence à empresa: nome, CNPJ, endereço, telefone e atividade recente.',
+      'Tire um print da tela inteira, com o endereço do perfil e a data visíveis.',
+    ],
+    anexar: 'Print do perfil/site (PNG, JPG ou PDF). Sem o print não dá para marcar "Verificado".',
+  },
+  pix: {
+    fazer: [
+      'No aplicativo do banco da BRS, inicie um Pix e cole a chave informada.',
+      'Na tela de confirmação, confira o nome do favorecido, o CNPJ e a instituição.',
+      'Tire o print dessa tela e NÃO conclua a transferência.',
+    ],
+    anexar: 'Print da tela de confirmação do Pix mostrando favorecido, CNPJ e instituição.',
+  },
+  serasa: {
+    fazer: ['Consulte o CPF no Serasa (Consult Center).', 'Gere o relatório completo em PDF.'],
+    anexar: 'PDF do relatório Serasa deste CPF, gerado pelo próprio Serasa. Só PDF.',
+  },
+  cartao_cnpj: {
+    fazer: ['Emita o Comprovante de Inscrição (Cartão CNPJ) no site da Receita Federal.'],
+    anexar: 'PDF do Cartão CNPJ emitido pela Receita. Só PDF.',
+  },
+}
