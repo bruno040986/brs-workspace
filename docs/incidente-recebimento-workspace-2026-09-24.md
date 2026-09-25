@@ -297,6 +297,21 @@ invólucro `data` do `GET /conversations`. Corrigido em `filtrarConversas`
 (aceita os dois formatos); Fila (60) e Geral não foram afetadas. O badge
 "Chats" ficou 0 pelo mesmo motivo (o contador engole o erro).
 
+Ainda na mesma sessão (00:06–00:08 UTC), com `ed59e99d` no ar:
+
+| Item | Resultado |
+|---|---|
+| Fila | 60 no badge; lista com 25 (#1 14:23 … #25 21:02 BRT) e botão "Carregar mais conversas"; clique → `lista?aba=fila&page=2` 200 e a lista passa a 50 (páginas 1..2 refeitas, ordem preservada); botão continua (faltam 10). |
+| Abrir conversa 100 (Financeiro) | `/api/conversas/100/mensagens`, `/100/meta?contactId=135`, `/contatos/135/meta` todos 200; thread mostra o aviso enviado + PDF anexo e as duas entradas das 19:21 BRT ("Por favor o cartão baru", "Meu irmão tá para me deixar doido"); painel com protocolo e "sem atendente". |
+| Chats | 500 até o ajuste `63e0a721` ser publicado (ver acima). |
+| Realtime/poll | `lista`+`contadores` refeitos a cada evento (5 chamadas em ~2 min), sem F5. |
+| Console | só os 500 de `lista?aba=meus`; nenhum outro erro. |
+| Entrada nova durante a validação | 00:02:02 e 00:02:46 UTC (21:02 BRT): duas entradas pela instância **Financeiro** na conv 130 (contato 557981…); apareceram na Fila como #25/#50 com rótulo da instância "Suporte" — a conv 130 vive na inbox do Suporte e o engine espelha ali o que chega pelo número do Financeiro (regra "conversa única por contato"; não é defeito desta entrega). |
+
+Sem entrada nova no **Suporte** nem no **Atendimento** desde 21:22 UTC (fim
+do expediente) — o estado atual dessas duas continua dependendo do teste
+identificável do Bruno (§8, item 1).
+
 **Não validado antes desse ajuste:** o código novo em produção (Chats do usuário logado,
 `POST /conversations/filter`, "Carregar mais", contadores por agente,
 Realtime + contadores) — só localmente (tipos/testes/build). Publicar e
