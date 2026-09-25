@@ -22,6 +22,7 @@ import {
 } from '@/lib/onboarding-comunicacao'
 import { criarInvite, lerNuvidioConfigRow } from '@/lib/nuvidio/client'
 import { COMERCIAL_CARGO_LABELS, opcoesComerciais, type ComercialCargo } from '@/lib/comerciais-hierarquia'
+import { itemDispensaAprovacao } from '@/lib/agente-corban-onboarding'
 
 const RESOURCE = 'agente-corban-cadastros-recebidos'
 const BUCKET = 'partner-analise'
@@ -500,13 +501,16 @@ export async function solicitarCorrecao(
     // exibe itens de VALIDAÇÃO — item de análise (Serasa, conferências) é
     // interno e nunca vai pro parceiro corrigir. Mandar um item de análise
     // pra correção criaria um beco sem saída.
-    const { data: reprovados, error: rErr } = await admin
+    const { data: reprovadosBrutos, error: rErr } = await admin
       .from('corban_onboarding_itens')
-      .select('id,rotulo,instrucoes_correcao')
+      .select('id,rotulo,instrucoes_correcao,chave,valor')
       .eq('processo_id', processoId)
       .eq('etapa', 'validacao')
       .eq('status', 'reprovado')
     if (rErr) throw rErr
+    // Fatia 2.5: item que não pede aprovação (canal não informado, CNAE do
+    // portal) não vai ao parceiro mesmo que tenha ficado reprovado por engano.
+    const reprovados = (reprovadosBrutos || []).filter((i: any) => !itemDispensaAprovacao(i, agente.corban_data || {}))
     if (!reprovados || reprovados.length === 0) {
       throw new Error('Nenhum item de validação reprovado para corrigir (itens de análise são internos e não vão ao parceiro).')
     }

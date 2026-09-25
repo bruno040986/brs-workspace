@@ -233,6 +233,16 @@ export function formatEventoDescricao(evento: Pick<CorbanOnboardingEvento, 'tipo
       return 'Cadastro com responsável definido'
     case 'processo_resetado_para_teste':
       return 'Processo resetado para novo teste (itens voltaram a pendente)'
+    case 'evidencia_anexada':
+      return `Evidência anexada em "${detalhe.rotulo || detalhe.chave}" (${detalhe.file_name || 'arquivo'})`
+    case 'evidencia_removida':
+      return `Evidência removida de "${detalhe.rotulo || detalhe.chave}" (${detalhe.file_name || 'arquivo'})`
+    case 'cadastro_reprovado':
+      return `Cadastro REPROVADO (${detalhe.categoria || 'sem categoria'}): ${detalhe.motivo || ''}`
+    case 'presenca_digital_desfeita':
+      return `Classificação desfeita em "${detalhe.rotulo || detalhe.chave}"`
+    case 'reprovacao_editada':
+      return `Motivo/instrução editados em "${detalhe.rotulo || detalhe.chave}"`
     default:
       return evento.tipo
   }
@@ -365,7 +375,34 @@ export function itemDispensaAprovacao(
   item: { chave: string; valor: any },
   corbanData: Record<string, any> | null | undefined,
 ): boolean {
+  // Fatia 2.5 (25/09/2026): canal de presença digital vazio e CNAE já
+  // conferido pelo portal não pedem clique do operador.
+  if (isPresencaDigitalNaoInformada(item)) return true
+  if (item.chave === 'master.tem_cnae_corban' && cnaeConferidoPeloPortal(corbanData)) return true
   return resolveItemProvenancia(item.chave, item.valor, corbanData).provenancia === 'consulta_api'
+}
+
+/** Canal de presença digital sem texto: não verificável, não evidenciável, não conta para concluir. */
+export function isPresencaDigitalNaoInformada(item: { chave: string; valor: any }): boolean {
+  return isPresencaDigitalChave(item.chave) && !String(item.valor?.texto ?? '').trim()
+}
+
+/** Canais que, todos vazios, acendem o alerta "Sem presença digital" (possível fraude). */
+export const PRESENCA_DIGITAL_PRINCIPAIS = ['commercial.instagram', 'commercial.site', 'commercial.facebook', 'commercial.whatsapp_atendimento'] as const
+
+export function semPresencaDigital(corbanData: Record<string, any> | null | undefined): boolean {
+  return PRESENCA_DIGITAL_PRINCIPAIS.every((chave) => !String(getValueAtPath(corbanData || {}, chave) || '').trim())
+}
+
+/**
+ * O portal barra a etapa Empresa sem o CNAE exigido (regra de 23/09/2026:
+ * 6619-3/02 para PJ; 7319-0/02 e sem 6619-3/02 para MEI) na mesma fonte que
+ * o operador consultaria. Cadastro que passou pela etapa de identificação
+ * (`preenchedor`, do mesmo dia) já foi conferido — não pede aprovação manual.
+ * Cadastro anterior à regra continua exigindo o clique.
+ */
+export function cnaeConferidoPeloPortal(corbanData: Record<string, any> | null | undefined): boolean {
+  return Boolean(String(corbanData?.preenchedor?.email || '').trim())
 }
 
 // =========================================================================
@@ -572,12 +609,15 @@ export function buildValidacaoChecklistSpec(corbanData: Record<string, any> | nu
     ['commercial.whatsapp_atendimento', 'WhatsApp principal de atendimento'],
   ]
   for (const [chave, rotulo] of presencaDigital) {
+    const texto = String(getValueAtPath(data, chave) || '').trim()
     specs.push({
       etapa: 'validacao',
       chave,
       rotulo,
       tipo: 'informacao',
-      valor: { texto: getValueAtPath(data, chave) || '', classificacao: null },
+      // Fatia 2.5: canal vazio não é verificável nem evidenciável — nasce
+      // "não informado" e não conta para concluir (a ausência fica visível).
+      valor: { texto, classificacao: texto ? null : 'nao_informado' },
     })
   }
 

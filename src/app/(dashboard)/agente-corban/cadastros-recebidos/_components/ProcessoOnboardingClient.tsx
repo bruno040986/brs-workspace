@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
   AlertCircle,
@@ -12,6 +12,8 @@ import {
   Edit2,
   Loader2,
   Save,
+  Send,
+  Undo2,
   UploadCloud,
   UserCheck,
   X,
@@ -31,6 +33,7 @@ import {
   CORBAN_ONBOARDING_STATUS_LABELS,
   PRESENCA_DIGITAL_CLASSIFICACAO_LABELS,
   REPROVACAO_CATEGORIA_LABELS,
+  cnaeConferidoPeloPortal,
   formatChecklistItemValue,
   formatEventoDescricao,
   getAdministracao,
@@ -39,11 +42,13 @@ import {
   getSocios,
   groupChecklistItems,
   isChavePixChave,
+  isPresencaDigitalNaoInformada,
   itemDispensaAprovacao,
   resolveChecklistFieldKind,
   resolveItemPortalStep,
   resolveItemProvenancia,
   resolvePersonByCpf,
+  semPresencaDigital,
   sumCapitalShare,
   type ChecklistPortalStep,
   type CorbanOnboardingEtapa,
@@ -67,7 +72,9 @@ import {
   concluirEtapaAnalise,
   concluirEtapaValidacao,
   editarItemValor,
+  editarReprovacao,
   getProcesso,
+  limparClassificacaoPresencaDigital,
   reprovarCadastro,
   uploadDocAnalise,
   type ProcessoDetalhe,
@@ -109,6 +116,161 @@ function toDocumentFiles(valor: any): DocumentViewerFile[] {
   return []
 }
 
+type UltimaRodada = { status: string; enviada_em: string | null; expires_at: string; itens: number } | null
+
+/** Faixa no topo do checklist: por que o processo não segue (fatia 2.5). */
+function AvisoEtapa({
+  processoStatus,
+  etapa,
+  reprovados,
+  corrigidos,
+  ultimaRodada,
+}: {
+  processoStatus: CorbanOnboardingProcessoStatus
+  etapa: CorbanOnboardingEtapa
+  reprovados: number
+  corrigidos: number
+  ultimaRodada: UltimaRodada
+}) {
+  let cor = '#b45309'
+  let fundo = '#fffbeb'
+  let texto: ReactNode = null
+  if (processoStatus === 'aguardando_correcao') {
+    texto = (
+      <>
+        Aguardando a correção do parceiro
+        {ultimaRodada?.enviada_em ? ` (enviada em ${new Date(ultimaRodada.enviada_em).toLocaleString('pt-BR')})` : ''}. O processo só segue
+        depois que ele responder pelo link e você reavaliar os itens.
+      </>
+    )
+  } else if (processoStatus === 'correcao_recebida') {
+    cor = '#92400e'
+    texto = <>Correção recebida: {corrigidos} {corrigidos === 1 ? 'item marcado' : 'itens marcados'} como Corrigido aguardam a sua reavaliação nas seções abaixo.</>
+  } else if (reprovados > 0) {
+    cor = '#b91c1c'
+    fundo = '#fef2f2'
+    texto = (
+      <>
+        {reprovados} {reprovados === 1 ? 'item reprovado' : 'itens reprovados'} nesta etapa. O processo só segue depois da correção pelo parceiro e da
+        reavaliação.{' '}
+        {etapa === 'validacao' ? (
+          <a href="#correcoes" style={{ color: cor, fontWeight: 700 }}>
+            Ver correções a solicitar ↓
+          </a>
+        ) : (
+          'Itens de análise são internos: reavalie com nova evidência ou reprove o cadastro.'
+        )}
+      </>
+    )
+  }
+  if (!texto) return null
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', padding: '0.6rem 0.8rem', borderRadius: 8, background: fundo, border: `1px solid ${cor}33`, color: cor, fontSize: '0.82rem', marginBottom: '0.9rem' }}>
+      <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+      <span>{texto}</span>
+    </div>
+  )
+}
+
+function CorrecaoItemEditor({
+  item,
+  busy,
+  onSalvar,
+}: {
+  item: CorbanOnboardingItem
+  busy: boolean
+  onSalvar: (item: CorbanOnboardingItem, motivo: string, instrucoes: string) => void
+}) {
+  const [motivo, setMotivo] = useState(item.motivo_reprovacao || '')
+  const [instrucoes, setInstrucoes] = useState(item.instrucoes_correcao || '')
+  const alterado = motivo !== (item.motivo_reprovacao || '') || instrucoes !== (item.instrucoes_correcao || '')
+  return (
+    <div style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 8, padding: '0.7rem 0.9rem', display: 'grid', gap: '0.4rem' }}>
+      <div style={{ fontWeight: 700, color: 'var(--brs-gray-900)', fontSize: '0.88rem' }}>{item.rotulo}</div>
+      <div style={{ display: 'grid', gap: '0.4rem', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)' }}>
+        <div>
+          <label className="form-label" style={{ fontSize: '0.72rem' }}>Motivo (interno)</label>
+          <input className="form-control" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+        </div>
+        <div>
+          <label className="form-label" style={{ fontSize: '0.72rem' }}>Instrução ao parceiro (vai no e-mail e no WhatsApp)</label>
+          <textarea className="form-control" rows={2} value={instrucoes} onChange={(e) => setInstrucoes(e.target.value)} />
+        </div>
+      </div>
+      {alterado && (
+        <div>
+          <button type="button" className="btn btn-outline btn-sm" disabled={busy || !motivo.trim() || !instrucoes.trim()} onClick={() => onSalvar(item, motivo, instrucoes)}>
+            {busy ? <Loader2 size={14} className="spinner" /> : <Save size={14} />}
+            Salvar
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Fim da página: tudo o que vai ao parceiro num único envio (fatia 2.5). */
+function CorrecoesSecao({
+  processoStatus,
+  itens,
+  corrigidos,
+  ultimaRodada,
+  loading,
+  busyId,
+  onEnviar,
+  onSalvar,
+}: {
+  processoStatus: CorbanOnboardingProcessoStatus
+  itens: CorbanOnboardingItem[]
+  corrigidos: number
+  ultimaRodada: UltimaRodada
+  loading: boolean
+  busyId: string | null
+  onEnviar: () => void
+  onSalvar: (item: CorbanOnboardingItem, motivo: string, instrucoes: string) => void
+}) {
+  const rodadaAberta = ultimaRodada && (ultimaRodada.status === 'enviada' || ultimaRodada.status === 'aberta') && processoStatus === 'aguardando_correcao'
+  return (
+    <div id="correcoes" className="card" style={{ padding: '1.25rem', marginTop: '1rem', borderLeft: itens.length > 0 ? '4px solid #d97706' : undefined }}>
+      <div style={{ fontWeight: 700, color: 'var(--brs-gray-900)', marginBottom: '0.35rem' }}>
+        Correções a solicitar ao parceiro{itens.length > 0 ? ` (${itens.length})` : ''}
+      </div>
+      <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
+        Reprovar um item não envia nada. Tudo o que estiver aqui vai num único e-mail e WhatsApp, com um link só, quando você clicar em enviar.
+      </p>
+
+      {rodadaAberta && (
+        <div style={{ fontSize: '0.8rem', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.5rem 0.75rem', marginBottom: '0.75rem' }}>
+          Última rodada enviada em {ultimaRodada!.enviada_em ? new Date(ultimaRodada!.enviada_em).toLocaleString('pt-BR') : '—'} com {ultimaRodada!.itens}{' '}
+          {ultimaRodada!.itens === 1 ? 'item' : 'itens'}, link válido até {new Date(ultimaRodada!.expires_at).toLocaleDateString('pt-BR')}. Enviar de novo gera um link
+          novo e invalida o anterior.
+        </div>
+      )}
+      {corrigidos > 0 && (
+        <div style={{ fontSize: '0.8rem', color: '#854d0e', background: '#fefce8', border: '1px solid #fef08a', borderRadius: 8, padding: '0.5rem 0.75rem', marginBottom: '0.75rem' }}>
+          {corrigidos} {corrigidos === 1 ? 'item corrigido' : 'itens corrigidos'} pelo parceiro {corrigidos === 1 ? 'aguarda' : 'aguardam'} reavaliação nas seções acima.
+        </div>
+      )}
+
+      {itens.length === 0 ? (
+        <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>Nenhum item reprovado pendente de envio.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: '0.6rem' }}>
+          {itens.map((item) => (
+            <CorrecaoItemEditor key={item.id} item={item} busy={busyId === item.id} onSalvar={onSalvar} />
+          ))}
+          <div>
+            <button type="button" className="btn btn-primary" disabled={loading} onClick={onEnviar}>
+              {loading ? <Loader2 size={15} className="spinner" /> : <Send size={15} />}
+              Enviar correções ao parceiro (e-mail + WhatsApp)
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ReprovacoesAnterioresLista({ lista }: { lista: ReprovacaoAnterior[] }) {
   const papel: Record<string, string> = { empresa: 'Empresa', titular: 'Titular', socio: 'Sócio', administrador: 'Administrador', testemunha: 'Testemunha' }
   if (lista.length === 0) return <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-400)' }}>Nenhuma reprovação anterior.</div>
@@ -142,12 +304,25 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
   )
 }
 
-function MessageBanner({ message }: { message: Message | null }) {
+function MessageBanner({ message, onClose }: { message: Message | null; onClose: () => void }) {
+  // Fatia 2.5: flutuante e com auto-fechamento — uma faixa no topo empurrava
+  // os cards e o operador clicava no item errado.
+  useEffect(() => {
+    if (!message) return
+    const t = window.setTimeout(onClose, message.type === 'error' ? 12000 : 6000)
+    return () => window.clearTimeout(t)
+  }, [message, onClose])
   if (!message) return null
   return (
     <div
+      role="status"
       style={{
-        marginBottom: '1rem',
+        position: 'fixed',
+        top: 16,
+        right: 16,
+        zIndex: 1100,
+        maxWidth: 460,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
         padding: '0.875rem 1rem',
         borderRadius: 10,
         border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
@@ -155,11 +330,14 @@ function MessageBanner({ message }: { message: Message | null }) {
         color: message.type === 'success' ? '#065F46' : '#991B1B',
         display: 'flex',
         gap: '0.5rem',
-        alignItems: 'center',
+        alignItems: 'flex-start',
       }}
     >
-      {message.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
-      <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{message.text}</span>
+      {message.type === 'success' ? <CheckCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} /> : <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} />}
+      <span style={{ flex: 1, fontSize: '0.85rem', wordBreak: 'break-word' }}>{message.text}</span>
+      <button type="button" className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Fechar aviso">
+        <X size={14} />
+      </button>
     </div>
   )
 }
@@ -257,6 +435,31 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
     await refresh()
   }
 
+  const fecharMensagem = useCallback(() => setMessage(null), [])
+
+  async function handleLimparPresenca(item: CorbanOnboardingItem) {
+    setBusyId(item.id)
+    const result = await limparClassificacaoPresencaDigital(item.id)
+    setBusyId(null)
+    if (!result.success) {
+      setMessage({ type: 'error', text: result.error })
+      return
+    }
+    await refresh()
+  }
+
+  async function handleSalvarReprovacao(item: CorbanOnboardingItem, motivo: string, instrucoes: string) {
+    setBusyId(item.id)
+    const result = await editarReprovacao(item.id, { motivo, instrucoes })
+    setBusyId(null)
+    if (!result.success) {
+      setMessage({ type: 'error', text: result.error })
+      return
+    }
+    setMessage({ type: 'success', text: 'Motivo e instrução atualizados.' })
+    await refresh()
+  }
+
   async function handleReprovarCadastro() {
     if (reprovandoCadastro) return
     setReprovandoCadastro(true)
@@ -311,7 +514,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
   const temReprovados = data.itens.some((item) => item.status === 'reprovado')
 
   async function handleSolicitarCorrecao() {
-    if (!window.confirm('Agrupar todos os itens reprovados e enviar o link de correção ao parceiro (e-mail + WhatsApp)?')) return
+    if (!window.confirm('Enviar todas as correções pendentes ao parceiro num único e-mail + WhatsApp? Se já houver um link anterior, ele deixa de valer.')) return
     setLoading(true)
     const result = await solicitarCorrecao(data.processo.id)
     setLoading(false)
@@ -370,6 +573,9 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
   }, [data.docs])
 
   const encerrado = data.processo.status === 'reprovado'
+  const reprovadosEtapa = itensEtapa.filter((i) => i.status === 'reprovado' && !itemDispensaAprovacao(i, corbanData)).length
+  const corrigidosTotal = data.itens.filter((i) => i.status === 'corrigido').length
+  const itensCorrecao = data.itens.filter((i) => i.etapa === 'validacao' && i.status === 'reprovado' && !itemDispensaAprovacao(i, corbanData))
 
   return (
     <div className="page-content">
@@ -396,6 +602,11 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             <span className={`badge ${CORBAN_ONBOARDING_STATUS_BADGE[data.processo.status as CorbanOnboardingProcessoStatus]}`}>
               {CORBAN_ONBOARDING_STATUS_LABELS[data.processo.status as CorbanOnboardingProcessoStatus]}
             </span>
+            {semPresencaDigital(corbanData) && (
+              <span className="badge badge-warning" title="Nenhum canal principal informado (Instagram, site, Facebook, WhatsApp comercial). Não bloqueia: é sinal de atenção a possível fraude.">
+                Sem presença digital
+              </span>
+            )}
             {data.responsavelNome ? (
               <span className="badge badge-navy">Responsável: {data.responsavelNome}</span>
             ) : (
@@ -421,7 +632,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
         </div>
       </div>
 
-      <MessageBanner message={message} />
+      <MessageBanner message={message} onClose={fecharMensagem} />
 
       {encerrado && (
         <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1rem', borderLeft: '4px solid #b91c1c' }}>
@@ -486,17 +697,6 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             {etapaEhChecklist ? 'Checklist — ' : ''}{CORBAN_ONBOARDING_ETAPA_LABELS[etapaSelecionada]}
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {temReprovados && !encerrado && (
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                disabled={loading}
-                title="Agrupa os itens reprovados, gera o magic link e envia e-mail + WhatsApp ao parceiro"
-                onClick={handleSolicitarCorrecao}
-              >
-                Solicitar correção ao parceiro
-              </button>
-            )}
             {etapaEhChecklist && etapaSelecionada === data.processo.etapa_atual && !encerrado && (
               <button type="button" className="btn btn-primary btn-sm" disabled={!podeConcluirEtapa || loading} onClick={handleConcluirEtapa}>
                 {loading ? <Loader2 size={15} className="spinner" /> : <Check size={15} />}
@@ -505,6 +705,16 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             )}
           </div>
         </div>
+
+        {etapaEhChecklist && !encerrado && (
+          <AvisoEtapa
+            processoStatus={data.processo.status as CorbanOnboardingProcessoStatus}
+            etapa={etapaSelecionada}
+            reprovados={reprovadosEtapa}
+            corrigidos={corrigidosTotal}
+            ultimaRodada={data.correcoes[0] || null}
+          />
+        )}
 
         {!etapaEhChecklist ? (
           <EtapasFinaisPanel
@@ -540,6 +750,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
               corbanData={corbanData}
               busyId={busyId}
               onClassificar={handlePresencaDigital}
+              onLimpar={handleLimparPresenca}
               evidencias={data.evidencias}
               onEvidenciasChanged={refresh}
               onErro={(texto) => setMessage({ type: 'error', text: texto })}
@@ -718,6 +929,19 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
           )}
         </div>
       </div>
+
+      {!encerrado && (
+        <CorrecoesSecao
+          processoStatus={data.processo.status as CorbanOnboardingProcessoStatus}
+          itens={itensCorrecao}
+          corrigidos={corrigidosTotal}
+          ultimaRodada={data.correcoes[0] || null}
+          loading={loading}
+          busyId={busyId}
+          onEnviar={handleSolicitarCorrecao}
+          onSalvar={handleSalvarReprovacao}
+        />
+      )}
 
       {reprovarCadastroAberto && (
         <div className="modal-backdrop" onClick={() => setReprovarCadastroAberto(false)}>
@@ -1192,7 +1416,7 @@ function EmpresaSecao({
             </div>
           )}
 
-          {cnaeItem && <CnaeCampo item={cnaeItem} busyId={busyId} onAprovarItem={onAprovarItem} onAbrirReprovar={onAbrirReprovar} />}
+          {cnaeItem && <CnaeCampo conferidoPeloPortal={cnaeConferidoPeloPortal(corbanData)} item={cnaeItem} busyId={busyId} onAprovarItem={onAprovarItem} onAbrirReprovar={onAbrirReprovar} />}
 
           <GradeCampos items={camposItems} corbanData={corbanData} modoEdicao={modoEdicao} busyId={busyId} onAbrirEditar={onAbrirEditar} onAbrirReprovar={onAbrirReprovar} />
         </div>
@@ -1209,11 +1433,13 @@ function EmpresaSecao({
 function CnaeCampo({
   item,
   busyId,
+  conferidoPeloPortal,
   onAprovarItem,
   onAbrirReprovar,
 }: {
   item: CorbanOnboardingItem
   busyId: string | null
+  conferidoPeloPortal: boolean
   onAprovarItem: (item: CorbanOnboardingItem) => void
   onAbrirReprovar: (item: CorbanOnboardingItem) => void
 }) {
@@ -1236,13 +1462,27 @@ function CnaeCampo({
             {possui ? 'Possui CNAE de Correspondente Bancário (6619-3/02)' : 'Não possui o CNAE 6619-3/02 (correspondente bancário)'}
           </div>
         </div>
-        <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
+        {conferidoPeloPortal && item.status !== 'reprovado' ? (
+          <span className="badge badge-success" title="O portal barrou a etapa Empresa sem o CNAE exigido (regra de 23/09/2026), na mesma fonte que você consultaria.">
+            Conferido pelo portal
+          </span>
+        ) : (
+          <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
+        )}
       </div>
 
       {item.status === 'reprovado' && item.motivo_reprovacao && (
         <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#b91c1c' }}>{item.motivo_reprovacao}</div>
       )}
 
+      {conferidoPeloPortal && item.status !== 'reprovado' ? (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.76rem', color: 'var(--brs-gray-500)' }}>
+          Validado no cadastro pelo portal. Não exige aprovação; se encontrar divergência na Receita, reprove com o motivo.
+          <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 6 }} disabled={busyId === item.id} onClick={() => onAbrirReprovar(item)}>
+            <X size={13} /> Reprovar
+          </button>
+        </div>
+      ) : (
       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
         <button type="button" className="btn btn-outline btn-sm" disabled={busyId === item.id || item.status === 'aprovado'} onClick={() => onAprovarItem(item)}>
           {busyId === item.id ? <Loader2 size={14} className="spinner" /> : <Check size={14} />}
@@ -1253,6 +1493,7 @@ function CnaeCampo({
           Reprovar
         </button>
       </div>
+      )}
     </div>
   )
 }
@@ -1266,6 +1507,7 @@ function ComercialSecao({
   corbanData,
   busyId,
   onClassificar,
+  onLimpar,
   evidencias,
   onEvidenciasChanged,
   onErro,
@@ -1274,12 +1516,16 @@ function ComercialSecao({
   corbanData: Record<string, any>
   busyId: string | null
   onClassificar: (item: CorbanOnboardingItem, classificacao: PresencaDigitalClassificacao, texto?: string) => void
+  onLimpar: (item: CorbanOnboardingItem) => void
   evidencias: EvidenciaComUrl[]
   onEvidenciasChanged: () => Promise<void>
   onErro: (texto: string) => void
 }) {
   const commercial = corbanData?.commercial || {}
-  const totalAprovados = items.filter((i) => i.status === 'aprovado').length
+  const naoInformados = items.filter((i) => isPresencaDigitalNaoInformada(i))
+  const classificaveis = items.filter((i) => !isPresencaDigitalNaoInformada(i))
+  const totalAprovados = classificaveis.filter((i) => i.status === 'aprovado').length
+  const semPresenca = semPresencaDigital(corbanData)
 
   return (
     <div className="card" style={{ padding: '1.1rem' }}>
@@ -1287,7 +1533,7 @@ function ComercialSecao({
         {CHECKLIST_PORTAL_STEP_LABELS.comercial}{' '}
         {items.length > 0 && (
           <span style={{ fontWeight: 400, fontSize: '0.78rem', color: 'var(--brs-gray-500)' }}>
-            ({totalAprovados}/{items.length} classificados)
+            ({totalAprovados}/{classificaveis.length} classificados{naoInformados.length > 0 ? ` · ${naoInformados.length} não ${naoInformados.length === 1 ? 'informado' : 'informados'}` : ''})
           </span>
         )}
       </div>
@@ -1300,8 +1546,17 @@ function ComercialSecao({
         <InfoRow label="Regiões de Atuação" value={Array.isArray(commercial.regions) ? commercial.regions.join(', ') : undefined} />
       </div>
 
+      {semPresenca && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.8rem', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.5rem 0.75rem', marginBottom: '0.6rem' }}>
+          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>
+            <strong>Sem presença digital.</strong> Nenhum canal principal informado (Instagram, site, Facebook, WhatsApp comercial). Não bloqueia
+            nem reprova: é sinal de atenção a possível fraude — pese isso na Análise.
+          </span>
+        </div>
+      )}
       <div style={{ fontSize: '0.72rem', color: 'var(--brs-gray-400)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.4rem' }}>
-        Presença Digital — conferir cada canal informado (ausência também é informação)
+        Presença Digital — conferir cada canal informado (canal vazio fica só registrado)
       </div>
       <div style={{ display: 'grid', gap: '0.6rem' }}>
         {items.map((item) => (
@@ -1310,6 +1565,7 @@ function ComercialSecao({
             item={item}
             busyId={busyId}
             onClassificar={onClassificar}
+            onLimpar={onLimpar}
             evidencias={evidencias.filter((e) => e.item_id === item.id)}
             onEvidenciasChanged={onEvidenciasChanged}
             onErro={onErro}
@@ -1324,6 +1580,7 @@ function PresencaDigitalCampo({
   item,
   busyId,
   onClassificar,
+  onLimpar,
   evidencias,
   onEvidenciasChanged,
   onErro,
@@ -1331,14 +1588,16 @@ function PresencaDigitalCampo({
   item: CorbanOnboardingItem
   busyId: string | null
   onClassificar: (item: CorbanOnboardingItem, classificacao: PresencaDigitalClassificacao, texto?: string) => void
+  onLimpar: (item: CorbanOnboardingItem) => void
   evidencias: EvidenciaComUrl[]
   onEvidenciasChanged: () => Promise<void>
   onErro: (texto: string) => void
 }) {
   const semEvidencia = evidencias.length === 0
+  const naoInformado = isPresencaDigitalNaoInformada(item)
   const [editando, setEditando] = useState(false)
   const [texto, setTexto] = useState(String(item.valor?.texto ?? ''))
-  const classificacaoAtual = item.valor?.classificacao as PresencaDigitalClassificacao | null
+  const classificacaoAtual = (item.valor?.classificacao || null) as string | null
 
   const opcoes: PresencaDigitalClassificacao[] = ['verificado', 'nao_existe', 'fora_do_ar', 'inconsistente']
 
@@ -1361,43 +1620,67 @@ function PresencaDigitalCampo({
             </div>
           )}
         </div>
-        <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
+        {naoInformado ? (
+          <span className="badge badge-gray">Não informado</span>
+        ) : (
+          <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
+        )}
       </div>
 
-      <div style={{ marginTop: '0.5rem' }}>
-        <EvidenciasBloco
-          tipo="presenca_digital"
-          itemId={item.id}
-          bloqueado={item.status === 'aprovado'}
-          evidencias={evidencias}
-          onChanged={onEvidenciasChanged}
-          onErro={onErro}
-        />
-      </div>
-
-      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        {opcoes.map((op) => (
-          <button
-            key={op}
-            type="button"
-            className="btn btn-sm"
-            disabled={busyId === item.id || (op === 'verificado' && semEvidencia)}
-            title={op === 'verificado' && semEvidencia ? 'Anexe o print da verificação antes de marcar como Verificado' : undefined}
-            onClick={() => onClassificar(item, op, editando ? texto : undefined)}
-            style={{
-              background: classificacaoAtual === op ? (op === 'verificado' ? '#15803d' : '#b91c1c') : 'var(--brs-gray-100)',
-              color: classificacaoAtual === op ? '#fff' : 'var(--brs-gray-600)',
-              border: 'none',
-            }}
-          >
-            {PRESENCA_DIGITAL_CLASSIFICACAO_LABELS[op]}
+      {naoInformado && !editando ? (
+        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.74rem', color: 'var(--brs-gray-400)' }}>
+            Canal não informado pelo parceiro: sem verificação, sem evidência, não conta para concluir.
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditando(true)} disabled={busyId === item.id}>
+            <Edit2 size={13} />
+            Informar
           </button>
-        ))}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditando((v) => !v)} disabled={busyId === item.id}>
-          <Edit2 size={13} />
-          {editando ? 'Cancelar edição' : 'Editar'}
-        </button>
-      </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ marginTop: '0.5rem' }}>
+            <EvidenciasBloco
+              tipo="presenca_digital"
+              itemId={item.id}
+              bloqueado={item.status === 'aprovado'}
+              evidencias={evidencias}
+              onChanged={onEvidenciasChanged}
+              onErro={onErro}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {opcoes.map((op) => (
+              <button
+                key={op}
+                type="button"
+                className="btn btn-sm"
+                disabled={busyId === item.id || (op === 'verificado' && semEvidencia) || (editando && !texto.trim())}
+                title={op === 'verificado' && semEvidencia ? 'Anexe o print da verificação antes de marcar como Verificado' : undefined}
+                onClick={() => onClassificar(item, op, editando ? texto : undefined)}
+                style={{
+                  background: classificacaoAtual === op ? (op === 'verificado' ? '#15803d' : '#b91c1c') : 'var(--brs-gray-100)',
+                  color: classificacaoAtual === op ? '#fff' : 'var(--brs-gray-600)',
+                  border: 'none',
+                }}
+              >
+                {PRESENCA_DIGITAL_CLASSIFICACAO_LABELS[op]}
+              </button>
+            ))}
+            {classificacaoAtual && classificacaoAtual !== 'nao_informado' && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onLimpar(item)} disabled={busyId === item.id} title="Volta o canal para pendente">
+                <Undo2 size={13} />
+                Desfazer
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditando((v) => !v)} disabled={busyId === item.id}>
+              <Edit2 size={13} />
+              {editando ? 'Cancelar edição' : 'Editar'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

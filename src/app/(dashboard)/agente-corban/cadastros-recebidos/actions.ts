@@ -6,6 +6,7 @@ import { EVIDENCIA_ACEITA, resolveEvidenciaTipo, type CorbanOnboardingEvidencia 
 import {
   REPROVACAO_CATEGORIA_LABELS,
   coletarDocumentosDoCadastro,
+  isPresencaDigitalChave,
   type ReprovacaoAnterior,
   type ReprovacaoCategoria,
 } from '@/lib/agente-corban-onboarding'
@@ -218,6 +219,16 @@ export async function criarProcesso(
   }
 }
 
+export type CorrecaoRodada = {
+  id: string
+  status: string
+  expires_at: string
+  created_at: string
+  enviada_em: string | null
+  corrigida_em: string | null
+  itens: number
+}
+
 export type ProcessoDetalhe = {
   success: true
   processo: CorbanOnboardingProcesso
@@ -227,6 +238,8 @@ export type ProcessoDetalhe = {
   evidencias: Array<CorbanOnboardingEvidencia & { signedUrl: string | null; autorNome: string | null }>
   /** Fatia 2: reprovações anteriores que batem com CNPJ/CPFs deste cadastro (fora deste processo). */
   reprovacoesAnteriores: ReprovacaoAnterior[]
+  /** Fatia 2.5: rodadas de correção (magic link), mais recente primeiro. */
+  correcoes: CorrecaoRodada[]
   eventos: Array<CorbanOnboardingEvento & { actorNome: string | null }>
   responsavelNome: string | null
   currentUserId: string
@@ -271,16 +284,23 @@ export async function getProcesso(
       )
     }
 
-    const [itensResult, docsResult, eventosResult, evidenciasResult] = await Promise.all([
+    const [itensResult, docsResult, eventosResult, evidenciasResult, correcoesResult] = await Promise.all([
       admin.from('corban_onboarding_itens').select('*').eq('processo_id', processoId).order('created_at', { ascending: true }),
       admin.from('corban_onboarding_docs_analise').select('*').eq('processo_id', processoId).order('created_at', { ascending: false }),
       admin.from('corban_onboarding_eventos').select('*').eq('processo_id', processoId).order('created_at', { ascending: false }),
       admin.from('corban_onboarding_evidencias').select('*').eq('processo_id', processoId).order('created_at', { ascending: true }),
+      admin.from('corban_onboarding_correcoes').select('id,status,expires_at,created_at,enviada_em,corrigida_em').eq('processo_id', processoId).order('created_at', { ascending: false }),
     ])
     if (itensResult.error) throw itensResult.error
     if (docsResult.error) throw docsResult.error
     if (eventosResult.error) throw eventosResult.error
     if (evidenciasResult.error) throw evidenciasResult.error
+    if (correcoesResult.error) throw correcoesResult.error
+    const itensPorCorrecao = new Map<string, number>()
+    for (const it of itensResult.data || []) {
+      if (it.correcao_id) itensPorCorrecao.set(it.correcao_id, (itensPorCorrecao.get(it.correcao_id) || 0) + 1)
+    }
+    const correcoes: CorrecaoRodada[] = (correcoesResult.data || []).map((c: any) => ({ ...c, itens: itensPorCorrecao.get(c.id) || 0 }))
 
     const docs = await Promise.all(
       (docsResult.data || []).map(async (doc: any) => {
@@ -334,6 +354,7 @@ export async function getProcesso(
       docs,
       evidencias,
       reprovacoesAnteriores,
+      correcoes,
       eventos,
       responsavelNome,
       currentUserId: user.id,
@@ -722,6 +743,9 @@ export async function avaliarPresencaDigital(
     if (input.classificacao === 'verificado') await exigirEvidencia(admin, item)
 
     const textoFinal = input.texto !== undefined ? input.texto.trim() : String(item.valor?.texto || '')
+    if (!textoFinal) {
+      throw new Error('Canal não informado pelo parceiro não é verificável. Se ele informou depois, edite o texto antes de classificar.')
+    }
     const novoValor = { texto: textoFinal, classificacao: input.classificacao }
     const status = input.classificacao === 'verificado' ? 'aprovado' : 'reprovado'
     const motivo = input.classificacao === 'verificado' ? null : PRESENCA_DIGITAL_CLASSIFICACAO_LABELS[input.classificacao]
@@ -958,6 +982,74 @@ export async function concluirEtapaAnalise(
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao concluir etapa de análise:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Fatia 2.5: volta um canal de presença digital para pendente (clique errado). */
+export async function limparClassificacaoPresencaDigital(itemId: string): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const { data: item, error: itemError } = await admin.from('corban_onboarding_itens').select('*').eq('id', itemId).single()
+    if (itemError || !item) throw itemError || new Error('Item não encontrado.')
+    if (!isPresencaDigitalChave(item.chave)) throw new Error('Só canais de presença digital podem ser desfeitos por aqui.')
+    const texto = String(item.valor?.texto || '').trim()
+    const { error } = await admin
+      .from('corban_onboarding_itens')
+      .update({
+        valor: { texto, classificacao: texto ? null : 'nao_informado' },
+        status: 'pendente',
+        motivo_reprovacao: null,
+        instrucoes_correcao: null,
+        avaliado_por: null,
+        avaliado_em: null,
+      })
+      .eq('id', itemId)
+    if (error) throw error
+    await admin.from('corban_onboarding_eventos').insert({
+      processo_id: item.processo_id,
+      tipo: 'presenca_digital_desfeita',
+      detalhe: { item_id: itemId, chave: item.chave, rotulo: item.rotulo, de: item.status },
+      actor_id: user.id,
+    })
+    revalidatePath(`/agente-corban/cadastros-recebidos/${item.processo_id}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao desfazer classificação:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/** Fatia 2.5: edita motivo/instrução de um item reprovado direto na seção de correções. */
+export async function editarReprovacao(
+  itemId: string,
+  input: { motivo: string; instrucoes: string },
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const motivo = String(input.motivo || '').trim()
+    const instrucoes = String(input.instrucoes || '').trim()
+    if (!motivo || !instrucoes) throw new Error('Motivo e instrução de correção são obrigatórios.')
+    const { data: item, error: itemError } = await admin.from('corban_onboarding_itens').select('*').eq('id', itemId).single()
+    if (itemError || !item) throw itemError || new Error('Item não encontrado.')
+    if (item.status !== 'reprovado') throw new Error('Só itens reprovados têm motivo e instrução.')
+    const { error } = await admin
+      .from('corban_onboarding_itens')
+      .update({ motivo_reprovacao: motivo, instrucoes_correcao: instrucoes })
+      .eq('id', itemId)
+    if (error) throw error
+    await admin.from('corban_onboarding_eventos').insert({
+      processo_id: item.processo_id,
+      tipo: 'reprovacao_editada',
+      detalhe: { item_id: itemId, chave: item.chave, rotulo: item.rotulo },
+      actor_id: user.id,
+    })
+    revalidatePath(`/agente-corban/cadastros-recebidos/${item.processo_id}`)
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao editar reprovação:', error)
     return { success: false, error: error.message }
   }
 }
