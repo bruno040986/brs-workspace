@@ -239,6 +239,12 @@ export function formatEventoDescricao(evento: Pick<CorbanOnboardingEvento, 'tipo
       return `Evidência removida de "${detalhe.rotulo || detalhe.chave}" (${detalhe.file_name || 'arquivo'})`
     case 'cadastro_reprovado':
       return `Cadastro REPROVADO (${detalhe.categoria || 'sem categoria'}): ${detalhe.motivo || ''}`
+    case 'certificacao_lancada':
+      return `Certificação lançada para o CPF ${detalhe.cpf || ''} (validade ${detalhe.data_validade || '—'}${detalhe.verificado ? ', conferida no CRCP' : ''})`
+    case 'certificacao_atualizada':
+      return `Certificação atualizada para o CPF ${detalhe.cpf || ''}${detalhe.verificado ? ' (conferida no CRCP)' : ''}`
+    case 'certificacao_removida':
+      return `Lançamento de certificação removido (CPF ${detalhe.cpf || ''})`
     case 'presenca_digital_desfeita':
       return `Classificação desfeita em "${detalhe.rotulo || detalhe.chave}"`
     case 'reprovacao_editada':
@@ -832,6 +838,30 @@ export function buildAnaliseChecklistSpec(
     }
   }
 
+  // Fatia 3: certificações CRCP — uma por sócio PF / administrador (titular se PF).
+  const pessoasCert = new Map<string, { nome: string; papel: string }>()
+  if (personType === 'PF') {
+    const c = onlyDigits(cpfCnpj)
+    if (c) pessoasCert.set(c, { nome: String(getValueAtPath(data, 'master.name') || ''), papel: 'titular' })
+  }
+  for (const socio of getSocios(data)) {
+    const c = onlyDigits(socio.cpf)
+    if (c && (socio.person_kind || 'PF') === 'PF' && !pessoasCert.has(c)) pessoasCert.set(c, { nome: String(socio.name || ''), papel: 'socio' })
+  }
+  for (const admin of getAdministracao(data)) {
+    const c = onlyDigits(admin.cpf)
+    if (c && !pessoasCert.has(c)) pessoasCert.set(c, { nome: String(admin.name || ''), papel: 'administrador' })
+  }
+  for (const [cpf, p] of pessoasCert) {
+    specs.push({
+      etapa: 'analise',
+      chave: `${CHAVE_CERTIFICACOES_PREFIX}${cpf}`,
+      rotulo: `Certificações CRCP — ${p.nome || 'CPF'} (${cpf})`,
+      tipo: 'analise',
+      valor: { cpf, nome: p.nome, papel: p.papel },
+    })
+  }
+
   specs.push({
     etapa: 'analise',
     chave: 'analise:conferencia:telefones',
@@ -1013,7 +1043,7 @@ export type CorbanOnboardingEvidencia = {
   created_at: string
 }
 
-export type EvidenciaTipo = 'presenca_digital' | 'pix' | 'serasa' | 'cartao_cnpj'
+export type EvidenciaTipo = 'presenca_digital' | 'pix' | 'serasa' | 'cartao_cnpj' | 'crcp'
 
 /**
  * Qual verificação externa o item representa (null = não exige evidência).
@@ -1023,6 +1053,7 @@ export type EvidenciaTipo = 'presenca_digital' | 'pix' | 'serasa' | 'cartao_cnpj
 export function resolveEvidenciaTipo(chave: string): EvidenciaTipo | null {
   if (isPresencaDigitalChave(chave)) return 'presenca_digital'
   if (isChavePixChave(chave)) return 'pix'
+  if (chave.startsWith(CHAVE_CERTIFICACOES_PREFIX)) return 'crcp'
   if (chave.startsWith('analise:serasa:')) return 'serasa'
   if (chave.startsWith('analise:cartao_cnpj:')) return 'cartao_cnpj'
   return null
@@ -1033,6 +1064,7 @@ export const EVIDENCIA_ACEITA: Record<EvidenciaTipo, string[]> = {
   pix: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
   serasa: ['application/pdf'],
   cartao_cnpj: ['application/pdf'],
+  crcp: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
 }
 
 /** Instruções fixas do operador — texto interno, não vai ao parceiro. */
@@ -1061,6 +1093,14 @@ export const INSTRUCOES_EVIDENCIA: Record<EvidenciaTipo, { fazer: string[]; anex
     fazer: ['Emita o Comprovante de Inscrição (Cartão CNPJ) no site da Receita Federal.'],
     anexar: 'PDF do Cartão CNPJ emitido pela Receita. Só PDF.',
   },
+  crcp: {
+    fazer: [
+      'Abra o CRCP (botão ao lado), cole o CPF (botão "Copiar CPF") e marque "Não sou um robô".',
+      'Tire o print do resultado inteiro, com o CPF e a data visíveis (sem resultado também é print).',
+      'Lance cada certificação encontrada com número, data do exame e validade, e marque como conferida.',
+    ],
+    anexar: 'Print da tela de resultado do CRCP para este CPF (PNG, JPG ou PDF). Sem o print não dá para aprovar o item.',
+  },
 }
 
 // =========================================================================
@@ -1078,6 +1118,13 @@ export const REPROVACAO_CATEGORIA_LABELS: Record<ReprovacaoCategoria, string> = 
 }
 
 export const CHAVE_HISTORICO_REPROVACOES = 'analise:historico:reprovacoes'
+
+/** Fatia 3: item de certificações CRCP por pessoa (sócio PF / administrador / titular PF). */
+export const CHAVE_CERTIFICACOES_PREFIX = 'analise:certificacoes:cpf:'
+
+export function parseCertificacaoChave(chave: string): string | null {
+  return chave.startsWith(CHAVE_CERTIFICACOES_PREFIX) ? chave.slice(CHAVE_CERTIFICACOES_PREFIX.length) : null
+}
 
 export { coletarDocumentosDoCadastro, type DocumentoDoCadastro, type DocumentoPapel } from './onboarding-documentos'
 import type { DocumentoPapel } from './onboarding-documentos'

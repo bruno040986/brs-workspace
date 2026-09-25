@@ -22,7 +22,7 @@ import {
 } from '@/lib/onboarding-comunicacao'
 import { criarInvite, lerNuvidioConfigRow } from '@/lib/nuvidio/client'
 import { COMERCIAL_CARGO_LABELS, opcoesComerciais, type ComercialCargo } from '@/lib/comerciais-hierarquia'
-import { itemDispensaAprovacao } from '@/lib/agente-corban-onboarding'
+import { CHAVE_CERTIFICACOES_PREFIX, itemDispensaAprovacao } from '@/lib/agente-corban-onboarding'
 
 const RESOURCE = 'agente-corban-cadastros-recebidos'
 const BUCKET = 'partner-analise'
@@ -504,16 +504,19 @@ export async function solicitarCorrecao(
     // pra correção criaria um beco sem saída.
     const { data: reprovadosBrutos, error: rErr } = await admin
       .from('corban_onboarding_itens')
-      .select('id,rotulo,instrucoes_correcao,chave,valor')
+      .select('id,rotulo,instrucoes_correcao,chave,valor,etapa')
       .eq('processo_id', processoId)
-      .eq('etapa', 'validacao')
       .eq('status', 'reprovado')
     if (rErr) throw rErr
-    // Fatia 2.5: item que não pede aprovação (canal não informado, CNAE do
-    // portal) não vai ao parceiro mesmo que tenha ficado reprovado por engano.
-    const reprovados = (reprovadosBrutos || []).filter((i: any) => !itemDispensaAprovacao(i, agente.corban_data || {}))
+    // Vai ao parceiro: itens de Validação + (fatia 3) o item de certificações
+    // da Análise. Demais itens de análise são internos. Fatia 2.5: item que não
+    // pede aprovação (canal não informado, CNAE do portal) fica de fora mesmo
+    // que tenha sido reprovado por engano.
+    const reprovados = (reprovadosBrutos || []).filter(
+      (i: any) => (i.etapa === 'validacao' || String(i.chave).startsWith(CHAVE_CERTIFICACOES_PREFIX)) && !itemDispensaAprovacao(i, agente.corban_data || {}),
+    )
     if (!reprovados || reprovados.length === 0) {
-      throw new Error('Nenhum item de validação reprovado para corrigir (itens de análise são internos e não vão ao parceiro).')
+      throw new Error('Nenhum item reprovado que vá ao parceiro (Validação ou Certificações). Os demais itens de análise são internos.')
     }
 
     const { data: rpc, error: rpcErr } = await admin.rpc('corban_onboarding_criar_correcao', {

@@ -4,15 +4,18 @@ import type { ComercialResumo } from '@/lib/comerciais-hierarquia'
 import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
 import { EVIDENCIA_ACEITA, resolveEvidenciaTipo, type CorbanOnboardingEvidencia } from '@/lib/agente-corban-onboarding'
 import {
+  CHAVE_CERTIFICACOES_PREFIX,
   REPROVACAO_CATEGORIA_LABELS,
   coletarDocumentosDoCadastro,
   isPresencaDigitalChave,
+  parseCertificacaoChave,
   type ReprovacaoAnterior,
   type ReprovacaoCategoria,
 } from '@/lib/agente-corban-onboarding'
 import { createHash, randomBytes } from 'crypto'
+import { pessoaQueCumpre, tiposObrigatorios, type CertLancamento, type CertTipo, type CertVinculo } from '@/lib/certificacoes'
 import { revalidatePath } from 'next/cache'
-import { requirePermission } from '@/lib/auth/server'
+import { requireAnyPermission, requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { enviarEmailOnboarding } from '@/lib/onboarding-comunicacao'
 import { getFieldByPath, normalizeFieldValue, setValueAtPath } from '@/lib/agente-corban-fields'
@@ -219,6 +222,44 @@ export async function criarProcesso(
   }
 }
 
+export type CatalogoCertificacaoItem = { id: string; nome: string; certificadora_id: string; certificadora_nome: string; is_active: boolean }
+
+export type LancamentoCertificacao = CertLancamento & {
+  id: string
+  nome: string
+  certificacao_nome: string
+  certificadora_nome: string
+  numero: string | null
+  data_exame: string | null
+  origem: 'operador' | 'parceiro'
+  verificado_por: string | null
+  verificado_por_nome: string | null
+  processo_id: string | null
+  observacao: string | null
+  created_at: string
+}
+
+export type CertificacoesDoProcesso = {
+  catalogo: CatalogoCertificacaoItem[]
+  tipos: CertTipo[]
+  vinculos: CertVinculo[]
+  lancamentos: LancamentoCertificacao[]
+}
+
+export type SalvarLancamentoInput = {
+  id?: string
+  cpf: string
+  nome: string
+  certificacao_id: string
+  numero?: string | null
+  data_exame?: string | null
+  data_validade: string
+  verificado: boolean
+  processo_id?: string | null
+  agente_parceiro_id?: string | null
+  observacao?: string | null
+}
+
 export type CorrecaoRodada = {
   id: string
   status: string
@@ -240,6 +281,8 @@ export type ProcessoDetalhe = {
   reprovacoesAnteriores: ReprovacaoAnterior[]
   /** Fatia 2.5: rodadas de correção (magic link), mais recente primeiro. */
   correcoes: CorrecaoRodada[]
+  /** Fatia 3: catálogo + lançamentos das pessoas deste cadastro. */
+  certificacoes: CertificacoesDoProcesso
   eventos: Array<CorbanOnboardingEvento & { actorNome: string | null }>
   responsavelNome: string | null
   currentUserId: string
@@ -301,6 +344,8 @@ export async function getProcesso(
       if (it.correcao_id) itensPorCorrecao.set(it.correcao_id, (itensPorCorrecao.get(it.correcao_id) || 0) + 1)
     }
     const correcoes: CorrecaoRodada[] = (correcoesResult.data || []).map((c: any) => ({ ...c, itens: itensPorCorrecao.get(c.id) || 0 }))
+    const cpfsCert = (itensResult.data || []).map((i: any) => parseCertificacaoChave(String(i.chave))).filter(Boolean) as string[]
+    const certificacoes = await carregarCertificacoes(admin, cpfsCert)
 
     const docs = await Promise.all(
       (docsResult.data || []).map(async (doc: any) => {
@@ -355,6 +400,7 @@ export async function getProcesso(
       evidencias,
       reprovacoesAnteriores,
       correcoes,
+      certificacoes,
       eventos,
       responsavelNome,
       currentUserId: user.id,
@@ -365,6 +411,38 @@ export async function getProcesso(
     console.error('Erro ao buscar processo de cadastro recebido:', error)
     return { success: false, error: error.message }
   }
+}
+
+/** Catálogo de certificações + lançamentos das pessoas (CPFs) do cadastro. */
+async function carregarCertificacoes(admin: SupabaseAdmin, cpfs: string[]): Promise<CertificacoesDoProcesso> {
+  const [ce, ti, vi, la] = await Promise.all([
+    admin.from('certificacoes').select('id,nome,certificadora_id,is_active,certificadora:certificadoras(nome)').order('nome'),
+    admin.from('certificacao_tipos').select('id,nome,obrigatorio,is_active').order('nome'),
+    admin.from('certificacao_tipo_vinculos').select('certificacao_id,tipo_id'),
+    cpfs.length > 0
+      ? admin.from('pessoa_certificacoes').select('*').in('cpf', cpfs).order('data_validade', { ascending: false })
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ])
+  for (const r of [ce, ti, vi, la]) if (r.error) throw r.error
+  const um = (v: any) => (Array.isArray(v) ? v[0] : v)
+  const catalogo: CatalogoCertificacaoItem[] = (ce.data || []).map((c: any) => ({
+    id: c.id,
+    nome: c.nome,
+    certificadora_id: c.certificadora_id,
+    certificadora_nome: um(c.certificadora)?.nome || '',
+    is_active: c.is_active !== false,
+  }))
+  const catalogoById = new Map(catalogo.map((c) => [c.id, c]))
+  const verificadores = Array.from(new Set((la.data || []).map((l: any) => l.verificado_por).filter(Boolean)))
+  const { data: users } = verificadores.length ? await admin.from('users').select('id,name').in('id', verificadores) : { data: [] as any[] }
+  const nomeById = new Map((users || []).map((u: any) => [u.id, u.name]))
+  const lancamentos: LancamentoCertificacao[] = (la.data || []).map((l: any) => ({
+    ...l,
+    certificacao_nome: catalogoById.get(l.certificacao_id)?.nome || '',
+    certificadora_nome: catalogoById.get(l.certificacao_id)?.certificadora_nome || '',
+    verificado_por_nome: l.verificado_por ? nomeById.get(l.verificado_por) || null : null,
+  }))
+  return { catalogo, tipos: (ti.data || []) as CertTipo[], vinculos: (vi.data || []) as CertVinculo[], lancamentos }
 }
 
 /** Processo reprovado é final: nenhuma etapa avança nem correção sai. */
@@ -933,7 +1011,7 @@ export async function concluirEtapaAnalise(
 
     const { data: itens, error: itensError } = await admin
       .from('corban_onboarding_itens')
-      .select('id,status')
+      .select('id,status,chave')
       .eq('processo_id', processoId)
       .eq('etapa', 'analise')
     if (itensError) throw itensError
@@ -951,6 +1029,24 @@ export async function concluirEtapaAnalise(
       throw new Error('Ainda há documentos de análise pendentes ou reprovados.')
     }
 
+    // Fatia 3: pelo menos um sócio/administrador com TODOS os tipos obrigatórios
+    // vigentes (só lançamento conferido conta). Guarda no processo quais tipos
+    // eram obrigatórios no momento — desmarcar depois não reescreve a história.
+    const cpfsCert = (itens || []).map((i: any) => parseCertificacaoChave(String(i.chave))).filter(Boolean) as string[]
+    let certificacaoCarimbo: Record<string, unknown> | null = null
+    if (cpfsCert.length > 0) {
+      const cert = await carregarCertificacoes(admin, cpfsCert)
+      const obrig = tiposObrigatorios(cert.tipos)
+      const cpfCumpre = pessoaQueCumpre(cpfsCert, cert.lancamentos, cert.vinculos, cert.tipos)
+      if (obrig.length > 0 && !cpfCumpre) {
+        throw new Error(
+          `Nenhum sócio/administrador cumpre os tipos obrigatórios (${obrig.map((t) => t.nome).join(', ')}) com certificação conferida e vigente. ` +
+            'Lance e confira no item de Certificações, ou reprove o item e solicite correção ao parceiro.',
+        )
+      }
+      certificacaoCarimbo = { cpf_cumpre: cpfCumpre, tipos_obrigatorios: obrig.map((t) => t.nome), avaliado_em: new Date().toISOString() }
+    }
+
     const { data: processo, error: processoError } = await admin
       .from('corban_onboarding_processos')
       .select('etapas')
@@ -966,7 +1062,12 @@ export async function concluirEtapaAnalise(
 
     const { error: updateError } = await admin
       .from('corban_onboarding_processos')
-      .update({ etapa_atual: 'nuvidio', etapas, updated_at: nowIso })
+      .update({
+        etapa_atual: 'nuvidio',
+        status: 'em_andamento',
+        etapas: { ...etapas, analise: { ...((etapas as Record<string, any>).analise || {}), certificacoes: certificacaoCarimbo } },
+        updated_at: nowIso,
+      })
       .eq('id', processoId)
     if (updateError) throw updateError
 
@@ -982,6 +1083,107 @@ export async function concluirEtapaAnalise(
     return { success: true }
   } catch (error: any) {
     console.error('Erro ao concluir etapa de análise:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Fatia 3: lançamento de certificação por PESSOA (CPF). `verificado` = o
+ * operador conferiu no CRCP (só assim conta para a exigência). Origem
+ * 'parceiro' vem da correção pelo portal e nasce não conferida.
+ */
+export async function salvarLancamentoCertificacao(input: SalvarLancamentoInput): Promise<{ success: true; id: string } | { success: false; error: string }> {
+  try {
+    const { user } = await requireAnyPermission([
+      { resource: RESOURCE, action: 'can_edit' },
+      { resource: 'workspace-certificacoes', action: 'can_edit' },
+    ])
+    const admin = await createAdminClient()
+    const cpf = String(input.cpf || '').replace(/\D/g, '')
+    if (cpf.length !== 11) throw new Error('CPF inválido.')
+    if (!input.certificacao_id) throw new Error('Escolha a certificação.')
+    const validade = String(input.data_validade || '').slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(validade)) throw new Error('Informe a data de validade.')
+    const exame = String(input.data_exame || '').slice(0, 10) || null
+    if (exame && !/^\d{4}-\d{2}-\d{2}$/.test(exame)) throw new Error('Data do exame inválida.')
+    const { data: cert } = await admin.from('certificacoes').select('id,is_active').eq('id', input.certificacao_id).maybeSingle()
+    if (!cert) throw new Error('Certificação não encontrada no catálogo.')
+
+    const nowIso = new Date().toISOString()
+    const row: Record<string, unknown> = {
+      cpf,
+      nome: String(input.nome || '').trim(),
+      certificacao_id: input.certificacao_id,
+      numero: String(input.numero || '').trim() || null,
+      data_exame: exame,
+      data_validade: validade,
+      observacao: String(input.observacao || '').trim() || null,
+      updated_at: nowIso,
+    }
+    if (input.processo_id) row.processo_id = input.processo_id
+    if (input.agente_parceiro_id) row.agente_parceiro_id = input.agente_parceiro_id
+    if (input.verificado) {
+      row.verificado_por = user.id
+      row.verificado_em = nowIso
+    } else if (!input.id) {
+      row.verificado_por = null
+      row.verificado_em = null
+    }
+
+    let id = input.id || ''
+    if (input.id) {
+      const { error } = await admin.from('pessoa_certificacoes').update(row).eq('id', input.id)
+      if (error) throw error
+    } else {
+      const { data, error } = await admin
+        .from('pessoa_certificacoes')
+        .insert({ ...row, origem: 'operador', created_by: user.id })
+        .select('id')
+        .single()
+      if (error) throw error
+      id = data.id
+    }
+
+    if (input.processo_id) {
+      await admin.from('corban_onboarding_eventos').insert({
+        processo_id: input.processo_id,
+        tipo: input.id ? 'certificacao_atualizada' : 'certificacao_lancada',
+        detalhe: { lancamento_id: id, cpf, certificacao_id: input.certificacao_id, data_validade: validade, verificado: Boolean(input.verificado) },
+        actor_id: user.id,
+      })
+      revalidatePath(`/agente-corban/cadastros-recebidos/${input.processo_id}`)
+    }
+    return { success: true, id }
+  } catch (error: any) {
+    console.error('Erro ao salvar lançamento de certificação:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function removerLancamentoCertificacao(id: string, processoId?: string | null): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { user } = await requireAnyPermission([
+      { resource: RESOURCE, action: 'can_edit' },
+      { resource: 'workspace-certificacoes', action: 'can_edit' },
+    ])
+    const admin = await createAdminClient()
+    const { data: l } = await admin.from('pessoa_certificacoes').select('id,cpf,certificacao_id,data_validade,processo_id').eq('id', id).maybeSingle()
+    if (!l) throw new Error('Lançamento não encontrado.')
+    const { error } = await admin.from('pessoa_certificacoes').delete().eq('id', id)
+    if (error) throw error
+    const pid = processoId || l.processo_id
+    if (pid) {
+      await admin.from('corban_onboarding_eventos').insert({
+        processo_id: pid,
+        tipo: 'certificacao_removida',
+        detalhe: { lancamento_id: id, cpf: l.cpf, certificacao_id: l.certificacao_id, data_validade: l.data_validade },
+        actor_id: user.id,
+      })
+      revalidatePath(`/agente-corban/cadastros-recebidos/${pid}`)
+    }
+    return { success: true }
+  } catch (error: any) {
+    console.error('Erro ao remover lançamento de certificação:', error)
     return { success: false, error: error.message }
   }
 }

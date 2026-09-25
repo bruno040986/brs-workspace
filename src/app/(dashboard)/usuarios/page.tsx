@@ -65,6 +65,7 @@ const SYSTEM_MODULES = [
   { id: 'agente-corban-niveis-acesso', name: 'Nível de Acesso', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-tipos-agente', name: 'Tipo de Agente', parentId: 'agente-corban', level: 2 },
   { id: 'agente-corban-regras-fisico', name: 'Regra de Físico', parentId: 'agente-corban', level: 2 },
+  { id: 'workspace-certificacoes', name: 'Certificações (certificadoras, tipos, vencimentos)', parentId: 'agente-corban', level: 2 },
   { id: 'sistema-config-instituicoes', name: 'Instituições Financeiras', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'workspace-convenios', name: 'Convênios', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'workspace-averbadoras', name: 'Averbadoras', parentId: 'cat-div-cadastros', level: 1 },

@@ -120,6 +120,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Nível de Acesso', href: '/agente-corban/niveis-acesso', perms: [view('agente-corban-niveis-acesso')] },
           { label: 'Tipo de Agente', href: '/agente-corban/tipos-agente', perms: [view('agente-corban-tipos-agente')] },
           { label: 'Regra de Físico', href: '/agente-corban/regras-fisico', perms: [view('agente-corban-regras-fisico')] },
+          { label: 'Certificações', href: '/agente-corban/certificacoes', perms: [view('workspace-certificacoes')] },
         ],
       },
       { label: 'Instituições Financeiras', href: '/instituicoes-financeiras', perms: [view('sistema-config-instituicoes')] },

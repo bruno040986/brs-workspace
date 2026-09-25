@@ -23,6 +23,7 @@ import {
   CHECKLIST_PORTAL_STEP_LABELS,
   CHECKLIST_PROVENANCIA_BADGE,
   CHECKLIST_PROVENANCIA_LABELS,
+  CHAVE_CERTIFICACOES_PREFIX,
   CHAVE_HISTORICO_REPROVACOES,
   CORBAN_ONBOARDING_ETAPAS,
   CORBAN_ONBOARDING_ETAPAS_ATIVAS,
@@ -61,6 +62,7 @@ import {
 import DocumentViewer, { type DocumentViewerFile } from './DocumentViewer'
 import EtapasFinaisPanel from './EtapasFinaisPanel'
 import EvidenciasBloco, { InstrucoesEvidencia, type EvidenciaComUrl } from './EvidenciasBloco'
+import CertificacoesCard from './CertificacoesCard'
 import { solicitarCorrecao } from '../etapas-actions'
 import {
   aprovarSecao,
@@ -75,6 +77,9 @@ import {
   editarReprovacao,
   getProcesso,
   limparClassificacaoPresencaDigital,
+  removerLancamentoCertificacao,
+  salvarLancamentoCertificacao,
+  type SalvarLancamentoInput,
   reprovarCadastro,
   uploadDocAnalise,
   type ProcessoDetalhe,
@@ -436,6 +441,24 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
   }
 
   const fecharMensagem = useCallback(() => setMessage(null), [])
+
+  async function handleSalvarLancamento(input: SalvarLancamentoInput) {
+    const result = await salvarLancamentoCertificacao(input)
+    if (!result.success) {
+      setMessage({ type: 'error', text: result.error })
+      return
+    }
+    await refresh()
+  }
+
+  async function handleRemoverLancamento(id: string) {
+    const result = await removerLancamentoCertificacao(id, data.processo.id)
+    if (!result.success) {
+      setMessage({ type: 'error', text: result.error })
+      return
+    }
+    await refresh()
+  }
 
   async function handleLimparPresenca(item: CorbanOnboardingItem) {
     setBusyId(item.id)
@@ -847,7 +870,11 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                 ? docsByAlvo.get(`${analiseSpec.tipoDocumento}:${analiseSpec.alvoTipo}:${analiseSpec.alvoValor}`) || []
                 : []
               // Fatia 1: Serasa/Cartão CNPJ só aprovam com o PDF anexado (não reprovado).
-              const faltaEvidencia = !!analiseSpec && !docsRelacionados.some((d) => d.status !== 'reprovado')
+              // Fatia 3: certificações só aprovam com o print do CRCP anexado.
+              const ehCertificacao = item.chave.startsWith(CHAVE_CERTIFICACOES_PREFIX)
+              const faltaEvidencia = analiseSpec
+                ? !docsRelacionados.some((d) => d.status !== 'reprovado')
+                : ehCertificacao && !data.evidencias.some((e) => e.item_id === item.id)
 
               return (
                 <div key={item.id} style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 10, padding: '1rem' }}>
@@ -860,6 +887,19 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
 
                   {item.chave === CHAVE_HISTORICO_REPROVACOES ? (
                     <ReprovacoesAnterioresLista lista={(item.valor?.reprovacoes || []) as ReprovacaoAnterior[]} />
+                  ) : ehCertificacao ? (
+                    <CertificacoesCard
+                      item={item}
+                      evidencias={data.evidencias.filter((e) => e.item_id === item.id)}
+                      certificacoes={data.certificacoes}
+                      processoId={data.processo.id}
+                      agenteParceiroId={data.processo.agente_parceiro_id}
+                      busy={busyId === item.id}
+                      onEvidenciasChanged={refresh}
+                      onErro={(texto) => setMessage({ type: 'error', text: texto })}
+                      onSalvarLancamento={handleSalvarLancamento}
+                      onRemoverLancamento={handleRemoverLancamento}
+                    />
                   ) : item.chave.startsWith('analise:conferencia:') ? (
                     <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-700)', display: 'grid', gap: '0.15rem' }}>
                       <div>Declarado: {(item.valor?.declarados || []).join(', ') || '—'}</div>
@@ -888,7 +928,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                       type="button"
                       className="btn btn-outline btn-sm"
                       disabled={busyId === item.id || item.status === 'aprovado' || faltaEvidencia}
-                      title={faltaEvidencia ? 'Anexe o PDF deste item antes de aprovar' : undefined}
+                      title={faltaEvidencia ? 'Anexe o PDF/print deste item antes de aprovar' : undefined}
                       onClick={() => handleAprovarItem(item)}
                     >
                       {busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Check size={15} />}
