@@ -1,30 +1,11 @@
-import PartnerOnboarding from '../_components/PartnerOnboarding'
-import type { Metadata } from 'next'
-import { getFormBySlug, getPublicProcessBySlug } from '../actions'
+import { permanentRedirect } from 'next/navigation'
 
-export default function CadastroParceiroSlugPage({ params }: { params: { slug: string } }) {
-  return <PartnerOnboarding slug={params.slug} />
-}
+const PORTAL_CADASTRO = `${process.env.NEXT_PUBLIC_PORTAL_URL || 'https://parceiro.brspromotora.com.br'}/cadastro`
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const procRes = await getPublicProcessBySlug(params.slug)
-  const res = procRes.success && procRes.form ? { success: true, form: procRes.form } : await getFormBySlug(params.slug)
-  type PartnerFormConfig = {
-    intro?: { title?: string }
-    branding?: { favicon_url?: string }
-  }
-  type PartnerFormRow = { title?: string; config?: PartnerFormConfig } | null
-
-  const form: PartnerFormRow = res.success ? (res.form as PartnerFormRow) : null
-  const config = form?.config
-  const title =
-    config?.intro?.title ||
-    form?.title ||
-    'Cadastro de Parceiro'
-
-  const faviconUrl = config?.branding?.favicon_url
-  return {
-    title,
-    icons: faviconUrl ? { icon: faviconUrl } : undefined,
-  }
+/**
+ * Formulário público do SCP (legado, removido em 25/09/2026). Links antigos
+ * impressos em cartões/QR continuam funcionando: caem no cadastro do Portal.
+ */
+export default function CadastroParceiroLegadoPage() {
+  permanentRedirect(PORTAL_CADASTRO)
 }

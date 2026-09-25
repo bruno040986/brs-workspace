@@ -919,3 +919,10 @@ export {
   type PessoaExterna,
   type SocioItem,
 } from './agente-corban-signatarios'
+
+// =========================================================================
+// Retorno do ARW (etapa 4) — catálogos da aba Acesso entregues à tela
+// =========================================================================
+
+export type CatalogoArwRow = { id: string; name: string; is_active: boolean | null }
+export type CatalogosArw = { niveis_acesso: CatalogoArwRow[]; tipos_agente: CatalogoArwRow[] }

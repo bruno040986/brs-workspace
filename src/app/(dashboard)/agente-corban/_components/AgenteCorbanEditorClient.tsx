@@ -1,5 +1,6 @@
 'use client'
 
+import { opcoesComerciais } from '@/lib/comerciais-hierarquia'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -964,23 +965,21 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
     })
   }, [bankOptions, bankQuery])
 
+  // Hierarquia (regra 25/09/2026): cada campo aceita comerciais ATIVOS de cargo
+  // igual ou superior ao do campo — ver src/lib/comerciais-hierarquia.ts.
   const supervisorOptions = useMemo(() => {
     return [
       { value: '', label: 'Selecione' },
-      ...commercialEntities
-        .filter((entity) => entity.role === 'supervisor' && entity.parent_id === draft.superintendente_id)
-        .map((entity) => ({ value: entity.id, label: formatCommercialEntityLabel(entity) })),
+      ...opcoesComerciais(commercialEntities, 'supervisor', draft.supervisor_id).map((entity) => ({ value: entity.id, label: formatCommercialEntityLabel(entity) })),
     ]
-  }, [commercialEntities, draft.superintendente_id])
+  }, [commercialEntities, draft.supervisor_id])
 
   const gerenteOptions = useMemo(() => {
     return [
       { value: '', label: 'Selecione' },
-      ...commercialEntities
-        .filter((entity) => entity.role === 'gerente' && entity.parent_id === draft.supervisor_id)
-        .map((entity) => ({ value: entity.id, label: formatCommercialEntityLabel(entity) })),
+      ...opcoesComerciais(commercialEntities, 'gerente', draft.gerente_id).map((entity) => ({ value: entity.id, label: formatCommercialEntityLabel(entity) })),
     ]
-  }, [commercialEntities, draft.supervisor_id])
+  }, [commercialEntities, draft.gerente_id])
 
   function patchDraft(patch: Partial<AgenteCorbanDraft>) {
     setDraft((current) => ({ ...current, ...patch }))
@@ -1899,12 +1898,10 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                   <SelectField
                     label="Superintendente"
                     value={draft.superintendente_id || ''}
-                    onChange={(next) => patchDraft({ superintendente_id: next || null, supervisor_id: null, gerente_id: null })}
+                    onChange={(next) => patchDraft({ superintendente_id: next || null })}
                     options={[
                       { value: '', label: 'Selecione' },
-                      ...commercialEntities
-                        .filter((entity) => entity.role === 'superintendente')
-                        .map((entity) => ({ value: entity.id, label: formatCommercialEntityLabel(entity) })),
+                      ...opcoesComerciais(commercialEntities, 'superintendente', draft.superintendente_id).map((entity) => ({ value: entity.id, label: formatCommercialEntityLabel(entity) })),
                     ]}
                     copyValue={formatCommercialEntityLabel(selectedSuperintendente) || draft.superintendente_id || ''}
                   />
@@ -1913,9 +1910,8 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                   <SelectField
                     label="Supervisor"
                     value={draft.supervisor_id || ''}
-                    onChange={(next) => patchDraft({ supervisor_id: next || null, gerente_id: null })}
+                    onChange={(next) => patchDraft({ supervisor_id: next || null })}
                     options={supervisorOptions}
-                    disabled={!draft.superintendente_id}
                     copyValue={formatCommercialEntityLabel(selectedSupervisor) || draft.supervisor_id || ''}
                   />
                 </div>
@@ -1925,7 +1921,6 @@ export default function AgenteCorbanEditorClient({ initialDraft, initialLookups 
                     value={draft.gerente_id || ''}
                     onChange={(next) => patchDraft({ gerente_id: next || null })}
                     options={gerenteOptions}
-                    disabled={!draft.supervisor_id}
                     copyValue={formatCommercialEntityLabel(selectedGerente) || draft.gerente_id || ''}
                   />
                 </div>

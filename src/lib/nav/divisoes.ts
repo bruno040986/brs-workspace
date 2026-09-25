@@ -111,7 +111,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
       {
         label: 'Agente Corban',
         href: '/agente-corban',
-        perms: [view('agente-corban'), view('scp-crm')],
+        perms: [view('agente-corban')],
         children: [
           { label: 'Cadastros Recebidos', href: '/agente-corban/cadastros-recebidos', perms: [view('agente-corban-cadastros-recebidos')] },
           { label: 'Solicitações de Atualização Cadastral', href: '/agente-corban/solicitacoes', perms: [view('agente-corban-solicitacoes')] },
@@ -120,12 +120,6 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Nível de Acesso', href: '/agente-corban/niveis-acesso', perms: [view('agente-corban-niveis-acesso')] },
           { label: 'Tipo de Agente', href: '/agente-corban/tipos-agente', perms: [view('agente-corban-tipos-agente')] },
           { label: 'Regra de Físico', href: '/agente-corban/regras-fisico', perms: [view('agente-corban-regras-fisico')] },
-          { label: 'SCP (legado)', href: '/rh/parceiros', perms: [view('scp-crm')] },
-          { label: 'SCP · Construtor de Processo', href: '/rh/parceiros/config/processos', perms: [view('scp-processos')] },
-          { label: 'SCP · Construtor de Formulário', href: '/rh/parceiros/config/formularios', perms: [view('scp-construtor')] },
-          { label: 'SCP · Modelos de Documentos', href: '/rh/parceiros/config/documentos', perms: [view('scp-documentos')] },
-          { label: 'SCP · Modelos de E-mails', href: '/rh/parceiros/config/emails', perms: [view('scp-emails')] },
-          { label: 'SCP · Modelos de WhatsApp', href: '/rh/parceiros/config/whatsapp', perms: [view('scp-whatsapp')] },
         ],
       },
       { label: 'Instituições Financeiras', href: '/instituicoes-financeiras', perms: [view('sistema-config-instituicoes')] },

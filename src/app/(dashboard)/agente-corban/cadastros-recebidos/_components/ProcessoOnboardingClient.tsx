@@ -421,6 +421,8 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             etapa={etapaSelecionada}
             processo={data.processo as unknown as Record<string, any>}
             agente={data.agente as unknown as Record<string, any>}
+            comerciais={data.comerciais}
+            catalogos={data.catalogos}
             onRefresh={refresh}
             onMensagem={(m) => setMessage({ type: m.tipo === 'ok' ? 'success' : 'error', text: m.texto })}
           />

@@ -1,5 +1,7 @@
 'use server'
 
+import type { ComercialResumo } from '@/lib/comerciais-hierarquia'
+import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
 import { createHash, randomBytes } from 'crypto'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
@@ -199,6 +201,9 @@ export type ProcessoDetalhe = {
   eventos: Array<CorbanOnboardingEvento & { actorNome: string | null }>
   responsavelNome: string | null
   currentUserId: string
+  /** Etapa ARW: comerciais (hierarquia) e catálogos da aba Acesso. */
+  comerciais: ComercialResumo[]
+  catalogos: CatalogosArw
 }
 
 export async function getProcesso(
@@ -257,6 +262,13 @@ export async function getProcesso(
       responsavelNome = responsavel?.name || null
     }
 
+    // Retorno do ARW (etapa 4): comerciais e catálogos da aba Acesso.
+    const [{ data: comerciaisRows }, { data: niveisRows }, { data: tiposRows }] = await Promise.all([
+      admin.from('commercial_entities').select('id,name,role,status,cadastral_data').order('name', { ascending: true }),
+      admin.from('agente_corban_niveis_acesso').select('id,name,is_active').is('deleted_at', null).order('name', { ascending: true }),
+      admin.from('agente_corban_tipos_agente').select('id,name,is_active').is('deleted_at', null).order('name', { ascending: true }),
+    ])
+
     const actorIds = Array.from(new Set((eventosResult.data || []).map((e: any) => e.actor_id).filter(Boolean)))
     const { data: actores } =
       actorIds.length > 0 ? await admin.from('users').select('id,name').in('id', actorIds) : { data: [] as any[] }
@@ -275,6 +287,8 @@ export async function getProcesso(
       eventos,
       responsavelNome,
       currentUserId: user.id,
+      comerciais: (comerciaisRows || []) as ComercialResumo[],
+      catalogos: { niveis_acesso: niveisRows || [], tipos_agente: tiposRows || [] },
     }
   } catch (error: any) {
     console.error('Erro ao buscar processo de cadastro recebido:', error)
@@ -645,7 +659,9 @@ export async function concluirEtapaValidacao(
 
     const { error: updateError } = await admin
       .from('corban_onboarding_processos')
-      .update({ etapa_atual: 'analise', etapas, updated_at: nowIso })
+      // Rodada de correção deixa o processo em 'correcao_recebida'; concluir a
+      // Validação é o momento em que ele volta a ser um processo comum.
+      .update({ etapa_atual: 'analise', status: 'em_andamento', etapas, updated_at: nowIso })
       .eq('id', processoId)
     if (updateError) throw updateError
 

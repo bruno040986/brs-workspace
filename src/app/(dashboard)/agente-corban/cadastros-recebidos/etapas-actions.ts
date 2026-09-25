@@ -21,6 +21,7 @@ import {
   templateNuvidio,
 } from '@/lib/onboarding-comunicacao'
 import { criarInvite, lerNuvidioConfigRow } from '@/lib/nuvidio/client'
+import { COMERCIAL_CARGO_LABELS, opcoesComerciais, type ComercialCargo } from '@/lib/comerciais-hierarquia'
 
 const RESOURCE = 'agente-corban-cadastros-recebidos'
 const BUCKET = 'partner-analise'
@@ -42,7 +43,7 @@ async function carregarProcessoAgente(admin: Awaited<ReturnType<typeof createAdm
   if (pErr || !processo) throw pErr || new Error('Processo não encontrado.')
   const { data: agente, error: aErr } = await admin
     .from('agentes_parceiros')
-    .select('id,name,cpf_cnpj,corban_data,arw_code')
+    .select('id,name,cpf_cnpj,corban_data,arw_code,filial,nivel_acesso,tipo_agente,superintendente_id,supervisor_id,gerente_id')
     .eq('id', processo.agente_parceiro_id)
     .single()
   if (aErr || !agente) throw aErr || new Error('Agente não encontrado.')
@@ -209,23 +210,46 @@ export async function concluirEtapaNuvidio(processoId: string): Promise<Resultad
 // Etapa 4 — Cadastro no ARW (copiar/colar) + retorno na aba Acesso
 // ===========================================================================
 
-export async function salvarRetornoArw(
-  processoId: string,
-  retorno: { arw_code?: string; tipo_agente?: string; gerente_id?: string; nivel_acesso?: string },
-): Promise<Resultado> {
+export type RetornoArw = {
+  arw_code?: string
+  filial?: string
+  nivel_acesso?: string
+  tipo_agente?: string
+  superintendente_id?: string | null
+  supervisor_id?: string | null
+  gerente_id?: string | null
+}
+
+const RETORNO_ARW_TEXTO = ['arw_code', 'filial', 'nivel_acesso', 'tipo_agente'] as const
+const RETORNO_ARW_COMERCIAL = ['superintendente_id', 'supervisor_id', 'gerente_id'] as const
+
+export async function salvarRetornoArw(processoId: string, retorno: RetornoArw): Promise<Resultado> {
   try {
     const { user } = await requirePermission(RESOURCE, 'can_edit')
     const admin = await createAdminClient()
-    const { processo } = await carregarProcessoAgente(admin, processoId)
+    const { processo, agente } = await carregarProcessoAgente(admin, processoId)
 
     // Grava nos campos JÁ EXISTENTES do agente (mesmos da aba Acesso do
     // editor) — a senha ARW continua sendo colada no editor, com a
     // sincronização de Auth que já existe lá (não duplicamos aquele fluxo).
     const patch: Record<string, unknown> = {}
-    if (retorno.arw_code !== undefined) patch.arw_code = String(retorno.arw_code || '').trim() || null
-    if (retorno.tipo_agente !== undefined) patch.tipo_agente = String(retorno.tipo_agente || '').trim() || null
-    if (retorno.gerente_id !== undefined) patch.gerente_id = retorno.gerente_id || null
-    if (retorno.nivel_acesso !== undefined) patch.nivel_acesso = String(retorno.nivel_acesso || '').trim() || null
+    for (const k of RETORNO_ARW_TEXTO) {
+      if (retorno[k] !== undefined) patch[k] = String(retorno[k] || '').trim() || null
+    }
+    for (const k of RETORNO_ARW_COMERCIAL) {
+      if (retorno[k] === undefined) continue
+      const id = retorno[k] || null
+      if (id) {
+        // Mesma regra da tela: comercial ATIVO com cargo igual ou superior ao
+        // do campo. O valor já gravado passa mesmo se ficou inativo depois.
+        const campo = k.replace('_id', '') as ComercialCargo
+        const { data: c } = await admin.from('commercial_entities').select('id,name,role,status').eq('id', id).maybeSingle()
+        if (!c || opcoesComerciais([c], campo, (agente as Record<string, any>)[k] || null).length === 0) {
+          throw new Error(`Comercial inválido para o campo ${COMERCIAL_CARGO_LABELS[campo]}.`)
+        }
+      }
+      patch[k] = id
+    }
     if (Object.keys(patch).length === 0) throw new Error('Nada para salvar.')
 
     const { error } = await admin.from('agentes_parceiros').update(patch).eq('id', processo.agente_parceiro_id)

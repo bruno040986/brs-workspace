@@ -24,6 +24,12 @@ import {
   uploadPdfAssinado,
 } from '../etapas-actions'
 import { uploadDocAnalise } from '../actions'
+import type { RetornoArw } from '../etapas-actions'
+import { formatCpfOrCnpjDisplay, formatDateDisplay } from '@/lib/agente-corban'
+import { getAdministracao, getSociosPF } from '@/lib/agente-corban-signatarios'
+import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
+import { maskPhone } from '@/lib/company-bank-accounts'
+import { nomeComercial, opcoesComerciais, type ComercialCargo, type ComercialResumo } from '@/lib/comerciais-hierarquia'
 
 type Mensagem = { tipo: 'ok' | 'erro'; texto: string }
 
@@ -31,36 +37,49 @@ type Props = {
   etapa: string
   processo: Record<string, any>
   agente: Record<string, any>
+  comerciais: ComercialResumo[]
+  catalogos: CatalogosArw
   onRefresh: () => Promise<void>
   onMensagem: (m: Mensagem) => void
 }
 
 const rotulo: React.CSSProperties = { fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.3rem' }
 
-function CampoCopiavel({ label, valor }: { label: string; valor: string }) {
+function CampoCopiavel({ label, valor, nota }: { label: string; valor: string; nota?: string }) {
   const [copiado, setCopiado] = useState(false)
-  if (!valor) return null
+  const vazio = !String(valor || '').trim()
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr auto', gap: '0.5rem', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px dashed var(--brs-gray-100)' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr auto', gap: '0.5rem', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px dashed var(--brs-gray-100)' }}>
       <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)' }}>{label}</span>
-      <span style={{ fontSize: '0.82rem', color: 'var(--brs-gray-800)', wordBreak: 'break-word' }}>{valor}</span>
-      <button
-        type="button"
-        className="btn btn-ghost btn-icon"
-        title="Copiar"
-        onClick={() => {
-          navigator.clipboard.writeText(valor)
-          setCopiado(true)
-          window.setTimeout(() => setCopiado(false), 1200)
-        }}
-      >
-        {copiado ? <Check size={14} style={{ color: 'var(--brs-success)' }} /> : <Copy size={14} />}
-      </button>
+      {vazio ? (
+        <span style={{ fontSize: '0.76rem', color: 'var(--brs-gray-400)', fontStyle: 'italic' }}>não coletado no portal</span>
+      ) : (
+        <span style={{ fontSize: '0.82rem', color: 'var(--brs-gray-800)', wordBreak: 'break-word' }}>
+          {valor}
+          {nota ? <span style={{ fontSize: '0.7rem', color: 'var(--brs-gray-400)', marginLeft: 6 }}>({nota})</span> : null}
+        </span>
+      )}
+      {vazio ? (
+        <span />
+      ) : (
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          title="Copiar"
+          onClick={() => {
+            navigator.clipboard.writeText(valor)
+            setCopiado(true)
+            window.setTimeout(() => setCopiado(false), 1200)
+          }}
+        >
+          {copiado ? <Check size={14} style={{ color: 'var(--brs-success)' }} /> : <Copy size={14} />}
+        </button>
+      )}
     </div>
   )
 }
 
-export default function EtapasFinaisPanel({ etapa, processo, agente, onRefresh, onMensagem }: Props) {
+export default function EtapasFinaisPanel({ etapa, processo, agente, comerciais, catalogos, onRefresh, onMensagem }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const corban: Record<string, any> = agente.corban_data || {}
 
@@ -84,7 +103,7 @@ export default function EtapasFinaisPanel({ etapa, processo, agente, onRefresh, 
 
   // ---------------------------------------------------------------------- ARW
   if (etapa === 'arw') {
-    return <EtapaArw processo={processo} agente={agente} corban={corban} busy={busy} rodar={rodar} />
+    return <EtapaArw processo={processo} agente={agente} corban={corban} comerciais={comerciais} catalogos={catalogos} busy={busy} rodar={rodar} />
   }
 
   // ------------------------------------------------------------ CONTRATO/TERMO
@@ -280,70 +299,247 @@ function EtapaArw({
   processo,
   agente,
   corban,
+  comerciais,
+  catalogos,
   busy,
   rodar,
 }: {
   processo: Record<string, any>
   agente: Record<string, any>
   corban: Record<string, any>
+  comerciais: ComercialResumo[]
+  catalogos: CatalogosArw
   busy: string | null
   rodar: (id: string, fn: () => Promise<{ success: boolean; error?: string; detalhe?: string }>) => Promise<void>
 }) {
-  const [arwCode, setArwCode] = useState(String(agente.arw_code || ''))
-  const socio = corban?.socios?.[0] || {}
-  const empresa = corban?.empresa || {}
-  const banco = corban?.bank || corban?.bancario || {}
+  // Espelho na ORDEM do cadastro do ARW (telas do Bruno, 25/09/2026):
+  // Dados Pessoais → Contato → Sócios → Endereço → Bancários → Acesso.
+  // Chaves do cadastro: master.* / contacts.* / socios.N.* / address.* / bank.*
+  // (dicionário em src/lib/agente-corban-fields.ts). O que o portal não coleta
+  // aparece como "não coletado no portal"; e-mail/telefone vazio repete o de
+  // comissão/WhatsApp com a nota, porque o ARW exige todos preenchidos.
+  const master: Record<string, any> = corban?.master || {}
+  const contatos: Record<string, any> = corban?.contacts || {}
+  const end: Record<string, any> = corban?.address || {}
+  const banco: Record<string, any> = corban?.bank || {}
+  const isPJ = (master.person_type || agente.person_type) === 'PJ'
+  const socios = getSociosPF(corban)
+  const principal = socios.find((s) => s.is_principal) || socios[0] || {}
+  const representante = master.representante_legal || getAdministracao(corban)[0]?.name || principal.name || ''
 
-  const camposCopia: Array<[string, string]> = [
-    ['Razão Social', String(empresa.razao_social || agente.name || '')],
-    ['Nome Fantasia', String(empresa.nome_fantasia || '')],
-    ['CNPJ/CPF', String(agente.cpf_cnpj || '')],
-    ['Sócio principal', String(socio.nome || '')],
-    ['CPF do sócio', String(socio.cpf || '')],
-    ['E-mail', String(socio.email || corban?.contacts?.email_comissao || '')],
-    ['WhatsApp', String(corban?.contacts?.phone_whatsapp || corban?.commercial?.whatsapp_atendimento || '')],
-    ['CEP', String(empresa.cep || '')],
-    ['Endereço', [empresa.logradouro, empresa.numero, empresa.complemento].filter(Boolean).join(', ')],
-    ['Bairro / Cidade / UF', [empresa.bairro, empresa.cidade, empresa.uf].filter(Boolean).join(' / ')],
-    ['Banco', String(banco.bank_name || banco.banco || '')],
-    ['Agência / Conta', [banco.agency || banco.agencia, banco.account || banco.conta].filter(Boolean).join(' / ')],
-    ['Chave PIX', String(banco.pix_key || banco.chave_pix || '')],
+  const doc = (v: unknown) => (v ? formatCpfOrCnpjDisplay(String(v)) : '')
+  const data = (v: unknown) => (v ? formatDateDisplay(String(v)) : '')
+  const emailComissao = String(contatos.email_comissao || '')
+  const whatsapp = String(contatos.phone_whatsapp || '')
+  const email = (v: unknown) => (v ? { valor: String(v) } : emailComissao ? { valor: emailComissao, nota: 'repete o e-mail de comissão' } : { valor: '' })
+  const fone = (v: unknown) => (v ? { valor: maskPhone(String(v)) } : whatsapp ? { valor: maskPhone(whatsapp), nota: 'repete o WhatsApp' } : { valor: '' })
+
+  const secoes: Array<{ titulo: string; campos: Array<{ label: string; valor: string; nota?: string }> }> = [
+    {
+      titulo: 'Dados Pessoais',
+      campos: [
+        { label: 'Tipo de Pessoa', valor: isPJ ? 'PESSOA JURÍDICA' : 'PESSOA FÍSICA' },
+        { label: isPJ ? 'CNPJ' : 'CPF', valor: doc(agente.cpf_cnpj || master.cpf_cnpj) },
+        { label: 'Nome', valor: String(master.name || agente.name || '') },
+        ...(isPJ
+          ? [
+              { label: 'Razão Social', valor: String(master.name || agente.name || '') },
+              { label: 'Nome Fantasia', valor: String(master.fantasy_name || master.name || agente.name || '') },
+              { label: 'Representante Legal', valor: String(representante) },
+            ]
+          : []),
+        { label: 'RG', valor: isPJ ? '' : String(master.rg || '') },
+        { label: 'Data Emissão RG', valor: isPJ ? '' : data(master.rg_expedition_date) },
+        { label: 'Órgão Emissão RG', valor: isPJ ? '' : String(master.rg_issuer || '') },
+        { label: 'Estado Emissão RG', valor: isPJ ? '' : String(master.rg_state || '') },
+        { label: 'Data Nascimento', valor: data(isPJ ? principal.birth_date : master.birth_date) },
+      ],
+    },
+    {
+      titulo: 'Dados de Contato',
+      campos: [
+        { label: 'Telefone Celular (WhatsApp)', ...fone(contatos.phone_whatsapp) },
+        { label: 'WhatsApp Financeiro', ...fone(contatos.phone_whatsapp_financeiro) },
+        { label: 'Telefone Comercial', ...fone(contatos.phone_commercial) },
+        { label: 'Telefone Residencial', ...fone(contatos.phone_residential) },
+        { label: 'Telefone Suporte', ...fone(contatos.phone_support) },
+        { label: 'E-mail de Comissão', valor: emailComissao },
+        { label: 'E-mail de Informe', ...email(contatos.email_informe) },
+        { label: 'E-mail de Formalização', ...email(contatos.email_formalizacao) },
+        { label: 'E-mail de Proposta', ...email(contatos.email_proposta) },
+        { label: 'E-mail Mesa de Liberação', ...email(contatos.email_mesa_liberacao) },
+        { label: 'E-mail Jurídico', ...email(contatos.email_juridico) },
+        { label: 'E-mail Próprio Cunho', ...email(contatos.email_proprio_cunho) },
+      ],
+    },
+    ...socios.map((s, i) => ({
+      titulo: `Dados dos Sócios — Sócio ${i + 1}${s.is_principal ? ' (principal)' : ''}`,
+      campos: [
+        { label: 'CPF', valor: doc(s.cpf) },
+        { label: 'Nome', valor: String(s.name || '') },
+        { label: 'RG', valor: '' },
+        {
+          label: 'Endereço',
+          valor: [
+            s.residential_address_street,
+            s.residential_address_number,
+            s.residential_address_complement,
+            s.residential_address_neighborhood,
+            s.residential_address_city,
+            s.residential_address_state,
+            s.residential_cep,
+          ]
+            .filter(Boolean)
+            .join(', '),
+        },
+      ],
+    })),
+    {
+      titulo: 'Dados de Endereço',
+      campos: [
+        { label: 'CEP', valor: String(end.cep || '') },
+        { label: 'Cidade', valor: String(end.address_city || '') },
+        { label: 'Bairro', valor: String(end.address_neighborhood || '') },
+        { label: 'Rua', valor: String(end.address_street || '') },
+        { label: 'Estado', valor: String(end.address_state || '') },
+        { label: 'Número', valor: String(end.address_number || '') },
+        { label: 'Complemento', valor: String(end.address_complement || '') },
+      ],
+    },
+    {
+      titulo: 'Dados Bancários - Recebimento de Comissão',
+      campos: [
+        { label: 'Tipo de Recebimento', valor: String(banco.commission_receive_type || '') },
+        { label: 'Banco', valor: [banco.bank_code, banco.bank_name].filter(Boolean).join(' - ') },
+        { label: 'Agência', valor: String(banco.bank_agency || '') },
+        { label: 'Conta', valor: String(banco.bank_account || '') },
+        { label: 'Tipo de Conta', valor: String(banco.bank_account_type || '') },
+        { label: 'Tipo de Chave PIX', valor: String(banco.pix_type || '') },
+        { label: 'Chave PIX', valor: String(banco.pix_key || '') },
+      ],
+    },
   ]
+
+  // Retorno do ARW: mesmos campos da aba Acesso do editor (senha continua lá).
+  const [ret, setRet] = useState<{ [K in keyof RetornoArw]-?: string }>({
+    arw_code: String(agente.arw_code || ''),
+    filial: String(agente.filial || ''),
+    nivel_acesso: String(agente.nivel_acesso || ''),
+    tipo_agente: String(agente.tipo_agente || ''),
+    superintendente_id: String(agente.superintendente_id || ''),
+    supervisor_id: String(agente.supervisor_id || ''),
+    gerente_id: String(agente.gerente_id || ''),
+  })
+  const patch = (p: Partial<typeof ret>) => setRet((c) => ({ ...c, ...p }))
+  const catalogo = (rows: CatalogosArw['niveis_acesso'], atual: string) =>
+    rows.filter((r) => r.is_active !== false || r.id === atual)
+  const comercial = (campo: ComercialCargo, atual: string) => opcoesComerciais(comerciais, campo, atual || null)
+
+  const selectStyle: React.CSSProperties = { minWidth: 220 }
+  const campo = (label: string, children: React.ReactNode) => (
+    <div>
+      <label style={rotulo}>{label}</label>
+      {children}
+    </div>
+  )
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
       <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--brs-gray-600)' }}>
-        Cadastre o parceiro no ARW copiando os campos abaixo (na ordem do cadastro do ARW). Depois, registre o retorno —
-        o código ARW grava direto na aba Acesso do Agente Corban. A senha do ARW é colada no editor do agente
-        (aba Acesso), que já sincroniza o login do portal.
+        Cadastre o parceiro no ARW copiando os campos abaixo, na mesma ordem das telas do ARW. Depois registre o
+        retorno: código e dados de acesso gravam direto na aba Acesso do Agente Corban. A senha do ARW é colada no
+        editor do agente (aba Acesso), que já sincroniza o login do portal.
       </p>
-      <div className="card" style={{ padding: '0.9rem' }}>
-        <div style={{ fontWeight: 800, fontSize: '0.8rem', marginBottom: '0.5rem', color: 'var(--brs-gray-600)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Dados para o ARW (copiar/colar)
+
+      {secoes.map((secao) => (
+        <div key={secao.titulo} className="card" style={{ padding: '0.9rem' }}>
+          <div style={{ fontWeight: 800, fontSize: '0.8rem', marginBottom: '0.5rem', color: 'var(--brs-gray-600)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            {secao.titulo}
+          </div>
+          {secao.campos.map((c) => (
+            <CampoCopiavel key={`${secao.titulo}:${c.label}`} label={c.label} valor={c.valor} nota={c.nota} />
+          ))}
         </div>
-        {camposCopia.map(([label, valor]) => (
-          <CampoCopiavel key={label} label={label} valor={valor} />
-        ))}
-      </div>
+      ))}
+
       <div className="card" style={{ padding: '0.9rem' }}>
         <div style={{ fontWeight: 800, fontSize: '0.8rem', marginBottom: '0.6rem', color: 'var(--brs-gray-600)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Retorno do ARW
+          Retorno do ARW — Dados de Acesso
         </div>
-        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div>
-            <label style={rotulo}>Código ARW *</label>
-            <input className="form-control" style={{ width: 160 }} value={arwCode} onChange={(e) => setArwCode(e.target.value)} placeholder="ex.: DF3-4" />
-          </div>
-          <button type="button" className="btn btn-outline btn-sm" disabled={busy !== null} onClick={() => rodar('salvar-arw', () => salvarRetornoArw(processo.id, { arw_code: arwCode }))}>
-            {busy === 'salvar-arw' ? <Loader2 size={14} className="spinner" /> : <Check size={14} />} Salvar código
+        <div style={{ display: 'flex', gap: '0.6rem 1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {campo('Código ARW *', <input className="form-control" style={{ width: 160 }} value={ret.arw_code} onChange={(e) => patch({ arw_code: e.target.value })} placeholder="ex.: DF3-4" />)}
+          {campo('Filial', <input className="form-control" style={{ width: 180 }} value={ret.filial} onChange={(e) => patch({ filial: e.target.value })} placeholder="ex.: MATRIZ" />)}
+          {campo(
+            'Nível de Acesso',
+            <select className="form-control" style={selectStyle} value={ret.nivel_acesso} onChange={(e) => patch({ nivel_acesso: e.target.value })}>
+              <option value="">Selecione</option>
+              {catalogo(catalogos.niveis_acesso, ret.nivel_acesso).map((r) => (
+                <option key={r.id} value={r.id}>{r.name}{r.is_active === false ? ' (Inativo)' : ''}</option>
+              ))}
+            </select>,
+          )}
+          {campo(
+            'Tipo de Agente',
+            <select className="form-control" style={selectStyle} value={ret.tipo_agente} onChange={(e) => patch({ tipo_agente: e.target.value })}>
+              <option value="">Selecione</option>
+              {catalogo(catalogos.tipos_agente, ret.tipo_agente).map((r) => (
+                <option key={r.id} value={r.id}>{r.name}{r.is_active === false ? ' (Inativo)' : ''}</option>
+              ))}
+            </select>,
+          )}
+          {(
+            [
+              ['gerente_id', 'gerente', 'Gerente Comercial'],
+              ['superintendente_id', 'superintendente', 'Superintendente'],
+              ['supervisor_id', 'supervisor', 'Supervisor'],
+            ] as Array<['gerente_id' | 'superintendente_id' | 'supervisor_id', ComercialCargo, string]>
+          ).map(([key, cargo, label]) =>
+            campo(
+              label,
+              <select className="form-control" style={selectStyle} value={ret[key]} onChange={(e) => patch({ [key]: e.target.value })}>
+                <option value="">Selecione</option>
+                {comercial(cargo, ret[key]).map((c) => (
+                  <option key={c.id} value={c.id}>{nomeComercial(c)}</option>
+                ))}
+              </select>,
+            ),
+          )}
+        </div>
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.72rem', color: 'var(--brs-gray-400)' }}>
+          Superintendente, Supervisor e Gerente listam comerciais ativos com cargo igual ou superior ao do campo.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.7rem' }}>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            disabled={busy !== null}
+            onClick={() =>
+              rodar('salvar-arw', () =>
+                salvarRetornoArw(processo.id, {
+                  ...ret,
+                  superintendente_id: ret.superintendente_id || null,
+                  supervisor_id: ret.supervisor_id || null,
+                  gerente_id: ret.gerente_id || null,
+                }),
+              )
+            }
+          >
+            {busy === 'salvar-arw' ? <Loader2 size={14} className="spinner" /> : <Check size={14} />} Salvar retorno
           </button>
           <a className="btn btn-ghost btn-sm" href={`/agente-corban/${agente.id}`} target="_blank" rel="noreferrer">
-            Abrir editor do agente (aba Acesso: senha, gerente, tipo) →
+            Abrir editor do agente (aba Acesso: senha) →
           </a>
         </div>
       </div>
+
       <div>
-        <button type="button" className="btn btn-primary btn-sm" disabled={busy !== null || !arwCode.trim()} onClick={() => rodar('concluir', () => concluirEtapaArw(processo.id))}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy !== null || !String(agente.arw_code || '').trim()}
+          title={!String(agente.arw_code || '').trim() ? 'Salve o código ARW antes de concluir' : undefined}
+          onClick={() => rodar('concluir', () => concluirEtapaArw(processo.id))}
+        >
           {busy === 'concluir' ? <Loader2 size={14} className="spinner" /> : <Check size={14} />} Concluir etapa
         </button>
       </div>
