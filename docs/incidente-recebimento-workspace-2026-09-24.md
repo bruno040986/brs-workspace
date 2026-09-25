@@ -289,7 +289,15 @@ em `workspace.brspromotora.com.br/conversas` às 23:06–23:15 UTC:
 - Console/Realtime do código novo não puderam ser observados em produção
   (não publicado).
 
-**Não validado:** o código novo em produção (Chats do usuário logado,
+**Validação em produção do commit `ed59e99d` (25/09 00:04 UTC, sessão do
+Bruno):** bootstrap e contadores 200; **`/api/conversas/lista?aba=meus` deu
+500** ("Cannot read properties of undefined (reading 'payload')") — o
+`POST /conversations/filter` do Chatwoot responde `{ meta, payload }` sem o
+invólucro `data` do `GET /conversations`. Corrigido em `filtrarConversas`
+(aceita os dois formatos); Fila (60) e Geral não foram afetadas. O badge
+"Chats" ficou 0 pelo mesmo motivo (o contador engole o erro).
+
+**Não validado antes desse ajuste:** o código novo em produção (Chats do usuário logado,
 `POST /conversations/filter`, "Carregar mais", contadores por agente,
 Realtime + contadores) — só localmente (tipos/testes/build). Publicar e
 conferir na mesma sessão autenticada: (1) badge "Chats" passa a contar as

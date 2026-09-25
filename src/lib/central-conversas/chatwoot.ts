@@ -131,9 +131,18 @@ export class ChatwootConta {
     return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => r.data)
   }
 
-  /** Conversas de UM agente (ver payloadFiltroConversas); mesmo formato do listarConversas. `meta.all_count` = total filtrado. */
+  /**
+   * Conversas de UM agente (ver payloadFiltroConversas). `meta.all_count` =
+   * total filtrado. Visto em produção (25/09/2026): o filter devolve
+   * `{ meta, payload }` DIRETO, sem o invólucro `data` do GET /conversations
+   * — aceita os dois formatos.
+   */
   filtrarConversas(params: { assigneeId: number; status?: 'open' | 'resolved' | 'pending' | 'all'; page?: number; inboxId?: number; teamId?: number }) {
-    return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations/filter?page=${params.page || 1}`, { method: 'POST', body: { payload: payloadFiltroConversas(params) } }).then((r) => r.data)
+    type Lista = { meta: Record<string, number>; payload: ChatwootConversa[] }
+    return this.req<Lista | { data: Lista }>(`/conversations/filter?page=${params.page || 1}`, { method: 'POST', body: { payload: payloadFiltroConversas(params) } }).then((r) => {
+      const lista = 'data' in r && r.data ? r.data : (r as Lista)
+      return { meta: lista.meta || {}, payload: lista.payload || [] }
+    })
   }
 
   /** Conversa única — usado pelo worker de agendamento pra revalidar status antes de enviar (Fase B §5). */
