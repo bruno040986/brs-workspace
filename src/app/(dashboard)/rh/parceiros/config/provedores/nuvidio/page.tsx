@@ -42,7 +42,7 @@ export default function NuvidioProvedorPage() {
       .finally(() => setCarregando(false))
   }, [])
 
-  async function salvar() {
+  async function salvar(): Promise<boolean> {
     setSalvando(true)
     setErro('')
     setOkMsg('')
@@ -60,14 +60,18 @@ export default function NuvidioProvedorPage() {
       if (apiKey.trim() || apiSecret.trim()) setTemCredenciais(true)
       setApiKey('')
       setApiSecret('')
+      return true
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar.')
+      return false
     } finally {
       setSalvando(false)
     }
   }
 
   async function testar() {
+    // o teste lê o cofre: credenciais digitadas precisam ser salvas antes
+    if ((apiKey.trim() || apiSecret.trim()) && !(await salvar())) return
     setTestando(true)
     setErro('')
     setOkMsg('')
@@ -123,7 +127,7 @@ export default function NuvidioProvedorPage() {
         </div>
         <div style={{ marginTop: '0.8rem', display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-outline btn-sm" onClick={testar} disabled={testando || (!temCredenciais && !apiKey.trim())} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {testando ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />} Testar conexão
+            {testando ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />} {apiKey.trim() || apiSecret.trim() ? 'Salvar e testar' : 'Testar conexão'}
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600 }}>
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Integração ativa
@@ -164,13 +168,15 @@ export default function NuvidioProvedorPage() {
       <div className="card" style={{ padding: '1.2rem', marginBottom: '1rem' }}>
         <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 0.4rem' }}>Webhook</h2>
         <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', margin: '0 0 0.8rem' }}>
-          Configure no painel da Nuvidio a URL abaixo (com a chave). Eventos de chamada atualizam os convites em tempo
-          real e anexam a gravação sozinhos.
+          No painel da Nuvidio (Desenvolvedores › Configurar webhooks), adicione um webhook por evento — <b>Novo cliente
+          esperando</b>, <b>Nova chamada iniciada</b> e <b>Chamada finalizada</b> — todos com a URL abaixo, ligue
+          "Enviar dados completos" e, em "Autenticação (opcional)", cole esta mesma chave. Os eventos atualizam os
+          convites em tempo real e anexam a gravação sozinhos.
         </p>
         <label style={rotulo}>Chave do webhook (defina um segredo)</label>
         <input className="form-control" value={webhookKey} onChange={(e) => setWebhookKey(e.target.value)} placeholder="segredo-forte-aleatorio" />
         <p style={{ fontSize: '0.74rem', color: 'var(--brs-gray-400)', margin: '0.5rem 0 0', wordBreak: 'break-all' }}>
-          URL: <code>https://gestao.brspromotora.com.br/api/nuvidio/webhook?key={webhookKey || '<chave>'}</code>
+          URL: <code>{typeof window !== 'undefined' ? window.location.origin : ''}/api/nuvidio/webhook?key={webhookKey || '<chave>'}</code>
         </p>
       </div>
 

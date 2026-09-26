@@ -1,8 +1,8 @@
 /**
  * Cliente da API Nuvidio (https://docs.nuvidio.com/reference/api-nuvidio).
  *
- * Auth: API KEY + SECRET → POST /authenticate → JWT (cacheado em memória por
- * alguns minutos). Credenciais vivem cifradas em `nuvidio_config` (cofre
+ * Auth: API KEY + SECRET → POST /v1/api/auth → JWT válido 10 min (cacheado
+ * em memória por 8). Credenciais vivem cifradas em `nuvidio_config` (cofre
  * AES, mesma chave dos demais provedores) — nunca chegam ao navegador.
  *
  * OBS: os shapes de resposta foram tirados da documentação pública; o
@@ -89,6 +89,7 @@ export async function salvarNuvidioConfig(input: {
     { onConflict: 'id' },
   )
   if (error) throw error
+  jwtCache = null // credenciais novas → token antigo não vale mais
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +104,7 @@ async function obterJwt(): Promise<string> {
   if (!row?.api_key_enc || !row?.api_secret_enc) {
     throw new Error('Credenciais da Nuvidio não configuradas (Provedores e APIs › Nuvidio).')
   }
-  const res = await fetch(`${BASE}/authenticate`, {
+  const res = await fetch(`${BASE}/v1/api/auth`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ apiKey: decifrarTexto(row.api_key_enc), apiSecret: decifrarTexto(row.api_secret_enc) }),
@@ -158,7 +159,7 @@ export async function testarConexaoNuvidio(): Promise<{ ok: boolean; detalhe: st
 }
 
 export async function listarDepartments(): Promise<NuvidioDepartment[]> {
-  const data = await chamar('/v1/api/department')
+  const data = await chamar('/v1/api/departments?take=100')
   const lista = Array.isArray(data) ? data : Array.isArray(data?.departments) ? data.departments : Array.isArray(data?.data) ? data.data : []
   return lista.map((d: any) => ({ id: String(d._id || d.id || ''), nome: String(d.name || d.nome || '') })).filter((d: NuvidioDepartment) => d.id)
 }
@@ -187,18 +188,14 @@ export async function criarInvite(input: {
 }
 
 export async function desabilitarInvite(inviteId: string): Promise<void> {
-  await chamar(`/v1/api/invite/${encodeURIComponent(inviteId)}/disable`, { method: 'PUT' }).catch(async (err) => {
-    // rota alternativa documentada como "desabilitar invite"
-    await chamar(`/v1/api/invite/disable/${encodeURIComponent(inviteId)}`, { method: 'PUT' }).catch(() => {
-      throw err
-    })
-  })
+  await chamar(`/v1/api/invite/${encodeURIComponent(inviteId)}/status`, { method: 'PUT', body: JSON.stringify({ enabled: false }) })
 }
 
-export async function buscarLinkGravacao(callIdOuInviteId: string): Promise<string | null> {
+/** Resposta é a URL pré-assinada em texto puro (expira em 2 h). */
+export async function buscarLinkGravacao(callId: string): Promise<string | null> {
   try {
-    const data = await chamar(`/v1/api/call/${encodeURIComponent(callIdOuInviteId)}/recording-link`)
-    return String(data?.link || data?.url || data?.recordingLink || '') || null
+    const data = await chamar(`/v1/api/call/recording/${encodeURIComponent(callId)}/link`)
+    return (typeof data === 'string' ? data.trim() : String(data?.link || data?.url || '')) || null
   } catch {
     return null
   }
