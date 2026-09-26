@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 import { requireAnyPermission, requirePermission } from '@/lib/auth/server'
 import { exemploVars, templatePadrao } from '@/lib/mensagens/catalogo'
-import { limparWhatsApp, renderizarHtml, renderizarTexto, variaveisUsadas } from '@/lib/mensagens/render'
+import { limparWhatsApp, problemasHtmlTemplate, renderizarHtml, renderizarTexto, variaveisUsadas } from '@/lib/mensagens/render'
 import { listarTemplatesResolvidos, type TemplateResolvido } from '@/lib/mensagens/templates'
 
 const RESOURCE = 'workspace-templates-mensagens'
@@ -47,6 +47,8 @@ export async function salvarTemplateMensagem(input: {
     const whatsapp_texto = limparWhatsApp(String(input.whatsapp_texto || ''))
     if (def.canais.includes('email') && (!email_assunto || !email_html)) throw new Error('Assunto e corpo do e-mail são obrigatórios.')
     if (def.canais.includes('whatsapp') && !whatsapp_texto) throw new Error('O texto do WhatsApp é obrigatório.')
+    const perigos = problemasHtmlTemplate(email_html)
+    if (perigos.length) throw new Error(`O HTML do e-mail contém conteúdo não permitido: ${perigos.join('; ')}.`)
     const avisos = variaveisDesconhecidas(input.chave, email_assunto, email_html, whatsapp_texto).map((v) => `Variável {{${v}}} não existe neste template e vai sair vazia.`)
 
     const admin = await createAdminClient()
@@ -120,6 +122,8 @@ export async function previewTemplate(input: { chave: string; email_assunto: str
     ])
     const def = templatePadrao(input.chave)
     if (!def) throw new Error('Template desconhecido.')
+    const perigos = problemasHtmlTemplate(input.email_html)
+    if (perigos.length) throw new Error(`O HTML do e-mail contém conteúdo não permitido: ${perigos.join('; ')}.`)
     const vars = exemploVars(def)
     return {
       success: true,

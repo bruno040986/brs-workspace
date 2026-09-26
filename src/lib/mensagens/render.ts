@@ -75,3 +75,19 @@ export function limparWhatsApp(texto: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
+
+/**
+ * HTML de template é escrito por usuário interno com permissão de edição, mas
+ * é enviado a terceiros e exibido na prévia: script, atributos de evento
+ * (onclick...), URLs javascript:/data: e iframes/objetos não passam. Devolve a
+ * lista do que foi encontrado (vazia = ok).
+ */
+export function problemasHtmlTemplate(html: string): string[] {
+  const h = String(html || '')
+  const achados: string[] = []
+  if (/<\s*(script|iframe|object|embed|form|meta|link|style)\b/i.test(h)) achados.push('tags <script>, <iframe>, <object>, <embed>, <form>, <meta>, <link> ou <style>')
+  if (/<[^>]*\son[a-z]+\s*=/i.test(h)) achados.push('atributos de evento (onclick, onload, onerror...)')
+  if (/(href|src|action|formaction)\s*=\s*["\']?\s*(javascript|data|vbscript)\s*:/i.test(h)) achados.push('links javascript:, data: ou vbscript:')
+  if (/expression\s*\(|url\s*\(\s*["\']?\s*javascript:/i.test(h)) achados.push('CSS com expression() ou url(javascript:)')
+  return achados
+}

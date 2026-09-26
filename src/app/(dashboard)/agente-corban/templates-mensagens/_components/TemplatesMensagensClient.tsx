@@ -260,8 +260,15 @@ export default function TemplatesMensagensClient({ templates: iniciais, podeEdit
                 {atual.canais.includes('email') && (
                   <div>
                     <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-gray-500)', textTransform: 'uppercase' }}>E-mail · assunto: <span style={{ textTransform: 'none', color: 'var(--brs-gray-800)' }}>{preview.assunto}</span></div>
-                    {/* HTML do próprio template (autor interno); variáveis já chegam escapadas do servidor. */}
-                    <div style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 8, padding: '0.75rem 1rem', marginTop: 4, fontSize: '0.9rem' }} dangerouslySetInnerHTML={{ __html: preview.html }} />
+                    {/* Prévia isolada: iframe com sandbox vazio (sem script, sem mesma origem) — HTML gravado por
+                        outro editor nunca roda nesta página. O servidor também recusa script/eventos ao salvar. */}
+                    <iframe
+                      title="Pré-visualização do e-mail"
+                      sandbox=""
+                      referrerPolicy="no-referrer"
+                      srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>body{font-family:system-ui,sans-serif;font-size:14px;color:#1f2937;margin:12px 16px}</style></head><body>${preview.html}</body></html>`}
+                      style={{ width: '100%', minHeight: 260, border: '1px solid var(--brs-gray-200)', borderRadius: 8, marginTop: 4, background: '#fff' }}
+                    />
                   </div>
                 )}
                 {atual.canais.includes('whatsapp') && (

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { limparWhatsApp, renderizarHtml, renderizarTexto, variaveisUsadas } from '../render.ts'
+import { limparWhatsApp, problemasHtmlTemplate, renderizarHtml, renderizarTexto, variaveisUsadas } from '../render.ts'
 
 describe('render de templates (fatia 5)', () => {
   it('substitui variáveis; desconhecida vira vazio', () => {
@@ -24,5 +24,19 @@ describe('render de templates (fatia 5)', () => {
   })
   it('limparWhatsApp tira HTML e mantém marcação do WhatsApp', () => {
     assert.strictEqual(limparWhatsApp('<p>*Oi*</p><p>_x_ <b>y</b></p>'), '*Oi*\n_x_ y')
+  })
+})
+
+describe('problemasHtmlTemplate', () => {
+  it('aceita HTML de e-mail comum', () => {
+    assert.deepStrictEqual(problemasHtmlTemplate('<p>Olá <strong>{{nome}}</strong> <a href="{{link}}">x</a><img src="https://x/y.png"></p>'), [])
+  })
+  it('barra script, eventos, javascript:, data: e iframe', () => {
+    assert.ok(problemasHtmlTemplate('<p>a</p><script>alert(1)</script>').length > 0)
+    assert.ok(problemasHtmlTemplate('<img src=x onerror=alert(1)>').length > 0)
+    assert.ok(problemasHtmlTemplate('<a href="javascript:alert(1)">x</a>').length > 0)
+    assert.ok(problemasHtmlTemplate('<a href=" DATA:text/html,x">x</a>').length > 0)
+    assert.ok(problemasHtmlTemplate('<iframe src="https://x"></iframe>').length > 0)
+    assert.ok(problemasHtmlTemplate('<div style="width:expression(alert(1))">').length > 0)
   })
 })
