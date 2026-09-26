@@ -13,6 +13,7 @@ import {
   type ReprovacaoCategoria,
 } from '@/lib/agente-corban-onboarding'
 import { createHash, randomBytes } from 'crypto'
+import { obterMensagem } from '@/lib/mensagens/templates'
 import { pessoaQueCumpre, tiposObrigatorios, type CertLancamento, type CertTipo, type CertVinculo } from '@/lib/certificacoes'
 import { revalidatePath } from 'next/cache'
 import { requireAnyPermission, requirePermission } from '@/lib/auth/server'
@@ -41,20 +42,6 @@ const RESOURCE = 'agente-corban-cadastros-recebidos'
 const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_URL || 'https://parceiro.brspromotora.com.br'
 const RASCUNHO_LINK_COOLDOWN_MS = 60_000
 
-/**
- * `preenchedor.nome` vem do formulário público do portal, sem autenticação.
- * Sem escapar antes de entrar no HTML do e-mail, um nome tipo
- * `<a href="...">urgente</a>` vira HTML de verdade na caixa de entrada de
- * quem recebe (injeção de HTML/phishing usando o domínio confiável do envio).
- */
-function escapeHtml(value: string): string {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 const BUCKET = 'partner-analise'
 const SIGNED_URL_TTL_SECONDS = 3600
 const PIPELINE_STATUSES = ['novo', 'aguarda_assinatura', 'assinatura_realizada', 'validacao_final']
@@ -1578,11 +1565,10 @@ export async function reenviarLinkRascunho(rascunhoId: string): Promise<{ succes
     if (updErr) throw updErr
 
     const nome = String(r.preenchedor?.nome || '').trim()
-    const primeiroNome = escapeHtml(nome.split(/\s+/)[0] || 'tudo bem')
     const url = `${PORTAL_URL}/cadastro/continuar/${token}`
-    const urlEscapada = escapeHtml(url)
-    const html = `<p>Olá, <strong>${primeiroNome}</strong>!</p><p>Aqui é da BRS Promotora. Segue o link para continuar o seu cadastro de parceiro de onde parou:</p><p><a href="${urlEscapada}">${urlEscapada}</a></p><p>O link vale por 30 dias.</p><p>Equipe BRS Promotora</p>`
-    const envio = await enviarEmailOnboarding({ to: r.email, subject: 'Continue o seu cadastro na BRS Promotora', html })
+    // Mesmo template do portal (fatia 5); o renderizador escapa o nome no HTML.
+    const tpl = await obterMensagem('portal_link_retomada', { primeiro_nome: nome.split(/\s+/)[0] || 'tudo bem', url })
+    const envio = await enviarEmailOnboarding({ to: r.email, subject: tpl.assunto, html: tpl.html })
     if (!envio.ok) return { success: false, error: envio.detalhe }
 
     return { success: true }

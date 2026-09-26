@@ -121,6 +121,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Tipo de Agente', href: '/agente-corban/tipos-agente', perms: [view('agente-corban-tipos-agente')] },
           { label: 'Regra de Físico', href: '/agente-corban/regras-fisico', perms: [view('agente-corban-regras-fisico')] },
           { label: 'Certificações', href: '/agente-corban/certificacoes', perms: [view('workspace-certificacoes')] },
+          { label: 'Templates de Mensagens', href: '/agente-corban/templates-mensagens', perms: [view('workspace-templates-mensagens')] },
         ],
       },
       { label: 'Instituições Financeiras', href: '/instituicoes-financeiras', perms: [view('sistema-config-instituicoes')] },

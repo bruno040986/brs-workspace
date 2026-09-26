@@ -1,8 +1,7 @@
 /**
  * Comunicação do pipeline Cadastros Recebidos (e-mail via resend_config,
- * WhatsApp via Z-API/sendAndLog). Templates em texto claro AQUI para o
- * Bruno ajustar as palavras sem caçar strings pelo sistema (critério de
- * aceite da orientação). Falha de envio nunca derruba a ação que a chamou —
+ * WhatsApp via Z-API/sendAndLog). Os textos vêm dos Templates de Mensagens
+ * (src/lib/mensagens). Falha de envio nunca derruba a ação que a chamou —
  * o resultado volta pro operador decidir (reenviar, copiar o link etc.).
  */
 import { createAdminClient } from '@/lib/supabase/server'
@@ -88,39 +87,6 @@ export async function enviarWhatsAppOnboarding(input: {
   }
 }
 
-// ===========================================================================
-// Templates (texto claro — ajustar aqui)
-// ===========================================================================
-
-export function templateNuvidio(nome: string, link: string) {
-  const assunto = 'BRS Promotora — Validação por vídeo (Nuvidio)'
-  const texto = `Olá, ${nome}! Aqui é da BRS Promotora. Para seguirmos com o seu credenciamento, precisamos de uma rápida validação por vídeo. Acesse: ${link} — leva poucos minutos. Qualquer dúvida, é só responder por aqui.`
-  const html = `<p>Olá, <strong>${nome}</strong>!</p><p>Para seguirmos com o seu credenciamento na BRS Promotora, precisamos de uma rápida validação por vídeo.</p><p><a href="${link}">Clique aqui para fazer a validação</a> — leva poucos minutos.</p><p>Qualquer dúvida, responda este e-mail.</p><p>Equipe BRS Promotora</p>`
-  return { assunto, texto, html }
-}
-
-export function templateContrato(nome: string, links: string[]) {
-  const lista = links.map((l) => `• ${l}`).join('\n')
-  const assunto = 'BRS Promotora — Contrato de credenciamento para assinatura'
-  const texto = `Olá, ${nome}! Seu contrato de credenciamento com a BRS Promotora está pronto para assinatura digital:\n${lista}\nApós todas as assinaturas, seguimos para a etapa final do seu cadastro.`
-  const html = `<p>Olá, <strong>${nome}</strong>!</p><p>Seu contrato de credenciamento com a BRS Promotora está pronto para assinatura digital:</p><ul>${links.map((l) => `<li><a href="${l}">${l}</a></li>`).join('')}</ul><p>Após todas as assinaturas, seguimos para a etapa final do seu cadastro.</p><p>Equipe BRS Promotora</p>`
-  return { assunto, texto, html }
-}
-
-export function templateCorrecao(nome: string, link: string, itens: Array<{ rotulo: string; instrucoes: string }>) {
-  const listaTexto = itens.map((i) => `• ${i.rotulo}: ${i.instrucoes}`).join('\n')
-  const assunto = 'BRS Promotora — Ajustes necessários no seu cadastro'
-  const texto = `Olá, ${nome}! Analisamos o seu cadastro na BRS Promotora e precisamos de alguns ajustes:\n${listaTexto}\n\nCorrija pelos link seguro (válido por 7 dias): ${link}`
-  const html = `<p>Olá, <strong>${nome}</strong>!</p><p>Analisamos o seu cadastro na BRS Promotora e precisamos de alguns ajustes:</p><ul>${itens
-    .map((i) => `<li><strong>${i.rotulo}</strong>: ${i.instrucoes}</li>`)
-    .join('')}</ul><p><a href="${link}">Clique aqui para corrigir</a> (link seguro, válido por 7 dias).</p><p>Equipe BRS Promotora</p>`
-  return { assunto, texto, html }
-}
-
-export function templateBoasVindas(nome: string, arwCode: string | null) {
-  const codigo = arwCode ? ` Seu código de parceiro é ${arwCode}.` : ''
-  const assunto = 'Bem-vindo à BRS Promotora! 🎉'
-  const texto = `Parabéns, ${nome}! Seu credenciamento na BRS Promotora foi concluído.${codigo} Em breve nosso time comercial entra em contato com os próximos passos. Seja muito bem-vindo!`
-  const html = `<p>Parabéns, <strong>${nome}</strong>! 🎉</p><p>Seu credenciamento na BRS Promotora foi concluído.${codigo}</p><p>Em breve nosso time comercial entra em contato com os próximos passos.</p><p>Seja muito bem-vindo!<br/>Equipe BRS Promotora</p>`
-  return { assunto, texto, html }
-}
+// Os textos das mensagens saíram daqui em 26/09/2026 (fatia 5): catálogo e
+// padrões em src/lib/mensagens/catalogo.ts, personalização na tela
+// Agente Corban › Templates de Mensagens, renderização em src/lib/mensagens.

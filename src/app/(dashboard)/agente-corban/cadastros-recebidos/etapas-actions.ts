@@ -11,15 +11,8 @@ import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/server'
 import { generateContractForPartner } from '@/lib/assinafy/generate-contract'
-import {
-  enviarEmailOnboarding,
-  enviarWhatsAppOnboarding,
-  resolverContatoParceiro,
-  templateBoasVindas,
-  templateContrato,
-  templateCorrecao,
-  templateNuvidio,
-} from '@/lib/onboarding-comunicacao'
+import { enviarEmailOnboarding, enviarWhatsAppOnboarding, resolverContatoParceiro } from '@/lib/onboarding-comunicacao'
+import { obterMensagem } from '@/lib/mensagens/templates'
 import { criarInvite, lerNuvidioConfigRow } from '@/lib/nuvidio/client'
 import { COMERCIAL_CARGO_LABELS, opcoesComerciais, type ComercialCargo } from '@/lib/comerciais-hierarquia'
 import { CHAVE_CERTIFICACOES_PREFIX, itemDispensaAprovacao } from '@/lib/agente-corban-onboarding'
@@ -175,7 +168,7 @@ export async function enviarConviteNuvidio(
     if (!processo.nuvidio_link) throw new Error('Salve o link da Nuvidio antes de enviar.')
 
     const contato = resolverContatoParceiro(agente.corban_data || {}, agente.name)
-    const tpl = templateNuvidio(contato.nome, processo.nuvidio_link)
+    const tpl = await obterMensagem('onboarding_nuvidio_convite', { nome: contato.nome, link: processo.nuvidio_link })
 
     let resultado: { ok: boolean; detalhe: string }
     if (canal === 'email') {
@@ -303,7 +296,7 @@ export async function prepararEnviarContrato(
 
     const avisos: string[] = []
     if (links.length) {
-      const tpl = templateContrato(contato.nome, links)
+      const tpl = await obterMensagem('onboarding_contrato_assinatura', { nome: contato.nome, links })
       if (contato.email) {
         const r = await enviarEmailOnboarding({ to: contato.email, subject: tpl.assunto, html: tpl.html })
         if (!r.ok) avisos.push(`e-mail: ${r.detalhe}`)
@@ -463,7 +456,7 @@ export async function aprovarBoasVindas(
     if (processo.etapa_atual !== 'boas_vindas') throw new Error('O processo não está na etapa Boas-vindas.')
 
     const contato = resolverContatoParceiro(agente.corban_data || {}, agente.name)
-    const tpl = templateBoasVindas(contato.nome, agente.arw_code)
+    const tpl = await obterMensagem('onboarding_boas_vindas', { nome: contato.nome, codigo_arw: agente.arw_code || '' })
 
     const avisos: string[] = []
     if (contato.email) {
@@ -530,8 +523,8 @@ export async function solicitarCorrecao(
 
     const link = `${PORTAL_URL}/correcao/${token}`
     const contato = resolverContatoParceiro(agente.corban_data || {}, agente.name)
-    const itensTpl = reprovados.map((i: any) => ({ rotulo: String(i.rotulo), instrucoes: String(i.instrucoes_correcao || 'Reenvie corrigido.') }))
-    const tpl = templateCorrecao(contato.nome, link, itensTpl)
+    const itensTpl = reprovados.map((i: any) => `${String(i.rotulo)}: ${String(i.instrucoes_correcao || 'Reenvie corrigido.')}`)
+    const tpl = await obterMensagem('onboarding_correcao_solicitada', { nome: contato.nome, link, itens: itensTpl })
 
     const avisos: string[] = []
     if (contato.email) {

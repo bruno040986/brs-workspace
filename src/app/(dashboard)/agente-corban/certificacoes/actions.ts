@@ -18,7 +18,7 @@ const RESOURCE_PROCESSO = 'agente-corban-cadastros-recebidos'
 const BUCKET_LOGOS = 'certificacoes'
 const ROTA = '/agente-corban/certificacoes'
 
-type Resultado<T = Record<string, never>> = ({ success: true } & T) | { success: false; error: string }
+type Resultado<T = object> = ({ success: true } & T) | { success: false; error: string }
 
 export type Certificadora = { id: string; nome: string; site: string | null; logotipo_url: string | null; is_active: boolean }
 export type CertificacaoTipo = { id: string; nome: string; obrigatorio: boolean; is_active: boolean }
