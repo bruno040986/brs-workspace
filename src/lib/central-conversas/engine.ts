@@ -272,6 +272,8 @@ export const engine = {
   enviar: enviarPorInstancia,
   reagir: (instanciaId: string, waId: string, emoji: string) =>
     chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/reagir`, { method: 'POST', body: { emoji } }),
+  publicarStatus: (instanciaId: string, body: { texto?: string; imagemBase64?: string; legenda?: string; autor?: string }) =>
+    chamar<{ ok: boolean; destinatarios: number; restantesHoje: number }>(`/instancias/${instanciaId}/status-whatsapp`, { method: 'POST', body, timeoutMs: 60_000 }),
   apagarParaTodos: (instanciaId: string, waId: string) =>
     chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/apagar`, { method: 'POST', body: {} }),
   acaoChat: (instanciaId: string, body: { jid: string; acao: string; duracaoMs?: number }) =>

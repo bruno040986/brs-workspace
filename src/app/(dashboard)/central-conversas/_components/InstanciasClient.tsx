@@ -36,6 +36,7 @@ import {
   type InstanciaRecargaItem,
   type InstanciaView,
 } from '@/lib/central-conversas/actions'
+import PublicarStatus from './PublicarStatus'
 import { listarDepartamentos, setDepartamentoInstancia, type DepartamentoRow } from '@/lib/central-conversas/departamentos-actions'
 
 type View = Awaited<ReturnType<typeof import('@/lib/central-conversas/actions').getCentralConversasView>>
@@ -103,6 +104,7 @@ export default function InstanciasClient({ view }: { view: View }) {
   })
   const [mostrarForm, setMostrarForm] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [publicandoStatus, setPublicandoStatus] = useState<{ id: string; nome: string } | null>(null)
   const [departamentos, setDepartamentos] = useState<DepartamentoRow[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -648,6 +650,11 @@ export default function InstanciasClient({ view }: { view: View }) {
                       <Power size={14} /> Desconectar
                     </button>
                   )}
+                  {conectada && inst.papel === 'disparo' && inst.provedor === 'baileys' && (
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => setPublicandoStatus({ id: inst.id, nome: inst.nome })} title="Publicar status do WhatsApp">
+                      <Send size={14} /> Status
+                    </button>
+                  )}
                   <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => statusInstancia(inst.id).then((n) => setInstancias((a) => a.map((i) => (i.id === n.id ? n : i))))}>
                     <RefreshCw size={14} />
                   </button>
@@ -1041,6 +1048,7 @@ export default function InstanciasClient({ view }: { view: View }) {
           </div>
         </div>
       )}
+      {publicandoStatus && <PublicarStatus instanciaId={publicandoStatus.id} nome={publicandoStatus.nome} onFechar={() => setPublicandoStatus(null)} />}
     </div>
   )
 }

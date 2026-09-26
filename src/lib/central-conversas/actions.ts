@@ -355,6 +355,27 @@ export async function statusInstancia(instanciaId: string) {
   return enriched
 }
 
+/**
+ * B6 (lote 2): publica um status do WhatsApp por uma instância de DISPARO. Manual, com o
+ * limite (3/dia), aquecimento de 48 h e demais travas conferidos no engine — aqui só
+ * permissão (`central-conversas` can_edit, a mesma de conectar/desconectar) e posse da instância.
+ */
+export async function publicarStatusWhatsapp(instanciaId: string, conteudo: { texto?: string; imagemBase64?: string; legenda?: string }): Promise<{ ok: true; destinatarios: number; restantesHoje: number } | { ok: false; error: string }> {
+  try {
+    await requirePermission('central-conversas', 'can_edit')
+    const user = await requireCurrentUser()
+    const conta = await contaBrs()
+    if (!conta) throw new Error('Conta do BRS Messenger não provisionada.')
+    const admin = await createAdminClient()
+    const { data: inst } = await admin.from('chat_instancias').select('id').eq('id', instanciaId).eq('conta_id', conta.id).is('deleted_at', null).maybeSingle()
+    if (!inst) throw new Error('Conexão não encontrada.')
+    const r = await engine.publicarStatus(instanciaId, { ...conteudo, autor: user.email || undefined })
+    return { ok: true, destinatarios: r.destinatarios, restantesHoje: r.restantesHoje }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
 export async function desconectarInstancia(instanciaId: string) {
   await requirePermission('central-conversas', 'can_edit')
   await engine.desconectar(instanciaId, true)
