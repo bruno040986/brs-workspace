@@ -107,7 +107,7 @@ export function mensagemErroEngine(err: unknown): string {
   return err instanceof Error ? err.message : 'Falha ao falar com o engine.'
 }
 
-export type MembroGrupo = { jid: string; numero: string; nome: string | null; admin: boolean; eu: boolean }
+export type MembroGrupo = { jid: string; numero: string; nome: string | null; foto?: string | null; admin: boolean; eu: boolean }
 export type DetalheGrupo = { jid: string; nome: string; descricao?: string; foto?: string; criado_em?: string; dono?: string; membros: MembroGrupo[] }
 export type ContatoConexao = { jid: string; numero: string; nome: string | null; foto?: string }
 export type AcaoParticipante = 'add' | 'remove' | 'promote' | 'demote'

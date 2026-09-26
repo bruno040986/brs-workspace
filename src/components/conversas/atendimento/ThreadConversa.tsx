@@ -308,15 +308,15 @@ export default function ThreadConversa({
     return (membrosGrupo || [])
       .filter((m) => {
         if (!m) return false
-        const rotulo = formatarContatoMencao(m)
-        return rotulo.toLowerCase().includes(alvo)
+        return `${formatarContatoMencao(m)} ${m.numero || ''}`.toLowerCase().includes(alvo)
       })
-      .slice(0, 6)
+      .slice(0, 8)
   }, [termoMencao, membrosGrupo])
 
   function escolherMencao(m: MembroGrupo) {
     if (!m) return
-    const rotulo = formatarContatoMencao(m)
+    // O WhatsApp só destaca a menção quando o texto tem `@<número>` do JID mencionado.
+    const rotulo = m.numero || m.jid.replace(/@.*$/, '')
     setTexto((prev) => prev.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${rotulo} `))
     setMencoesAtuais((prev) => {
       const novo = new Map(prev)
@@ -1082,8 +1082,11 @@ export default function ThreadConversa({
                       onClick={() => escolherMencao(m)}
                       style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
                     >
-                      <AvatarContato nome={rotuloFormatado} tamanho={20} fontSize={9} />
-                      {rotuloFormatado}
+                      <AvatarContato thumbnail={m.foto} nome={rotuloFormatado} tamanho={24} fontSize={10} />
+                      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotuloFormatado}</span>
+                        {m.nome && m.numero && <span style={{ fontSize: 10, opacity: 0.7 }}>+{m.numero}</span>}
+                      </span>
                     </button>
                   )
                 })}
