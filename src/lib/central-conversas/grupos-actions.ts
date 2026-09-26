@@ -184,6 +184,22 @@ export async function enviarEspecialConversa(conversationId: number, envio: Envi
   }
 }
 
+export type AcaoAparelho = 'nao_lida' | 'lida' | 'arquivar' | 'desarquivar' | 'silenciar' | 'reativar_som' | 'bloquear' | 'desbloquear'
+
+/** B4 (lote 2): ação no APARELHO (o WhatsApp da conexão) — marcar não lida, arquivar, silenciar, bloquear. Independe do status da conversa no Workspace. */
+export async function acaoAparelhoConversa(conversationId: number, acao: AcaoAparelho, duracaoMs?: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await destinoDaConversa(conversationId)
+    const inst = await instanciaDaConta(instanciaId)
+    if (inst.provedor !== 'baileys') throw new Error('Esta ação só funciona em conexões Baileys.')
+    await engine.acaoChat(inst.id, { jid, acao, duracaoMs })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
 export async function sairDoGrupo(conversationId: number): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')

@@ -1475,26 +1475,53 @@ export async function reagirMensagem(conversationId: number, messageId: number, 
   return { ok: true }
 }
 
-export async function apagarMensagem(conversationId: number, messageId: number): Promise<{ ok: boolean }> {
-  await requirePermission('conversas', 'can_view')
-  const conta = await contaBrs()
-  if (conta && messageId) {
-    const admin = await createAdminClient()
-    // Grava status revogada para que o frontend mostre como riscada (soft-delete), preservando histórico
-    await admin.from('chat_mensagem_status').upsert(
-      { conta_id: conta.id, chatwoot_message_id: messageId, status: 'revogada' },
-      { onConflict: 'conta_id,chatwoot_message_id' },
-    )
-  }
-  const cli = await clienteChatwootBrs()
-  if (cli) {
-    try {
-      await cli.req(`/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' })
-    } catch {
-      // tolerado pois o histórico é mantido em nosso banco
+/** Janela do WhatsApp para "apagar para todos" (o engine confere de novo). */
+const APAGAR_JANELA_MS = 2 * 24 * 60 * 60 * 1000
+
+/**
+ * Mensagem NOSSA vinculada ao WhatsApp e dentro de ~2 dias: apaga PARA TODOS no
+ * WhatsApp (engine) e só então marca como apagada aqui. Fora do prazo: erro claro,
+ * nada muda. Mensagem do contato (ou sem vínculo): só some da tela — o WhatsApp não
+ * deixa apagar a dos outros — e o retorno diz isso (`paraTodos: false`).
+ */
+export async function apagarMensagem(conversationId: number, messageId: number): Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const conta = await contaBrs()
+    let paraTodos = false
+    if (conta && messageId) {
+      const admin = await createAdminClient()
+      const { data: mapa } = await admin
+        .from('chat_mensagens_mapa')
+        .select('instancia_id, wa_id, from_me, created_at')
+        .eq('conta_id', conta.id)
+        .eq('chatwoot_message_id', messageId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (mapa?.from_me) {
+        if (Date.now() - Date.parse(String(mapa.created_at)) > APAGAR_JANELA_MS) throw new Error('O WhatsApp só permite apagar para todos até cerca de 2 dias depois do envio.')
+        await engine.apagarParaTodos(String(mapa.instancia_id), String(mapa.wa_id))
+        paraTodos = true
+      }
+      // Grava status revogada para que o frontend mostre como riscada (soft-delete), preservando histórico
+      await admin.from('chat_mensagem_status').upsert(
+        { conta_id: conta.id, chatwoot_message_id: messageId, status: 'revogada' },
+        { onConflict: 'conta_id,chatwoot_message_id' },
+      )
     }
+    const cli = await clienteChatwootBrs()
+    if (cli) {
+      try {
+        await cli.req(`/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' })
+      } catch {
+        // tolerado pois o histórico é mantido em nosso banco
+      }
+    }
+    return { ok: true, paraTodos }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
   }
-  return { ok: true }
 }
 
 export async function encaminharMensagem(sourceMessage: MensagemComExtras, targetConversationId: number): Promise<{ ok: boolean }> {

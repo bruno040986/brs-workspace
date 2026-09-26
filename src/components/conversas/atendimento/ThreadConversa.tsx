@@ -37,6 +37,7 @@ import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
 import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
+import AcoesAparelho from './AcoesAparelho'
 import EnvioEspecialMenu from './EnvioEspecial'
 import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
 import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
@@ -89,7 +90,7 @@ type Props = {
   onEncerrar: (motivo?: string) => Promise<void>
   conversas?: ConversaAtendimento[]
   onReagirMensagem?: (messageId: number, emoji: string) => Promise<void>
-  onApagarMensagem?: (messageId: number) => Promise<void>
+  onApagarMensagem?: (messageId: number) => Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }>
   /** Devolve o texto do erro (ou null se editou); ver useAtendimento.editarMensagem. */
   onEditarMensagem?: (messageId: number, texto: string) => Promise<string | null>
   /** Presença do contato (só individual): digitando/gravando/online. */
@@ -213,6 +214,10 @@ export default function ThreadConversa({
   const [hoverMessageId, setHoverMessageId] = useState<number | null>(null)
   const [menuMensagemId, setMenuMensagemId] = useState<number | null>(null)
   const [modalEncaminhar, setModalEncaminhar] = useState<MensagemComExtras | null>(null)
+  // Encaminhar em lote (B4): mensagens marcadas, na ordem em que aparecem na thread.
+  const [selecao, setSelecao] = useState<Set<number> | null>(null)
+  const [loteEncaminhar, setLoteEncaminhar] = useState<MensagemComExtras[] | null>(null)
+  const [encaminhandoLote, setEncaminhandoLote] = useState(false)
   // Edição no lugar (A3): `prefixo` = assinatura `*Nome:*\n` da original, preservada ao salvar.
   const [edicaoAberta, setEdicaoAberta] = useState<{ id: number; prefixo: string; corpo: string; erro: string | null; salvando: boolean } | null>(null)
   const [filtroEncaminhar, setFiltroEncaminhar] = useState('')
@@ -559,6 +564,26 @@ export default function ThreadConversa({
             {toast}
           </div>
         )}
+        {selecao && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700 }}>{selecao.size} selecionada{selecao.size === 1 ? '' : 's'}</span>
+            <button
+              type="button"
+              className="brs-messenger-primary-button"
+              style={{ padding: '3px 10px' }}
+              disabled={!selecao.size || encaminhandoLote}
+              onClick={() => {
+                const lote = mensagens.filter((x) => selecao.has(x.id))
+                if (!lote.length) return
+                setLoteEncaminhar(lote)
+                setModalEncaminhar(lote[0])
+              }}
+            >
+              <Share2 size={12} /> Encaminhar
+            </button>
+            <button type="button" className="brs-messenger-toolbar-btn" onClick={() => setSelecao(null)}>Cancelar</button>
+          </div>
+        )}
         {podeAssumirParaMim && (
           <button
             type="button"
@@ -572,6 +597,7 @@ export default function ThreadConversa({
             {alterando === 'assumindo' ? 'Assumindo…' : 'Assumir para mim'}
           </button>
         )}
+        <AcoesAparelho conversationId={conversa.id} grupo={grupo} onResultado={(m) => exibirToast(m)} />
         <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
           <Search size={18} />
         </button>
@@ -726,9 +752,10 @@ export default function ThreadConversa({
                     {separadorEl}
                     <div
                       {...atributoChave}
+                      onClick={selecao ? () => setSelecao((p) => { const n = new Set(p); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n }) : undefined}
                       onMouseEnter={() => setHoverMessageId(m.id)}
                       onMouseLeave={() => setHoverMessageId(null)}
-                      style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3, position: 'relative' }}
+                      style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3, position: 'relative', ...(selecao ? { cursor: 'pointer', outline: selecao.has(m.id) ? '2px solid var(--msn-accent)' : undefined, borderRadius: 8 } : {}) }}
                     >
                       {!saida && (
                         <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
@@ -948,6 +975,14 @@ export default function ThreadConversa({
                               </button>
                             )}
 
+                            <button
+                              type="button"
+                              onClick={() => { setSelecao(new Set([m.id])); setMenuMensagemId(null) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Check size={14} /> Selecionar várias
+                            </button>
+
                             {podeEditar && !ehRevogada && (
                               <button
                                 type="button"
@@ -1023,9 +1058,12 @@ export default function ThreadConversa({
                               type="button"
                               onClick={() => {
                                 setMenuMensagemId(null)
-                                if (onApagarMensagem) void onApagarMensagem(m.id)
-                                setMensagensApagadasLocal((prev) => new Set(prev).add(m.id))
-                                exibirToast('Mensagem apagada (mantida no histórico riscada)')
+                                if (!onApagarMensagem) return
+                                void onApagarMensagem(m.id).then((r) => {
+                                  if (!r.ok) return exibirToast(r.error)
+                                  setMensagensApagadasLocal((prev) => new Set(prev).add(m.id))
+                                  exibirToast(r.paraTodos ? 'Apagada para todos no WhatsApp (mantida no histórico riscada)' : 'Apagada só aqui — o WhatsApp não permite apagar mensagem do contato')
+                                })
                               }}
                               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', borderRadius: 4, textAlign: 'left' }}
                             >
@@ -1364,8 +1402,8 @@ export default function ThreadConversa({
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 450 }} data-brs-messenger-ignore-close="true">
           <div className="brs-messenger" style={{ width: 380, maxWidth: '92vw', borderRadius: 8, overflow: 'hidden', background: 'var(--msn-surface)' }}>
             <div className="brs-messenger-titlebar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Encaminhar Mensagem</span>
-              <button type="button" onClick={() => setModalEncaminhar(null)} className="brs-messenger-toolbar-btn">
+              <span>{loteEncaminhar ? `Encaminhar ${loteEncaminhar.length} mensagens` : 'Encaminhar Mensagem'}</span>
+              <button type="button" onClick={() => { setModalEncaminhar(null); setLoteEncaminhar(null) }} className="brs-messenger-toolbar-btn">
                 <X size={14} />
               </button>
             </div>
@@ -1386,9 +1424,21 @@ export default function ThreadConversa({
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--msn-soft-border)', background: 'var(--msn-surface-alt)', cursor: 'pointer', textAlign: 'left' }}
                       onClick={async () => {
                         const msg = modalEncaminhar
+                        const lote = loteEncaminhar
                         setModalEncaminhar(null)
+                        setLoteEncaminhar(null)
                         setFiltroEncaminhar('')
-                        if (onEncaminharMensagem && msg) {
+                        if (onEncaminharMensagem && lote?.length) {
+                          // Em sequência, com intervalo: rajada de mensagens iguais é sinal de automação pro WhatsApp.
+                          setEncaminhandoLote(true)
+                          for (const [i, item] of lote.entries()) {
+                            await onEncaminharMensagem(item, c.id)
+                            if (i < lote.length - 1) await new Promise((r) => setTimeout(r, 1500))
+                          }
+                          setEncaminhandoLote(false)
+                          setSelecao(null)
+                          exibirToast(`${lote.length} mensagens encaminhadas para ${c.meta?.sender?.name || 'conversa'}`)
+                        } else if (onEncaminharMensagem && msg) {
                           await onEncaminharMensagem(msg, c.id)
                           exibirToast(`Mensagem encaminhada para ${c.meta?.sender?.name || 'conversa'}`)
                         }

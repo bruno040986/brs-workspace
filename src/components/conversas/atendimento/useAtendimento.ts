@@ -935,14 +935,12 @@ export function useAtendimento() {
     return null
   }
 
-  async function apagarMensagem(messageId: number) {
-    if (!selecionada) return
-    try {
-      await apagarMensagemAction(selecionada.id, messageId)
-      await carregarThread(selecionada.id, { silencioso: true })
-    } catch (err) {
-      setErro(mensagem(err, 'Falha ao apagar mensagem.'))
-    }
+  /** Devolve o resultado real (para todos / só aqui / erro) — a tela só marca como apagada depois dele. */
+  async function apagarMensagem(messageId: number): Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }> {
+    if (!selecionada) return { ok: false, error: 'Nenhuma conversa aberta.' }
+    const r = await apagarMensagemAction(selecionada.id, messageId).catch(() => ({ ok: false as const, error: 'Falha ao apagar mensagem.' }))
+    if (r.ok) await carregarThread(selecionada.id, { silencioso: true })
+    return r
   }
 
   async function encaminharMensagem(sourceMessage: MensagemComExtras, targetConversationId: number) {
