@@ -297,6 +297,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Canais', href: '/central-conversas/canais', perms: [view('central-conversas')] },
           { label: 'Departamentos', href: '/central-conversas/departamentos', perms: [view('central-conversas')] },
           { label: 'Tags', href: '/central-conversas/tags', perms: [view('central-conversas')] },
+          { label: 'Automações', href: '/central-conversas/automacoes', perms: [view('central-conversas')] },
           { label: 'Respostas rápidas', href: '/central-conversas/respostas-rapidas', perms: [view('central-conversas')] },
           { label: 'Grupos Internos', href: '/central-conversas/grupos', perms: [view('central-conversas')] },
           { label: 'Atendimento (tela cheia)', href: '/conversas', perms: [view('conversas')] },
