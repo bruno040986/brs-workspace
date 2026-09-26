@@ -18,6 +18,8 @@ export type NuvidioConfigPublica = {
   temCredenciais: boolean
   departmentPadraoId: string
   departmentPadraoNome: string
+  departmentOnboardingId: string
+  departmentOnboardingNome: string
   webhookKey: string
   isActive: boolean
   atualizadoEm: string | null
@@ -36,6 +38,8 @@ type ConfigRow = {
   api_secret_enc: string | null
   department_padrao_id: string
   department_padrao_nome: string
+  department_onboarding_id: string
+  department_onboarding_nome: string
   webhook_key: string
   is_active: boolean
   updated_at: string | null
@@ -57,6 +61,8 @@ export async function lerNuvidioConfigPublica(): Promise<NuvidioConfigPublica> {
     temCredenciais: Boolean(row?.api_key_enc && row?.api_secret_enc),
     departmentPadraoId: row?.department_padrao_id || '',
     departmentPadraoNome: row?.department_padrao_nome || '',
+    departmentOnboardingId: row?.department_onboarding_id || '',
+    departmentOnboardingNome: row?.department_onboarding_nome || '',
     webhookKey: row?.webhook_key || '',
     isActive: row?.is_active !== false,
     atualizadoEm: row?.updated_at || null,
@@ -68,6 +74,8 @@ export async function salvarNuvidioConfig(input: {
   apiSecret?: string
   departmentPadraoId: string
   departmentPadraoNome: string
+  departmentOnboardingId: string
+  departmentOnboardingNome: string
   webhookKey?: string
   isActive: boolean
   updatedBy: string
@@ -81,6 +89,8 @@ export async function salvarNuvidioConfig(input: {
       api_secret_enc: input.apiSecret?.trim() ? cifrarTexto(input.apiSecret.trim()) : atual?.api_secret_enc || null,
       department_padrao_id: input.departmentPadraoId.trim(),
       department_padrao_nome: input.departmentPadraoNome.trim(),
+      department_onboarding_id: input.departmentOnboardingId.trim(),
+      department_onboarding_nome: input.departmentOnboardingNome.trim(),
       webhook_key: (input.webhookKey ?? atual?.webhook_key ?? '').trim(),
       is_active: input.isActive,
       updated_at: new Date().toISOString(),

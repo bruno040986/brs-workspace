@@ -30,6 +30,8 @@ export async function saveNuvidioConfig(input: {
   apiSecret?: string
   departmentPadraoId: string
   departmentPadraoNome: string
+  departmentOnboardingId: string
+  departmentOnboardingNome: string
   webhookKey?: string
   isActive: boolean
 }): Promise<{ success: boolean; error?: string }> {

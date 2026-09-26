@@ -9,6 +9,33 @@ import { KeyRound, Loader2, PlugZap, Save, Video } from 'lucide-react'
 import { getNuvidioConfig, saveNuvidioConfig, testNuvidioConnection } from '@/lib/nuvidio/config-actions'
 import NuvidioLogo from '../../../../../nuvidio/_components/NuvidioLogo'
 
+type Depto = { id: string; nome: string }
+
+/** Lista de departamentos da Nuvidio (ou campo de id, se a lista ainda não carregou). */
+function SeletorDepartamento({ rotulo, lista, id, nome, onChange }: { rotulo: React.CSSProperties; lista: Depto[]; id: string; nome: string; onChange: (id: string, nome: string) => void }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.9rem' }}>
+      <div>
+        <label style={rotulo}>Departamento</label>
+        {lista.length > 0 ? (
+          <select className="form-control" value={id} onChange={(e) => onChange(e.target.value, lista.find((d) => d.id === e.target.value)?.nome || '')}>
+            <option value="">— Escolha —</option>
+            {lista.map((d) => (
+              <option key={d.id} value={d.id}>{d.nome}</option>
+            ))}
+          </select>
+        ) : (
+          <input className="form-control" value={id} onChange={(e) => onChange(e.target.value, nome)} placeholder="Id do departamento (use Testar conexão para listar)" />
+        )}
+      </div>
+      <div>
+        <label style={rotulo}>Nome (exibição)</label>
+        <input className="form-control" value={nome} onChange={(e) => onChange(id, e.target.value)} placeholder="ex.: Confirmação de Propostas" />
+      </div>
+    </div>
+  )
+}
+
 export default function NuvidioProvedorPage() {
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -21,6 +48,8 @@ export default function NuvidioProvedorPage() {
   const [apiSecret, setApiSecret] = useState('')
   const [departmentId, setDepartmentId] = useState('')
   const [departmentNome, setDepartmentNome] = useState('')
+  const [onbId, setOnbId] = useState('')
+  const [onbNome, setOnbNome] = useState('')
   const [webhookKey, setWebhookKey] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [departments, setDepartments] = useState<Array<{ id: string; nome: string }>>([])
@@ -35,8 +64,14 @@ export default function NuvidioProvedorPage() {
         setTemCredenciais(res.data.temCredenciais)
         setDepartmentId(res.data.departmentPadraoId)
         setDepartmentNome(res.data.departmentPadraoNome)
+        setOnbId(res.data.departmentOnboardingId)
+        setOnbNome(res.data.departmentOnboardingNome)
         setWebhookKey(res.data.webhookKey)
         setIsActive(res.data.isActive)
+        // com credenciais salvas, já carrega a lista pra os seletores aparecerem prontos
+        if (res.data.temCredenciais) {
+          testNuvidioConnection().then((t) => t.ok && setDepartments(t.departments || [])).catch(() => {})
+        }
       })
       .catch(() => setErro('Erro ao carregar.'))
       .finally(() => setCarregando(false))
@@ -52,6 +87,8 @@ export default function NuvidioProvedorPage() {
         apiSecret: apiSecret.trim() || undefined,
         departmentPadraoId: departmentId,
         departmentPadraoNome: departmentNome,
+        departmentOnboardingId: onbId,
+        departmentOnboardingNome: onbNome,
         webhookKey: webhookKey.trim() || undefined,
         isActive,
       })
@@ -136,33 +173,21 @@ export default function NuvidioProvedorPage() {
       </div>
 
       <div className="card" style={{ padding: '1.2rem', marginBottom: '1rem' }}>
-        <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 0.9rem' }}>Departamento padrão</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.9rem' }}>
-          <div>
-            <label style={rotulo}>Departamento</label>
-            {departments.length > 0 ? (
-              <select
-                className="form-control"
-                value={departmentId}
-                onChange={(e) => {
-                  setDepartmentId(e.target.value)
-                  setDepartmentNome(departments.find((d) => d.id === e.target.value)?.nome || '')
-                }}
-              >
-                <option value="">— Escolha —</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.nome}</option>
-                ))}
-              </select>
-            ) : (
-              <input className="form-control" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} placeholder="Id do departamento (use Testar conexão para listar)" />
-            )}
-          </div>
-          <div>
-            <label style={rotulo}>Nome (exibição)</label>
-            <input className="form-control" value={departmentNome} onChange={(e) => setDepartmentNome(e.target.value)} placeholder="ex.: Confirmação de Propostas" />
-          </div>
-        </div>
+        <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 0.3rem' }}>Departamento padrão — clientes de empréstimo</h2>
+        <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', margin: '0 0 0.8rem' }}>
+          Fila que atende a confirmação de propostas de clientes. Vem pré-selecionado em Operacional › Nuvidio › Criar Link
+          (dá para trocar a cada link).
+        </p>
+        <SeletorDepartamento rotulo={rotulo} lista={departments} id={departmentId} nome={departmentNome} onChange={(i, n) => { setDepartmentId(i); setDepartmentNome(n) }} />
+      </div>
+
+      <div className="card" style={{ padding: '1.2rem', marginBottom: '1rem' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 0.3rem' }}>Departamento de Cadastro de Parceiros</h2>
+        <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem', margin: '0 0 0.8rem' }}>
+          Fila que atende a videochamada de onboarding. O sistema usa este departamento sozinho ao gerar o link na etapa
+          Nuvidio dos Cadastros Recebidos.
+        </p>
+        <SeletorDepartamento rotulo={rotulo} lista={departments} id={onbId} nome={onbNome} onChange={(i, n) => { setOnbId(i); setOnbNome(n) }} />
       </div>
 
       <div className="card" style={{ padding: '1.2rem', marginBottom: '1rem' }}>

@@ -124,7 +124,7 @@ export async function gerarConviteNuvidioOnboarding(processoId: string): Promise
 
     const config = await lerNuvidioConfigRow()
     if (!config?.api_key_enc) throw new Error('API da Nuvidio não configurada (Provedores e APIs › Nuvidio).')
-    if (!config.department_padrao_id) throw new Error('Defina o departamento padrão no card da Nuvidio.')
+    if (!config.department_onboarding_id) throw new Error('Defina o Departamento de Cadastro de Parceiros no card da Nuvidio (Provedores e APIs › Nuvidio).')
 
     const contato = resolverContatoParceiro(agente.corban_data || {}, agente.name)
     const customerData: Array<{ value: string; label: string }> = [{ value: contato.nome, label: 'name' }]
@@ -133,15 +133,15 @@ export async function gerarConviteNuvidioOnboarding(processoId: string): Promise
     customerData.push({ value: String(agente.cpf_cnpj || ''), label: 'documento' })
 
     const expirationDate = new Date(Date.now() + 72 * 3600 * 1000).toISOString()
-    const invite = await criarInvite({ departmentId: config.department_padrao_id, expirationDate, customerData })
+    const invite = await criarInvite({ departmentId: config.department_onboarding_id, expirationDate, customerData })
 
     await admin.from('nuvidio_convites').insert({
       origem: 'onboarding',
       processo_id: processoId,
       invite_id: invite.inviteId,
       link: invite.link,
-      department_id: config.department_padrao_id,
-      department_nome: config.department_padrao_nome || '',
+      department_id: config.department_onboarding_id,
+      department_nome: config.department_onboarding_nome || '',
       expiration_at: expirationDate,
       cpf: String(agente.cpf_cnpj || '').replace(/\D/g, ''),
       nome_cliente: contato.nome,
