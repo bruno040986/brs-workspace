@@ -598,8 +598,10 @@ export function useAtendimento() {
     setErro(null)
     try {
       const form = new FormData()
-      form.append('file', new File([blob], 'audio.ogg', { type: blob.type || 'audio/ogg' }))
-      await enviarAudioConversa(selecionada.id, form)
+      const tipo = (blob.type || 'audio/ogg').split(';')[0]
+      form.append('file', new File([blob], `audio.${tipo === 'audio/webm' ? 'webm' : 'ogg'}`, { type: tipo }))
+      const r = await enviarAudioConversa(selecionada.id, form)
+      if (!r.ok) throw new Error(r.error)
       void marcarConversaLida(selecionada.id).catch(() => {})
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()

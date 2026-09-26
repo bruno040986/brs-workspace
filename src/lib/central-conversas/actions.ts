@@ -1290,16 +1290,23 @@ export async function enviarAnexoConversa(conversationId: number, formData: Form
 }
 
 /**
- * Áudio gravado no composer (MediaRecorder → ogg/opus; aceitamos também
- * audio/webm com opus, que é o que o Chrome entrega). Sem assinatura.
+ * Áudio gravado no composer (ogg/opus do Firefox ou webm/opus do Chrome; o
+ * engine converte SEMPRE pra OGG/Opus mono antes de mandar como nota de voz).
+ * Sem assinatura. Retorna `{ok:false,error}` em vez de lançar: o Next apaga a
+ * mensagem de um Error lançado em produção (ver transferirConversa).
  */
-export async function enviarAudioConversa(conversationId: number, formData: FormData): Promise<{ id: number }> {
-  await requirePermission('conversas', 'can_view')
-  const cli = await clienteChatwootBrs()
-  if (!cli) throw new Error('Chatwoot não provisionado.')
-  const arquivo = await arquivoDoFormData(formData)
-  if (!['audio/ogg', 'audio/opus', 'audio/webm'].includes(arquivo.mime)) throw new Error('Formato de áudio não suportado (esperado ogg/opus do gravador).')
-  return cli.enviarMensagemComAnexo(conversationId, arquivo)
+export async function enviarAudioConversa(conversationId: number, formData: FormData): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const cli = await clienteChatwootBrs()
+    if (!cli) throw new Error('Chatwoot não provisionado.')
+    const arquivo = await arquivoDoFormData(formData)
+    if (!['audio/ogg', 'audio/opus', 'audio/webm'].includes(arquivo.mime)) throw new Error('Formato de áudio não suportado (esperado ogg/opus ou webm do gravador).')
+    const { id } = await cli.enviarMensagemComAnexo(conversationId, arquivo)
+    return { ok: true, id }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Falha ao enviar áudio.' }
+  }
 }
 
 /** Nota interna (visual âmbar na UI): só o time vê. NUNCA assinada. */

@@ -404,9 +404,10 @@ export default function ThreadConversa({
 
   async function iniciarGravacao() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Voz limpa: cancelamento de eco/ruído + mono 48 kHz (o chiado vinha do áudio bruto do microfone).
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 } })
       const tipo = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/webm;codecs=opus'
-      const rec = new MediaRecorder(stream, { mimeType: tipo })
+      const rec = new MediaRecorder(stream, { mimeType: tipo, audioBitsPerSecond: 64000 })
       chunksRef.current = []
       rec.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
