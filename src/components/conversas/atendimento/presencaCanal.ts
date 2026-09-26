@@ -3,7 +3,8 @@ import { createClient } from '@/lib/supabase/client'
 export type PresencaRecebida = { instanciaId: string; jid: string; estado: 'digitando' | 'gravando' | 'online' | 'offline' | 'parado'; em: number }
 
 /**
- * Canal de presença (broadcast do engine, `presenca-conta-<chatwoot_account_id>`).
+ * Canal de presença (broadcast do engine, `presenca-conta-<chatwoot_account_id>`), PRIVADO:
+ * a policy em realtime.messages (migration presenca_canal_privado) decide quem recebe.
  * Um canal só por página: o dock e /conversas montam useAtendimento juntos e o
  * supabase-js não aceita dois `.on()` no mesmo tópico depois do subscribe.
  */
@@ -18,7 +19,7 @@ export function ouvirPresenca(accountId: number, cb: (p: PresencaRecebida) => vo
     if (canal) void supabase.removeChannel(canal)
     conta = accountId
     canal = supabase
-      .channel(`presenca-conta-${accountId}`)
+      .channel(`presenca-conta-${accountId}`, { config: { private: true } })
       .on('broadcast', { event: 'presenca' }, ({ payload }) => ouvintes.forEach((o) => o(payload as PresencaRecebida)))
       .subscribe()
   }
