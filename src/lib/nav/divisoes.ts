@@ -301,6 +301,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Macros', href: '/central-conversas/macros', perms: [view('central-conversas')] },
           { label: 'Atributos', href: '/central-conversas/atributos', perms: [view('central-conversas')] },
           { label: 'Pesquisa de satisfação', href: '/central-conversas/pesquisa-satisfacao', perms: [view('central-conversas')] },
+          { label: 'Central de ajuda', href: '/central-conversas/ajuda', perms: [view('central-conversas')] },
           { label: 'Respostas rápidas', href: '/central-conversas/respostas-rapidas', perms: [view('central-conversas')] },
           { label: 'Grupos Internos', href: '/central-conversas/grupos', perms: [view('central-conversas')] },
           { label: 'Atendimento (tela cheia)', href: '/conversas', perms: [view('conversas')] },

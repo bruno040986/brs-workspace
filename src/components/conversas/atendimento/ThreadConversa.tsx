@@ -39,6 +39,7 @@ import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
 import AcoesAparelho from './AcoesAparelho'
 import MacroConversa from './MacroConversa'
+import EnviarArtigo from './EnviarArtigo'
 import EnvioEspecialMenu from './EnvioEspecial'
 import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
 import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
@@ -1159,6 +1160,7 @@ export default function ThreadConversa({
               />
             )}
           </div>
+          {!notaInterna && <EnviarArtigo onInserir={(link) => setTexto((prev) => (prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? `${prev} ${link}` : `${prev}${link}`))} onErro={(m) => exibirToast(m)} />}
           {!notaInterna && (
             <EnvioEspecialMenu conversationId={conversa.id} onEnviado={() => irParaMensagemEnviada()} onErro={(m) => exibirToast(m)} />
           )}
