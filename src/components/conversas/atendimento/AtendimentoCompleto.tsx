@@ -50,6 +50,7 @@ export default function AtendimentoCompleto() {
           selecionadaId={at.selecionada?.id ?? null}
           onSelecionar={at.selecionarConversa}
           onNovaConversa={at.novaConversa}
+            onGrupoCriado={at.abrirConversaCriada}
           temMais={at.temMaisConversas}
           onCarregarMais={at.carregarMaisConversas}
         />
@@ -79,6 +80,8 @@ export default function AtendimentoCompleto() {
             conversas={at.conversas}
             onReagirMensagem={at.reagirMensagem}
             onApagarMensagem={at.apagarMensagem}
+            onEditarMensagem={at.editarMensagem}
+            presenca={at.presencaContato}
             onEncaminharMensagem={at.encaminharMensagem}
             onSelecionarConversa={at.selecionarConversa}
             onNovaConversa={at.novaConversa}

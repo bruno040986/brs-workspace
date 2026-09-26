@@ -28,6 +28,7 @@ import {
   User,
   UserCog,
   UserPlus,
+  Pencil,
   X,
   ZoomIn,
   ZoomOut,
@@ -36,7 +37,10 @@ import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
 import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
-import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
+import AcoesAparelho from './AcoesAparelho'
+import EnvioEspecialMenu from './EnvioEspecial'
+import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
+import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
 import { getGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { MembroGrupo } from '@/lib/central-conversas/engine'
@@ -86,7 +90,11 @@ type Props = {
   onEncerrar: (motivo?: string) => Promise<void>
   conversas?: ConversaAtendimento[]
   onReagirMensagem?: (messageId: number, emoji: string) => Promise<void>
-  onApagarMensagem?: (messageId: number) => Promise<void>
+  onApagarMensagem?: (messageId: number) => Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }>
+  /** Devolve o texto do erro (ou null se editou); ver useAtendimento.editarMensagem. */
+  onEditarMensagem?: (messageId: number, texto: string) => Promise<string | null>
+  /** Presença do contato (só individual): digitando/gravando/online. */
+  presenca?: 'digitando' | 'gravando' | 'online' | 'offline' | 'parado' | null
   onEncaminharMensagem?: (sourceMessage: MensagemComExtras, targetConversationId: number) => Promise<void>
   onSelecionarConversa?: (c: ConversaAtendimento | null) => void
   onNovaConversa?: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<any>
@@ -174,6 +182,8 @@ export default function ThreadConversa({
   conversas,
   onReagirMensagem,
   onApagarMensagem,
+  onEditarMensagem,
+  presenca,
   onEncaminharMensagem,
   onSelecionarConversa,
   onNovaConversa,
@@ -204,6 +214,12 @@ export default function ThreadConversa({
   const [hoverMessageId, setHoverMessageId] = useState<number | null>(null)
   const [menuMensagemId, setMenuMensagemId] = useState<number | null>(null)
   const [modalEncaminhar, setModalEncaminhar] = useState<MensagemComExtras | null>(null)
+  // Encaminhar em lote (B4): mensagens marcadas, na ordem em que aparecem na thread.
+  const [selecao, setSelecao] = useState<Set<number> | null>(null)
+  const [loteEncaminhar, setLoteEncaminhar] = useState<MensagemComExtras[] | null>(null)
+  const [encaminhandoLote, setEncaminhandoLote] = useState(false)
+  // Edição no lugar (A3): `prefixo` = assinatura `*Nome:*\n` da original, preservada ao salvar.
+  const [edicaoAberta, setEdicaoAberta] = useState<{ id: number; prefixo: string; corpo: string; erro: string | null; salvando: boolean } | null>(null)
   const [filtroEncaminhar, setFiltroEncaminhar] = useState('')
   const [mensagensFixadas, setMensagensFixadas] = useState<Set<number>>(new Set())
   const [mensagensFavoritas, setMensagensFavoritas] = useState<Set<number>>(new Set())
@@ -308,15 +324,15 @@ export default function ThreadConversa({
     return (membrosGrupo || [])
       .filter((m) => {
         if (!m) return false
-        const rotulo = formatarContatoMencao(m)
-        return rotulo.toLowerCase().includes(alvo)
+        return `${formatarContatoMencao(m)} ${m.numero || ''}`.toLowerCase().includes(alvo)
       })
-      .slice(0, 6)
+      .slice(0, 8)
   }, [termoMencao, membrosGrupo])
 
   function escolherMencao(m: MembroGrupo) {
     if (!m) return
-    const rotulo = formatarContatoMencao(m)
+    // O WhatsApp só destaca a menção quando o texto tem `@<número>` do JID mencionado.
+    const rotulo = m.numero || m.jid.replace(/@.*$/, '')
     setTexto((prev) => prev.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(' ') ? ' ' : ''}@${rotulo} `))
     setMencoesAtuais((prev) => {
       const novo = new Map(prev)
@@ -356,9 +372,31 @@ export default function ThreadConversa({
     }
   }
 
+  // Presença enviada ao contato: 'composing' a cada 3 s enquanto digita, 'paused' após 4 s parado ou ao enviar.
+  const presencaEnvio = useRef<{ ultimo: number; timer: ReturnType<typeof setTimeout> | null }>({ ultimo: 0, timer: null })
+  function pulsoPresenca(estado: 'composing' | 'recording' | 'paused') {
+    const alvo = grupo || notaInterna ? null : parseIdentifier(conversa.meta.sender?.identifier)
+    if (!alvo?.jid.endsWith('@s.whatsapp.net')) return
+    const p = presencaEnvio.current
+    if (p.timer) clearTimeout(p.timer)
+    p.timer = null
+    if (estado === 'composing') {
+      if (Date.now() - p.ultimo > 3000) {
+        p.ultimo = Date.now()
+        void enviarPresencaConversa(alvo.instanciaId, alvo.jid, 'composing')
+      }
+      p.timer = setTimeout(() => pulsoPresenca('paused'), 4000)
+    } else {
+      p.ultimo = 0
+      void enviarPresencaConversa(alvo.instanciaId, alvo.jid, estado)
+    }
+  }
+  useEffect(() => () => { if (presencaEnvio.current.timer) clearTimeout(presencaEnvio.current.timer) }, [])
+
   async function enviar() {
     const valor = texto.trim()
     if (!valor) return
+    pulsoPresenca('paused')
     const mentions = [...mencoesAtuais.entries()].filter(([nome]) => valor.includes(`@${nome}`)).map(([, jid]) => jid)
     setTexto('')
     setMencoesAtuais(new Map())
@@ -404,9 +442,10 @@ export default function ThreadConversa({
 
   async function iniciarGravacao() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Voz limpa: cancelamento de eco/ruído + mono 48 kHz (o chiado vinha do áudio bruto do microfone).
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 } })
       const tipo = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/webm;codecs=opus'
-      const rec = new MediaRecorder(stream, { mimeType: tipo })
+      const rec = new MediaRecorder(stream, { mimeType: tipo, audioBitsPerSecond: 64000 })
       chunksRef.current = []
       rec.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
@@ -417,6 +456,7 @@ export default function ThreadConversa({
       }
       mediaRecorderRef.current = rec
       rec.start()
+      pulsoPresenca('recording')
       inicioGravacaoRef.current = Date.now()
       setDuracaoMs(0)
       setGravando('gravando')
@@ -427,12 +467,14 @@ export default function ThreadConversa({
   }
 
   function pararGravacao() {
+    pulsoPresenca('paused')
     mediaRecorderRef.current?.stop()
     if (cronometroRef.current) window.clearInterval(cronometroRef.current)
     setGravando('pronto')
   }
 
   function cancelarGravacao() {
+    pulsoPresenca('paused')
     mediaRecorderRef.current?.stop()
     if (cronometroRef.current) window.clearInterval(cronometroRef.current)
     gravacaoBlobRef.current = null
@@ -492,6 +534,11 @@ export default function ThreadConversa({
         <AvatarContato thumbnail={conversa.meta.sender?.thumbnail} nome={conversa.meta.sender?.name} tamanho={32} fontSize={12} raio={grupo ? 9 : 99} canal={conversa.meta?.channel || 'whatsapp'} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
+          {(presenca === 'digitando' || presenca === 'gravando' || presenca === 'online') && (
+            <div style={{ fontSize: 11, color: presenca === 'online' ? 'var(--msn-muted)' : '#16a34a', fontStyle: presenca === 'online' ? 'normal' : 'italic' }}>
+              {presenca === 'digitando' ? 'digitando…' : presenca === 'gravando' ? 'gravando áudio…' : 'online'}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
             {grupo && membrosGrupo.length > 0 && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', color: 'var(--msn-muted)' }}>
@@ -517,6 +564,26 @@ export default function ThreadConversa({
             {toast}
           </div>
         )}
+        {selecao && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700 }}>{selecao.size} selecionada{selecao.size === 1 ? '' : 's'}</span>
+            <button
+              type="button"
+              className="brs-messenger-primary-button"
+              style={{ padding: '3px 10px' }}
+              disabled={!selecao.size || encaminhandoLote}
+              onClick={() => {
+                const lote = mensagens.filter((x) => selecao.has(x.id))
+                if (!lote.length) return
+                setLoteEncaminhar(lote)
+                setModalEncaminhar(lote[0])
+              }}
+            >
+              <Share2 size={12} /> Encaminhar
+            </button>
+            <button type="button" className="brs-messenger-toolbar-btn" onClick={() => setSelecao(null)}>Cancelar</button>
+          </div>
+        )}
         {podeAssumirParaMim && (
           <button
             type="button"
@@ -530,6 +597,7 @@ export default function ThreadConversa({
             {alterando === 'assumindo' ? 'Assumindo…' : 'Assumir para mim'}
           </button>
         )}
+        <AcoesAparelho conversationId={conversa.id} grupo={grupo} onResultado={(m) => exibirToast(m)} />
         <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
           <Search size={18} />
         </button>
@@ -645,6 +713,10 @@ export default function ThreadConversa({
                 const aparelho = m.content_attributes?.origem === 'aparelho'
                 const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
                 let conteudo = remetente ? remetente.conteudo : m.content
+                if (m.edicao) conteudo = m.edicao.texto
+                const textoAtual = m.edicao?.texto ?? m.content ?? ''
+                // Editar: só texto nosso, sem anexo, dentro dos 15 min do WhatsApp (o servidor confere de novo).
+                const podeEditar = Boolean(onEditarMensagem && saida && !nota && !m.attachments?.length && textoAtual && m.status !== 'falhou' && Date.now() / 1000 - (m.created_at || 0) <= 15 * 60)
 
                 const ehRevogada = Boolean(
                   m.content_attributes?.revoked ||
@@ -680,9 +752,10 @@ export default function ThreadConversa({
                     {separadorEl}
                     <div
                       {...atributoChave}
+                      onClick={selecao ? () => setSelecao((p) => { const n = new Set(p); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n }) : undefined}
                       onMouseEnter={() => setHoverMessageId(m.id)}
                       onMouseLeave={() => setHoverMessageId(null)}
-                      style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3, position: 'relative' }}
+                      style={{ alignSelf: saida ? 'flex-end' : 'flex-start', maxWidth: '78%', display: 'flex', alignItems: 'flex-end', gap: 3, position: 'relative', ...(selecao ? { cursor: 'pointer', outline: selecao.has(m.id) ? '2px solid var(--msn-accent)' : undefined, borderRadius: 8 } : {}) }}
                     >
                       {!saida && (
                         <button type="button" onClick={() => onCitar(m)} className="brs-messenger-toolbar-btn" style={{ padding: 4, opacity: 0.55, flexShrink: 0 }} title="Responder citando">
@@ -735,7 +808,37 @@ export default function ThreadConversa({
                             </a>
                           ),
                         )}
-                        {exibirTexto && (
+                        {edicaoAberta?.id === m.id && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
+                            <textarea
+                              autoFocus
+                              value={edicaoAberta.corpo}
+                              onChange={(e) => setEdicaoAberta((p) => (p ? { ...p, corpo: e.target.value } : p))}
+                              rows={3}
+                              className="brs-messenger-input"
+                              style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
+                            />
+                            {edicaoAberta.erro && <div style={{ fontSize: 11, color: '#dc2626' }}>{edicaoAberta.erro}</div>}
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button type="button" className="brs-messenger-toolbar-btn" onClick={() => setEdicaoAberta(null)} disabled={edicaoAberta.salvando}>Cancelar</button>
+                              <button
+                                type="button"
+                                className="brs-messenger-primary-button"
+                                style={{ padding: '3px 10px' }}
+                                disabled={edicaoAberta.salvando || !edicaoAberta.corpo.trim() || edicaoAberta.corpo.trim() === textoAtual.slice(edicaoAberta.prefixo.length).trim()}
+                                onClick={async () => {
+                                  const ed = edicaoAberta
+                                  setEdicaoAberta({ ...ed, salvando: true, erro: null })
+                                  const erro = await onEditarMensagem!(ed.id, ed.prefixo + ed.corpo.trim()).catch(() => 'Falha ao editar a mensagem.')
+                                  setEdicaoAberta(erro ? { ...ed, salvando: false, erro } : null)
+                                }}
+                              >
+                                {edicaoAberta.salvando ? 'Salvando…' : 'Salvar'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {exibirTexto && edicaoAberta?.id !== m.id && (
                           <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, textDecoration: ehRevogada ? 'line-through' : undefined }}>
                             <TextoComMencoes texto={conteudo || ''} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
                           </div>
@@ -754,6 +857,7 @@ export default function ThreadConversa({
                           {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
                           {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
                           {dataHoraCompleta(m.created_at)}
+                          {m.edicao && <span title={m.edicao.origem === 'contato' ? 'O contato editou esta mensagem' : 'Editada no WhatsApp'}> · editada</span>}
                           {nota ? ' · nota interna' : ''}
                           {saida && !nota && (
                             <span title={m.status === 'falhou' ? 'Falha no envio' : m.status === 'lido' ? 'Lido por todos' : m.status === 'entregue' ? 'Entregue' : 'Enviado'}>
@@ -873,6 +977,28 @@ export default function ThreadConversa({
 
                             <button
                               type="button"
+                              onClick={() => { setSelecao(new Set([m.id])); setMenuMensagemId(null) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                            >
+                              <Check size={14} /> Selecionar várias
+                            </button>
+
+                            {podeEditar && !ehRevogada && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const prefixo = textoAtual.match(/^\*[^*\n]+:\*\n/)?.[0] ?? ''
+                                  setEdicaoAberta({ id: m.id, prefixo, corpo: textoAtual.slice(prefixo.length), erro: null, salvando: false })
+                                  setMenuMensagemId(null)
+                                }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                              >
+                                <Pencil size={14} /> Editar
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
                               onClick={() => { setModalEncaminhar(m); setMenuMensagemId(null) }}
                               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
                             >
@@ -932,9 +1058,12 @@ export default function ThreadConversa({
                               type="button"
                               onClick={() => {
                                 setMenuMensagemId(null)
-                                if (onApagarMensagem) void onApagarMensagem(m.id)
-                                setMensagensApagadasLocal((prev) => new Set(prev).add(m.id))
-                                exibirToast('Mensagem apagada (mantida no histórico riscada)')
+                                if (!onApagarMensagem) return
+                                void onApagarMensagem(m.id).then((r) => {
+                                  if (!r.ok) return exibirToast(r.error)
+                                  setMensagensApagadasLocal((prev) => new Set(prev).add(m.id))
+                                  exibirToast(r.paraTodos ? 'Apagada para todos no WhatsApp (mantida no histórico riscada)' : 'Apagada só aqui — o WhatsApp não permite apagar mensagem do contato')
+                                })
                               }}
                               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', borderRadius: 4, textAlign: 'left' }}
                             >
@@ -1025,6 +1154,9 @@ export default function ThreadConversa({
               />
             )}
           </div>
+          {!notaInterna && (
+            <EnvioEspecialMenu conversationId={conversa.id} onEnviado={() => irParaMensagemEnviada()} onErro={(m) => exibirToast(m)} />
+          )}
           <label className="brs-messenger-toolbar-btn brs-messenger-toolbar-file" title="Enviar arquivo">
             <Paperclip size={13} />
             <input ref={fileInputRef} type="file" className="hidden" accept={MIME_ANEXO_ACEITOS} onChange={(e) => void onEscolherArquivo(e.target.files)} />
@@ -1082,8 +1214,11 @@ export default function ThreadConversa({
                       onClick={() => escolherMencao(m)}
                       style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 8px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
                     >
-                      <AvatarContato nome={rotuloFormatado} tamanho={20} fontSize={9} />
-                      {rotuloFormatado}
+                      <AvatarContato thumbnail={m.foto} nome={rotuloFormatado} tamanho={24} fontSize={10} />
+                      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotuloFormatado}</span>
+                        {m.nome && m.numero && <span style={{ fontSize: 10, opacity: 0.7 }}>+{m.numero}</span>}
+                      </span>
                     </button>
                   )
                 })}
@@ -1093,7 +1228,11 @@ export default function ThreadConversa({
               className={`brs-messenger-composer-input ${notaInterna ? 'is-nota' : ''}`}
               placeholder={notaInterna ? 'Escreva uma nota interna (não vai pro cliente)…' : grupo ? 'Digite uma mensagem… (@ para mencionar, Ctrl+V para colar imagem)' : 'Digite uma mensagem… (Ctrl+V para colar imagem)'}
               value={texto}
-              onChange={(e) => setTexto(e.target.value)}
+              onChange={(e) => {
+                setTexto(e.target.value)
+                if (e.target.value.trim()) pulsoPresenca('composing')
+                else pulsoPresenca('paused')
+              }}
               onKeyDown={onKeyDown}
               onPaste={handlePaste}
             />
@@ -1263,8 +1402,8 @@ export default function ThreadConversa({
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 450 }} data-brs-messenger-ignore-close="true">
           <div className="brs-messenger" style={{ width: 380, maxWidth: '92vw', borderRadius: 8, overflow: 'hidden', background: 'var(--msn-surface)' }}>
             <div className="brs-messenger-titlebar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Encaminhar Mensagem</span>
-              <button type="button" onClick={() => setModalEncaminhar(null)} className="brs-messenger-toolbar-btn">
+              <span>{loteEncaminhar ? `Encaminhar ${loteEncaminhar.length} mensagens` : 'Encaminhar Mensagem'}</span>
+              <button type="button" onClick={() => { setModalEncaminhar(null); setLoteEncaminhar(null) }} className="brs-messenger-toolbar-btn">
                 <X size={14} />
               </button>
             </div>
@@ -1285,9 +1424,21 @@ export default function ThreadConversa({
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--msn-soft-border)', background: 'var(--msn-surface-alt)', cursor: 'pointer', textAlign: 'left' }}
                       onClick={async () => {
                         const msg = modalEncaminhar
+                        const lote = loteEncaminhar
                         setModalEncaminhar(null)
+                        setLoteEncaminhar(null)
                         setFiltroEncaminhar('')
-                        if (onEncaminharMensagem && msg) {
+                        if (onEncaminharMensagem && lote?.length) {
+                          // Em sequência, com intervalo: rajada de mensagens iguais é sinal de automação pro WhatsApp.
+                          setEncaminhandoLote(true)
+                          for (const [i, item] of lote.entries()) {
+                            await onEncaminharMensagem(item, c.id)
+                            if (i < lote.length - 1) await new Promise((r) => setTimeout(r, 1500))
+                          }
+                          setEncaminhandoLote(false)
+                          setSelecao(null)
+                          exibirToast(`${lote.length} mensagens encaminhadas para ${c.meta?.sender?.name || 'conversa'}`)
+                        } else if (onEncaminharMensagem && msg) {
                           await onEncaminharMensagem(msg, c.id)
                           exibirToast(`Mensagem encaminhada para ${c.meta?.sender?.name || 'conversa'}`)
                         }

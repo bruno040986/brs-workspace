@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { ehGrupo, parseIdentifier } from './types'
 import { pollingVisivel } from '@/lib/polling-visivel'
+import { assinarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
+import { ouvirPresenca, type PresencaRecebida } from './presencaCanal'
 import { mergeChatwootMessages, type ChatwootMensagem } from '@/lib/central-conversas/chatwoot'
 import {
   addNotaInterna,
   apagarMensagem as apagarMensagemAction,
+  editarMensagemConversa,
   assumirConversa,
   buscarEntidades,
   encaminharMensagem as encaminharMensagemAction,
@@ -125,6 +129,10 @@ export function useAtendimento() {
   const [citacao, setCitacao] = useState<MensagemComExtras | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  // Presença do contato da conversa aberta (só individual): 'digitando'/'gravando' expiram sozinhos
+  // em 12 s caso o 'parado' do WhatsApp se perca; 'online' vale até chegar 'offline'.
+  const [presencaContato, setPresencaContato] = useState<PresencaRecebida['estado'] | null>(null)
 
   const selecionadaIdRef = useRef<number | null>(null)
   useEffect(() => {
@@ -417,6 +425,25 @@ export function useAtendimento() {
     carregarContadoresRef.current = carregarContadores
   }, [carregarLista, carregarThread, carregarContadores])
   useEffect(() => {
+    setPresencaContato(null)
+    const alvo = selecionada && !ehGrupo(selecionada) ? parseIdentifier(selecionada.meta.sender?.identifier) : null
+    if (!accountId || !alvo?.jid.endsWith('@s.whatsapp.net')) return
+    void assinarPresencaConversa(alvo.instanciaId, alvo.jid)
+    let expira: ReturnType<typeof setTimeout> | null = null
+    const parar = ouvirPresenca(accountId, (p) => {
+      if (p.jid !== alvo.jid || p.instanciaId !== alvo.instanciaId) return
+      if (expira) clearTimeout(expira)
+      setPresencaContato(p.estado === 'parado' ? null : p.estado)
+      if (p.estado === 'digitando' || p.estado === 'gravando') expira = setTimeout(() => setPresencaContato(null), 12_000)
+    })
+    return () => {
+      parar()
+      if (expira) clearTimeout(expira)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecionada?.id, accountId])
+
+  useEffect(() => {
     if (!accountId) return
     const supabase = createClient()
     const carregarLista = () => carregarListaRef.current()
@@ -446,6 +473,10 @@ export function useAtendimento() {
         },
       )
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mensagem_status' }, (payload) => {
+        const row = payload.new as { chatwoot_message_id?: number }
+        if (row.chatwoot_message_id !== undefined && mensagensIdsRef.current.has(row.chatwoot_message_id)) refetchThreadDebounced()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mensagem_edicoes' }, (payload) => {
         const row = payload.new as { chatwoot_message_id?: number }
         if (row.chatwoot_message_id !== undefined && mensagensIdsRef.current.has(row.chatwoot_message_id)) refetchThreadDebounced()
       })
@@ -598,8 +629,10 @@ export function useAtendimento() {
     setErro(null)
     try {
       const form = new FormData()
-      form.append('file', new File([blob], 'audio.ogg', { type: blob.type || 'audio/ogg' }))
-      await enviarAudioConversa(selecionada.id, form)
+      const tipo = (blob.type || 'audio/ogg').split(';')[0]
+      form.append('file', new File([blob], `audio.${tipo === 'audio/webm' ? 'webm' : 'ogg'}`, { type: tipo }))
+      const r = await enviarAudioConversa(selecionada.id, form)
+      if (!r.ok) throw new Error(r.error)
       void marcarConversaLida(selecionada.id).catch(() => {})
       await carregarThread(selecionada.id, { silencioso: true })
       void carregarLista()
@@ -866,21 +899,21 @@ export function useAtendimento() {
       r = { resultado: 'incerto', mensagem: err instanceof Error ? err.message : 'Falha ao comunicar com o servidor.' }
     }
 
-    if (r.resultado === 'confirmado') {
-      // Atualiza a lista e seleciona a nova conversa em segundo plano para não travar a UI nem o fechamento do modal
-      void (async () => {
-        try {
-          const lista = await carregarLista()
-          if (r.resultado === 'confirmado' && r.conversationId) {
-            const encontrada = lista.find((c) => c.id === r.conversationId)
-            if (encontrada) selecionarConversa(encontrada)
-          }
-        } catch (err) {
-          console.error('[novaConversa] Erro ao carregar lista em segundo plano:', err)
-        }
-      })()
-    }
+    if (r.resultado === 'confirmado') abrirConversaCriada(r.conversationId)
     return r
+  }
+
+  /** Atualiza a lista e seleciona a conversa recém-criada em segundo plano para não travar a UI nem o fechamento do modal. */
+  function abrirConversaCriada(conversationId?: number | null) {
+    void (async () => {
+      try {
+        const lista = await carregarLista()
+        const encontrada = conversationId ? lista.find((c) => c.id === conversationId) : undefined
+        if (encontrada) selecionarConversa(encontrada)
+      } catch (err) {
+        console.error('[abrirConversaCriada] Erro ao carregar lista em segundo plano:', err)
+      }
+    })()
   }
 
   async function reagirMensagem(messageId: number, emoji: string) {
@@ -893,14 +926,21 @@ export function useAtendimento() {
     }
   }
 
-  async function apagarMensagem(messageId: number) {
-    if (!selecionada) return
-    try {
-      await apagarMensagemAction(selecionada.id, messageId)
-      await carregarThread(selecionada.id, { silencioso: true })
-    } catch (err) {
-      setErro(mensagem(err, 'Falha ao apagar mensagem.'))
-    }
+  /** Devolve o erro (texto) pra o editor da bolha mostrar; sucesso = null e a thread refaz o fetch. */
+  async function editarMensagem(messageId: number, texto: string): Promise<string | null> {
+    if (!selecionada) return 'Nenhuma conversa aberta.'
+    const r = await editarMensagemConversa(selecionada.id, messageId, texto)
+    if (!r.ok) return r.error
+    await carregarThread(selecionada.id, { silencioso: true })
+    return null
+  }
+
+  /** Devolve o resultado real (para todos / só aqui / erro) — a tela só marca como apagada depois dele. */
+  async function apagarMensagem(messageId: number): Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }> {
+    if (!selecionada) return { ok: false, error: 'Nenhuma conversa aberta.' }
+    const r = await apagarMensagemAction(selecionada.id, messageId).catch(() => ({ ok: false as const, error: 'Falha ao apagar mensagem.' }))
+    if (r.ok) await carregarThread(selecionada.id, { silencioso: true })
+    return r
   }
 
   async function encaminharMensagem(sourceMessage: MensagemComExtras, targetConversationId: number) {
@@ -987,9 +1027,12 @@ export function useAtendimento() {
     salvarTagsContato,
     buscarEntidades: buscarEntidadesFn,
     novaConversa,
+    presencaContato,
+    abrirConversaCriada,
     recarregarLista: carregarLista,
     reagirMensagem,
     apagarMensagem,
+    editarMensagem,
     encaminharMensagem,
   }
 }

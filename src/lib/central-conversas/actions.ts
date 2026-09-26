@@ -20,7 +20,7 @@ export async function podeAtenderConversas(): Promise<boolean> {
 }
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
-import { engine, engineConfigurado, EngineEnvioIncertoError } from './engine'
+import { engine, engineConfigurado, EngineEnvioIncertoError, mensagemErroEngine } from './engine'
 import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
 import { listarAgendamentos, type AcaoAgendada } from './agendamento-actions'
@@ -1150,7 +1150,7 @@ export async function buscarEntidades(q: string): Promise<{ parceiros: EntidadeB
   }
 }
 
-export type MensagemExtras = { status?: 'enviado' | 'entregue' | 'lido' | 'falhou'; reacoes: Array<{ jid: string; emoji: string }> }
+export type MensagemExtras = { status?: 'enviado' | 'entregue' | 'lido' | 'falhou'; reacoes: Array<{ jid: string; emoji: string }>; /** Texto atual de mensagem editada no WhatsApp (chat_mensagem_edicoes); o original fica no Chatwoot. */ edicao?: { texto: string; origem: 'nos' | 'contato' } }
 export type MensagemComExtras = ChatwootMensagem & MensagemExtras
 
 /**
@@ -1170,10 +1170,13 @@ export async function getMensagens(conversationId: number, before?: number): Pro
     const ids = payload.map((m) => m.id)
     if (conta && ids.length) {
       const admin = await createAdminClient()
-      const [{ data: status }, { data: reacoes }] = await Promise.all([
+      const [{ data: status }, { data: reacoes }, { data: edicoes }] = await Promise.all([
         admin.from('chat_mensagem_status').select('chatwoot_message_id, status').eq('conta_id', conta.id).in('chatwoot_message_id', ids),
         admin.from('chat_mensagem_reacoes').select('chatwoot_message_id, jid, emoji').eq('conta_id', conta.id).in('chatwoot_message_id', ids),
+        // Tabela nova: sem a migration aplicada o select devolve erro (data null) e a conversa segue sem "editada".
+        admin.from('chat_mensagem_edicoes').select('chatwoot_message_id, texto_novo, origem').eq('conta_id', conta.id).in('chatwoot_message_id', ids),
       ])
+      const edicaoPorMsg = new Map((edicoes || []).map((e: any) => [e.chatwoot_message_id, { texto: String(e.texto_novo), origem: e.origem as 'nos' | 'contato' }]))
       const statusPorMsg = new Map((status || []).map((s: any) => [s.chatwoot_message_id, s.status]))
       const reacoesPorMsg = new Map<number, Array<{ jid: string; emoji: string }>>()
       for (const rr of reacoes || []) {
@@ -1181,7 +1184,7 @@ export async function getMensagens(conversationId: number, before?: number): Pro
         arr.push({ jid: String(rr.jid), emoji: String(rr.emoji) })
         reacoesPorMsg.set(rr.chatwoot_message_id, arr)
       }
-      return { ...r, payload: payload.map((m) => ({ ...m, status: statusPorMsg.get(m.id), reacoes: reacoesPorMsg.get(m.id) || [] })) }
+      return { ...r, payload: payload.map((m) => ({ ...m, status: statusPorMsg.get(m.id), reacoes: reacoesPorMsg.get(m.id) || [], edicao: edicaoPorMsg.get(m.id) })) }
     }
   } catch {
     // extras são acessórios — a conversa segue sem ticks/reações
@@ -1290,16 +1293,23 @@ export async function enviarAnexoConversa(conversationId: number, formData: Form
 }
 
 /**
- * Áudio gravado no composer (MediaRecorder → ogg/opus; aceitamos também
- * audio/webm com opus, que é o que o Chrome entrega). Sem assinatura.
+ * Áudio gravado no composer (ogg/opus do Firefox ou webm/opus do Chrome; o
+ * engine converte SEMPRE pra OGG/Opus mono antes de mandar como nota de voz).
+ * Sem assinatura. Retorna `{ok:false,error}` em vez de lançar: o Next apaga a
+ * mensagem de um Error lançado em produção (ver transferirConversa).
  */
-export async function enviarAudioConversa(conversationId: number, formData: FormData): Promise<{ id: number }> {
-  await requirePermission('conversas', 'can_view')
-  const cli = await clienteChatwootBrs()
-  if (!cli) throw new Error('Chatwoot não provisionado.')
-  const arquivo = await arquivoDoFormData(formData)
-  if (!['audio/ogg', 'audio/opus', 'audio/webm'].includes(arquivo.mime)) throw new Error('Formato de áudio não suportado (esperado ogg/opus do gravador).')
-  return cli.enviarMensagemComAnexo(conversationId, arquivo)
+export async function enviarAudioConversa(conversationId: number, formData: FormData): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const cli = await clienteChatwootBrs()
+    if (!cli) throw new Error('Chatwoot não provisionado.')
+    const arquivo = await arquivoDoFormData(formData)
+    if (!['audio/ogg', 'audio/opus', 'audio/webm'].includes(arquivo.mime)) throw new Error('Formato de áudio não suportado (esperado ogg/opus ou webm do gravador).')
+    const { id } = await cli.enviarMensagemComAnexo(conversationId, arquivo)
+    return { ok: true, id }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Falha ao enviar áudio.' }
+  }
 }
 
 /** Nota interna (visual âmbar na UI): só o time vê. NUNCA assinada. */
@@ -1412,6 +1422,40 @@ export async function setTagsContato(contactId: number, tags: string[]): Promise
 // Reações, Apagar/Revogar e Encaminhamento de Mensagens
 // ---------------------------------------------------------------------------
 
+/** Prazo do WhatsApp para editar texto enviado (o engine confere de novo, pelo relógio dele). */
+const EDICAO_JANELA_MS = 15 * 60 * 1000
+
+/**
+ * Edita no WhatsApp uma mensagem de texto NOSSA (≤ 15 min). `texto` é o texto
+ * inteiro já com a assinatura `*Nome:*\n` da original (a tela preserva o prefixo).
+ * Retorna `{ok:false,error}` em vez de lançar (o Next apaga a mensagem de Error em produção).
+ */
+export async function editarMensagemConversa(conversationId: number, messageId: number, texto: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const conta = await contaBrs()
+    if (!conta) throw new Error('Conta do BRS Messenger não provisionada.')
+    const novo = String(texto || '').trim()
+    if (!novo) throw new Error('Digite o novo texto da mensagem.')
+    const admin = await createAdminClient()
+    const { data: mapa } = await admin
+      .from('chat_mensagens_mapa')
+      .select('instancia_id, wa_id, from_me, created_at, chatwoot_conversation_id')
+      .eq('conta_id', conta.id)
+      .eq('chatwoot_message_id', messageId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (!mapa || mapa.chatwoot_conversation_id !== conversationId) throw new Error('Esta mensagem não tem vínculo com o WhatsApp e não pode ser editada.')
+    if (!mapa.from_me) throw new Error('Só é possível editar mensagens enviadas por nós.')
+    if (Date.now() - Date.parse(String(mapa.created_at)) > EDICAO_JANELA_MS) throw new Error('O WhatsApp só permite editar até 15 minutos depois do envio.')
+    await engine.editarMensagem(String(mapa.instancia_id), String(mapa.wa_id), novo)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
 export async function reagirMensagem(conversationId: number, messageId: number, emoji: string): Promise<{ ok: boolean }> {
   await requirePermission('conversas', 'can_view')
   const user = await requireCurrentUser()
@@ -1431,26 +1475,53 @@ export async function reagirMensagem(conversationId: number, messageId: number, 
   return { ok: true }
 }
 
-export async function apagarMensagem(conversationId: number, messageId: number): Promise<{ ok: boolean }> {
-  await requirePermission('conversas', 'can_view')
-  const conta = await contaBrs()
-  if (conta && messageId) {
-    const admin = await createAdminClient()
-    // Grava status revogada para que o frontend mostre como riscada (soft-delete), preservando histórico
-    await admin.from('chat_mensagem_status').upsert(
-      { conta_id: conta.id, chatwoot_message_id: messageId, status: 'revogada' },
-      { onConflict: 'conta_id,chatwoot_message_id' },
-    )
-  }
-  const cli = await clienteChatwootBrs()
-  if (cli) {
-    try {
-      await cli.req(`/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' })
-    } catch {
-      // tolerado pois o histórico é mantido em nosso banco
+/** Janela do WhatsApp para "apagar para todos" (o engine confere de novo). */
+const APAGAR_JANELA_MS = 2 * 24 * 60 * 60 * 1000
+
+/**
+ * Mensagem NOSSA vinculada ao WhatsApp e dentro de ~2 dias: apaga PARA TODOS no
+ * WhatsApp (engine) e só então marca como apagada aqui. Fora do prazo: erro claro,
+ * nada muda. Mensagem do contato (ou sem vínculo): só some da tela — o WhatsApp não
+ * deixa apagar a dos outros — e o retorno diz isso (`paraTodos: false`).
+ */
+export async function apagarMensagem(conversationId: number, messageId: number): Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const conta = await contaBrs()
+    let paraTodos = false
+    if (conta && messageId) {
+      const admin = await createAdminClient()
+      const { data: mapa } = await admin
+        .from('chat_mensagens_mapa')
+        .select('instancia_id, wa_id, from_me, created_at')
+        .eq('conta_id', conta.id)
+        .eq('chatwoot_message_id', messageId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (mapa?.from_me) {
+        if (Date.now() - Date.parse(String(mapa.created_at)) > APAGAR_JANELA_MS) throw new Error('O WhatsApp só permite apagar para todos até cerca de 2 dias depois do envio.')
+        await engine.apagarParaTodos(String(mapa.instancia_id), String(mapa.wa_id))
+        paraTodos = true
+      }
+      // Grava status revogada para que o frontend mostre como riscada (soft-delete), preservando histórico
+      await admin.from('chat_mensagem_status').upsert(
+        { conta_id: conta.id, chatwoot_message_id: messageId, status: 'revogada' },
+        { onConflict: 'conta_id,chatwoot_message_id' },
+      )
     }
+    const cli = await clienteChatwootBrs()
+    if (cli) {
+      try {
+        await cli.req(`/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' })
+      } catch {
+        // tolerado pois o histórico é mantido em nosso banco
+      }
+    }
+    return { ok: true, paraTodos }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
   }
-  return { ok: true }
 }
 
 export async function encaminharMensagem(sourceMessage: MensagemComExtras, targetConversationId: number): Promise<{ ok: boolean }> {

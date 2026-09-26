@@ -107,7 +107,7 @@ export function mensagemErroEngine(err: unknown): string {
   return err instanceof Error ? err.message : 'Falha ao falar com o engine.'
 }
 
-export type MembroGrupo = { jid: string; numero: string; nome: string | null; admin: boolean; eu: boolean }
+export type MembroGrupo = { jid: string; numero: string; nome: string | null; foto?: string | null; admin: boolean; eu: boolean }
 export type DetalheGrupo = { jid: string; nome: string; descricao?: string; foto?: string; criado_em?: string; dono?: string; membros: MembroGrupo[] }
 export type ContatoConexao = { jid: string; numero: string; nome: string | null; foto?: string }
 export type AcaoParticipante = 'add' | 'remove' | 'promote' | 'demote'
@@ -122,9 +122,12 @@ export const engineGrupos = {
     return chamar<{ itens: ContatoConexao[]; total: number; page: number }>(`/instancias/${instanciaId}/contatos?${s.toString()}`)
   },
   criarGrupo: (instanciaId: string, input: { nome: string; participantes: string[] }) =>
-    chamar<{ jid: string; nome: string }>(`/instancias/${instanciaId}/grupos`, { method: 'POST', body: input }),
+    chamar<{ jid: string; nome: string; chatwootConversationId?: number | null }>(`/instancias/${instanciaId}/grupos`, { method: 'POST', body: input }),
   participantesGrupo: (instanciaId: string, jid: string, input: { acao: AcaoParticipante; jids: string[] }) =>
     chamar<{ ok: boolean; resultado: Array<{ jid: string; status: string }> }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/participantes`, { method: 'POST', body: input }),
+  atualizarGrupo: (instanciaId: string, jid: string, body: { nome?: string; descricao?: string; fotoBase64?: string }) =>
+    chamar<{ ok: boolean; alterados: string[] }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/atualizar`, { method: 'POST', body }),
+  revogarConvite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite/revogar`, { method: 'POST', body: {} }),
   convite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite`),
   sairGrupo: (instanciaId: string, jid: string) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/sair`, { method: 'POST', body: {} }),
 }
@@ -151,6 +154,11 @@ export type EnvioEngineOpcoes = {
   mentions?: string[]
   /** Resposta citando — id da mensagem NO CHATWOOT. Só Baileys. */
   quoted?: { messageId: number }
+  /** B2: localização, contato, enquete ou figurinha (contrato em engine/src/especial.ts). Só Baileys. */
+  especial?: Record<string, unknown>
+  /** B2: imagem (data URL/base64) — com `visualizacaoUnica` some depois de aberta. */
+  imagemBase64?: string
+  visualizacaoUnica?: boolean
 }
 
 /**
@@ -210,6 +218,9 @@ async function enviarPorInstancia(instanciaId: string, destino: string, texto: s
   const body: Record<string, unknown> = { destino, texto, operationId }
   if (opcoes.mentions?.length) body.mentions = opcoes.mentions
   if (opcoes.quoted?.messageId) body.quoted = { messageId: opcoes.quoted.messageId }
+  if (opcoes.especial) body.especial = opcoes.especial
+  if (opcoes.imagemBase64) body.imagemBase64 = opcoes.imagemBase64
+  if (opcoes.visualizacaoUnica) body.visualizacaoUnica = true
   const incerto = (motivo: MotivoIncerto, msg: string) => new EngineEnvioIncertoError(msg, operationId, motivo)
 
   const controller = new AbortController()
@@ -259,6 +270,14 @@ export const engine = {
   status: (instanciaId: string) => chamar<EngineStatusResposta>(`/instancias/${instanciaId}/status`),
   desconectar: (instanciaId: string, logout: boolean) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/desconectar`, { method: 'POST', body: { logout } }),
   enviar: enviarPorInstancia,
+  apagarParaTodos: (instanciaId: string, waId: string) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/apagar`, { method: 'POST', body: {} }),
+  acaoChat: (instanciaId: string, body: { jid: string; acao: string; duracaoMs?: number }) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/chat-acao`, { method: 'POST', body }),
+  presenca: (instanciaId: string, body: { jid: string; estado?: 'composing' | 'recording' | 'paused'; assinar?: boolean }) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/presenca`, { method: 'POST', body, timeoutMs: 5000 }),
+  editarMensagem: (instanciaId: string, waId: string, texto: string) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/editar`, { method: 'POST', body: { texto } }),
   saude: async () => {
     try {
       const res = await fetch(`${base()}/health`, { signal: AbortSignal.timeout(6000) })

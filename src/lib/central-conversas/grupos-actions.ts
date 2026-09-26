@@ -13,7 +13,7 @@
 import { requirePermission, requireCurrentUser } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { clienteChatwootBrs, contaBrs } from './actions'
-import { engine, engineGrupos, mensagemErroEngine, type MembroGrupo, type ContatoConexao } from './engine'
+import { engine, engineGrupos, EngineEnvioIncertoError, mensagemErroEngine, type MembroGrupo, type ContatoConexao } from './engine'
 import { parseIdentifier } from '@/components/conversas/atendimento/types'
 
 function normalizarParticipante(input: string): string {
@@ -30,11 +30,17 @@ function normalizarParticipante(input: string): string {
  * conta BRS.
  */
 async function grupoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string }> {
+  const r = await destinoDaConversa(conversationId)
+  if (!r.jid.endsWith('@g.us')) throw new Error('Esta conversa não é um grupo.')
+  return r
+}
+
+async function destinoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string }> {
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   const conversa = await cli.conversa(conversationId)
   const parsed = parseIdentifier(conversa.meta?.sender?.identifier)
-  if (!parsed || !parsed.jid.endsWith('@g.us')) throw new Error('Esta conversa não é um grupo.')
+  if (!parsed) throw new Error('Esta conversa não tem conexão de WhatsApp associada.')
   const admin = await createAdminClient()
   const conta = await contaBrs()
   if (!conta) throw new Error('Chatwoot não provisionado.')
@@ -127,6 +133,73 @@ export async function linkConvite(conversationId: number): Promise<{ ok: true; l
   }
 }
 
+/** Nome, descrição e/ou foto (JPEG em base64, já reduzido pela tela). Só o que vier preenchido é alterado. */
+export async function atualizarGrupoConversa(conversationId: number, dados: { nome?: string; descricao?: string; fotoBase64?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await grupoDaConversa(conversationId)
+    await engineGrupos.atualizarGrupo(instanciaId, jid, dados)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
+/** Invalida o link de convite atual e devolve o novo. */
+export async function revogarLinkConvite(conversationId: number): Promise<{ ok: true; link: string } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await grupoDaConversa(conversationId)
+    const { link } = await engineGrupos.revogarConvite(instanciaId, jid)
+    return { ok: true, link }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
+export type EnvioEspecial =
+  | { tipo: 'localizacao'; lat: number; lng: number; nome?: string; endereco?: string }
+  | { tipo: 'contato'; nome: string; telefone: string }
+  | { tipo: 'enquete'; pergunta: string; opcoes: string[]; multipla?: boolean }
+  | { tipo: 'figurinha'; imagemBase64: string }
+  | { tipo: 'visualizacaoUnica'; imagemBase64: string }
+
+/**
+ * B2 (lote 2): mensagem especial na conversa aberta (Baileys). `operationId`
+ * nasce na intenção do usuário (Lote 02B) — repetir o clique com a mesma chave
+ * não duplica. Sem assinatura: localização/contato/enquete/figurinha não têm texto livre.
+ */
+export async function enviarEspecialConversa(conversationId: number, envio: EnvioEspecial, operationId: string): Promise<{ ok: true } | { ok: false; error: string; incerto?: boolean }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await destinoDaConversa(conversationId)
+    const inst = await instanciaDaConta(instanciaId)
+    if (inst.provedor !== 'baileys') throw new Error('Este tipo de mensagem só funciona em conexões Baileys.')
+    if (envio.tipo === 'visualizacaoUnica') await engine.enviar(inst.id, jid, '', { operationId, imagemBase64: envio.imagemBase64, visualizacaoUnica: true })
+    else await engine.enviar(inst.id, jid, '', { operationId, especial: envio })
+    return { ok: true }
+  } catch (err) {
+    if (err instanceof EngineEnvioIncertoError) return { ok: false, incerto: true, error: 'Não foi possível confirmar se a mensagem saiu. Confira a conversa antes de tentar de novo.' }
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
+export type AcaoAparelho = 'nao_lida' | 'lida' | 'arquivar' | 'desarquivar' | 'silenciar' | 'reativar_som' | 'bloquear' | 'desbloquear'
+
+/** B4 (lote 2): ação no APARELHO (o WhatsApp da conexão) — marcar não lida, arquivar, silenciar, bloquear. Independe do status da conversa no Workspace. */
+export async function acaoAparelhoConversa(conversationId: number, acao: AcaoAparelho, duracaoMs?: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await destinoDaConversa(conversationId)
+    const inst = await instanciaDaConta(instanciaId)
+    if (inst.provedor !== 'baileys') throw new Error('Esta ação só funciona em conexões Baileys.')
+    await engine.acaoChat(inst.id, { jid, acao, duracaoMs })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
 export async function sairDoGrupo(conversationId: number): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')
@@ -156,7 +229,7 @@ export async function buscarContatosConexao(instanciaId: string, q?: string, pag
   }
 }
 
-export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ ok: true; jid: string; nome: string } | { ok: false; error: string }> {
+export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ ok: true; jid: string; nome: string; conversationId: number | null } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')
     const user = await requireCurrentUser()
@@ -178,7 +251,7 @@ export async function criarGrupo(input: { instanciaId: string; nome: string; par
         // grupo já nasceu; a mensagem inicial é best-effort (fato 3 do roteiro)
       }
     }
-    return { ok: true, ...criado }
+    return { ok: true, jid: criado.jid, nome: criado.nome, conversationId: criado.chatwootConversationId ?? null }
   } catch (err) {
     return { ok: false, error: mensagemErroEngine(err) }
   }

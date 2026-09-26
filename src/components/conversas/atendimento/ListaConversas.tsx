@@ -42,6 +42,7 @@ type Props = {
   selecionadaId: number | null
   onSelecionar: (c: ConversaAtendimento) => void
   onNovaConversa: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<ResultadoNovaConversa>
+  onGrupoCriado?: (conversationId: number | null) => void
   temMais?: boolean
   onCarregarMais?: () => void
 }
@@ -80,6 +81,7 @@ export default function ListaConversas({
   selecionadaId,
   onSelecionar,
   onNovaConversa,
+  onGrupoCriado,
   temMais,
   onCarregarMais,
 }: Props) {
@@ -324,7 +326,7 @@ export default function ListaConversas({
       </div>
 
       {modalGrupoAberto && (
-        <NovoGrupoModal instancias={canais.instancias} onFechar={() => setModalGrupoAberto(false)} />
+        <NovoGrupoModal instancias={canais.instancias} onGrupoCriado={onGrupoCriado} onFechar={() => setModalGrupoAberto(false)} />
       )}
 
       {modalAberto && (
@@ -731,7 +733,7 @@ function NovaConversaModal({
  * `provedor='baileys'` e `status='conectada'`, NUNCA filtrar por `papel`),
  * Nome, Participantes (busca + números avulsos), Mensagem inicial opcional.
  */
-function NovoGrupoModal({ instancias, onFechar }: { instancias: InstanciaAtendimento[]; onFechar: () => void }) {
+function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: InstanciaAtendimento[]; onFechar: () => void; onGrupoCriado?: (conversationId: number | null) => void }) {
   const conectadasBaileys = useMemo(() => instancias.filter((i) => i.provedor === 'baileys' && i.status === 'conectada'), [instancias])
   const [instanciaId, setInstanciaId] = useState(conectadasBaileys[0]?.id || '')
   const [nome, setNome] = useState('')
@@ -779,6 +781,7 @@ function NovoGrupoModal({ instancias, onFechar }: { instancias: InstanciaAtendim
         return
       }
       setCriado(true)
+      onGrupoCriado?.(r.conversationId)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao criar o grupo.')
     } finally {
@@ -795,7 +798,7 @@ function NovoGrupoModal({ instancias, onFechar }: { instancias: InstanciaAtendim
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--msn-surface)' }}>
           {criado ? (
             <>
-              <div style={{ fontSize: 12.5, color: 'var(--msn-text)' }}>Grupo criado. O grupo aparece na lista quando alguém mandar a primeira mensagem.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--msn-text)' }}>Grupo criado e aberto na lista.</div>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={onFechar} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
                   Fechar

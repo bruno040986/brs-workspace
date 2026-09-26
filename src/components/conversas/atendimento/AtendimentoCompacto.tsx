@@ -99,6 +99,8 @@ export default function AtendimentoCompacto() {
             conversas={at.conversas}
             onReagirMensagem={at.reagirMensagem}
             onApagarMensagem={at.apagarMensagem}
+            onEditarMensagem={at.editarMensagem}
+            presenca={at.presencaContato}
             onEncaminharMensagem={at.encaminharMensagem}
             onSelecionarConversa={at.selecionarConversa}
             onNovaConversa={at.novaConversa}
@@ -132,6 +134,7 @@ export default function AtendimentoCompacto() {
             selecionadaId={null}
             onSelecionar={at.selecionarConversa}
             onNovaConversa={at.novaConversa}
+            onGrupoCriado={at.abrirConversaCriada}
             temMais={at.temMaisConversas}
             onCarregarMais={at.carregarMaisConversas}
           />
