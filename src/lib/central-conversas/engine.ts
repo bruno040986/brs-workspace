@@ -125,6 +125,9 @@ export const engineGrupos = {
     chamar<{ jid: string; nome: string; chatwootConversationId?: number | null }>(`/instancias/${instanciaId}/grupos`, { method: 'POST', body: input }),
   participantesGrupo: (instanciaId: string, jid: string, input: { acao: AcaoParticipante; jids: string[] }) =>
     chamar<{ ok: boolean; resultado: Array<{ jid: string; status: string }> }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/participantes`, { method: 'POST', body: input }),
+  atualizarGrupo: (instanciaId: string, jid: string, body: { nome?: string; descricao?: string; fotoBase64?: string }) =>
+    chamar<{ ok: boolean; alterados: string[] }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/atualizar`, { method: 'POST', body }),
+  revogarConvite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite/revogar`, { method: 'POST', body: {} }),
   convite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite`),
   sairGrupo: (instanciaId: string, jid: string) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/sair`, { method: 'POST', body: {} }),
 }

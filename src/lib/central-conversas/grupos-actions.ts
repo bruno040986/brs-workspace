@@ -127,6 +127,30 @@ export async function linkConvite(conversationId: number): Promise<{ ok: true; l
   }
 }
 
+/** Nome, descrição e/ou foto (JPEG em base64, já reduzido pela tela). Só o que vier preenchido é alterado. */
+export async function atualizarGrupoConversa(conversationId: number, dados: { nome?: string; descricao?: string; fotoBase64?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await grupoDaConversa(conversationId)
+    await engineGrupos.atualizarGrupo(instanciaId, jid, dados)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
+/** Invalida o link de convite atual e devolve o novo. */
+export async function revogarLinkConvite(conversationId: number): Promise<{ ok: true; link: string } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await grupoDaConversa(conversationId)
+    const { link } = await engineGrupos.revogarConvite(instanciaId, jid)
+    return { ok: true, link }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
 export async function sairDoGrupo(conversationId: number): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')

@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, CalendarClock, Check, ChevronDown, Copy, History, Images, LogOut, MailOpen, Plus, Search, Shield, ShieldOff, Trash2, UserMinus, X } from 'lucide-react'
+import { Bell, BellOff, CalendarClock, Check, ChevronDown, Copy, History, Images, LogOut, MailOpen, Pencil, Plus, RefreshCw, Search, Shield, ShieldOff, Trash2, UserMinus, X } from 'lucide-react'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
-import { alterarParticipantes, buscarContatosConexao, getGrupo, linkConvite, sairDoGrupo, type GrupoDetalhado } from '@/lib/central-conversas/grupos-actions'
+import { alterarParticipantes, atualizarGrupoConversa, buscarContatosConexao, getGrupo, linkConvite, revogarLinkConvite, sairDoGrupo, type GrupoDetalhado } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
 import AvatarContato from './AvatarContato'
 import {
@@ -770,6 +770,7 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
   const [modalAdicionar, setModalAdicionar] = useState(false)
   const [linkCopiado, setLinkCopiado] = useState(false)
   const [confirmarSaida, setConfirmarSaida] = useState(false)
+  const [editando, setEditando] = useState(false)
 
   async function carregar() {
     setCarregando(true)
@@ -824,6 +825,48 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
     }
   }
 
+  async function revogarLink() {
+    if (!window.confirm('Revogar o link de convite? Quem tem o link atual deixa de conseguir entrar; um novo link será gerado e copiado.')) return
+    try {
+      const r = await revogarLinkConvite(conversationId)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      await navigator.clipboard.writeText(r.link).catch(() => undefined)
+      setLinkCopiado(true)
+      setTimeout(() => setLinkCopiado(false), 1500)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao revogar o link.')
+    }
+  }
+
+  async function salvarEdicao(e: { nome: string; descricao: string; foto: File | null }) {
+    if (!grupo) return
+    setOcupado('__editar__')
+    try {
+      const dados: { nome?: string; descricao?: string; fotoBase64?: string } = {}
+      if (e.nome.trim() !== grupo.nome) dados.nome = e.nome.trim()
+      if (e.descricao.trim() !== (grupo.descricao || '')) dados.descricao = e.descricao.trim()
+      if (e.foto) dados.fotoBase64 = await reduzirFotoParaJpegBase64(e.foto)
+      if (!Object.keys(dados).length) {
+        setEditando(false)
+        return
+      }
+      const r = await atualizarGrupoConversa(conversationId, dados)
+      if (!r.ok) {
+        setErro(r.error)
+        return
+      }
+      setEditando(false)
+      await carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao salvar o grupo.')
+    } finally {
+      setOcupado(null)
+    }
+  }
+
   async function confirmarSairGrupo() {
     setOcupado('__sair__')
     try {
@@ -865,6 +908,8 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
         </div>
       </div>
 
+      {editando && <FormEditarGrupo grupo={grupo} salvando={ocupado === '__editar__'} onSalvar={(e) => void salvarEdicao(e)} onCancelar={() => setEditando(false)} />}
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {grupo.souAdmin && (
           <button type="button" onClick={() => setModalAdicionar(true)} className="brs-messenger-pill-btn">
@@ -874,6 +919,16 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
         <button type="button" onClick={() => void copiarLink()} className="brs-messenger-pill-btn">
           <Copy size={12} /> {linkCopiado ? 'Copiado!' : 'Copiar link de convite'}
         </button>
+        {grupo.souAdmin && (
+          <>
+            <button type="button" onClick={() => setEditando((v) => !v)} className="brs-messenger-pill-btn">
+              <Pencil size={12} /> Editar grupo
+            </button>
+            <button type="button" onClick={() => void revogarLink()} className="brs-messenger-pill-btn">
+              <RefreshCw size={12} /> Revogar link
+            </button>
+          </>
+        )}
         <button type="button" onClick={() => setConfirmarSaida(true)} className="brs-messenger-pill-btn" style={{ color: '#b91c1c' }}>
           <LogOut size={12} /> Sair do grupo
         </button>
@@ -934,6 +989,41 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Foto do grupo: reduz a no máx. 640 px e re-codifica em JPEG (a action tem limite de corpo e o WhatsApp recorta de qualquer forma). */
+async function reduzirFotoParaJpegBase64(arquivo: File): Promise<string> {
+  const bmp = await createImageBitmap(arquivo)
+  const lado = Math.min(640, Math.min(bmp.width, bmp.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = lado
+  canvas.height = lado
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Não foi possível preparar a foto.')
+  // recorte central quadrado
+  ctx.drawImage(bmp, (bmp.width - Math.min(bmp.width, bmp.height)) / 2, (bmp.height - Math.min(bmp.width, bmp.height)) / 2, Math.min(bmp.width, bmp.height), Math.min(bmp.width, bmp.height), 0, 0, lado, lado)
+  return canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+}
+
+function FormEditarGrupo({ grupo, salvando, onSalvar, onCancelar }: { grupo: GrupoDetalhado; salvando: boolean; onSalvar: (e: { nome: string; descricao: string; foto: File | null }) => void; onCancelar: () => void }) {
+  const [nome, setNome] = useState(grupo.nome)
+  const [descricao, setDescricao] = useState(grupo.descricao || '')
+  const [foto, setFoto] = useState<File | null>(null)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, border: '1px solid var(--msn-soft-border)', borderRadius: 6, background: 'var(--msn-surface-alt)' }}>
+      <input className="brs-messenger-input" value={nome} maxLength={100} onChange={(e) => setNome(e.target.value)} placeholder="Nome do grupo" />
+      <textarea className="brs-messenger-input" value={descricao} maxLength={2048} rows={3} onChange={(e) => setDescricao(e.target.value)} placeholder="Descrição do grupo" />
+      <label style={{ fontSize: 11.5, color: 'var(--msn-muted)' }}>
+        Foto (opcional): <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} />
+      </label>
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        <button type="button" className="brs-messenger-toolbar-btn" onClick={onCancelar} disabled={salvando}>Cancelar</button>
+        <button type="button" className="brs-messenger-primary-button" style={{ padding: '3px 10px' }} disabled={salvando || !nome.trim()} onClick={() => onSalvar({ nome, descricao, foto })}>
+          {salvando ? 'Salvando…' : 'Salvar'}
+        </button>
+      </div>
     </div>
   )
 }
