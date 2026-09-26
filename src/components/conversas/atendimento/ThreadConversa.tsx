@@ -37,7 +37,8 @@ import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
 import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
-import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
+import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
+import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
 import { getGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { MembroGrupo } from '@/lib/central-conversas/engine'
@@ -90,6 +91,8 @@ type Props = {
   onApagarMensagem?: (messageId: number) => Promise<void>
   /** Devolve o texto do erro (ou null se editou); ver useAtendimento.editarMensagem. */
   onEditarMensagem?: (messageId: number, texto: string) => Promise<string | null>
+  /** Presença do contato (só individual): digitando/gravando/online. */
+  presenca?: 'digitando' | 'gravando' | 'online' | 'offline' | 'parado' | null
   onEncaminharMensagem?: (sourceMessage: MensagemComExtras, targetConversationId: number) => Promise<void>
   onSelecionarConversa?: (c: ConversaAtendimento | null) => void
   onNovaConversa?: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<any>
@@ -178,6 +181,7 @@ export default function ThreadConversa({
   onReagirMensagem,
   onApagarMensagem,
   onEditarMensagem,
+  presenca,
   onEncaminharMensagem,
   onSelecionarConversa,
   onNovaConversa,
@@ -362,9 +366,31 @@ export default function ThreadConversa({
     }
   }
 
+  // Presença enviada ao contato: 'composing' a cada 3 s enquanto digita, 'paused' após 4 s parado ou ao enviar.
+  const presencaEnvio = useRef<{ ultimo: number; timer: ReturnType<typeof setTimeout> | null }>({ ultimo: 0, timer: null })
+  function pulsoPresenca(estado: 'composing' | 'recording' | 'paused') {
+    const alvo = grupo || notaInterna ? null : parseIdentifier(conversa.meta.sender?.identifier)
+    if (!alvo?.jid.endsWith('@s.whatsapp.net')) return
+    const p = presencaEnvio.current
+    if (p.timer) clearTimeout(p.timer)
+    p.timer = null
+    if (estado === 'composing') {
+      if (Date.now() - p.ultimo > 3000) {
+        p.ultimo = Date.now()
+        void enviarPresencaConversa(alvo.instanciaId, alvo.jid, 'composing')
+      }
+      p.timer = setTimeout(() => pulsoPresenca('paused'), 4000)
+    } else {
+      p.ultimo = 0
+      void enviarPresencaConversa(alvo.instanciaId, alvo.jid, estado)
+    }
+  }
+  useEffect(() => () => { if (presencaEnvio.current.timer) clearTimeout(presencaEnvio.current.timer) }, [])
+
   async function enviar() {
     const valor = texto.trim()
     if (!valor) return
+    pulsoPresenca('paused')
     const mentions = [...mencoesAtuais.entries()].filter(([nome]) => valor.includes(`@${nome}`)).map(([, jid]) => jid)
     setTexto('')
     setMencoesAtuais(new Map())
@@ -424,6 +450,7 @@ export default function ThreadConversa({
       }
       mediaRecorderRef.current = rec
       rec.start()
+      pulsoPresenca('recording')
       inicioGravacaoRef.current = Date.now()
       setDuracaoMs(0)
       setGravando('gravando')
@@ -434,12 +461,14 @@ export default function ThreadConversa({
   }
 
   function pararGravacao() {
+    pulsoPresenca('paused')
     mediaRecorderRef.current?.stop()
     if (cronometroRef.current) window.clearInterval(cronometroRef.current)
     setGravando('pronto')
   }
 
   function cancelarGravacao() {
+    pulsoPresenca('paused')
     mediaRecorderRef.current?.stop()
     if (cronometroRef.current) window.clearInterval(cronometroRef.current)
     gravacaoBlobRef.current = null
@@ -499,6 +528,11 @@ export default function ThreadConversa({
         <AvatarContato thumbnail={conversa.meta.sender?.thumbnail} nome={conversa.meta.sender?.name} tamanho={32} fontSize={12} raio={grupo ? 9 : 99} canal={conversa.meta?.channel || 'whatsapp'} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversa.meta.sender?.name || 'Sem nome'}</div>
+          {(presenca === 'digitando' || presenca === 'gravando' || presenca === 'online') && (
+            <div style={{ fontSize: 11, color: presenca === 'online' ? 'var(--msn-muted)' : '#16a34a', fontStyle: presenca === 'online' ? 'normal' : 'italic' }}>
+              {presenca === 'digitando' ? 'digitando…' : presenca === 'gravando' ? 'gravando áudio…' : 'online'}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
             {grupo && membrosGrupo.length > 0 && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: 'var(--msn-surface-alt)', border: '1px solid var(--msn-soft-border)', color: 'var(--msn-muted)' }}>
@@ -1152,7 +1186,11 @@ export default function ThreadConversa({
               className={`brs-messenger-composer-input ${notaInterna ? 'is-nota' : ''}`}
               placeholder={notaInterna ? 'Escreva uma nota interna (não vai pro cliente)…' : grupo ? 'Digite uma mensagem… (@ para mencionar, Ctrl+V para colar imagem)' : 'Digite uma mensagem… (Ctrl+V para colar imagem)'}
               value={texto}
-              onChange={(e) => setTexto(e.target.value)}
+              onChange={(e) => {
+                setTexto(e.target.value)
+                if (e.target.value.trim()) pulsoPresenca('composing')
+                else pulsoPresenca('paused')
+              }}
               onKeyDown={onKeyDown}
               onPaste={handlePaste}
             />

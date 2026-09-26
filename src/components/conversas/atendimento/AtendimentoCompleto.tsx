@@ -81,6 +81,7 @@ export default function AtendimentoCompleto() {
             onReagirMensagem={at.reagirMensagem}
             onApagarMensagem={at.apagarMensagem}
             onEditarMensagem={at.editarMensagem}
+            presenca={at.presencaContato}
             onEncaminharMensagem={at.encaminharMensagem}
             onSelecionarConversa={at.selecionarConversa}
             onNovaConversa={at.novaConversa}

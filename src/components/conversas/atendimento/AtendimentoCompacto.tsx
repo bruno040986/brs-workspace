@@ -100,6 +100,7 @@ export default function AtendimentoCompacto() {
             onReagirMensagem={at.reagirMensagem}
             onApagarMensagem={at.apagarMensagem}
             onEditarMensagem={at.editarMensagem}
+            presenca={at.presencaContato}
             onEncaminharMensagem={at.encaminharMensagem}
             onSelecionarConversa={at.selecionarConversa}
             onNovaConversa={at.novaConversa}

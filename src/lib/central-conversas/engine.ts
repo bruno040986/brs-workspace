@@ -259,6 +259,8 @@ export const engine = {
   status: (instanciaId: string) => chamar<EngineStatusResposta>(`/instancias/${instanciaId}/status`),
   desconectar: (instanciaId: string, logout: boolean) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/desconectar`, { method: 'POST', body: { logout } }),
   enviar: enviarPorInstancia,
+  presenca: (instanciaId: string, body: { jid: string; estado?: 'composing' | 'recording' | 'paused'; assinar?: boolean }) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/presenca`, { method: 'POST', body, timeoutMs: 5000 }),
   editarMensagem: (instanciaId: string, waId: string, texto: string) =>
     chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/editar`, { method: 'POST', body: { texto } }),
   saude: async () => {

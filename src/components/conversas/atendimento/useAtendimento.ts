@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { ehGrupo, parseIdentifier } from './types'
 import { pollingVisivel } from '@/lib/polling-visivel'
+import { assinarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
+import { ouvirPresenca, type PresencaRecebida } from './presencaCanal'
 import { mergeChatwootMessages, type ChatwootMensagem } from '@/lib/central-conversas/chatwoot'
 import {
   addNotaInterna,
@@ -126,6 +129,10 @@ export function useAtendimento() {
   const [citacao, setCitacao] = useState<MensagemComExtras | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+
+  // Presença do contato da conversa aberta (só individual): 'digitando'/'gravando' expiram sozinhos
+  // em 12 s caso o 'parado' do WhatsApp se perca; 'online' vale até chegar 'offline'.
+  const [presencaContato, setPresencaContato] = useState<PresencaRecebida['estado'] | null>(null)
 
   const selecionadaIdRef = useRef<number | null>(null)
   useEffect(() => {
@@ -417,6 +424,25 @@ export function useAtendimento() {
     carregarThreadRef.current = carregarThread
     carregarContadoresRef.current = carregarContadores
   }, [carregarLista, carregarThread, carregarContadores])
+  useEffect(() => {
+    setPresencaContato(null)
+    const alvo = selecionada && !ehGrupo(selecionada) ? parseIdentifier(selecionada.meta.sender?.identifier) : null
+    if (!accountId || !alvo?.jid.endsWith('@s.whatsapp.net')) return
+    void assinarPresencaConversa(alvo.instanciaId, alvo.jid)
+    let expira: ReturnType<typeof setTimeout> | null = null
+    const parar = ouvirPresenca(accountId, (p) => {
+      if (p.jid !== alvo.jid || p.instanciaId !== alvo.instanciaId) return
+      if (expira) clearTimeout(expira)
+      setPresencaContato(p.estado === 'parado' ? null : p.estado)
+      if (p.estado === 'digitando' || p.estado === 'gravando') expira = setTimeout(() => setPresencaContato(null), 12_000)
+    })
+    return () => {
+      parar()
+      if (expira) clearTimeout(expira)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecionada?.id, accountId])
+
   useEffect(() => {
     if (!accountId) return
     const supabase = createClient()
@@ -1003,6 +1029,7 @@ export function useAtendimento() {
     salvarTagsContato,
     buscarEntidades: buscarEntidadesFn,
     novaConversa,
+    presencaContato,
     abrirConversaCriada,
     recarregarLista: carregarLista,
     reagirMensagem,
