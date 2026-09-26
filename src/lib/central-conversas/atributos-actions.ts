@@ -9,7 +9,7 @@
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { clienteChatwootBrs, getContatoMetaReadOnly } from './actions'
-import { corpoDefinicao, DEFINICOES, mesclarAtributos, modeloParaApi, MOTIVOS_PADRAO, normalizarLista, type DefinicaoAtributo, type ModeloAtributo } from './atributos'
+import { corpoDefinicao, DEFINICOES, mesclarAtributos, MOTIVOS_PADRAO, normalizarLista, type DefinicaoAtributo, type ModeloAtributo } from './atributos'
 import { espelharVinculoContato, gravarAtributosContato, lerAtributosContato } from './atributos-espelho'
 
 type Falha = { ok: false; error: string }
@@ -27,7 +27,7 @@ async function cliente() {
 async function definicoesExistentes(cli: Awaited<ReturnType<typeof cliente>>): Promise<Map<string, DefinicaoChatwoot>> {
   const mapa = new Map<string, DefinicaoChatwoot>()
   for (const modelo of ['conversa', 'contato'] as ModeloAtributo[]) {
-    const r = await cli.req<DefinicaoChatwoot[] | { payload: DefinicaoChatwoot[] }>(`/custom_attribute_definitions?attribute_model=${modeloParaApi(modelo)}`)
+    const r = await cli.req<DefinicaoChatwoot[] | { payload: DefinicaoChatwoot[] }>(`/custom_attribute_definitions?attribute_model=${modelo === 'conversa' ? 'conversation_attribute' : 'contact_attribute'}`)
     for (const d of Array.isArray(r) ? r : r.payload || []) mapa.set(d.attribute_key, d)
   }
   return mapa

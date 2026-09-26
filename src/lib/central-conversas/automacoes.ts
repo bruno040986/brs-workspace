@@ -29,7 +29,7 @@ export const CONDICOES = [
   { chave: 'status', rotulo: 'Status (open/resolved/pending/snoozed)', numerico: false },
   { chave: 'assignee_id', rotulo: 'Atendente (id)', numerico: true },
   { chave: 'team_id', rotulo: 'Time (id)', numerico: true },
-  { chave: 'labels', rotulo: 'Etiqueta', numerico: false },
+  { chave: 'priority', rotulo: 'Prioridade (low/medium/high/urgent)', numerico: false },
 ] as const
 
 export const ACOES = [

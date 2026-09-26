@@ -71,10 +71,23 @@ export async function criarCategoria(portalSlug: string, entrada: { nome: string
   }
 }
 
+/** A API pagina de 25 em 25 e ignora per_page (ArticlesController#index): junta até 8 páginas. */
+async function todosArtigos(cli: Awaited<ReturnType<typeof cliente>>, portalSlug: string, status?: 'published'): Promise<Artigo[]> {
+  const saida: Artigo[] = []
+  for (let page = 1; page <= 8; page++) {
+    const q = new URLSearchParams({ page: String(page) })
+    if (status) q.set('status', status)
+    const lote = lista(await cli.req<Artigo[] | { payload: Artigo[] }>(`/portals/${encodeURIComponent(portalSlug)}/articles?${q.toString()}`))
+    saida.push(...lote)
+    if (lote.length < 25) break
+  }
+  return saida
+}
+
 export async function listarArtigos(portalSlug: string): Promise<{ ok: true; artigos: Artigo[] } | Falha> {
   try {
     await requirePermission('central-conversas', 'can_view')
-    return { ok: true, artigos: lista(await (await cliente()).req<Artigo[] | { payload: Artigo[] }>(`/portals/${encodeURIComponent(portalSlug)}/articles`)) }
+    return { ok: true, artigos: await todosArtigos(await cliente(), portalSlug) }
   } catch (e) {
     return msg(e)
   }
@@ -108,7 +121,7 @@ export async function excluirArtigo(portalSlug: string, id: number): Promise<{ o
   }
 }
 
-/** Artigos PUBLICADOS (até 100 por portal) com o link público pronto — alimenta o botão "Enviar artigo" do composer. */
+/** Artigos PUBLICADOS (até 200 por portal) com o link público pronto — alimenta o botão "Enviar artigo" do composer. */
 export async function artigosParaEnviar(): Promise<{ ok: true; artigos: Array<{ id: number; titulo: string; url: string }> } | Falha> {
   try {
     await requirePermission('conversas', 'can_view')
@@ -116,7 +129,7 @@ export async function artigosParaEnviar(): Promise<{ ok: true; artigos: Array<{ 
     const portais = lista(await cli.req<Portal[] | { payload: Portal[] }>('/portals'))
     const saida: Array<{ id: number; titulo: string; url: string }> = []
     for (const p of portais) {
-      const artigos = lista(await cli.req<Artigo[] | { payload: Artigo[] }>(`/portals/${encodeURIComponent(p.slug)}/articles?status=published&per_page=100`))
+      const artigos = await todosArtigos(cli, p.slug, 'published')
       for (const a of artigos) {
         if (a.status !== 1 && a.status !== 'published') continue
         saida.push({ id: a.id, titulo: a.title, url: linkArtigo({ base: baseUrl(), customDomain: p.custom_domain, portalSlug: p.slug, slugArtigo: a.slug }) })
