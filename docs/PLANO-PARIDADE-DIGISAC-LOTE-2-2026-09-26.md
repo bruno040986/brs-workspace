@@ -159,3 +159,89 @@ real com número de teste e print; entrada no relatório. Engine: nunca
 valida que a instância pertence à conta do chamador. Workspace: toda rota
 nova em `permissions.ts` (chave `conversas`) e handler com
 `requirePermission`; item de menu novo segue a REGRA FIXA dos 4 pontos.
+
+## D. Recursos nativos do Chatwoot a expor no Workspace (Sonnet, telas; Chatwoot já faz o resto)
+
+Princípio: o Chatwoot já implementa tudo abaixo e expõe pela API da conta
+(`ChatwootConta` em `src/lib/central-conversas/chatwoot.ts`). O trabalho é
+tela + action + permissão no Workspace; nada no engine. Cada item entra no
+menu Central de Atendimento (divisão Operacional) seguindo a REGRA FIXA dos
+4 pontos (`SYSTEM_MODULES`, `divisoes.ts`, `permissions.ts`, seed).
+Conferir cada endpoint em `https://chat.brspromotora.com.br/swagger` (a
+instância é self-hosted; a versão manda) antes de codar.
+
+### D1. Macros (Pequeno)
+API: `GET/POST/PATCH/DELETE /api/v1/accounts/{id}/macros`, executar com
+`POST /macros/{macro_id}/execute` `{ conversation_ids: [...] }`. Ações
+possíveis: atribuir agente/time, adicionar/remover etiqueta, enviar
+resposta, nota privada, mudar status/prioridade, soneca.
+- Tela: Central de Atendimento › Macros (lista, criar, editar; visibilidade
+  global ou pessoal). No cabeçalho da conversa: botão "Macro" com a lista e
+  execução em 1 clique; suporte a seleção múltipla na lista de conversas.
+- Checagem: criar macro "Encerrar com etiqueta X" e rodar em 3 conversas.
+
+### D2. SLA com alerta (Médio)
+API: `GET/POST/PATCH/DELETE /api/v1/accounts/{id}/sla_policies`
+(`first_response_time_threshold`, `next_response_time_threshold`,
+`resolution_time_threshold`, `only_during_business_hours`), aplicar por
+conversa (`sla_policy_id` no update da conversa) ou por regra de
+automação (D6). Estado: `applied_slas`/`sla_events` na conversa.
+- Tela: Central › SLA (políticas) + na conversa: seletor de política e
+  relógio com "resposta em X min" verde/amarelo/vermelho; badge na lista;
+  notificação em `workspace_notifications` quando estourar (poll ou webhook
+  `conversation_updated`).
+- Relatório: `GET /api/v2/accounts/{id}/reports?metric=...` com SLA
+  (verificar disponibilidade na versão instalada; senão calcular das
+  `applied_slas`).
+- Checagem: política de 5 min, conversa sem resposta → alerta no sino e
+  vermelho na lista.
+
+### D3. Atributos personalizados de contato e conversa (Médio)
+API: `GET/POST/PATCH/DELETE /api/v1/accounts/{id}/custom_attribute_definitions`
+(`attribute_model`: `contact_attribute` | `conversation_attribute`; tipos
+texto, número, data, lista, checkbox, link); valores em
+`contact.custom_attributes` / `conversation.custom_attributes` (PATCH).
+- Tela: Central › Atributos (definições) + painel do contato e da conversa
+  com os campos; filtro na lista por atributo (usar
+  `POST /conversations/filter`, já existe `filtrarConversas`).
+- Decisão de produto: quais campos do Workspace viram atributo (CPF,
+  convênio, parceiro/código, banco, motivo do contato) e sincronização
+  única de ida (Workspace → Chatwoot) para os já existentes em
+  `chat_contato_meta`/`chat_conversa_meta`. Não duplicar fonte da verdade:
+  o Workspace continua dono; o atributo é espelho para filtro/automação.
+- Checagem: criar "Convênio" lista, preencher em 2 contatos, filtrar.
+
+### D4. Pesquisa de satisfação ao encerrar (Pequeno)
+Nativo: inbox › CSAT (`csat_survey_enabled` no PATCH da inbox) — ao
+resolver, o Chatwoot manda a pergunta pelo mesmo canal; a resposta vai em
+`csat_survey_responses`. Como nossa inbox é do tipo API, verificar que o
+canal API envia o CSAT como mensagem (o engine só espelha `message_created`
+outgoing — a mensagem de CSAT tem `content_type: input_csat`; o engine deve
+enviar o texto e o link `survey_url`).
+- Tela: relatório CSAT (`GET /api/v1/accounts/{id}/csat_survey_responses`)
+  por atendente/período; toggle por inbox em Central › Canais.
+- Texto da pesquisa: definir com o Bruno (nota 1–5 + comentário).
+- Checagem: resolver conversa de teste → cliente recebe a pergunta →
+  responde → aparece no relatório.
+
+### D5. Central de ajuda (Médio)
+Nativo: Portais (`/api/v1/accounts/{id}/portals`, categorias e artigos
+`/portals/{slug}/articles`), site público em `chat.brspromotora.com.br/hc/<slug>`
+(ou domínio próprio, ex.: `ajuda.brspromotora.com.br`).
+- Decisão de produto: qual conteúdo publica (FAQ do parceiro, regras dos
+  convênios da Base de Conhecimento já existente), público ou por link.
+- Tela: Central › Central de Ajuda (portal, categorias, artigos com o
+  editor já usado nos Templates); no composer, botão "Enviar artigo" que
+  busca por título e insere o link.
+- Checagem: publicar 1 artigo, abrir a URL pública, enviar o link por uma
+  conversa.
+
+### D6. Regras de automação (bônus, Pequeno)
+`/api/v1/accounts/{id}/automation_rules`: evento (conversa criada,
+mensagem criada, atualizada) + condições (inbox, atributo, etiqueta,
+conteúdo) + ações (atribuir time/agente, etiquetar, SLA, mensagem, webhook).
+É o que liga D2 e D3 sem código: "inbox Suporte → time Suporte + SLA
+padrão". Tela simples de lista/criar/editar; começar pelas regras de
+roteamento que hoje o Workspace faz em `atribuirDepartamentosAutomaticos`.
+
+Ordem sugerida para D: D1 → D3 → D6 → D2 → D4 → D5.
