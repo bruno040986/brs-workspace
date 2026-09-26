@@ -222,6 +222,19 @@ para de aparecer para esses dois endereços em poucos minutos e os "Over
 2000" somem; se persistir, a hipótese de renegociação automática está errada
 e volta-se ao estado atual (nenhum dano além do que já existe).
 
+**Resultado da auto-cura (05:35 UTC, engine `0f10a87`): não renegociou.**
+Apagar `session[<lid>.0]` trocou o erro de "Over 2000 messages into the
+future" para "No session record" e o celular seguiu mandando peer messages
+com a sessão antiga a cada ~5 s (ids sempre novos, sem retentativa). O retry
+receipt do Baileys só inclui chaves na 2ª retentativa da MESMA mensagem, e o
+celular não retenta peer message — logo nunca re-keya. Revertido (`82b8c0a`,
+fica só o warn). Estado: sessão LID com o próprio celular quebrada no
+Suporte e no Financeiro; mensagens de/para contatos normais (Suporte: 356
+entradas em 25/09). Repareamento em 24/09 não segurou (Bad MAC voltou em
+1 h), então a correção de verdade é no tratamento de sessão LID do engine
+(atualizar o Baileys — versões posteriores unificam PN/LID) — trabalho de
+dia, com testes.
+
 Achado lateral: a auto-cura de ENVIO já existente (`criarLoggerRetryBaileys`)
 grava `session[<jid completo>] = null` — o store do libsignal é indexado por
 `<user>.<device>`, então aquela invalidação provavelmente nunca apaga nada.
