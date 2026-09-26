@@ -21,6 +21,21 @@ export const CRCP_URL = 'https://crcp.org.br/resultadoConsulta'
 
 const rotulo: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-gray-600)', display: 'block', marginBottom: '0.2rem' }
 
+type LinhaResposta = {
+  certificadora?: string
+  certificacao?: string
+  certificacao_id?: string
+  numero?: string
+  data_exame?: string
+  data_validade?: string
+  arquivos?: Array<{ fileName?: string; url: string }>
+}
+
+/** Só links https entram como href: a resposta vem do parceiro (link público de correção). */
+function linkSeguro(url: string): string | null {
+  return /^https:\/\//i.test(String(url || '')) ? url : null
+}
+
 function fmtData(iso: string | null | undefined) {
   if (!iso) return '—'
   const [a, m, d] = String(iso).slice(0, 10).split('-')
@@ -53,6 +68,12 @@ export default function CertificacoesCard({
   const cpf = String(item.valor?.cpf || '')
   const nome = String(item.valor?.nome || '')
   const resposta = item.valor?.resposta_parceiro as Record<string, any> | undefined
+  // Formato atual: { possui, certificacoes: [...], justificativa }. Aceita também a linha única antiga.
+  const linhasResposta: LinhaResposta[] = Array.isArray(resposta?.certificacoes)
+    ? (resposta!.certificacoes as LinhaResposta[])
+    : resposta && resposta.possui !== false && resposta.data_validade
+      ? [resposta as LinhaResposta]
+      : []
   const lancamentos = certificacoes.lancamentos.filter((l) => l.cpf === cpf)
   const avaliacao = useMemo(() => avaliarObrigatorios(lancamentos, certificacoes.vinculos, certificacoes.tipos), [lancamentos, certificacoes])
 
@@ -90,15 +111,15 @@ export default function CertificacoesCard({
     }
   }
 
-  function usarResposta() {
-    if (!resposta) return
-    const cert = catalogoAtivo.find((c) => c.nome === resposta.certificacao || c.id === resposta.certificacao_id)
+  function usarResposta(linha: LinhaResposta) {
+    const cert = catalogoAtivo.find((c) => c.id === linha.certificacao_id || c.nome === linha.certificacao)
     setForm({
       certificacao_id: cert?.id || '',
-      numero: String(resposta.numero || ''),
-      data_exame: String(resposta.data_exame || '').slice(0, 10),
-      data_validade: String(resposta.data_validade || '').slice(0, 10),
-      verificado: true,
+      numero: String(linha.numero || ''),
+      data_exame: String(linha.data_exame || '').slice(0, 10),
+      data_validade: String(linha.data_validade || '').slice(0, 10),
+      // Informada pelo parceiro: só marca conferida depois que o operador conferir no CRCP.
+      verificado: false,
     })
     setAbrirForm(true)
   }
@@ -129,7 +150,7 @@ export default function CertificacoesCard({
 
       {/* Situação por tipo obrigatório (só lançamentos conferidos contam) */}
       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-gray-600' }}>Tipos obrigatórios:</span>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--brs-gray-600)' }}>Tipos obrigatórios:</span>
         {avaliacao.obrigatorios.length === 0 && <span style={{ fontSize: '0.78rem', color: 'var(--brs-gray-400)' }}>nenhum marcado no catálogo</span>}
         {avaliacao.vigentes.map((t) => (
           <span key={t.id} className="badge badge-success" title={`Vigente até ${fmtData(t.validade)}`}>
@@ -161,26 +182,35 @@ export default function CertificacoesCard({
           {resposta.possui === false ? (
             <div>Declarou NÃO possuir certificação. Justificativa: {resposta.justificativa || '—'}</div>
           ) : (
-            <div style={{ display: 'grid', gap: '0.15rem' }}>
-              <div>
-                {resposta.certificadora || '—'} · {resposta.certificacao || '—'} · nº {resposta.numero || '—'} · exame {fmtData(resposta.data_exame)} · validade{' '}
-                {fmtData(resposta.data_validade)}
-              </div>
-              {Array.isArray(resposta.arquivos) && resposta.arquivos.length > 0 && (
-                <div>
-                  Arquivos:{' '}
-                  {resposta.arquivos.map((a: any, i: number) => (
-                    <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>
-                      {a.fileName || `arquivo ${i + 1}`}
-                    </a>
-                  ))}
+            <div style={{ display: 'grid', gap: '0.5rem' }}>
+              {linhasResposta.length === 0 && <div>Sem detalhes informados.</div>}
+              {linhasResposta.map((l, i) => (
+                <div key={i} style={{ display: 'grid', gap: '0.15rem', borderTop: i > 0 ? '1px dashed #fde68a' : undefined, paddingTop: i > 0 ? '0.4rem' : 0 }}>
+                  <div>
+                    {l.certificadora || '—'} · {l.certificacao || '—'} · nº {l.numero || '—'} · exame {fmtData(l.data_exame)} · validade {fmtData(l.data_validade)}
+                  </div>
+                  {Array.isArray(l.arquivos) && l.arquivos.length > 0 && (
+                    <div>
+                      Arquivos:{' '}
+                      {l.arquivos.map((a, j) => {
+                        const href = linkSeguro(a.url)
+                        return href ? (
+                          <a key={j} href={href} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>
+                            {a.fileName || `arquivo ${j + 1}`}
+                          </a>
+                        ) : (
+                          <span key={j} style={{ marginRight: 8 }}>{a.fileName || `arquivo ${j + 1}`}</span>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={() => usarResposta(l)}>
+                      <Plus size={13} /> Usar no lançamento (conferir no CRCP antes de marcar conferida)
+                    </button>
+                  </div>
                 </div>
-              )}
-              <div>
-                <button type="button" className="btn btn-outline btn-sm" onClick={usarResposta}>
-                  <Plus size={13} /> Usar na lançada (conferir no CRCP antes)
-                </button>
-              </div>
+              ))}
             </div>
           )}
         </div>
