@@ -122,7 +122,7 @@ export const engineGrupos = {
     return chamar<{ itens: ContatoConexao[]; total: number; page: number }>(`/instancias/${instanciaId}/contatos?${s.toString()}`)
   },
   criarGrupo: (instanciaId: string, input: { nome: string; participantes: string[] }) =>
-    chamar<{ jid: string; nome: string }>(`/instancias/${instanciaId}/grupos`, { method: 'POST', body: input }),
+    chamar<{ jid: string; nome: string; chatwootConversationId?: number | null }>(`/instancias/${instanciaId}/grupos`, { method: 'POST', body: input }),
   participantesGrupo: (instanciaId: string, jid: string, input: { acao: AcaoParticipante; jids: string[] }) =>
     chamar<{ ok: boolean; resultado: Array<{ jid: string; status: string }> }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/participantes`, { method: 'POST', body: input }),
   convite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite`),

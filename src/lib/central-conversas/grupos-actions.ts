@@ -156,7 +156,7 @@ export async function buscarContatosConexao(instanciaId: string, q?: string, pag
   }
 }
 
-export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ ok: true; jid: string; nome: string } | { ok: false; error: string }> {
+export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ ok: true; jid: string; nome: string; conversationId: number | null } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')
     const user = await requireCurrentUser()
@@ -178,7 +178,7 @@ export async function criarGrupo(input: { instanciaId: string; nome: string; par
         // grupo já nasceu; a mensagem inicial é best-effort (fato 3 do roteiro)
       }
     }
-    return { ok: true, ...criado }
+    return { ok: true, jid: criado.jid, nome: criado.nome, conversationId: criado.chatwootConversationId ?? null }
   } catch (err) {
     return { ok: false, error: mensagemErroEngine(err) }
   }

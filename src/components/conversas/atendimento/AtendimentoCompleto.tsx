@@ -50,6 +50,7 @@ export default function AtendimentoCompleto() {
           selecionadaId={at.selecionada?.id ?? null}
           onSelecionar={at.selecionarConversa}
           onNovaConversa={at.novaConversa}
+            onGrupoCriado={at.abrirConversaCriada}
           temMais={at.temMaisConversas}
           onCarregarMais={at.carregarMaisConversas}
         />

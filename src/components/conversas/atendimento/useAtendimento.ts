@@ -866,21 +866,21 @@ export function useAtendimento() {
       r = { resultado: 'incerto', mensagem: err instanceof Error ? err.message : 'Falha ao comunicar com o servidor.' }
     }
 
-    if (r.resultado === 'confirmado') {
-      // Atualiza a lista e seleciona a nova conversa em segundo plano para não travar a UI nem o fechamento do modal
-      void (async () => {
-        try {
-          const lista = await carregarLista()
-          if (r.resultado === 'confirmado' && r.conversationId) {
-            const encontrada = lista.find((c) => c.id === r.conversationId)
-            if (encontrada) selecionarConversa(encontrada)
-          }
-        } catch (err) {
-          console.error('[novaConversa] Erro ao carregar lista em segundo plano:', err)
-        }
-      })()
-    }
+    if (r.resultado === 'confirmado') abrirConversaCriada(r.conversationId)
     return r
+  }
+
+  /** Atualiza a lista e seleciona a conversa recém-criada em segundo plano para não travar a UI nem o fechamento do modal. */
+  function abrirConversaCriada(conversationId?: number | null) {
+    void (async () => {
+      try {
+        const lista = await carregarLista()
+        const encontrada = conversationId ? lista.find((c) => c.id === conversationId) : undefined
+        if (encontrada) selecionarConversa(encontrada)
+      } catch (err) {
+        console.error('[abrirConversaCriada] Erro ao carregar lista em segundo plano:', err)
+      }
+    })()
   }
 
   async function reagirMensagem(messageId: number, emoji: string) {
@@ -987,6 +987,7 @@ export function useAtendimento() {
     salvarTagsContato,
     buscarEntidades: buscarEntidadesFn,
     novaConversa,
+    abrirConversaCriada,
     recarregarLista: carregarLista,
     reagirMensagem,
     apagarMensagem,
