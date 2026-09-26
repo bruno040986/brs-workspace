@@ -49,6 +49,12 @@ export type NuvidioConviteRow = {
   chamada_iniciada_em: string | null
   chamada_finalizada_em: string | null
   created_at: string
+  // fatia 1 (webhooks)
+  call_id: string
+  short_link: string
+  fila_entrou_em: string | null
+  fila_saiu_em: string | null
+  gravacao_disponivel: boolean
 }
 
 export type NuvidioTemplateRow = {
@@ -179,6 +185,7 @@ export async function criarNuvidioConvite(input: {
         processo_id: input.processoId || null,
         invite_id: invite.inviteId,
         link: invite.link,
+        short_link: invite.shortLink,
         department_id: input.departmentId,
         department_nome: input.departmentNome || '',
         expiration_at: expirationDate,

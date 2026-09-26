@@ -127,8 +127,10 @@ Código:
 Aceite: (1) mesmo payload 2× → estado igual; (2) convite `aprovado` +
 `attendant_closed_issue` → continua `aprovado`; (3) `new_call_started` sem invite
 → casa via `GET /v1/api/call/:id`; (4) payload desconhecido → inbox com erro e 200;
-(5) chave errada → 401 e NADA gravado. Check executável: script em `scripts/`
-que faz POST dos 4 payloads da doc contra `localhost:3000` e confere o banco.
+(5) chave errada → 401 e NADA gravado. Check executável:
+`src/lib/nuvidio/__tests__/webhook-interpretar.test.ts` (`npm test`) com os payloads
+da doc contra o interpretador puro. **Entregue em 26/09 (branch
+`nuvidio/fatia-1-webhook-duravel`, migration `20260926011232`).**
 
 ### Fatia 2 — Ciclo de vida do convite e permissões (modelo: **Sonnet**)
 Padrão já existe; sem migration; depende da fatia 1 só pelo `short_link`.

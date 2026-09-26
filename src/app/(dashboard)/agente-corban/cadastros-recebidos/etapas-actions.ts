@@ -140,6 +140,7 @@ export async function gerarConviteNuvidioOnboarding(processoId: string): Promise
       processo_id: processoId,
       invite_id: invite.inviteId,
       link: invite.link,
+      short_link: invite.shortLink,
       department_id: config.department_onboarding_id,
       department_nome: config.department_onboarding_nome || '',
       expiration_at: expirationDate,

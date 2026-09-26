@@ -30,6 +30,14 @@ export type NuvidioDepartment = { id: string; nome: string }
 export type NuvidioInviteCriado = {
   inviteId: string
   link: string
+  shortLink: string
+}
+
+export type NuvidioChamada = {
+  id: string
+  inviteId: string
+  inviteToken: string
+  gravacao: boolean
 }
 
 type ConfigRow = {
@@ -194,11 +202,26 @@ export async function criarInvite(input: {
   const inviteId = String(data?._id || data?.id || data?.inviteId || data?.invite?._id || '')
   const link = String(data?.link || data?.url || data?.inviteLink || data?.invite?.link || '')
   if (!inviteId && !link) throw new Error(`A Nuvidio criou o convite mas não devolveu id/link reconhecíveis: ${JSON.stringify(data).slice(0, 200)}`)
-  return { inviteId, link }
+  return { inviteId, link, shortLink: String(data?.shortLink || '') }
 }
 
 export async function desabilitarInvite(inviteId: string): Promise<void> {
   await chamar(`/v1/api/invite/${encodeURIComponent(inviteId)}/status`, { method: 'PUT', body: JSON.stringify({ enabled: false }) })
+}
+
+/** GET /v1/api/call/:id — usado pelo webhook pra achar o convite de um evento que só traz o id da chamada. */
+export async function buscarChamada(callId: string): Promise<NuvidioChamada | null> {
+  try {
+    const d = await chamar(`/v1/api/call/${encodeURIComponent(callId)}`)
+    return {
+      id: String(d?.id || callId),
+      inviteId: String(d?.invite?.id || d?.invite?._id || ''),
+      inviteToken: String(d?.invite?.token || ''),
+      gravacao: Boolean(d?.recorded) && !Boolean(d?.recordingDeleted),
+    }
+  } catch {
+    return null
+  }
 }
 
 /** Resposta é a URL pré-assinada em texto puro (expira em 2 h). */

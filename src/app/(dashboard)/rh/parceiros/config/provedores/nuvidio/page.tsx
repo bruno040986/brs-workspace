@@ -5,8 +5,15 @@
  * chave do webhook. Permissão: sistema-config-nuvidio.
  */
 import { useEffect, useState } from 'react'
-import { KeyRound, Loader2, PlugZap, Save, Video } from 'lucide-react'
-import { getNuvidioConfig, saveNuvidioConfig, testNuvidioConnection } from '@/lib/nuvidio/config-actions'
+import { KeyRound, Loader2, PlugZap, RefreshCw, Save, Video } from 'lucide-react'
+import {
+  getNuvidioConfig,
+  listarWebhooksNuvidio,
+  reprocessarWebhooksNuvidio,
+  saveNuvidioConfig,
+  testNuvidioConnection,
+  type NuvidioWebhookRow,
+} from '@/lib/nuvidio/config-actions'
 import NuvidioLogo from '../../../../../nuvidio/_components/NuvidioLogo'
 
 type Depto = { id: string; nome: string }
@@ -53,6 +60,29 @@ export default function NuvidioProvedorPage() {
   const [webhookKey, setWebhookKey] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [departments, setDepartments] = useState<Array<{ id: string; nome: string }>>([])
+  const [webhooks, setWebhooks] = useState<NuvidioWebhookRow[]>([])
+  const [webhooksMsg, setWebhooksMsg] = useState('')
+  const [reprocessando, setReprocessando] = useState(false)
+
+  async function carregarWebhooks() {
+    const res = await listarWebhooksNuvidio()
+    if (res.success && res.data) setWebhooks(res.data)
+  }
+
+  async function reprocessar() {
+    setReprocessando(true)
+    setWebhooksMsg('')
+    try {
+      const res = await reprocessarWebhooksNuvidio()
+      if (!res.success) throw new Error(res.error)
+      setWebhooksMsg(`${res.total} reprocessado(s), ${res.casaram} casaram com convite.`)
+      await carregarWebhooks()
+    } catch (err) {
+      setWebhooksMsg(err instanceof Error ? err.message : 'Falha ao reprocessar.')
+    } finally {
+      setReprocessando(false)
+    }
+  }
 
   useEffect(() => {
     getNuvidioConfig()
@@ -75,6 +105,7 @@ export default function NuvidioProvedorPage() {
       })
       .catch(() => setErro('Erro ao carregar.'))
       .finally(() => setCarregando(false))
+    carregarWebhooks().catch(() => {})
   }, [])
 
   async function salvar(): Promise<boolean> {
@@ -208,6 +239,44 @@ export default function NuvidioProvedorPage() {
       <button className="btn btn-primary" onClick={salvar} disabled={salvando} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {salvando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Salvar configuração
       </button>
+
+      <div className="card" style={{ padding: '1.2rem', marginTop: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: 0 }}>Webhooks recebidos (últimos 50)</h2>
+          <button className="btn btn-outline btn-sm" onClick={() => carregarWebhooks()} title="Atualizar" style={{ marginLeft: 'auto' }}><RefreshCw size={13} /></button>
+          <button className="btn btn-outline btn-sm" onClick={reprocessar} disabled={reprocessando || !webhooks.some((w) => !w.convite_id)}>
+            {reprocessando ? <Loader2 size={13} className="animate-spin" /> : null} Reprocessar sem correspondência
+          </button>
+        </div>
+        <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.76rem', margin: '0 0 0.7rem' }}>
+          Tudo que a Nuvidio manda entra aqui antes de qualquer regra. "Sem correspondência" = o evento chegou mas não achou
+          o convite (o motivo aparece na linha); depois de criar convites pelo Workspace, use Reprocessar.
+        </p>
+        {webhooksMsg && <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.6rem' }}>{webhooksMsg}</div>}
+        {webhooks.length === 0 ? (
+          <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-400)' }}>Nenhum webhook recebido ainda.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ fontSize: '0.76rem' }}>
+              <thead>
+                <tr><th>Quando</th><th>Evento</th><th>Cliente</th><th>Situação</th></tr>
+              </thead>
+              <tbody>
+                {webhooks.map((w) => (
+                  <tr key={w.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{new Date(w.recebido_em).toLocaleString('pt-BR')}</td>
+                    <td><code>{w.hook_type || '?'}</code></td>
+                    <td>{w.cliente}</td>
+                    <td style={{ color: w.convite_id ? 'var(--brs-success)' : w.erro ? '#b45309' : 'var(--brs-gray-400)', fontWeight: 600 }}>
+                      {w.convite_id ? 'Casou com convite' : w.erro || 'Pendente'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
