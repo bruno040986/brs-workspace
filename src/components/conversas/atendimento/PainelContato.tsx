@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, CalendarClock, Check, ChevronDown, Copy, History, Images, LogOut, MailOpen, Pencil, Plus, RefreshCw, Search, Shield, ShieldOff, Trash2, UserMinus, X } from 'lucide-react'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
+import AtributosPainel from './AtributosPainel'
 import { alterarParticipantes, atualizarGrupoConversa, buscarContatosConexao, getGrupo, linkConvite, revogarLinkConvite, sairDoGrupo, type GrupoDetalhado } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
 import AvatarContato from './AvatarContato'
@@ -379,6 +380,8 @@ export default function PainelContato({
         {aba === 'geral' ? (
           <>
             <VinculoSecao titulo="Vincular a (esta conversa)" entidade={entidade} onVincular={onVincular} buscarEntidades={buscarEntidades} />
+
+            <AtributosPainel conversationId={conversa.id} contactId={(conversa.meta?.sender as { id?: number } | undefined)?.id ?? null} />
 
             <section>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-muted)', marginBottom: 6, textTransform: 'uppercase' }}>Pessoa (contato) — configuração padrão</div>
