@@ -13,7 +13,7 @@
 import { requirePermission, requireCurrentUser } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { clienteChatwootBrs, contaBrs } from './actions'
-import { engine, engineGrupos, mensagemErroEngine, type MembroGrupo, type ContatoConexao } from './engine'
+import { engine, engineGrupos, EngineEnvioIncertoError, mensagemErroEngine, type MembroGrupo, type ContatoConexao } from './engine'
 import { parseIdentifier } from '@/components/conversas/atendimento/types'
 
 function normalizarParticipante(input: string): string {
@@ -30,11 +30,17 @@ function normalizarParticipante(input: string): string {
  * conta BRS.
  */
 async function grupoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string }> {
+  const r = await destinoDaConversa(conversationId)
+  if (!r.jid.endsWith('@g.us')) throw new Error('Esta conversa não é um grupo.')
+  return r
+}
+
+async function destinoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string }> {
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   const conversa = await cli.conversa(conversationId)
   const parsed = parseIdentifier(conversa.meta?.sender?.identifier)
-  if (!parsed || !parsed.jid.endsWith('@g.us')) throw new Error('Esta conversa não é um grupo.')
+  if (!parsed) throw new Error('Esta conversa não tem conexão de WhatsApp associada.')
   const admin = await createAdminClient()
   const conta = await contaBrs()
   if (!conta) throw new Error('Chatwoot não provisionado.')
@@ -147,6 +153,33 @@ export async function revogarLinkConvite(conversationId: number): Promise<{ ok: 
     const { link } = await engineGrupos.revogarConvite(instanciaId, jid)
     return { ok: true, link }
   } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
+export type EnvioEspecial =
+  | { tipo: 'localizacao'; lat: number; lng: number; nome?: string; endereco?: string }
+  | { tipo: 'contato'; nome: string; telefone: string }
+  | { tipo: 'enquete'; pergunta: string; opcoes: string[]; multipla?: boolean }
+  | { tipo: 'figurinha'; imagemBase64: string }
+  | { tipo: 'visualizacaoUnica'; imagemBase64: string }
+
+/**
+ * B2 (lote 2): mensagem especial na conversa aberta (Baileys). `operationId`
+ * nasce na intenção do usuário (Lote 02B) — repetir o clique com a mesma chave
+ * não duplica. Sem assinatura: localização/contato/enquete/figurinha não têm texto livre.
+ */
+export async function enviarEspecialConversa(conversationId: number, envio: EnvioEspecial, operationId: string): Promise<{ ok: true } | { ok: false; error: string; incerto?: boolean }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const { instanciaId, jid } = await destinoDaConversa(conversationId)
+    const inst = await instanciaDaConta(instanciaId)
+    if (inst.provedor !== 'baileys') throw new Error('Este tipo de mensagem só funciona em conexões Baileys.')
+    if (envio.tipo === 'visualizacaoUnica') await engine.enviar(inst.id, jid, '', { operationId, imagemBase64: envio.imagemBase64, visualizacaoUnica: true })
+    else await engine.enviar(inst.id, jid, '', { operationId, especial: envio })
+    return { ok: true }
+  } catch (err) {
+    if (err instanceof EngineEnvioIncertoError) return { ok: false, incerto: true, error: 'Não foi possível confirmar se a mensagem saiu. Confira a conversa antes de tentar de novo.' }
     return { ok: false, error: mensagemErroEngine(err) }
   }
 }

@@ -37,6 +37,7 @@ import EmojiPicker from './EmojiPicker'
 import AvatarContato from './AvatarContato'
 import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
+import EnvioEspecialMenu from './EnvioEspecial'
 import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
 import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
@@ -1115,6 +1116,9 @@ export default function ThreadConversa({
               />
             )}
           </div>
+          {!notaInterna && (
+            <EnvioEspecialMenu conversationId={conversa.id} onEnviado={() => irParaMensagemEnviada()} onErro={(m) => exibirToast(m)} />
+          )}
           <label className="brs-messenger-toolbar-btn brs-messenger-toolbar-file" title="Enviar arquivo">
             <Paperclip size={13} />
             <input ref={fileInputRef} type="file" className="hidden" accept={MIME_ANEXO_ACEITOS} onChange={(e) => void onEscolherArquivo(e.target.files)} />

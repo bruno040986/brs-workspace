@@ -154,6 +154,11 @@ export type EnvioEngineOpcoes = {
   mentions?: string[]
   /** Resposta citando — id da mensagem NO CHATWOOT. Só Baileys. */
   quoted?: { messageId: number }
+  /** B2: localização, contato, enquete ou figurinha (contrato em engine/src/especial.ts). Só Baileys. */
+  especial?: Record<string, unknown>
+  /** B2: imagem (data URL/base64) — com `visualizacaoUnica` some depois de aberta. */
+  imagemBase64?: string
+  visualizacaoUnica?: boolean
 }
 
 /**
@@ -213,6 +218,9 @@ async function enviarPorInstancia(instanciaId: string, destino: string, texto: s
   const body: Record<string, unknown> = { destino, texto, operationId }
   if (opcoes.mentions?.length) body.mentions = opcoes.mentions
   if (opcoes.quoted?.messageId) body.quoted = { messageId: opcoes.quoted.messageId }
+  if (opcoes.especial) body.especial = opcoes.especial
+  if (opcoes.imagemBase64) body.imagemBase64 = opcoes.imagemBase64
+  if (opcoes.visualizacaoUnica) body.visualizacaoUnica = true
   const incerto = (motivo: MotivoIncerto, msg: string) => new EngineEnvioIncertoError(msg, operationId, motivo)
 
   const controller = new AbortController()
