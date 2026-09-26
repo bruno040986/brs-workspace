@@ -235,6 +235,18 @@ entradas em 25/09). Repareamento em 24/09 não segurou (Bad MAC voltou em
 (atualizar o Baileys — versões posteriores unificam PN/LID) — trabalho de
 dia, com testes.
 
+**Baileys 7.0.0-rc14 publicado (26/09 15:19 UTC, commit `40530b7`, plano
+`brs-alvoconsig/docs/PLANO-ENGINE-BAILEYS-7-LID-2026-09-26.md`, relatório
+`RELATORIO-ENGINE-BAILEYS-7-2026-09-26.md`).** Resultado nos primeiros 9 min:
+10 instâncias conectadas em 14 s; **zero** erros brutos do libsignal ("Over
+2000", "Bad MAC", "Session error"); stubs `fromMe@lid` só na descarga da fila
+offline no instante da conexão (Financeiro 26, Suporte 75 — ciphertexts
+antigos, cifrados para a sessão que apagamos) e 2 ao vivo às 15:21; de
+15:22 a 15:28, nenhum. Suporte recebeu de contato às 15:22:07 (conv 64).
+Exceções esperadas: (61) 98121-2043 desconectada (401, pede QR) e (61)
+99678-5009 pausada após 10 recusas 403 da Meta. Confirmação definitiva:
+segunda-feira, com tráfego (Suporte costuma ter 40–70 entradas/hora).
+
 Achado lateral: a auto-cura de ENVIO já existente (`criarLoggerRetryBaileys`)
 grava `session[<jid completo>] = null` — o store do libsignal é indexado por
 `<user>.<device>`, então aquela invalidação provavelmente nunca apaga nada.
