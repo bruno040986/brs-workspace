@@ -7,6 +7,7 @@ import { mergeChatwootMessages, type ChatwootMensagem } from '@/lib/central-conv
 import {
   addNotaInterna,
   apagarMensagem as apagarMensagemAction,
+  editarMensagemConversa,
   assumirConversa,
   buscarEntidades,
   encaminharMensagem as encaminharMensagemAction,
@@ -446,6 +447,10 @@ export function useAtendimento() {
         },
       )
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mensagem_status' }, (payload) => {
+        const row = payload.new as { chatwoot_message_id?: number }
+        if (row.chatwoot_message_id !== undefined && mensagensIdsRef.current.has(row.chatwoot_message_id)) refetchThreadDebounced()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mensagem_edicoes' }, (payload) => {
         const row = payload.new as { chatwoot_message_id?: number }
         if (row.chatwoot_message_id !== undefined && mensagensIdsRef.current.has(row.chatwoot_message_id)) refetchThreadDebounced()
       })
@@ -895,6 +900,15 @@ export function useAtendimento() {
     }
   }
 
+  /** Devolve o erro (texto) pra o editor da bolha mostrar; sucesso = null e a thread refaz o fetch. */
+  async function editarMensagem(messageId: number, texto: string): Promise<string | null> {
+    if (!selecionada) return 'Nenhuma conversa aberta.'
+    const r = await editarMensagemConversa(selecionada.id, messageId, texto)
+    if (!r.ok) return r.error
+    await carregarThread(selecionada.id, { silencioso: true })
+    return null
+  }
+
   async function apagarMensagem(messageId: number) {
     if (!selecionada) return
     try {
@@ -993,6 +1007,7 @@ export function useAtendimento() {
     recarregarLista: carregarLista,
     reagirMensagem,
     apagarMensagem,
+    editarMensagem,
     encaminharMensagem,
   }
 }

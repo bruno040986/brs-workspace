@@ -28,6 +28,7 @@ import {
   User,
   UserCog,
   UserPlus,
+  Pencil,
   X,
   ZoomIn,
   ZoomOut,
@@ -87,6 +88,8 @@ type Props = {
   conversas?: ConversaAtendimento[]
   onReagirMensagem?: (messageId: number, emoji: string) => Promise<void>
   onApagarMensagem?: (messageId: number) => Promise<void>
+  /** Devolve o texto do erro (ou null se editou); ver useAtendimento.editarMensagem. */
+  onEditarMensagem?: (messageId: number, texto: string) => Promise<string | null>
   onEncaminharMensagem?: (sourceMessage: MensagemComExtras, targetConversationId: number) => Promise<void>
   onSelecionarConversa?: (c: ConversaAtendimento | null) => void
   onNovaConversa?: (input: { instanciaId: string; telefone: string; texto: string; operationId: string }) => Promise<any>
@@ -174,6 +177,7 @@ export default function ThreadConversa({
   conversas,
   onReagirMensagem,
   onApagarMensagem,
+  onEditarMensagem,
   onEncaminharMensagem,
   onSelecionarConversa,
   onNovaConversa,
@@ -204,6 +208,8 @@ export default function ThreadConversa({
   const [hoverMessageId, setHoverMessageId] = useState<number | null>(null)
   const [menuMensagemId, setMenuMensagemId] = useState<number | null>(null)
   const [modalEncaminhar, setModalEncaminhar] = useState<MensagemComExtras | null>(null)
+  // Edição no lugar (A3): `prefixo` = assinatura `*Nome:*\n` da original, preservada ao salvar.
+  const [edicaoAberta, setEdicaoAberta] = useState<{ id: number; prefixo: string; corpo: string; erro: string | null; salvando: boolean } | null>(null)
   const [filtroEncaminhar, setFiltroEncaminhar] = useState('')
   const [mensagensFixadas, setMensagensFixadas] = useState<Set<number>>(new Set())
   const [mensagensFavoritas, setMensagensFavoritas] = useState<Set<number>>(new Set())
@@ -646,6 +652,10 @@ export default function ThreadConversa({
                 const aparelho = m.content_attributes?.origem === 'aparelho'
                 const remetente = grupo && !saida ? remetenteDeGrupo(m) : null
                 let conteudo = remetente ? remetente.conteudo : m.content
+                if (m.edicao) conteudo = m.edicao.texto
+                const textoAtual = m.edicao?.texto ?? m.content ?? ''
+                // Editar: só texto nosso, sem anexo, dentro dos 15 min do WhatsApp (o servidor confere de novo).
+                const podeEditar = Boolean(onEditarMensagem && saida && !nota && !m.attachments?.length && textoAtual && m.status !== 'falhou' && Date.now() / 1000 - (m.created_at || 0) <= 15 * 60)
 
                 const ehRevogada = Boolean(
                   m.content_attributes?.revoked ||
@@ -736,7 +746,37 @@ export default function ThreadConversa({
                             </a>
                           ),
                         )}
-                        {exibirTexto && (
+                        {edicaoAberta?.id === m.id && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
+                            <textarea
+                              autoFocus
+                              value={edicaoAberta.corpo}
+                              onChange={(e) => setEdicaoAberta((p) => (p ? { ...p, corpo: e.target.value } : p))}
+                              rows={3}
+                              className="brs-messenger-input"
+                              style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
+                            />
+                            {edicaoAberta.erro && <div style={{ fontSize: 11, color: '#dc2626' }}>{edicaoAberta.erro}</div>}
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button type="button" className="brs-messenger-toolbar-btn" onClick={() => setEdicaoAberta(null)} disabled={edicaoAberta.salvando}>Cancelar</button>
+                              <button
+                                type="button"
+                                className="brs-messenger-primary-button"
+                                style={{ padding: '3px 10px' }}
+                                disabled={edicaoAberta.salvando || !edicaoAberta.corpo.trim() || edicaoAberta.corpo.trim() === textoAtual.slice(edicaoAberta.prefixo.length).trim()}
+                                onClick={async () => {
+                                  const ed = edicaoAberta
+                                  setEdicaoAberta({ ...ed, salvando: true, erro: null })
+                                  const erro = await onEditarMensagem!(ed.id, ed.prefixo + ed.corpo.trim()).catch(() => 'Falha ao editar a mensagem.')
+                                  setEdicaoAberta(erro ? { ...ed, salvando: false, erro } : null)
+                                }}
+                              >
+                                {edicaoAberta.salvando ? 'Salvando…' : 'Salvar'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {exibirTexto && edicaoAberta?.id !== m.id && (
                           <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, textDecoration: ehRevogada ? 'line-through' : undefined }}>
                             <TextoComMencoes texto={conteudo || ''} temMencoes={Boolean((m.content_attributes?.mentions as string[] | undefined)?.length)} />
                           </div>
@@ -755,6 +795,7 @@ export default function ThreadConversa({
                           {aparelho && <span style={{ fontStyle: 'italic' }}>Dispositivo externo · </span>}
                           {nota && <StickyNote size={9} style={{ verticalAlign: 'middle' }} />}
                           {dataHoraCompleta(m.created_at)}
+                          {m.edicao && <span title={m.edicao.origem === 'contato' ? 'O contato editou esta mensagem' : 'Editada no WhatsApp'}> · editada</span>}
                           {nota ? ' · nota interna' : ''}
                           {saida && !nota && (
                             <span title={m.status === 'falhou' ? 'Falha no envio' : m.status === 'lido' ? 'Lido por todos' : m.status === 'entregue' ? 'Entregue' : 'Enviado'}>
@@ -869,6 +910,20 @@ export default function ThreadConversa({
                                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
                               >
                                 <Copy size={14} /> Copiar
+                              </button>
+                            )}
+
+                            {podeEditar && !ehRevogada && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const prefixo = textoAtual.match(/^\*[^*\n]+:\*\n/)?.[0] ?? ''
+                                  setEdicaoAberta({ id: m.id, prefixo, corpo: textoAtual.slice(prefixo.length), erro: null, salvando: false })
+                                  setMenuMensagemId(null)
+                                }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--msn-text)', borderRadius: 4, textAlign: 'left' }}
+                              >
+                                <Pencil size={14} /> Editar
                               </button>
                             )}
 

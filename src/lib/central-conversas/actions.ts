@@ -20,7 +20,7 @@ export async function podeAtenderConversas(): Promise<boolean> {
 }
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
-import { engine, engineConfigurado, EngineEnvioIncertoError } from './engine'
+import { engine, engineConfigurado, EngineEnvioIncertoError, mensagemErroEngine } from './engine'
 import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
 import { listarAgendamentos, type AcaoAgendada } from './agendamento-actions'
@@ -1150,7 +1150,7 @@ export async function buscarEntidades(q: string): Promise<{ parceiros: EntidadeB
   }
 }
 
-export type MensagemExtras = { status?: 'enviado' | 'entregue' | 'lido' | 'falhou'; reacoes: Array<{ jid: string; emoji: string }> }
+export type MensagemExtras = { status?: 'enviado' | 'entregue' | 'lido' | 'falhou'; reacoes: Array<{ jid: string; emoji: string }>; /** Texto atual de mensagem editada no WhatsApp (chat_mensagem_edicoes); o original fica no Chatwoot. */ edicao?: { texto: string; origem: 'nos' | 'contato' } }
 export type MensagemComExtras = ChatwootMensagem & MensagemExtras
 
 /**
@@ -1170,10 +1170,13 @@ export async function getMensagens(conversationId: number, before?: number): Pro
     const ids = payload.map((m) => m.id)
     if (conta && ids.length) {
       const admin = await createAdminClient()
-      const [{ data: status }, { data: reacoes }] = await Promise.all([
+      const [{ data: status }, { data: reacoes }, { data: edicoes }] = await Promise.all([
         admin.from('chat_mensagem_status').select('chatwoot_message_id, status').eq('conta_id', conta.id).in('chatwoot_message_id', ids),
         admin.from('chat_mensagem_reacoes').select('chatwoot_message_id, jid, emoji').eq('conta_id', conta.id).in('chatwoot_message_id', ids),
+        // Tabela nova: sem a migration aplicada o select devolve erro (data null) e a conversa segue sem "editada".
+        admin.from('chat_mensagem_edicoes').select('chatwoot_message_id, texto_novo, origem').eq('conta_id', conta.id).in('chatwoot_message_id', ids),
       ])
+      const edicaoPorMsg = new Map((edicoes || []).map((e: any) => [e.chatwoot_message_id, { texto: String(e.texto_novo), origem: e.origem as 'nos' | 'contato' }]))
       const statusPorMsg = new Map((status || []).map((s: any) => [s.chatwoot_message_id, s.status]))
       const reacoesPorMsg = new Map<number, Array<{ jid: string; emoji: string }>>()
       for (const rr of reacoes || []) {
@@ -1181,7 +1184,7 @@ export async function getMensagens(conversationId: number, before?: number): Pro
         arr.push({ jid: String(rr.jid), emoji: String(rr.emoji) })
         reacoesPorMsg.set(rr.chatwoot_message_id, arr)
       }
-      return { ...r, payload: payload.map((m) => ({ ...m, status: statusPorMsg.get(m.id), reacoes: reacoesPorMsg.get(m.id) || [] })) }
+      return { ...r, payload: payload.map((m) => ({ ...m, status: statusPorMsg.get(m.id), reacoes: reacoesPorMsg.get(m.id) || [], edicao: edicaoPorMsg.get(m.id) })) }
     }
   } catch {
     // extras são acessórios — a conversa segue sem ticks/reações
@@ -1418,6 +1421,40 @@ export async function setTagsContato(contactId: number, tags: string[]): Promise
 // ---------------------------------------------------------------------------
 // Reações, Apagar/Revogar e Encaminhamento de Mensagens
 // ---------------------------------------------------------------------------
+
+/** Prazo do WhatsApp para editar texto enviado (o engine confere de novo, pelo relógio dele). */
+const EDICAO_JANELA_MS = 15 * 60 * 1000
+
+/**
+ * Edita no WhatsApp uma mensagem de texto NOSSA (≤ 15 min). `texto` é o texto
+ * inteiro já com a assinatura `*Nome:*\n` da original (a tela preserva o prefixo).
+ * Retorna `{ok:false,error}` em vez de lançar (o Next apaga a mensagem de Error em produção).
+ */
+export async function editarMensagemConversa(conversationId: number, messageId: number, texto: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const conta = await contaBrs()
+    if (!conta) throw new Error('Conta do BRS Messenger não provisionada.')
+    const novo = String(texto || '').trim()
+    if (!novo) throw new Error('Digite o novo texto da mensagem.')
+    const admin = await createAdminClient()
+    const { data: mapa } = await admin
+      .from('chat_mensagens_mapa')
+      .select('instancia_id, wa_id, from_me, created_at, chatwoot_conversation_id')
+      .eq('conta_id', conta.id)
+      .eq('chatwoot_message_id', messageId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (!mapa || mapa.chatwoot_conversation_id !== conversationId) throw new Error('Esta mensagem não tem vínculo com o WhatsApp e não pode ser editada.')
+    if (!mapa.from_me) throw new Error('Só é possível editar mensagens enviadas por nós.')
+    if (Date.now() - Date.parse(String(mapa.created_at)) > EDICAO_JANELA_MS) throw new Error('O WhatsApp só permite editar até 15 minutos depois do envio.')
+    await engine.editarMensagem(String(mapa.instancia_id), String(mapa.wa_id), novo)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
 
 export async function reagirMensagem(conversationId: number, messageId: number, emoji: string): Promise<{ ok: boolean }> {
   await requirePermission('conversas', 'can_view')

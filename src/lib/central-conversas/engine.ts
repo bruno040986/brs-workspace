@@ -259,6 +259,8 @@ export const engine = {
   status: (instanciaId: string) => chamar<EngineStatusResposta>(`/instancias/${instanciaId}/status`),
   desconectar: (instanciaId: string, logout: boolean) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/desconectar`, { method: 'POST', body: { logout } }),
   enviar: enviarPorInstancia,
+  editarMensagem: (instanciaId: string, waId: string, texto: string) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/editar`, { method: 'POST', body: { texto } }),
   saude: async () => {
     try {
       const res = await fetch(`${base()}/health`, { signal: AbortSignal.timeout(6000) })

@@ -80,6 +80,7 @@ export default function AtendimentoCompleto() {
             conversas={at.conversas}
             onReagirMensagem={at.reagirMensagem}
             onApagarMensagem={at.apagarMensagem}
+            onEditarMensagem={at.editarMensagem}
             onEncaminharMensagem={at.encaminharMensagem}
             onSelecionarConversa={at.selecionarConversa}
             onNovaConversa={at.novaConversa}
