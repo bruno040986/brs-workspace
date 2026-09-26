@@ -170,6 +170,29 @@ saída não prova entrada. A prova de entrada é a conv 100 às 22:21 UTC.
 - Recursos: acesso Railway (MCP) funcionou nesta sessão — logs lidos
   diretamente; o `Not Authorized` da sessão anterior não se repetiu.
 
+### 4.1 Achados de 26/09 (engine publicado com o log, `31a32b0`, 04:56 UTC)
+
+- No restart, a primeira rajada de `Over 2000 messages into the future`
+  (≈50 falhas em 50 ms, 04:57:10.81) veio junto da abertura do socket do
+  **Suporte** (`instância conectada` 04:57:10.94; nenhuma outra instância
+  abriu nos 3 s anteriores). Atribuição por coincidência de tempo, não por
+  `instId` — o warn do `bc1ccb9` não apareceu (motivo abaixo). Depois disso a
+  cadência de ~5 s continuou (retentativas do protocolo).
+- **Fila offline descartada.** No Baileys 6.7.24 instalado
+  (`messages-recv.js` ~699) a mensagem é emitida como `append` quando o nó
+  vem com `offline` (guardada pelo WhatsApp enquanto o socket estava caído) e
+  como `notify` ao vivo. O handler do engine ignorava tudo que não fosse
+  `notify` → **toda reconexão perdia o que entrou no intervalo** (Suporte:
+  32 reconexões em 25/09). É também por isso que o stub CIPHERTEXT da rajada
+  de conexão nunca chegou ao warn do bridge. Corrigido no commit seguinte da
+  branch do engine (aceita `append` só de outro remetente; o nosso eco vira
+  duplicata) com teste `baileys-upsert-append.test.ts`; 184 testes do engine
+  passam. Precisa de merge + push (deploy do engine).
+- Reconectando após o restart, a instância de disparo (61) 98121-2043
+  (`dd8ab522`) recebeu 401 "Connection Failure" e ficou `desconectada`
+  ("Sessão encerrada no aparelho") — o WhatsApp invalidou a credencial; só
+  pareamento novo resolve. Não é das três receptivas.
+
 ## 5. Correções
 
 ### 5.1 Workspace — branch `chat/recebimento-e-performance` (worktree `brs-workspace-chat-recebimento`)
