@@ -193,6 +193,53 @@ saída não prova entrada. A prova de entrada é a conv 100 às 22:21 UTC.
   ("Sessão encerrada no aparelho") — o WhatsApp invalidou a credencial; só
   pareamento novo resolve. Não é das três receptivas.
 
+### 4.2 Atribuição obtida (26/09, 05:24 UTC, engine `4608705`)
+
+Erro meu nos dois deploys anteriores: o stub era comparado com o número 1,
+e no WAProto do Baileys 6.7.24 `CIPHERTEXT = 2` (1 é `REVOKE`). Com o enum
+certo, 48 s de logs deram:
+
+| Instância | Não decifradas | fromMe | Chat | Motivo |
+|---|---|---|---|---|
+| Suporte | 83 | todas | `214796…@lid` (sem `:device`) | No matching sessions found for message |
+| Financeiro | 28 | todas | `209182…@lid` (sem `:device`) | idem |
+
+78 vieram da fila offline (`append`) e 33 ao vivo. `209182…` é o mesmo
+endereço (`209182187868298.0`) dos stack traces do libsignal desde 24/09.
+Leitura: a sessão Signal quebrada é entre o nosso dispositivo e o **próprio
+celular da conta, na identidade LID** (dispositivo 0). A sessão pelo número
+normal funciona — por isso o eco do aparelho continuava espelhado — mas todo
+peer message do celular pela identidade LID falhava para sempre, com retry a
+cada ~5 s, gerando a tempestade de logs e provavelmente as quedas "Stream
+Errored (ack)" (32 reconexões/dia no Suporte).
+
+**Auto-cura de entrada** (commit seguinte da branch do engine): ao receber
+stub CIPHERTEXT `fromMe`, apaga `session[<meuLid>.0]` pelo store cacheado do
+Baileys (apagar só em `state.keys` não vale na hora: cache de 5 min) para o
+retry receipt seguinte renegociar; no máximo 1 vez por endereço a cada 10
+min; nunca toca em sessão de contato. Efeito esperado após publicar: o warn
+para de aparecer para esses dois endereços em poucos minutos e os "Over
+2000" somem; se persistir, a hipótese de renegociação automática está errada
+e volta-se ao estado atual (nenhum dano além do que já existe).
+
+**Resultado da auto-cura (05:35 UTC, engine `0f10a87`): não renegociou.**
+Apagar `session[<lid>.0]` trocou o erro de "Over 2000 messages into the
+future" para "No session record" e o celular seguiu mandando peer messages
+com a sessão antiga a cada ~5 s (ids sempre novos, sem retentativa). O retry
+receipt do Baileys só inclui chaves na 2ª retentativa da MESMA mensagem, e o
+celular não retenta peer message — logo nunca re-keya. Revertido (`82b8c0a`,
+fica só o warn). Estado: sessão LID com o próprio celular quebrada no
+Suporte e no Financeiro; mensagens de/para contatos normais (Suporte: 356
+entradas em 25/09). Repareamento em 24/09 não segurou (Bad MAC voltou em
+1 h), então a correção de verdade é no tratamento de sessão LID do engine
+(atualizar o Baileys — versões posteriores unificam PN/LID) — trabalho de
+dia, com testes.
+
+Achado lateral: a auto-cura de ENVIO já existente (`criarLoggerRetryBaileys`)
+grava `session[<jid completo>] = null` — o store do libsignal é indexado por
+`<user>.<device>`, então aquela invalidação provavelmente nunca apaga nada.
+Fica como pendência (não mexido).
+
 ## 5. Correções
 
 ### 5.1 Workspace — branch `chat/recebimento-e-performance` (worktree `brs-workspace-chat-recebimento`)
