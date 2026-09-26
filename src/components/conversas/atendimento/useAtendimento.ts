@@ -936,6 +936,12 @@ export function useAtendimento() {
     return null
   }
 
+  /** Refaz a thread aberta e a lista (efeito de ações assíncronas do Chatwoot, como macros). */
+  function atualizarSelecionada() {
+    if (selecionada) void carregarThread(selecionada.id, { silencioso: true })
+    void carregarLista()
+  }
+
   /** Devolve o resultado real (para todos / só aqui / erro) — a tela só marca como apagada depois dele. */
   async function apagarMensagem(messageId: number): Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }> {
     if (!selecionada) return { ok: false, error: 'Nenhuma conversa aberta.' }
@@ -1029,6 +1035,7 @@ export function useAtendimento() {
     buscarEntidades: buscarEntidadesFn,
     novaConversa,
     presencaContato,
+    atualizarSelecionada,
     abrirConversaCriada,
     recarregarLista: carregarLista,
     reagirMensagem,
