@@ -270,6 +270,8 @@ export const engine = {
   status: (instanciaId: string) => chamar<EngineStatusResposta>(`/instancias/${instanciaId}/status`),
   desconectar: (instanciaId: string, logout: boolean) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/desconectar`, { method: 'POST', body: { logout } }),
   enviar: enviarPorInstancia,
+  reagir: (instanciaId: string, waId: string, emoji: string) =>
+    chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/reagir`, { method: 'POST', body: { emoji } }),
   apagarParaTodos: (instanciaId: string, waId: string) =>
     chamar<{ ok: boolean }>(`/instancias/${instanciaId}/mensagens/${encodeURIComponent(waId)}/apagar`, { method: 'POST', body: {} }),
   acaoChat: (instanciaId: string, body: { jid: string; acao: string; duracaoMs?: number }) =>

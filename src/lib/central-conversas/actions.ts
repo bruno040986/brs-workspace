@@ -1456,23 +1456,31 @@ export async function editarMensagemConversa(conversationId: number, messageId: 
   }
 }
 
-export async function reagirMensagem(conversationId: number, messageId: number, emoji: string): Promise<{ ok: boolean }> {
-  await requirePermission('conversas', 'can_view')
-  const user = await requireCurrentUser()
-  const conta = await contaBrs()
-  if (conta && messageId) {
+/**
+ * Reação de verdade no WhatsApp (antes só gravava no banco, com o e-mail do usuário
+ * como autor, e o contato nunca via nada). O engine manda e grava `chat_mensagem_reacoes`
+ * com o JID do número da conexão. `emoji` vazio remove.
+ */
+export async function reagirMensagem(conversationId: number, messageId: number, emoji: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const conta = await contaBrs()
+    if (!conta || !messageId) throw new Error('Mensagem inválida.')
     const admin = await createAdminClient()
-    const jidUsuario = user.email || String(user.id)
-    if (emoji) {
-      await admin.from('chat_mensagem_reacoes').upsert(
-        { conta_id: conta.id, chatwoot_message_id: messageId, jid: jidUsuario, emoji },
-        { onConflict: 'conta_id,chatwoot_message_id,jid' },
-      )
-    } else {
-      await admin.from('chat_mensagem_reacoes').delete().eq('conta_id', conta.id).eq('chatwoot_message_id', messageId).eq('jid', jidUsuario)
-    }
+    const { data: mapa } = await admin
+      .from('chat_mensagens_mapa')
+      .select('instancia_id, wa_id, chatwoot_conversation_id')
+      .eq('conta_id', conta.id)
+      .eq('chatwoot_message_id', messageId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (!mapa || mapa.chatwoot_conversation_id !== conversationId) throw new Error('Esta mensagem não tem vínculo com o WhatsApp e não pode receber reação.')
+    await engine.reagir(String(mapa.instancia_id), String(mapa.wa_id), emoji)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
   }
-  return { ok: true }
 }
 
 /** Janela do WhatsApp para "apagar para todos" (o engine confere de novo). */

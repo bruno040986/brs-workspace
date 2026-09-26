@@ -919,7 +919,8 @@ export function useAtendimento() {
   async function reagirMensagem(messageId: number, emoji: string) {
     if (!selecionada) return
     try {
-      await reagirMensagemAction(selecionada.id, messageId, emoji)
+      const r = await reagirMensagemAction(selecionada.id, messageId, emoji)
+      if (!r.ok) return setErro(r.error)
       await carregarThread(selecionada.id, { silencioso: true })
     } catch (err) {
       setErro(mensagem(err, 'Falha ao reagir à mensagem.'))
