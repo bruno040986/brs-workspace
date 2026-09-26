@@ -274,10 +274,33 @@ UI esconde ação não suportada (não desabilita com tooltip genérico).
   cache em memória ≤ 60 s, **fail-closed para envio novo** se a consulta
   falhar). BRS (`owner_tipo='brs'`) não tem assinatura — sempre envia.
   Código: 403 `INSTANCIA_BLOQUEADA_COBRANCA`.
-- Trial: 1 por (`tenant`, `numero_e164`), em tabela própria que sobrevive a
-  soft-delete/desconexão; ativação concorrente deduplicada pelo unique.
+- Trial: **1 por número em TODO o sistema** (decisão do Bruno, 26/09 — revisa
+  a versão inicial "por tenant + número", que deixava reusar o número abrindo
+  outra conta de parceiro). Chave global `numero_e164` normalizado, em tabela
+  própria que sobrevive a soft-delete/desvinculação/desconexão/troca de
+  parceiro; ativação concorrente deduplicada pelo unique.
+  - Normalização ANTES de comparar: só dígitos com DDI, e variantes do nono
+    dígito brasileiro (55 DD 9XXXX-XXXX × 55 DD XXXX-XXXX) colapsam na mesma
+    chave — senão o "espertinho" burla trocando o formato. Preferir o E.164
+    que a própria YCloud devolve (`GET /whatsapp/phoneNumbers`), não o digitado.
+  - Número que já teve trial (de qualquer parceiro): a ativação NÃO concede os
+    30 dias e a tela ALERTA que o período gratuito desse número já foi
+    utilizado. A ativação segue sem trial: status `sem_pagamento` — recebe,
+    NÃO envia até o 1º pagamento aprovado (linha "trial expirado" da matriz §6
+    do plano revisado). O alerta aparece ANTES do aceite, com o texto da
+    assinatura (componente versionado `TermosAssinaturaWaOficial`).
+  - Histórico de números associados ao sistema: `crm_wa_oficial_numero_vinculos`
+    (append-only: número, parceiro, instância, vinculada_em, desvinculada_em,
+    trial concedido s/n) — trilha p/ auditoria e p/ o alerta.
+  - O consumo do trial é gravado NA ativação (mesma transação da instância),
+    nunca depois; falha na gravação = ativação falha (fail-closed).
   Cartão cadastrado durante o trial NÃO encurta os 30 dias (1ª cobrança no
   fim do trial) — validar a modelagem exata no MP na F4 (lacuna R6).
+- Aceite na ativação: o MESMO texto da tela (componente único + versão
+  `VERSAO_TERMOS_WA_OFICIAL`) é exibido e aceito antes de criar a instância;
+  o aceite grava versão, usuário, data e IP em `aceite_termos` da assinatura.
+  Cancelamento é ato do usuário master, na tela do número: desvincular,
+  bloquear, parar de usar ou banimento pela Meta NÃO cancelam a cobrança.
 - Webhook MP: rota no CRM (`apps/web/src/app/api/webhooks/mercadopago/
   route.ts`), validação `x-signature` no padrão já em produção no
   brs-portal-parceiro, idempotente por id de evento
@@ -389,9 +412,11 @@ ycloud_mensagens: id uuid, instancia_id fk, ycloud_id text unique,
 
 ### Migration F4 — cobrança
 ```
-crm_wa_oficial_trials: id, agente_parceiro_id, numero_e164,
-  instancia_id_atual fk null, inicio_em, fim_em,
-  unique (agente_parceiro_id, numero_e164);   -- sobrevive a soft delete
+crm_wa_oficial_trials: id, numero_e164 text not null,  -- normalizado (nono dígito)
+  agente_parceiro_id_original, instancia_id_atual fk null, inicio_em, fim_em,
+  unique (numero_e164);     -- GLOBAL no sistema; sobrevive a soft delete e a troca de parceiro
+crm_wa_oficial_numero_vinculos: id, numero_e164, agente_parceiro_id,
+  instancia_id, vinculada_em, desvinculada_em null, trial_concedido bool;  -- append-only
 crm_wa_oficial_assinaturas: id, agente_parceiro_id, instancia_id fk,
   numero_e164, valor_centavos int default 4900, gateway text,
   gateway_customer_id, gateway_subscription_id,
