@@ -39,6 +39,7 @@ export type CorbanOnboardingEtapa =
   | 'analise'
   | 'nuvidio'
   | 'arw'
+  | 'limite'
   | 'contrato'
   | 'termo'
   | 'boas_vindas'
@@ -49,6 +50,7 @@ export const CORBAN_ONBOARDING_ETAPAS: CorbanOnboardingEtapa[] = [
   'analise',
   'nuvidio',
   'arw',
+  'limite',
   'contrato',
   'termo',
   'boas_vindas',
@@ -60,6 +62,7 @@ export const CORBAN_ONBOARDING_ETAPA_LABELS: Record<CorbanOnboardingEtapa, strin
   analise: 'Análise',
   nuvidio: 'Nuvidio',
   arw: 'Cadastro ARW',
+  limite: 'Limite Operacional',
   contrato: 'Contrato',
   termo: 'Termo de Usuário',
   boas_vindas: 'Boas-vindas',
@@ -128,6 +131,11 @@ export type CorbanOnboardingProcesso = {
   termo_status: string | null
   contrato_pdf_assinado_url: string | null
   termo_pdf_assinado_url: string | null
+  /** Fatia 4: limite operacional aprovado nesta etapa (padrão R$ 1.000.000). */
+  limite_operacional?: number | string | null
+  limite_justificativa?: string | null
+  limite_aprovado_por?: string | null
+  limite_aprovado_em?: string | null
   responsavel_id: string | null
   created_by: string | null
   created_at: string
@@ -239,6 +247,8 @@ export function formatEventoDescricao(evento: Pick<CorbanOnboardingEvento, 'tipo
       return `Evidência removida de "${detalhe.rotulo || detalhe.chave}" (${detalhe.file_name || 'arquivo'})`
     case 'cadastro_reprovado':
       return `Cadastro REPROVADO (${detalhe.categoria || 'sem categoria'}): ${detalhe.motivo || ''}`
+    case 'limite_aprovado':
+      return `Limite operacional aprovado: R$ ${Number(detalhe.valor || 0).toLocaleString('pt-BR')}${detalhe.padrao ? ' (padrão)' : ` — ${detalhe.justificativa || ''}`}`
     case 'certificacao_lancada':
       return `Certificação lançada para o CPF ${detalhe.cpf || ''} (validade ${detalhe.data_validade || '—'}${detalhe.verificado ? ', conferida no CRCP' : ''})`
     case 'certificacao_atualizada':
@@ -1142,3 +1152,6 @@ export type ReprovacaoAnterior = {
   reprovado_em: string
 }
 
+
+/** Fatia 4: limite operacional padrão do contrato (R$). Aumento vem por aditivo, em processo próprio. */
+export const LIMITE_OPERACIONAL_PADRAO = 1_000_000

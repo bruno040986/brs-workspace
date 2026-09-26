@@ -15,7 +15,7 @@ import { enviarEmailOnboarding, enviarWhatsAppOnboarding, resolverContatoParceir
 import { obterMensagem } from '@/lib/mensagens/templates'
 import { criarInvite, lerNuvidioConfigRow } from '@/lib/nuvidio/client'
 import { COMERCIAL_CARGO_LABELS, opcoesComerciais, type ComercialCargo } from '@/lib/comerciais-hierarquia'
-import { CHAVE_CERTIFICACOES_PREFIX, itemDispensaAprovacao } from '@/lib/agente-corban-onboarding'
+import { CHAVE_CERTIFICACOES_PREFIX, LIMITE_OPERACIONAL_PADRAO, itemDispensaAprovacao } from '@/lib/agente-corban-onboarding'
 
 const RESOURCE = 'agente-corban-cadastros-recebidos'
 const BUCKET = 'partner-analise'
@@ -265,7 +265,7 @@ export async function concluirEtapaArw(processoId: string): Promise<Resultado> {
     const { processo, agente } = await carregarProcessoAgente(admin, processoId)
     if (processo.etapa_atual !== 'arw') throw new Error('O processo não está na etapa ARW.')
     if (!String(agente.arw_code || '').trim()) throw new Error('Informe o código ARW do parceiro antes de concluir.')
-    await concluirEtapaGenerica(admin, processo, 'arw', 'contrato', user.id)
+    await concluirEtapaGenerica(admin, processo, 'arw', 'limite', user.id)
     revalidar(processoId)
     return { success: true }
   } catch (err: any) {
@@ -274,7 +274,49 @@ export async function concluirEtapaArw(processoId: string): Promise<Resultado> {
 }
 
 // ===========================================================================
-// Etapa 5 — Contrato (Assinafy)
+// Etapa 5 — Limite operacional (fatia 4)
+// ===========================================================================
+
+/**
+ * Aprova o limite operacional do contrato. Padrão R$ 1.000.000; valor
+ * diferente exige justificativa. Grava no processo (auditoria) e no agente
+ * (limite vigente, base do aditivo futuro) e conclui a etapa.
+ */
+export async function aprovarLimiteOperacional(
+  processoId: string,
+  input: { valor: number; justificativa?: string },
+): Promise<Resultado> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_edit')
+    const admin = await createAdminClient()
+    const { processo, agente } = await carregarProcessoAgente(admin, processoId)
+    if (processo.etapa_atual !== 'limite') throw new Error('O processo não está na etapa Limite Operacional.')
+    const valor = Number(input.valor)
+    if (!Number.isFinite(valor) || valor <= 0) throw new Error('Informe um limite operacional maior que zero.')
+    if (valor > 100_000_000) throw new Error('Limite acima de R$ 100 milhões: confira o valor.')
+    const justificativa = String(input.justificativa || '').trim()
+    if (valor !== LIMITE_OPERACIONAL_PADRAO && justificativa.length < 10) {
+      throw new Error('Limite diferente do padrão exige justificativa (mínimo 10 caracteres).')
+    }
+    const nowIso = new Date().toISOString()
+    const { error } = await admin
+      .from('corban_onboarding_processos')
+      .update({ limite_operacional: valor, limite_justificativa: justificativa || null, limite_aprovado_por: user.id, limite_aprovado_em: nowIso, updated_at: nowIso })
+      .eq('id', processoId)
+    if (error) throw error
+    const { error: aErr } = await admin.from('agentes_parceiros').update({ limite_operacional: valor }).eq('id', agente.id)
+    if (aErr) throw aErr
+    await registrarEvento(admin, processoId, 'limite_aprovado', { valor, padrao: valor === LIMITE_OPERACIONAL_PADRAO, justificativa: justificativa || null }, user.id)
+    await concluirEtapaGenerica(admin, processo, 'limite', 'contrato', user.id)
+    revalidar(processoId)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+// ===========================================================================
+// Etapa 6 — Contrato (Assinafy)
 // ===========================================================================
 
 export async function prepararEnviarContrato(

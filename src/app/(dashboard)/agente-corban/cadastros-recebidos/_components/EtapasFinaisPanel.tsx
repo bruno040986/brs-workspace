@@ -10,6 +10,7 @@ import { useRef, useState } from 'react'
 import { Check, Copy, Loader2, Mail, MessageSquare, Send, Upload, Video } from 'lucide-react'
 import {
   aprovarBoasVindas,
+  aprovarLimiteOperacional,
   gerarConviteNuvidioOnboarding,
   concluirEtapaArw,
   concluirEtapaContrato,
@@ -27,7 +28,7 @@ import { uploadDocAnalise } from '../actions'
 import type { RetornoArw } from '../etapas-actions'
 import { formatCpfOrCnpjDisplay, formatDateDisplay } from '@/lib/agente-corban'
 import { getAdministracao, getSociosPF } from '@/lib/agente-corban-signatarios'
-import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
+import { LIMITE_OPERACIONAL_PADRAO, type CatalogosArw } from '@/lib/agente-corban-onboarding'
 import { maskPhone } from '@/lib/company-bank-accounts'
 import { nomeComercial, opcoesComerciais, type ComercialCargo, type ComercialResumo } from '@/lib/comerciais-hierarquia'
 
@@ -104,6 +105,11 @@ export default function EtapasFinaisPanel({ etapa, processo, agente, comerciais,
   // ---------------------------------------------------------------------- ARW
   if (etapa === 'arw') {
     return <EtapaArw processo={processo} agente={agente} corban={corban} comerciais={comerciais} catalogos={catalogos} busy={busy} rodar={rodar} />
+  }
+
+  // ---------------------------------------------------------------- LIMITE
+  if (etapa === 'limite') {
+    return <EtapaLimite processo={processo} busy={busy} rodar={rodar} />
   }
 
   // ------------------------------------------------------------ CONTRATO/TERMO
@@ -287,6 +293,69 @@ function EtapaNuvidio({
       <div>
         <button type="button" className="btn btn-primary btn-sm" disabled={busy !== null || !processo.nuvidio_video_url} onClick={() => rodar('concluir', () => concluirEtapaNuvidio(processo.id))}>
           {busy === 'concluir' ? <Loader2 size={14} className="spinner" /> : <Check size={14} />} Concluir etapa
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ===========================================================================
+
+const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
+function EtapaLimite({
+  processo,
+  busy,
+  rodar,
+}: {
+  processo: Record<string, any>
+  busy: string | null
+  rodar: (id: string, fn: () => Promise<{ success: boolean; error?: string; detalhe?: string }>) => Promise<void>
+}) {
+  const [valor, setValor] = useState<number>(Number(processo.limite_operacional) || LIMITE_OPERACIONAL_PADRAO)
+  const [justificativa, setJustificativa] = useState(String(processo.limite_justificativa || ''))
+  const diferente = valor !== LIMITE_OPERACIONAL_PADRAO
+  const podeAprovar = valor > 0 && (!diferente || justificativa.trim().length >= 10)
+  return (
+    <div style={{ display: 'grid', gap: '0.9rem', maxWidth: 640 }}>
+      <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--brs-gray-600)' }}>
+        Limite operacional que vai no contrato. O padrão é {brl.format(LIMITE_OPERACIONAL_PADRAO)}; valor diferente exige justificativa. Aumento
+        depois do credenciamento é por aditivo, em processo próprio.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={rotulo}>Limite operacional (R$) *</label>
+          <input
+            className="form-control"
+            type="number"
+            min={1}
+            step={1000}
+            style={{ width: 220 }}
+            value={valor}
+            onChange={(e) => setValor(Number(e.target.value))}
+          />
+          <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-400)', marginTop: 2 }}>{brl.format(valor || 0)}</div>
+        </div>
+        {diferente && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setValor(LIMITE_OPERACIONAL_PADRAO)}>
+            Voltar ao padrão
+          </button>
+        )}
+      </div>
+      {diferente && (
+        <div>
+          <label style={rotulo}>Justificativa * (fica no histórico)</label>
+          <textarea className="form-control" rows={3} value={justificativa} onChange={(e) => setJustificativa(e.target.value)} placeholder="Ex.: parceiro com carteira já ativa em outra promotora, aprovado pelo comercial em dd/mm." />
+        </div>
+      )}
+      <div>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy !== null || !podeAprovar}
+          onClick={() => rodar('limite', () => aprovarLimiteOperacional(processo.id, { valor, justificativa }))}
+        >
+          {busy === 'limite' ? <Loader2 size={14} className="spinner" /> : <Check size={14} />} Aprovar limite e seguir para o Contrato
         </button>
       </div>
     </div>
