@@ -312,6 +312,16 @@ Sem entrada nova no **Suporte** nem no **Atendimento** desde 21:22 UTC (fim
 do expediente) — o estado atual dessas duas continua dependendo do teste
 identificável do Bruno (§8, item 1).
 
+**Validação do `99535f44` (inclui o ajuste `63e0a721`), 25/09 12:11 UTC
+(09:11 BRT), sessão do Bruno, deploy `dpl_VcayKkCQmGzmaPmyWF2Q3a54PcPM`:**
+
+| Item | Resultado |
+|---|---|
+| Chats | `lista?aba=meus&page=1` 200; 1 conversa (145, "LESTER RIBEIRO", inbox 3) com `assignee.id = 2` = `bruno.rodrigues@brspromotora.com.br` — o agente resolvido pelo e-mail do usuário logado; badge "Chats 1" = `meta.all_count` do filtro. |
+| Contadores | `{ mine: 1, unassigned: 62, all: 90 }` — badges Chats 1 / Fila 62. |
+| Console | 0 erros. |
+| Recebimento em 25/09 (06:00→09:12 BRT) | **Suporte: 65 entradas** (primeira 07:46, última 09:12 BRT) e 36 ecos — recebendo normalmente após o repareamento. Atendimento e Financeiro: nenhuma mensagem ainda hoje (linhas de baixo volume; Financeiro provou entrada em 24/09 às 19:21 e 21:02 BRT; **Atendimento continua só com o teste das 16h36 de 24/09** — pede o teste identificável). |
+
 **Não validado antes desse ajuste:** o código novo em produção (Chats do usuário logado,
 `POST /conversations/filter`, "Carregar mais", contadores por agente,
 Realtime + contadores) — só localmente (tipos/testes/build). Publicar e
