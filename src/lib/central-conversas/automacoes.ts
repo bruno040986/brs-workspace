@@ -29,7 +29,7 @@ export const CONDICOES = [
   { chave: 'status', rotulo: 'Status (open/resolved/pending/snoozed)', numerico: false },
   { chave: 'assignee_id', rotulo: 'Atendente (id)', numerico: true },
   { chave: 'team_id', rotulo: 'Time (id)', numerico: true },
-  { chave: 'labels', rotulo: 'Etiqueta', numerico: false },
+  { chave: 'priority', rotulo: 'Prioridade (low/medium/high/urgent)', numerico: false },
 ] as const
 
 export const ACOES = [
@@ -59,6 +59,29 @@ export type CorpoRegra = {
 
 const SEM_VALOR = new Set(['is_present', 'is_not_present'])
 
+/** Ações (regra de automação ou macro): valida nome, exige o valor quando a ação tem parâmetro e converte ids em número. */
+export function montarAcoes(entrada: AcaoEntrada[], catalogo: ReadonlyArray<{ nome: string; rotulo: string; param: string }> = ACOES): { ok: true; actions: CorpoRegra['actions'] } | { ok: false; error: string } {
+  const actions: CorpoRegra['actions'] = []
+  for (const a of entrada) {
+    const def = catalogo.find((x) => x.nome === a.nome)
+    if (!def) return { ok: false, error: `Ação desconhecida: ${a.nome}.` }
+    if (def.param === 'nenhum') {
+      actions.push({ action_name: a.nome, action_params: [] })
+      continue
+    }
+    const valor = String(a.valor || '').trim()
+    if (!valor) return { ok: false, error: `Informe o valor da ação "${def.rotulo}".` }
+    if (def.param === 'numero') {
+      const n = Number(valor)
+      if (!Number.isInteger(n) || n <= 0) return { ok: false, error: `"${def.rotulo}" aceita só número inteiro positivo.` }
+      actions.push({ action_name: a.nome, action_params: [n] })
+    } else {
+      actions.push({ action_name: a.nome, action_params: [valor] })
+    }
+  }
+  return { ok: true, actions }
+}
+
 export function montarCorpoRegra(e: RegraEntrada): { ok: true; corpo: CorpoRegra } | { ok: false; error: string } {
   const nome = String(e.nome || '').trim()
   if (!nome) return { ok: false, error: 'Dê um nome à regra.' }
@@ -81,24 +104,9 @@ export function montarCorpoRegra(e: RegraEntrada): { ok: true; corpo: CorpoRegra
     conditions.push({ attribute_key: c.chave, filter_operator: c.operador, query_operator: e.combinador === 'OR' ? 'OR' : 'AND', values })
   }
 
-  const actions: CorpoRegra['actions'] = []
-  for (const a of e.acoes) {
-    const def = ACOES.find((x) => x.nome === a.nome)
-    if (!def) return { ok: false, error: `Ação desconhecida: ${a.nome}.` }
-    if (def.param === 'nenhum') {
-      actions.push({ action_name: a.nome, action_params: [] })
-      continue
-    }
-    const valor = String(a.valor || '').trim()
-    if (!valor) return { ok: false, error: `Informe o valor da ação "${def.rotulo}".` }
-    if (def.param === 'numero') {
-      const n = Number(valor)
-      if (!Number.isInteger(n) || n <= 0) return { ok: false, error: `"${def.rotulo}" aceita só número inteiro positivo.` }
-      actions.push({ action_name: a.nome, action_params: [n] })
-    } else {
-      actions.push({ action_name: a.nome, action_params: [valor] })
-    }
-  }
+  const acoes = montarAcoes(e.acoes)
+  if (!acoes.ok) return acoes
+  const actions = acoes.actions
   return { ok: true, corpo: { name: nome, description: String(e.descricao || '').trim(), event_name: e.evento, active: Boolean(e.ativa), conditions, actions } }
 }
 

@@ -38,6 +38,8 @@ import AvatarContato from './AvatarContato'
 import AudioPlayer from './AudioPlayer'
 import { ATRIBUTO_CHAVE_ROLAGEM, useRolagemThread } from './useRolagemThread'
 import AcoesAparelho from './AcoesAparelho'
+import MacroConversa from './MacroConversa'
+import EnviarArtigo from './EnviarArtigo'
 import EnvioEspecialMenu from './EnvioEspecial'
 import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
 import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
@@ -93,6 +95,8 @@ type Props = {
   onApagarMensagem?: (messageId: number) => Promise<{ ok: true; paraTodos: boolean } | { ok: false; error: string }>
   /** Devolve o texto do erro (ou null se editou); ver useAtendimento.editarMensagem. */
   onEditarMensagem?: (messageId: number, texto: string) => Promise<string | null>
+  /** Refaz a thread/lista depois de uma ação assíncrona do Chatwoot (macro). */
+  onAtualizar?: () => void
   /** Presença do contato (só individual): digitando/gravando/online. */
   presenca?: 'digitando' | 'gravando' | 'online' | 'offline' | 'parado' | null
   onEncaminharMensagem?: (sourceMessage: MensagemComExtras, targetConversationId: number) => Promise<void>
@@ -183,6 +187,7 @@ export default function ThreadConversa({
   onReagirMensagem,
   onApagarMensagem,
   onEditarMensagem,
+  onAtualizar,
   presenca,
   onEncaminharMensagem,
   onSelecionarConversa,
@@ -597,6 +602,7 @@ export default function ThreadConversa({
             {alterando === 'assumindo' ? 'Assumindo…' : 'Assumir para mim'}
           </button>
         )}
+        <MacroConversa conversationId={conversa.id} onResultado={(m) => exibirToast(m)} onExecutada={onAtualizar} />
         <AcoesAparelho conversationId={conversa.id} grupo={grupo} onResultado={(m) => exibirToast(m)} />
         <button type="button" onClick={() => setBuscaAberta((v) => !v)} title="Buscar na conversa" className="brs-messenger-toolbar-btn" style={{ width: 34, height: 34, background: buscaAberta ? 'var(--msn-item-active)' : undefined }}>
           <Search size={18} />
@@ -1154,6 +1160,7 @@ export default function ThreadConversa({
               />
             )}
           </div>
+          {!notaInterna && <EnviarArtigo onInserir={(link) => setTexto((prev) => (prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? `${prev} ${link}` : `${prev}${link}`))} onErro={(m) => exibirToast(m)} />}
           {!notaInterna && (
             <EnvioEspecialMenu conversationId={conversa.id} onEnviado={() => irParaMensagemEnviada()} onErro={(m) => exibirToast(m)} />
           )}

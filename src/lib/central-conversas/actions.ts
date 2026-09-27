@@ -1101,7 +1101,11 @@ export async function setVinculoContato(contactId: number, tipo: EntidadeTipo | 
     .select(CONTATO_META_COLS)
     .single()
   if (error) throw error
-  return contatoMetaParaView(row as ContatoMetaRow)
+  const view = await contatoMetaParaView(row as ContatoMetaRow)
+  // D3: espelho best-effort do vínculo como atributo do contato no Chatwoot (Workspace segue dono).
+  const { espelharVinculoContato } = await import('./atributos-espelho')
+  await espelharVinculoContato(contactId, view.entidade?.tipo ?? null, view.entidade?.nome ?? '')
+  return view
 }
 
 export async function setDepartamentoPadraoContato(contactId: number, departamentoId: string | null): Promise<ContatoMeta> {
