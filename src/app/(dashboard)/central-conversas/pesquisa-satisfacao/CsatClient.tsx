@@ -8,7 +8,7 @@
  * Permissão: central-conversas.
  */
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Star } from 'lucide-react'
 import { listarCsat, respostasCsat, salvarCsat, type CsatCaixa } from '@/lib/central-conversas/csat-actions'
 import { CSAT_TIPOS, type RespostaCsat, type ResumoCsat } from '@/lib/central-conversas/csat'
 
@@ -64,16 +64,16 @@ export default function CsatClient() {
   }
 
   return (
-    <div style={{ maxWidth: 900 }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700 }}>Pesquisa de satisfação</h1>
-      <div style={{ fontSize: 13, color: 'var(--color-ink-subtle)', marginBottom: 12 }}>
+    <div>
+      <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}><Star size={22} /> Pesquisa de satisfação</h1>
+      <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-400)', marginBottom: 12 }}>
         Ao resolver a conversa, o Chatwoot pergunta ao cliente como foi o atendimento. Configure o texto por caixa de entrada e acompanhe as notas abaixo.
       </div>
-      {erro && <div style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 8 }}>{erro}</div>}
-      {aviso && <div style={{ color: 'var(--color-success, #16a34a)', fontSize: 13, marginBottom: 8 }}>{aviso}</div>}
+      {erro && <div className="card" style={{ padding: '0.8rem 1rem', borderLeft: '4px solid var(--brs-danger)', marginBottom: '1rem', color: 'var(--brs-danger)', fontWeight: 600 }}>{erro}</div>}
+      {aviso && <div style={{ color: 'var(--brs-success, #16a34a)', fontSize: 13, marginBottom: 8 }}>{aviso}</div>}
 
       {carregando ? (
-        <Loader2 className="spinner" />
+        <Loader2 size={18} className="animate-spin" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
           {caixas.map((c) => (
@@ -82,10 +82,10 @@ export default function CsatClient() {
                 <strong>{c.nome}</strong>
                 <label style={{ fontSize: 13 }}><input type="checkbox" checked={c.ativa} onChange={(e) => edit(c.id, { ativa: e.target.checked })} /> Pesquisa ativa</label>
               </div>
-              <textarea className="input" rows={2} maxLength={300} placeholder="Texto da pesquisa" value={c.mensagem} onChange={(e) => edit(c.id, { mensagem: e.target.value })} />
+              <textarea className="form-control" rows={2} maxLength={300} placeholder="Texto da pesquisa" value={c.mensagem} onChange={(e) => edit(c.id, { mensagem: e.target.value })} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input" style={{ flex: 1 }} maxLength={40} placeholder="Texto do botão" value={c.botao} onChange={(e) => edit(c.id, { botao: e.target.value })} />
-                <select className="input" value={c.tipo} onChange={(e) => edit(c.id, { tipo: e.target.value })}>
+                <input className="form-control" style={{ flex: 1 }} maxLength={40} placeholder="Texto do botão" value={c.botao} onChange={(e) => edit(c.id, { botao: e.target.value })} />
+                <select className="form-control" value={c.tipo} onChange={(e) => edit(c.id, { tipo: e.target.value })}>
                   {CSAT_TIPOS.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
                 </select>
                 <button type="button" className="btn btn-primary" disabled={salvando === c.id} onClick={() => void salvar(c)}>{salvando === c.id ? 'Salvando…' : 'Salvar'}</button>
@@ -97,16 +97,16 @@ export default function CsatClient() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700 }}>Resultados</h2>
-        <select className="input" value={dias} onChange={(e) => setDias(Number(e.target.value))}>
+        <select className="form-control" value={dias} onChange={(e) => setDias(Number(e.target.value))}>
           <option value={7}>Últimos 7 dias</option>
           <option value={30}>Últimos 30 dias</option>
           <option value={90}>Últimos 90 dias</option>
         </select>
       </div>
       {carregandoResp ? (
-        <Loader2 className="spinner" />
+        <Loader2 size={18} className="animate-spin" />
       ) : !resumo || resumo.total === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--color-ink-subtle)' }}>Nenhuma resposta no período.</div>
+        <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-400)' }}>Nenhuma resposta no período.</div>
       ) : (
         <>
           <div className="card" style={{ padding: '0.8rem 1rem', marginBottom: 10, display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13 }}>
@@ -121,7 +121,7 @@ export default function CsatClient() {
             {respostas.filter((r) => r.feedback_message).map((r) => (
               <div key={r.id} className="card" style={{ padding: '0.5rem 0.9rem', fontSize: 13 }}>
                 <strong>{'★'.repeat(r.rating)}</strong> {r.assigned_agent?.name ? `· ${r.assigned_agent.name}` : ''} {r.contact?.name ? `· ${r.contact.name}` : ''}
-                <div style={{ color: 'var(--color-ink-subtle)' }}>{r.feedback_message}</div>
+                <div style={{ color: 'var(--brs-gray-400)' }}>{r.feedback_message}</div>
               </div>
             ))}
           </div>
