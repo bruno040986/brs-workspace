@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, CalendarClock, Check, ChevronDown, Copy, History, Images, LogOut, MailOpen, Pencil, Plus, RefreshCw, Search, Shield, ShieldOff, Trash2, UserMinus, X } from 'lucide-react'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
 import AtributosPainel from './AtributosPainel'
+import NumerosInput from './NumerosInput'
+import { falhasDeParticipantes } from '@/lib/central-conversas/numeros'
 import { alterarParticipantes, atualizarGrupoConversa, buscarContatosConexao, getGrupo, linkConvite, revogarLinkConvite, sairDoGrupo, type GrupoDetalhado } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
 import AvatarContato from './AvatarContato'
@@ -1086,9 +1088,10 @@ function ModalAdicionarMembros({
   const [busca, setBusca] = useState('')
   const [itens, setItens] = useState<ContatoConexao[]>([])
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
-  const [numeroAvulso, setNumeroAvulso] = useState('')
+  const [numerosAvulsos, setNumerosAvulsos] = useState<string[]>([])
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [falhas, setFalhas] = useState<string[]>([])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -1110,15 +1113,21 @@ function ModalAdicionarMembros({
 
   async function confirmar() {
     setErro(null)
-    const jids = [...selecionados]
-    const avulso = numeroAvulso.trim()
-    if (avulso) jids.push(avulso)
+    setFalhas([])
+    const jids = [...selecionados, ...numerosAvulsos]
     if (!jids.length) return
     setSalvando(true)
     try {
       const r = await alterarParticipantes(conversationId, 'add', jids)
       if (!r.ok) {
         setErro(r.error)
+        return
+      }
+      // O engine responde 200 mesmo quando o WhatsApp recusa item a item: mostrar o motivo de cada um.
+      const problemas = falhasDeParticipantes(r.resultado)
+      if (problemas.length) {
+        setFalhas(problemas)
+        if (problemas.length < r.resultado.length) void onAdicionado().catch(() => undefined)
         return
       }
       await onAdicionado()
@@ -1154,11 +1163,17 @@ function ModalAdicionarMembros({
           {!itens.length && <div style={{ fontSize: 11, color: 'var(--msn-muted)' }}>Digite pra buscar contatos da conexão.</div>}
         </div>
         <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--msn-muted)', marginBottom: 4 }}>Número avulso (DDI+DDD+número)</div>
-        <input className="brs-messenger-search-input" style={{ width: '100%', marginBottom: 12 }} placeholder="Ex.: 5511999999999" value={numeroAvulso} onChange={(e) => setNumeroAvulso(e.target.value)} />
+        <div style={{ marginBottom: 12 }}><NumerosInput valores={numerosAvulsos} onChange={setNumerosAvulsos} placeholder="Ex.: 5511999999999 — vários: vírgula ou Enter" /></div>
+        {falhas.length > 0 && (
+          <div style={{ fontSize: 11.5, color: '#b91c1c', marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong>Não foi possível adicionar:</strong>
+            {falhas.map((f) => <span key={f}>{f}</span>)}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => void confirmar()}
-          disabled={salvando || (!selecionados.size && !numeroAvulso.trim())}
+          disabled={salvando || (!selecionados.size && !numerosAvulsos.length)}
           className="brs-messenger-pill-btn"
           style={{ width: '100%', justifyContent: 'center' }}
         >

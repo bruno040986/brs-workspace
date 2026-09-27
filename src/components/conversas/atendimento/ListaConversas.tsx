@@ -7,6 +7,7 @@ import AvatarContato, { IconeCanal } from './AvatarContato'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
 import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
+import NumerosInput from './NumerosInput'
 import { buscarContatosConexao, criarGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
 import AgendaWorkspaceModal from './AgendaWorkspaceModal'
@@ -740,7 +741,8 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
   const [busca, setBusca] = useState('')
   const [itens, setItens] = useState<ContatoConexao[]>([])
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
-  const [numeroAvulso, setNumeroAvulso] = useState('')
+  const [numerosAvulsos, setNumerosAvulsos] = useState<string[]>([])
+  const [conversaAberta, setConversaAberta] = useState<boolean | null>(null)
   const [mensagemInicial, setMensagemInicial] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -770,8 +772,7 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
     if (!instanciaId) return setErro('Escolha uma conexão conectada (Baileys).')
     if (!nome.trim()) return setErro('Dê um nome ao grupo.')
     const participantes = [...selecionados]
-    const avulso = numeroAvulso.trim()
-    if (avulso) participantes.push(avulso)
+    participantes.push(...numerosAvulsos)
     if (!participantes.length) return setErro('Selecione ao menos um participante.')
     setSalvando(true)
     try {
@@ -781,6 +782,7 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
         return
       }
       setCriado(true)
+      setConversaAberta(r.conversationId !== null)
       onGrupoCriado?.(r.conversationId)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao criar o grupo.')
@@ -798,7 +800,7 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--msn-surface)' }}>
           {criado ? (
             <>
-              <div style={{ fontSize: 12.5, color: 'var(--msn-text)' }}>Grupo criado e aberto na lista.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--msn-text)' }}>{conversaAberta ? 'Grupo criado e aberto na lista.' : 'Grupo criado no WhatsApp, mas a conversa ainda não apareceu na lista — ela surge com a primeira mensagem.'}</div>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={onFechar} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
                   Fechar
@@ -840,7 +842,7 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
               </div>
               <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
                 Número avulso (DDI+DDD+número)
-                <input className="brs-messenger-profile-input" style={{ width: '100%', marginTop: 4 }} placeholder="Ex.: 5511999999999" value={numeroAvulso} onChange={(e) => setNumeroAvulso(e.target.value)} />
+                <div style={{ marginTop: 4 }}><NumerosInput classe="brs-messenger-profile-input" valores={numerosAvulsos} onChange={setNumerosAvulsos} placeholder="Ex.: 5511999999999 — vários: vírgula ou Enter" /></div>
               </label>
               <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
                 Mensagem inicial (opcional)
