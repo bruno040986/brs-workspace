@@ -47,6 +47,8 @@ type Props = {
   onCarregarGaleria: () => void
   agendamentos: AcaoAgendada[]
   onFechar?: () => void
+  /** Grupo editado (nome/foto): o cabeçalho do atendimento aplica na hora. */
+  onGrupoAlterado?: (d: { nome?: string; fotoDataUrl?: string }) => void
   onSilenciar: (v: boolean) => Promise<void>
   onMarcarNaoLida: () => Promise<void>
   onVincular: (tipo: EntidadeTipo | null, id: string | null) => Promise<void>
@@ -200,6 +202,7 @@ export default function PainelContato({
   onMarcarNaoLida,
   onVincular,
   onVincularContato,
+  onGrupoAlterado,
   onDefinirDepartamentoPadraoContato,
   onDefinirAtendentePadraoContato,
   onSalvarObservacoes,
@@ -616,7 +619,7 @@ export default function PainelContato({
             </section>
           </>
         ) : (
-          <AbaMembros conversationId={conversa.id} onSaiu={onFechar} />
+          <AbaMembros conversationId={conversa.id} onSaiu={onFechar} onGrupoAlterado={onGrupoAlterado} />
         )}
       </div>
 
@@ -767,7 +770,7 @@ export default function PainelContato({
 }
 
 /** Aba Membros do painel de grupo (Fase C) — busca sob demanda, com "Atualizar". */
-function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu?: () => void }) {
+function AbaMembros({ conversationId, onSaiu, onGrupoAlterado }: { conversationId: number; onSaiu?: () => void; onGrupoAlterado?: (d: { nome?: string; fotoDataUrl?: string }) => void }) {
   const [grupo, setGrupo] = useState<GrupoDetalhado | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -864,6 +867,9 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
         return
       }
       setEditando(false)
+      // Aplica o que acabou de ser salvo, sem esperar o WhatsApp/Chatwoot devolverem o valor novo.
+      setGrupo((g) => (g ? { ...g, ...(dados.nome ? { nome: dados.nome } : {}), ...(dados.descricao !== undefined ? { descricao: dados.descricao } : {}) } : g))
+      onGrupoAlterado?.({ nome: dados.nome, fotoDataUrl: dados.fotoBase64 ? `data:image/jpeg;base64,${dados.fotoBase64}` : undefined })
       await carregar()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao salvar o grupo.')

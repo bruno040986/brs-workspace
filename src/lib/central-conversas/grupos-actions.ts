@@ -29,13 +29,13 @@ function normalizarParticipante(input: string): string {
  * vindos do cliente pra ações em conversa existente) e valida posse pela
  * conta BRS.
  */
-async function grupoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string }> {
+async function grupoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string; contatoId: number | null }> {
   const r = await destinoDaConversa(conversationId)
   if (!r.jid.endsWith('@g.us')) throw new Error('Esta conversa não é um grupo.')
   return r
 }
 
-async function destinoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string }> {
+async function destinoDaConversa(conversationId: number): Promise<{ instanciaId: string; jid: string; contatoId: number | null }> {
   const cli = await clienteChatwootBrs()
   if (!cli) throw new Error('Chatwoot não provisionado.')
   const conversa = await cli.conversa(conversationId)
@@ -52,7 +52,8 @@ async function destinoDaConversa(conversationId: number): Promise<{ instanciaId:
     .is('deleted_at', null)
     .maybeSingle()
   if (!inst) throw new Error('Conexão do grupo não encontrada.')
-  return { instanciaId: String(inst.id), jid: parsed.jid }
+  const contatoId = Number((conversa.meta?.sender as { id?: number } | undefined)?.id) || null
+  return { instanciaId: String(inst.id), jid: parsed.jid, contatoId }
 }
 
 /** Valida posse de uma instância avulsa (sem conversa ainda) pela conta BRS. */
@@ -137,8 +138,16 @@ export async function linkConvite(conversationId: number): Promise<{ ok: true; l
 export async function atualizarGrupoConversa(conversationId: number, dados: { nome?: string; descricao?: string; fotoBase64?: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')
-    const { instanciaId, jid } = await grupoDaConversa(conversationId)
+    const { instanciaId, jid, contatoId } = await grupoDaConversa(conversationId)
     await engineGrupos.atualizarGrupo(instanciaId, jid, dados)
+    // O cabeçalho do atendimento lê o CONTATO do Chatwoot (nome/foto): acompanha o que foi salvo no WhatsApp.
+    if (contatoId && (dados.nome || dados.fotoBase64)) {
+      const cli = await clienteChatwootBrs()
+      if (cli) {
+        if (dados.nome) await cli.atualizarContato(contatoId, { name: dados.nome.trim() }).catch(() => undefined)
+        if (dados.fotoBase64) await cli.atualizarAvatarContato(contatoId, { bytes: Buffer.from(dados.fotoBase64, 'base64'), mime: 'image/jpeg' }).catch(() => undefined)
+      }
+    }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: mensagemErroEngine(err) }
