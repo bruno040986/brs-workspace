@@ -99,6 +99,7 @@ export default function AtendimentoCompleto() {
       <div style={{ borderLeft: '1px solid var(--msn-border)', minHeight: 0 }}>
         {at.selecionada ? (
           <PainelContato
+            onGrupoAlterado={at.aplicarGrupoAlterado}
             conversa={at.selecionada}
             mensagens={at.mensagens}
             agentes={at.agentes}

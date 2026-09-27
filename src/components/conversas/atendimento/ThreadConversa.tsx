@@ -419,7 +419,7 @@ export default function ThreadConversa({
   const presencaEnvio = useRef<{ ultimo: number; timer: ReturnType<typeof setTimeout> | null }>({ ultimo: 0, timer: null })
   function pulsoPresenca(estado: 'composing' | 'recording' | 'paused') {
     const alvo = grupo || notaInterna ? null : parseIdentifier(conversa.meta.sender?.identifier)
-    if (!alvo?.jid.endsWith('@s.whatsapp.net')) return
+    if (!alvo || !(alvo.jid.endsWith('@s.whatsapp.net') || alvo.jid.endsWith('@lid'))) return
     const p = presencaEnvio.current
     if (p.timer) clearTimeout(p.timer)
     p.timer = null
@@ -766,6 +766,7 @@ export default function ThreadConversa({
                   m.content_attributes?.revoked ||
                     m.content_attributes?.deleted ||
                     m.content_attributes?.is_deleted ||
+                    m.status === 'revogada' ||
                     mensagensApagadasLocal.has(m.id) ||
                     (conteudo && conteudo.includes('🚫 Mensagem apagada')),
                 )
@@ -824,7 +825,7 @@ export default function ThreadConversa({
                         {remetente && <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--msn-accent)', marginBottom: 2 }}>{remetente.nome}</div>}
                         {ehRevogada && (
                           <div style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--msn-muted)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            🚫 Mensagem apagada (mantida no histórico)
+                            🚫 {saida ? 'Mensagem apagada (mantida no histórico)' : 'Apagada pelo remetente (mantida no histórico)'}
                           </div>
                         )}
                         {inReplyTo && (
@@ -853,7 +854,7 @@ export default function ThreadConversa({
                           ),
                         )}
                         {edicaoAberta?.id === m.id && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 'min(340px, 62vw)' }}>
                             <textarea
                               autoFocus
                               value={edicaoAberta.corpo}
@@ -863,12 +864,12 @@ export default function ThreadConversa({
                               style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
                             />
                             {edicaoAberta.erro && <div style={{ fontSize: 11, color: '#dc2626' }}>{edicaoAberta.erro}</div>}
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                              <button type="button" className="brs-messenger-toolbar-btn" onClick={() => setEdicaoAberta(null)} disabled={edicaoAberta.salvando}>Cancelar</button>
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center', whiteSpace: 'nowrap' }}>
+                              <button type="button" className="brs-messenger-toolbar-btn" style={{ whiteSpace: 'nowrap', padding: '3px 10px' }} onClick={() => setEdicaoAberta(null)} disabled={edicaoAberta.salvando}>Cancelar</button>
                               <button
                                 type="button"
                                 className="brs-messenger-primary-button"
-                                style={{ padding: '3px 10px' }}
+                                style={{ padding: '3px 12px', whiteSpace: 'nowrap' }}
                                 disabled={edicaoAberta.salvando || !edicaoAberta.corpo.trim() || edicaoAberta.corpo.trim() === textoAtual.slice(edicaoAberta.prefixo.length).trim()}
                                 onClick={async () => {
                                   const ed = edicaoAberta
@@ -903,7 +904,7 @@ export default function ThreadConversa({
                           {dataHoraCompleta(m.created_at)}
                           {m.edicao && <span title={m.edicao.origem === 'contato' ? 'O contato editou esta mensagem' : 'Editada no WhatsApp'}> · editada</span>}
                           {nota ? ' · nota interna' : ''}
-                          {saida && !nota && (
+                          {saida && !nota && m.status !== 'revogada' && (
                             <span title={m.status === 'falhou' ? 'Falha no envio' : m.status === 'lido' ? 'Lido por todos' : m.status === 'entregue' ? 'Entregue' : 'Enviado'}>
                               {m.status === 'falhou' ? (
                                 <span style={{ color: '#dc2626', fontWeight: 700 }}>

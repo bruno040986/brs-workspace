@@ -27,19 +27,19 @@ export default function PublicarStatus({ instanciaId, nome, onFechar }: { instan
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 500 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}>
       <div className="card" style={{ width: 420, maxWidth: '92vw', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ fontWeight: 700 }}>Publicar status — {nome}</div>
-        <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+        <div style={{ fontSize: 12, color: 'var(--brs-gray-400)' }}>
           Só número de disparo já aquecido (48 h), no máximo 3 por dia, sem agendamento. Cada publicação fica registrada no histórico do número.
         </div>
-        <textarea className="input" rows={4} maxLength={700} placeholder="Texto do status" value={texto} disabled={Boolean(imagem)} onChange={(e) => setTexto(e.target.value)} />
+        <textarea className="form-control" rows={4} maxLength={700} placeholder="Texto do status" value={texto} disabled={Boolean(imagem)} onChange={(e) => setTexto(e.target.value)} />
         <div style={{ fontSize: 12 }}>ou uma imagem:</div>
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setImagem(e.target.files?.[0] ?? null)} />
-        {imagem && <input className="input" maxLength={700} placeholder="Legenda (opcional)" value={legenda} onChange={(e) => setLegenda(e.target.value)} />}
-        {msg && <div style={{ fontSize: 12.5, color: msg.ok ? 'var(--color-success, #16a34a)' : 'var(--color-danger)' }}>{msg.texto}</div>}
+        {imagem && <input className="form-control" maxLength={700} placeholder="Legenda (opcional)" value={legenda} onChange={(e) => setLegenda(e.target.value)} />}
+        {msg && <div style={{ fontSize: 12.5, color: msg.ok ? 'var(--color-success, #16a34a)' : 'var(--brs-danger)' }}>{msg.texto}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onFechar} disabled={enviando}>Fechar</button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={onFechar} disabled={enviando}>Fechar</button>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => void publicar()} disabled={enviando || (!texto.trim() && !imagem)}>{enviando ? 'Publicando…' : 'Publicar'}</button>
         </div>
       </div>

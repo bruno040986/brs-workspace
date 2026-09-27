@@ -6,7 +6,7 @@
  * Permissão: central-conversas.
  */
 import { useEffect, useState } from 'react'
-import { Copy, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Copy, Loader2, Pencil, Plus, Trash2, X, BookOpen } from 'lucide-react'
 import { criarCategoria, criarPortal, excluirArtigo, listarArtigos, listarCategorias, listarPortais, salvarArtigo, type Artigo, type Categoria, type Portal } from '@/lib/central-conversas/ajuda-actions'
 import { linkArtigo, STATUS_ARTIGO, type ArtigoEntrada } from '@/lib/central-conversas/ajuda'
 
@@ -104,18 +104,18 @@ export default function AjudaClient() {
   const set = (p: Partial<ArtigoEntrada>) => setEditando((e) => (e ? { ...e, dados: { ...e.dados, ...p } } : e))
 
   return (
-    <div style={{ maxWidth: 900 }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700 }}>Central de ajuda</h1>
-      <div style={{ fontSize: 13, color: 'var(--color-ink-subtle)', marginBottom: 12 }}>
+    <div>
+      <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 8 }}><BookOpen size={22} /> Central de ajuda</h1>
+      <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-400)', marginBottom: 12 }}>
         Artigos publicados no Chatwoot, acessíveis por link (sem listagem pública). No atendimento, use "Enviar artigo" para mandar o link ao cliente. O texto usa Markdown.
       </div>
-      {erro && <div style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 8 }}>{erro}</div>}
-      {aviso && <div style={{ color: 'var(--color-success, #16a34a)', fontSize: 13, marginBottom: 8 }}>{aviso}</div>}
+      {erro && <div className="card" style={{ padding: '0.8rem 1rem', borderLeft: '4px solid var(--brs-danger)', marginBottom: '1rem', color: 'var(--brs-danger)', fontWeight: 600 }}>{erro}</div>}
+      {aviso && <div style={{ color: 'var(--brs-success, #16a34a)', fontSize: 13, marginBottom: 8 }}>{aviso}</div>}
       {carregando ? (
-        <Loader2 className="spinner" />
+        <Loader2 size={18} className="animate-spin" />
       ) : !portal ? (
         <div className="card" style={{ padding: '1rem', display: 'flex', gap: 8 }}>
-          <input className="input" style={{ flex: 1 }} placeholder="Nome da central de ajuda (ex.: Ajuda BRS)" value={nomePortal} onChange={(e) => setNomePortal(e.target.value)} />
+          <input className="form-control" style={{ flex: 1 }} placeholder="Nome da central de ajuda (ex.: Ajuda BRS)" value={nomePortal} onChange={(e) => setNomePortal(e.target.value)} />
           <button type="button" className="btn btn-primary" onClick={() => void novoPortal()} disabled={!nomePortal.trim()}>Criar central de ajuda</button>
         </div>
       ) : (
@@ -123,7 +123,7 @@ export default function AjudaClient() {
           <div style={{ fontSize: 13, marginBottom: 10 }}>
             <strong>{portal.name}</strong> · endereço público: {urlBase}/hc/{portal.slug}
             {portais.length > 1 && (
-              <select className="input" style={{ marginLeft: 8 }} value={portal.slug} onChange={(e) => setPortal(portais.find((p) => p.slug === e.target.value) || null)}>
+              <select className="form-control" style={{ marginLeft: 8 }} value={portal.slug} onChange={(e) => setPortal(portais.find((p) => p.slug === e.target.value) || null)}>
                 {portais.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
               </select>
             )}
@@ -132,8 +132,8 @@ export default function AjudaClient() {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Categorias:</span>
             {categorias.map((c) => <span key={c.id} className="badge">{c.name}</span>)}
-            <input className="input" placeholder="Nova categoria" value={nomeCategoria} onChange={(e) => setNomeCategoria(e.target.value)} />
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => void novaCategoria()} disabled={!nomeCategoria.trim()}><Plus size={12} /> Adicionar</button>
+            <input className="form-control" placeholder="Nova categoria" value={nomeCategoria} onChange={(e) => setNomeCategoria(e.target.value)} />
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => void novaCategoria()} disabled={!nomeCategoria.trim()}><Plus size={12} /> Adicionar</button>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -141,18 +141,18 @@ export default function AjudaClient() {
             <button type="button" className="btn btn-primary" onClick={() => setEditando({ id: null, dados: VAZIO })}><Plus size={14} /> Novo artigo</button>
           </div>
           {artigos.length === 0 ? (
-            <div style={{ fontSize: 13, color: 'var(--color-ink-subtle)' }}>Nenhum artigo ainda. O conteúdo é cadastrado aqui, sem pressa.</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-400)' }}>Nenhum artigo ainda. O conteúdo é cadastrado aqui, sem pressa.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {artigos.map((a) => (
                 <div key={a.id} className="card" style={{ padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600 }}>{a.title}</div>
-                    <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>{ehPublicado(a) ? 'Publicado' : 'Rascunho'} · {categorias.find((c) => c.id === a.category_id)?.name || 'sem categoria'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--brs-gray-400)' }}>{ehPublicado(a) ? 'Publicado' : 'Rascunho'} · {categorias.find((c) => c.id === a.category_id)?.name || 'sem categoria'}</div>
                   </div>
-                  <button type="button" className="btn btn-secondary btn-sm" title="Copiar link" onClick={() => void copiar(a)}><Copy size={14} /></button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditando({ id: a.id, dados: { titulo: a.title, conteudo: a.content || '', descricao: a.description || '', categoriaId: a.category_id ?? null, publicado: ehPublicado(a) } })}><Pencil size={14} /></button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => void excluir(a)}><Trash2 size={14} /></button>
+                  <button type="button" className="btn btn-outline btn-sm" title="Copiar link" onClick={() => void copiar(a)}><Copy size={14} /></button>
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => setEditando({ id: a.id, dados: { titulo: a.title, conteudo: a.content || '', descricao: a.description || '', categoriaId: a.category_id ?? null, publicado: ehPublicado(a) } })}><Pencil size={14} /></button>
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => void excluir(a)}><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>
@@ -161,23 +161,23 @@ export default function AjudaClient() {
       )}
 
       {editando && d && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 500 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}>
           <div className="card" style={{ width: 680, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <strong>{editando.id ? 'Editar artigo' : 'Novo artigo'}</strong>
               <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setEditando(null)}><X size={16} /></button>
             </div>
-            <input className="input" maxLength={200} placeholder="Título" value={d.titulo} onChange={(e) => set({ titulo: e.target.value })} />
-            <input className="input" placeholder="Resumo (opcional)" value={d.descricao || ''} onChange={(e) => set({ descricao: e.target.value })} />
-            <select className="input" value={d.categoriaId ?? ''} onChange={(e) => set({ categoriaId: e.target.value ? Number(e.target.value) : null })}>
+            <input className="form-control" maxLength={200} placeholder="Título" value={d.titulo} onChange={(e) => set({ titulo: e.target.value })} />
+            <input className="form-control" placeholder="Resumo (opcional)" value={d.descricao || ''} onChange={(e) => set({ descricao: e.target.value })} />
+            <select className="form-control" value={d.categoriaId ?? ''} onChange={(e) => set({ categoriaId: e.target.value ? Number(e.target.value) : null })}>
               <option value="">Sem categoria</option>
               {categorias.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <textarea className="input" rows={14} placeholder="Conteúdo (Markdown: # título, **negrito**, - lista, [texto](link))" value={d.conteudo} onChange={(e) => set({ conteudo: e.target.value })} />
+            <textarea className="form-control" rows={14} placeholder="Conteúdo (Markdown: # título, **negrito**, - lista, [texto](link))" value={d.conteudo} onChange={(e) => set({ conteudo: e.target.value })} />
             <label style={{ fontSize: 13 }}><input type="checkbox" checked={d.publicado} onChange={(e) => set({ publicado: e.target.checked })} /> Publicado (acessível pelo link)</label>
-            {erro && <div style={{ color: 'var(--color-danger)', fontSize: 13 }}>{erro}</div>}
+            {erro && <div style={{ color: 'var(--brs-danger)', fontSize: 13 }}>{erro}</div>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setEditando(null)} disabled={salvando}>Cancelar</button>
+              <button type="button" className="btn btn-outline" onClick={() => setEditando(null)} disabled={salvando}>Cancelar</button>
               <button type="button" className="btn btn-primary" onClick={() => void salvar()} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </div>

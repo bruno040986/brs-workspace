@@ -6,7 +6,7 @@
  * Permissão: central-conversas.
  */
 import { useEffect, useState } from 'react'
-import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Loader2, Pencil, Plus, Trash2, X, Zap } from 'lucide-react'
 import { ativarRegra, excluirRegra, listarRegras, salvarRegra, type RegraChatwoot } from '@/lib/central-conversas/automacoes-actions'
 import { ACOES, CONDICOES, EVENTOS, OPERADORES, regraParaEntrada, type RegraEntrada } from '@/lib/central-conversas/automacoes'
 
@@ -60,103 +60,131 @@ export default function AutomacoesClient() {
   const d = editando?.dados
   const set = (p: Partial<RegraEntrada>) => setEditando((e) => (e ? { ...e, dados: { ...e.dados, ...p } } : e))
 
+  const lbl = { fontSize: '0.75rem', fontWeight: 700, color: 'var(--brs-gray-600)' } as const
+
   return (
-    <div style={{ maxWidth: 900 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700 }}>Automações</h1>
-          <div style={{ fontSize: 13, color: 'var(--color-ink-subtle)' }}>Regras do Chatwoot: quando algo acontece, se as condições baterem, executa as ações (atribuir time, etiquetar, responder…).</div>
-        </div>
-        <button type="button" className="btn btn-primary" onClick={() => setEditando({ id: null, dados: VAZIA })}>
-          <Plus size={14} /> Nova regra
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Zap size={22} /> Automações
+        </h1>
+        <span style={{ color: 'var(--brs-gray-400)', fontSize: '0.85rem' }}>Regras do Chatwoot: quando algo acontece, se as condições baterem, executa as ações.</span>
+        <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setEditando({ id: null, dados: VAZIA })}>
+          <Plus size={16} /> Nova regra
         </button>
       </div>
-      {erro && <div style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 8 }}>{erro}</div>}
+
+      {erro && <div className="card" style={{ padding: '0.8rem 1rem', borderLeft: '4px solid var(--brs-danger)', marginBottom: '1rem', color: 'var(--brs-danger)', fontWeight: 600 }}>{erro}</div>}
+
       {carregando ? (
-        <Loader2 className="spinner" />
-      ) : regras.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--color-ink-subtle)' }}>Nenhuma regra criada.</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--brs-gray-400)', padding: '2rem 0' }}>
+          <Loader2 size={18} className="animate-spin" /> Carregando…
+        </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {regras.map((r) => (
-            <div key={r.id} className="card" style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>{r.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
-                  {rotuloEvento(r.event_name)} · {r.conditions?.length || 0} condição(ões) · {r.actions?.map((a) => ACOES.find((x) => x.nome === a.action_name)?.rotulo || a.action_name).join(', ')}
-                </div>
-              </div>
-              <label style={{ fontSize: 12, display: 'flex', gap: 4, alignItems: 'center' }}>
-                <input type="checkbox" checked={r.active} onChange={() => void alternar(r)} /> Ativa
-              </label>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditando({ id: r.id, dados: regraParaEntrada(r) })}><Pencil size={14} /></button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => void excluir(r)}><Trash2 size={14} /></button>
-            </div>
-          ))}
+        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Quando</th>
+                <th>Condições</th>
+                <th>Ações</th>
+                <th>Ativa</th>
+                <th style={{ textAlign: 'right' }}>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {regras.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--brs-gray-400)' }}>Nenhuma regra cadastrada.</td>
+                </tr>
+              ) : (
+                regras.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ fontWeight: 700 }}>{r.name}</td>
+                    <td style={{ fontSize: '0.82rem' }}>{rotuloEvento(r.event_name)}</td>
+                    <td style={{ fontSize: '0.82rem' }}>{r.conditions?.length || 0}</td>
+                    <td style={{ color: 'var(--brs-gray-400)', fontSize: '0.82rem' }}>{r.actions?.map((a) => ACOES.find((x) => x.nome === a.action_name)?.rotulo || a.action_name).join(', ')}</td>
+                    <td><input type="checkbox" checked={r.active} onChange={() => void alternar(r)} /></td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-ghost btn-icon" title="Editar" onClick={() => setEditando({ id: r.id, dados: regraParaEntrada(r) })}><Pencil size={15} /></button>
+                      <button className="btn btn-ghost btn-icon" title="Excluir" onClick={() => void excluir(r)}><Trash2 size={15} /></button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       )}
 
       {editando && d && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'grid', placeItems: 'center', zIndex: 500 }}>
-          <div className="card" style={{ width: 640, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <strong>{editando.id ? 'Editar regra' : 'Nova regra'}</strong>
-              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setEditando(null)}><X size={16} /></button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div className="card" style={{ width: 'min(640px, 100%)', maxHeight: '90vh', overflowY: 'auto', padding: '1.1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.9rem' }}>
+              <strong style={{ fontSize: '1rem' }}>{editando.id ? 'Editar regra' : 'Nova regra'}</strong>
+              <button type="button" className="btn btn-ghost btn-icon" style={{ marginLeft: 'auto' }} onClick={() => setEditando(null)}><X size={16} /></button>
             </div>
-            <input className="input" placeholder="Nome da regra" value={d.nome} onChange={(e) => set({ nome: e.target.value })} />
-            <input className="input" placeholder="Descrição (opcional)" value={d.descricao} onChange={(e) => set({ descricao: e.target.value })} />
-            <label style={{ fontSize: 13 }}>
-              Quando:{' '}
-              <select className="input" value={d.evento} onChange={(e) => set({ evento: e.target.value })}>
-                {EVENTOS.map((e) => <option key={e.valor} value={e.valor}>{e.rotulo}</option>)}
-              </select>
-            </label>
 
-            <div style={{ fontWeight: 600, fontSize: 13 }}>
-              Se{' '}
-              <select className="input" value={d.combinador} onChange={(e) => set({ combinador: e.target.value as 'AND' | 'OR' })}>
-                <option value="AND">todas as condições</option>
-                <option value="OR">qualquer condição</option>
-              </select>{' '}
-              baterem:
-            </div>
-            {d.condicoes.map((c, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6 }}>
-                <select className="input" value={c.chave} onChange={(e) => set({ condicoes: d.condicoes.map((x, j) => (j === i ? { ...x, chave: e.target.value } : x)) })}>
-                  {CONDICOES.map((x) => <option key={x.chave} value={x.chave}>{x.rotulo}</option>)}
-                </select>
-                <select className="input" value={c.operador} onChange={(e) => set({ condicoes: d.condicoes.map((x, j) => (j === i ? { ...x, operador: e.target.value } : x)) })}>
-                  {OPERADORES.map((x) => <option key={x.valor} value={x.valor}>{x.rotulo}</option>)}
-                </select>
-                {c.operador !== 'is_present' && c.operador !== 'is_not_present' && (
-                  <input className="input" style={{ flex: 1 }} placeholder="valor (vários: separe por vírgula)" value={c.valor} onChange={(e) => set({ condicoes: d.condicoes.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)) })} />
-                )}
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => set({ condicoes: d.condicoes.filter((_, j) => j !== i) })}><X size={12} /></button>
-              </div>
-            ))}
-            <button type="button" className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => set({ condicoes: [...d.condicoes, { chave: 'content', operador: 'contains', valor: '' }] })}><Plus size={12} /> Condição</button>
+            <label style={lbl}>Nome</label>
+            <input className="form-control" placeholder="Nome da regra" value={d.nome} onChange={(e) => set({ nome: e.target.value })} style={{ margin: '0.3rem 0 0.9rem' }} />
 
-            <div style={{ fontWeight: 600, fontSize: 13 }}>Então faça:</div>
-            {d.acoes.map((a, i) => {
-              const def = ACOES.find((x) => x.nome === a.nome)
-              return (
-                <div key={i} style={{ display: 'flex', gap: 6 }}>
-                  <select className="input" value={a.nome} onChange={(e) => set({ acoes: d.acoes.map((x, j) => (j === i ? { nome: e.target.value, valor: '' } : x)) })}>
-                    {ACOES.map((x) => <option key={x.nome} value={x.nome}>{x.rotulo}</option>)}
+            <label style={lbl}>Descrição (opcional)</label>
+            <input className="form-control" value={d.descricao} onChange={(e) => set({ descricao: e.target.value })} style={{ margin: '0.3rem 0 0.9rem' }} />
+
+            <label style={lbl}>Quando</label>
+            <select className="form-control" value={d.evento} onChange={(e) => set({ evento: e.target.value })} style={{ margin: '0.3rem 0 0.9rem' }}>
+              {EVENTOS.map((e) => <option key={e.valor} value={e.valor}>{e.rotulo}</option>)}
+            </select>
+
+            <label style={lbl}>Se</label>
+            <select className="form-control" value={d.combinador} onChange={(e) => set({ combinador: e.target.value as 'AND' | 'OR' })} style={{ margin: '0.3rem 0 0.9rem' }}>
+              <option value="AND">todas as condições baterem</option>
+              <option value="OR">qualquer condição bater</option>
+            </select>
+
+            <label style={lbl}>Condições</label>
+            <div style={{ margin: '0.3rem 0 0' }}>
+              {d.condicoes.map((c, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <select className="form-control" value={c.chave} onChange={(e) => set({ condicoes: d.condicoes.map((x, j) => (j === i ? { ...x, chave: e.target.value } : x)) })}>
+                    {CONDICOES.map((x) => <option key={x.chave} value={x.chave}>{x.rotulo}</option>)}
                   </select>
-                  {def?.param !== 'nenhum' && (
-                    <input className="input" style={{ flex: 1 }} placeholder={def?.param === 'numero' ? 'id (número)' : 'valor'} value={a.valor} onChange={(e) => set({ acoes: d.acoes.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)) })} />
+                  <select className="form-control" value={c.operador} onChange={(e) => set({ condicoes: d.condicoes.map((x, j) => (j === i ? { ...x, operador: e.target.value } : x)) })}>
+                    {OPERADORES.map((x) => <option key={x.valor} value={x.valor}>{x.rotulo}</option>)}
+                  </select>
+                  {c.operador !== 'is_present' && c.operador !== 'is_not_present' && (
+                    <input className="form-control" style={{ flex: 1 }} placeholder="valor (vários: separe por vírgula)" value={c.valor} onChange={(e) => set({ condicoes: d.condicoes.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)) })} />
                   )}
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => set({ acoes: d.acoes.filter((_, j) => j !== i) })}><X size={12} /></button>
+                  <button type="button" className="btn btn-ghost btn-icon" title="Remover" onClick={() => set({ condicoes: d.condicoes.filter((_, j) => j !== i) })}><X size={14} /></button>
                 </div>
-              )
-            })}
-            <button type="button" className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => set({ acoes: [...d.acoes, { nome: 'add_label', valor: '' }] })}><Plus size={12} /> Ação</button>
+              ))}
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => set({ condicoes: [...d.condicoes, { chave: 'content', operador: 'contains', valor: '' }] })}><Plus size={12} /> Condição</button>
+            </div>
 
-            <label style={{ fontSize: 13 }}><input type="checkbox" checked={d.ativa} onChange={(e) => set({ ativa: e.target.checked })} /> Regra ativa</label>
-            {erro && <div style={{ color: 'var(--color-danger)', fontSize: 13 }}>{erro}</div>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setEditando(null)} disabled={salvando}>Cancelar</button>
+            <label style={{ ...lbl, display: 'block', marginTop: '0.9rem' }}>Então faça</label>
+            <div style={{ margin: '0.3rem 0 0.9rem' }}>
+              {d.acoes.map((a, i) => {
+                const def = ACOES.find((x) => x.nome === a.nome)
+                return (
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <select className="form-control" value={a.nome} onChange={(e) => set({ acoes: d.acoes.map((x, j) => (j === i ? { nome: e.target.value, valor: '' } : x)) })}>
+                      {ACOES.map((x) => <option key={x.nome} value={x.nome}>{x.rotulo}</option>)}
+                    </select>
+                    {def?.param !== 'nenhum' && (
+                      <input className="form-control" style={{ flex: 1 }} placeholder={def?.param === 'numero' ? 'id (número)' : 'valor'} value={a.valor} onChange={(e) => set({ acoes: d.acoes.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)) })} />
+                    )}
+                    <button type="button" className="btn btn-ghost btn-icon" title="Remover" onClick={() => set({ acoes: d.acoes.filter((_, j) => j !== i) })}><X size={14} /></button>
+                  </div>
+                )
+              })}
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => set({ acoes: [...d.acoes, { nome: 'add_label', valor: '' }] })}><Plus size={12} /> Ação</button>
+            </div>
+
+            <label style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={d.ativa} onChange={(e) => set({ ativa: e.target.checked })} /> Regra ativa</label>
+            {erro && <div style={{ color: 'var(--brs-danger)', fontSize: 13, marginTop: 8 }}>{erro}</div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: '0.9rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-outline" onClick={() => setEditando(null)} disabled={salvando}>Cancelar</button>
               <button type="button" className="btn btn-primary" onClick={() => void salvar()} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </div>

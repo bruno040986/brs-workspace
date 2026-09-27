@@ -427,7 +427,7 @@ export function useAtendimento() {
   useEffect(() => {
     setPresencaContato(null)
     const alvo = selecionada && !ehGrupo(selecionada) ? parseIdentifier(selecionada.meta.sender?.identifier) : null
-    if (!accountId || !alvo?.jid.endsWith('@s.whatsapp.net')) return
+    if (!accountId || !alvo || !(alvo.jid.endsWith('@s.whatsapp.net') || alvo.jid.endsWith('@lid'))) return
     void assinarPresencaConversa(alvo.instanciaId, alvo.jid)
     let expira: ReturnType<typeof setTimeout> | null = null
     const parar = ouvirPresenca(accountId, (p) => {
@@ -936,6 +936,12 @@ export function useAtendimento() {
     return null
   }
 
+  /** Grupo editado pelo painel: o cabeçalho lê `meta.sender` (cópia local) — aplica nome/foto na hora e refaz a lista. */
+  function aplicarGrupoAlterado(d: { nome?: string; fotoDataUrl?: string }) {
+    setSelecionada((prev) => (prev ? ({ ...prev, meta: { ...prev.meta, sender: { ...prev.meta.sender, ...(d.nome ? { name: d.nome } : {}), ...(d.fotoDataUrl ? { thumbnail: d.fotoDataUrl } : {}) } } } as typeof prev) : prev))
+    void carregarLista()
+  }
+
   /** Refaz a thread aberta e a lista (efeito de ações assíncronas do Chatwoot, como macros). */
   function atualizarSelecionada() {
     if (selecionada) void carregarThread(selecionada.id, { silencioso: true })
@@ -1036,6 +1042,7 @@ export function useAtendimento() {
     novaConversa,
     presencaContato,
     atualizarSelecionada,
+    aplicarGrupoAlterado,
     abrirConversaCriada,
     recarregarLista: carregarLista,
     reagirMensagem,

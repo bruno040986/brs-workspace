@@ -166,6 +166,7 @@ export default function AtendimentoCompacto() {
           }}
         >
           <PainelContato
+            onGrupoAlterado={at.aplicarGrupoAlterado}
             conversa={at.selecionada}
             mensagens={at.mensagens}
             agentes={at.agentes}

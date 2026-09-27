@@ -641,30 +641,37 @@ export default function InstanciasClient({ view }: { view: View }) {
               {inst.ultimo_erro && <div style={{ fontSize: 12, color: inst.status === 'erro' ? 'var(--color-danger)' : 'var(--color-ink-subtle)', wordBreak: 'break-all' }}>{inst.ultimo_erro}</div>}
 
               {view.can_edit && (
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: 'auto' }}>
-                  {inst.provedor === 'ycloud' ? (
-                    <span style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>Gerenciada em Provedores › WhatsApp Oficial</span>
-                  ) : !conectada ? (
-                    <button type="button" className="btn btn-primary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'conectar')}>
-                      {busy === inst.id ? <Loader2 size={14} className="spinner" /> : <QrCode size={14} />} {inst.status === 'aguardando_qr' ? 'Novo QR' : 'Conectar'}
+                <>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: 'auto' }}>
+                    {inst.provedor === 'ycloud' ? (
+                      <span style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>Gerenciada em Provedores › WhatsApp Oficial</span>
+                    ) : !conectada ? (
+                      <button type="button" className="btn btn-primary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'conectar')}>
+                        {busy === inst.id ? <Loader2 size={14} className="spinner" /> : <QrCode size={14} />} {inst.status === 'aguardando_qr' ? 'Novo QR' : 'Conectar'}
+                      </button>
+                    ) : (
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'desconectar')}>
+                        <Power size={14} /> Desconectar
+                      </button>
+                    )}
+                    {conectada && inst.papel === 'disparo' && inst.provedor === 'baileys' && (
+                      <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => setPublicandoStatus({ id: inst.id, nome: inst.nome })} title="Publicar status do WhatsApp">
+                        <Send size={14} /> Status
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => statusInstancia(inst.id).then((n) => setInstancias((a) => a.map((i) => (i.id === n.id ? n : i))))}>
+                      <RefreshCw size={14} />
                     </button>
-                  ) : (
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'desconectar')}>
-                      <Power size={14} /> Desconectar
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'excluir')} style={{ marginLeft: 'auto' }}>
+                      <Trash2 size={14} />
                     </button>
+                  </div>
+                  {conectada && inst.provedor === 'baileys' && inst.papel !== 'disparo' && (
+                    <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
+                      Publicar status do WhatsApp só está disponível em conexão de disparo (aquecida há 48 h).
+                    </div>
                   )}
-                  {conectada && inst.papel === 'disparo' && inst.provedor === 'baileys' && (
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => setPublicandoStatus({ id: inst.id, nome: inst.nome })} title="Publicar status do WhatsApp">
-                      <Send size={14} /> Status
-                    </button>
-                  )}
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => statusInstancia(inst.id).then((n) => setInstancias((a) => a.map((i) => (i.id === n.id ? n : i))))}>
-                    <RefreshCw size={14} />
-                  </button>
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'excluir')} style={{ marginLeft: 'auto' }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                </>
               )}
             </div>
           )

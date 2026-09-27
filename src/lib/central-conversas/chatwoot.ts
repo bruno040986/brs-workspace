@@ -349,6 +349,13 @@ export class ChatwootConta {
     return this.req(`/contacts/${contactId}`, { method: 'PUT', body: input })
   }
 
+  /** Foto do contato (multipart): usada quando a foto do GRUPO muda no WhatsApp pelo Workspace. */
+  atualizarAvatarContato(contactId: number, arquivo: { bytes: Buffer; mime: string }) {
+    const form = new FormData()
+    form.append('avatar', new Blob([new Uint8Array(arquivo.bytes)], { type: arquivo.mime }), 'grupo.jpg')
+    return this.req(`/contacts/${contactId}`, { method: 'PUT', form })
+  }
+
   detalharContato(contactId: number) {
     return this.req<{ payload: { id: number; name: string; phone_number: string | null; identifier: string | null } }>(`/contacts/${contactId}`).then((r) => r.payload || null)
   }
