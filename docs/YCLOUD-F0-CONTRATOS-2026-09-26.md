@@ -296,6 +296,27 @@ UI esconde ação não suportada (não desabilita com tooltip genérico).
     nunca depois; falha na gravação = ativação falha (fail-closed).
   Cartão cadastrado durante o trial NÃO encurta os 30 dias (1ª cobrança no
   fim do trial) — validar a modelagem exata no MP na F4 (lacuna R6).
+- **Gateway da cobrança = conta Mercado Pago da BEM DIGITAL, não da BRS**
+  (decisão do Bruno, 27/09/2026). A mensalidade do número oficial é receita
+  da Bem Digital (CNPJ de tecnologia do grupo). Impacto na F4, no Workspace:
+  - `gateway_pagamentos` hoje tem 1 linha por gateway (`id` = 'mercadopago'/
+    'abacatepay'). Passa a admitir N contas por gateway: migration aditiva com
+    colunas `cnpj text`, `razao_social text`, `finalidade text[]` (ex.:
+    `{'pix_parceiro'}` p/ BRS, `{'assinatura_wa_oficial'}` p/ Bem Digital) e
+    `meios text[]` (`{'pix','cartao'}`); PK deixa de ser o nome do gateway —
+    nova coluna `id` uuid ou id composto `mercadopago-bemdigital`. Linha
+    existente da BRS é preservada e carimbada com o CNPJ da BRS.
+  - Card em Configurações › Gateways de Pagamento: **um card por conta**,
+    identificado por gateway + CNPJ/razão social + finalidades + meios. A
+    conta da Bem Digital cadastra access token, webhook secret e credenciais
+    de cartão (public key p/ tokenização no browser).
+  - A assinatura R$ 49 resolve a credencial por FINALIDADE
+    (`assinatura_wa_oficial`) — nunca por "o gateway mercadopago"; o Pix do
+    parceiro continua resolvendo por `pix_parceiro` (BRS). Webhook do MP da
+    assinatura valida com o secret da conta Bem Digital e a rota é separada
+    da do Pix (contas diferentes = secrets diferentes).
+  - Permissão existente `sistema-config-gateways` cobre o card novo (mesmo
+    menu, sem chave nova).
 - Aceite na ativação: o MESMO texto da tela (componente único + versão
   `VERSAO_TERMOS_WA_OFICIAL`) é exibido e aceito antes de criar a instância;
   o aceite grava versão, usuário, data e IP em `aceite_termos` da assinatura.
