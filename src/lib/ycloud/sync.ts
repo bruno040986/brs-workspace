@@ -123,7 +123,7 @@ export async function sincronizarConexao(admin: Admin, conexao: ConexaoRow): Pro
   }
 
   await admin.from('ycloud_conexoes').update({ ultimo_teste_em: new Date().toISOString(), status: 'ativa' }).eq('id', conexao.id)
-  if (alertas.length) await notificar(admin, alertas, '/conversas/whatsapp-oficial')
+  if (alertas.length) await notificar(admin, alertas, '/central-conversas/whatsapp-oficial')
   return { numeros: numerosSync, templates: templatesSync, alertas: alertas.length }
 }
 

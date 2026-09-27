@@ -20,6 +20,7 @@ export async function podeAtenderConversas(): Promise<boolean> {
 }
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
+import type { ProvedorChat } from './capacidades'
 import { engine, engineConfigurado, EngineEnvioIncertoError, mensagemErroEngine } from './engine'
 import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
@@ -47,7 +48,7 @@ export type InstanciaView = {
   id: string
   nome: string
   papel: 'receptiva' | 'disparo'
-  provedor: 'baileys' | 'zapi'
+  provedor: ProvedorChat
   permite_grupos: boolean
   status: string
   numero: string | null
@@ -1765,7 +1766,7 @@ export async function getRespostasRapidas(): Promise<Array<{ id: number; atalho:
  */
 export async function getCanaisAtendimento(): Promise<{
   inboxes: Array<{ id: number; nome: string; tipo: string }>
-  instancias: Array<{ id: string; nome: string; inboxId: number | null; papel: 'receptiva' | 'disparo'; provedor: 'baileys' | 'zapi'; status: string }>
+  instancias: Array<{ id: string; nome: string; inboxId: number | null; papel: 'receptiva' | 'disparo'; provedor: ProvedorChat; status: string }>
   conta: { nome: string; chatwootAccountId: number } | null
 }> {
   await requirePermission('conversas', 'can_view')
@@ -1785,7 +1786,7 @@ export async function getCanaisAtendimento(): Promise<{
       nome: String(i.nome),
       inboxId: i.chatwoot_inbox_id === null ? null : Number(i.chatwoot_inbox_id),
       papel: i.papel as 'receptiva' | 'disparo',
-      provedor: i.provedor as 'baileys' | 'zapi',
+      provedor: i.provedor as ProvedorChat,
       status: String(i.status || ''),
     })),
     conta: { nome: String(conta.nome), chatwootAccountId: Number(conta.chatwoot_account_id) },
@@ -1965,7 +1966,7 @@ export type BootstrapData = {
   agentes: any[]
   canaisAtendimento: {
     inboxes: Array<{ id: number; nome: string; tipo: string }>
-    instancias: Array<{ id: string; nome: string; inboxId: number | null; papel: 'receptiva' | 'disparo'; provedor: 'baileys' | 'zapi'; status: string }>
+    instancias: Array<{ id: string; nome: string; inboxId: number | null; papel: 'receptiva' | 'disparo'; provedor: ProvedorChat; status: string }>
     conta: { nome: string; chatwootAccountId: number } | null
   }
   tagsConta: Array<{ titulo: string; cor: string | null }>
@@ -2026,7 +2027,7 @@ export async function getBootstrapData(): Promise<BootstrapData> {
       nome: String(i.nome),
       inboxId: i.chatwoot_inbox_id === null ? null : Number(i.chatwoot_inbox_id),
       papel: i.papel as 'receptiva' | 'disparo',
-      provedor: i.provedor as 'baileys' | 'zapi',
+      provedor: i.provedor as ProvedorChat,
       status: String(i.status || ''),
     })),
     conta: conta ? { nome: String(conta.nome), chatwootAccountId: Number(conta.chatwoot_account_id) } : null,

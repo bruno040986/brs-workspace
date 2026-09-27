@@ -23,6 +23,8 @@ export function ehOperationId(v: unknown): v is string {
 
 /** Telefone BR com DDD → E.164 sem "+" (10/11 dígitos ganham 55). */
 export function normalizarTelefoneDestino(telefone: string): string {
+  // Contato sem telefone (YCloud): sentinela `bsuid:<id>` que o engine entende; nunca extrair dígitos.
+  if (String(telefone || '').startsWith('bsuid:')) return telefone
   const digitos = String(telefone || '').replace(/\D/g, '')
   if (digitos.length < 10) throw new Error('Informe o telefone com DDD (mínimo 10 dígitos).')
   return digitos.length <= 11 ? `55${digitos}` : digitos

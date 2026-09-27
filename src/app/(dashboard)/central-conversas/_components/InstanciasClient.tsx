@@ -1,5 +1,6 @@
 'use client'
 
+import { CAPACIDADES, ROTULO_PROVEDOR } from '@/lib/central-conversas/capacidades'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BadgeCheck,
@@ -524,7 +525,7 @@ export default function InstanciasClient({ view }: { view: View }) {
                     {inst.nome}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {inst.provedor === 'zapi' ? 'Z-API' : 'Baileys'} · <Users size={12} /> {inst.permite_grupos ? 'com grupos' : 'sem grupos'}
+                    {ROTULO_PROVEDOR[inst.provedor] || inst.provedor} · <Users size={12} /> {inst.permite_grupos && CAPACIDADES[inst.provedor]?.grupos !== false ? 'com grupos' : 'sem grupos'}
                   </div>
                   <div style={{ marginTop: 2 }}>
                     <span className={`badge ${conectada ? 'badge-success' : inst.status === 'erro' ? 'badge-danger' : ''}`} style={{ fontSize: 11 }}>
@@ -641,7 +642,9 @@ export default function InstanciasClient({ view }: { view: View }) {
 
               {view.can_edit && (
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: 'auto' }}>
-                  {!conectada ? (
+                  {inst.provedor === 'ycloud' ? (
+                    <span style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>Gerenciada em Provedores › WhatsApp Oficial</span>
+                  ) : !conectada ? (
                     <button type="button" className="btn btn-primary btn-sm" disabled={busy === inst.id} onClick={() => acao(inst, 'conectar')}>
                       {busy === inst.id ? <Loader2 size={14} className="spinner" /> : <QrCode size={14} />} {inst.status === 'aguardando_qr' ? 'Novo QR' : 'Conectar'}
                     </button>

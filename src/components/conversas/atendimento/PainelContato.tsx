@@ -1,5 +1,6 @@
 'use client'
 
+import { CAPACIDADES, type ProvedorChat } from '@/lib/central-conversas/capacidades'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, CalendarClock, Check, ChevronDown, Copy, History, Images, LogOut, MailOpen, Pencil, Plus, RefreshCw, Search, Shield, ShieldOff, Trash2, UserMinus, X } from 'lucide-react'
 import type { DepartamentoResumo } from '@/lib/central-conversas/actions'
@@ -893,7 +894,7 @@ function AbaMembros({ conversationId, onSaiu }: { conversationId: number; onSaiu
 
   if (!grupo) return null
 
-  if (grupo.provedor !== 'baileys') {
+  if (!CAPACIDADES[grupo.provedor as ProvedorChat]?.grupos) {
     return <div style={{ fontSize: 12, color: 'var(--msn-muted)' }}>Gestão de grupo só em conexões Baileys.</div>
   }
 

@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useReducer, useState } from 'react'
 import { ChevronDown, Circle, Contact, Inbox, Loader2, MessageCircle, Plus, Search, Users, UsersRound, X } from 'lucide-react'
+import { CAPACIDADES } from '@/lib/central-conversas/capacidades'
 import type { AbaAtendimento } from './useAtendimento'
 import AvatarContato, { IconeCanal } from './AvatarContato'
 import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type ConversaAtendimento, type InboxAtendimento, type InstanciaAtendimento } from './types'
@@ -9,6 +10,7 @@ import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
 import { buscarContatosConexao, criarGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
+import EnviarTemplateYcloud from './EnviarTemplateYcloud'
 import AgendaWorkspaceModal from './AgendaWorkspaceModal'
 import type { ItemAgendaWorkspace } from '@/lib/central-conversas/workspace-agenda-actions'
 
@@ -623,6 +625,9 @@ function NovaConversaModal({
   const { fase, campos, mensagem, incertoAnterior } = estado
   const congelado = fase !== 'editando'
   const enviando = fase === 'enviando'
+  const [seletorTemplate, setSeletorTemplate] = useState(false)
+  // Instância YCloud: nova conversa só por template (ADR-7) — texto livre não existe aqui.
+  const soTemplate = instancias.find((i) => i.id === campos.instanciaId)?.provedor === 'ycloud'
   const avisoNovoEnvio = fase === 'editando' && incertoAnterior !== null && mensagem !== null && mensagem.startsWith('O envio anterior')
 
   async function enviar() {
@@ -684,6 +689,9 @@ function NovaConversaModal({
               onChange={(e) => dispatch({ tipo: 'editar', campos: { telefone: e.target.value } })}
             />
           </label>
+          {soTemplate ? (
+            <div style={{ fontSize: 12, color: 'var(--msn-muted)' }}>WhatsApp Oficial: a primeira mensagem de uma conversa nova só pode ser um template aprovado.</div>
+          ) : (
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--msn-text)' }}>
             Mensagem
             <textarea
@@ -694,6 +702,7 @@ function NovaConversaModal({
               onChange={(e) => dispatch({ tipo: 'editar', campos: { texto: e.target.value } })}
             />
           </label>
+          )}
 
           {fase === 'editando' && mensagem && !avisoNovoEnvio && <div style={{ fontSize: 12, color: '#b91c1c' }}>{mensagem}</div>}
           {avisoNovoEnvio && (
@@ -718,12 +727,24 @@ function NovaConversaModal({
                 Novo envio (outra chave)
               </button>
             )}
+            {soTemplate ? (
+              <button
+                type="button"
+                onClick={() => (campos.telefone.replace(/\D/g, '').length < 10 ? dispatch({ tipo: 'erro', mensagem: 'Informe um telefone válido com DDD.' }) : setSeletorTemplate(true))}
+                className="brs-messenger-primary-button"
+                style={{ padding: '6px 14px' }}
+              >
+                Escolher template
+              </button>
+            ) : (
             <button type="button" onClick={() => void enviar()} disabled={enviando} className="brs-messenger-primary-button" style={{ padding: '6px 14px' }}>
               {enviando ? 'Enviando…' : fase === 'incerto' ? 'Repetir esta operação (mesma chave)' : 'Iniciar'}
             </button>
+            )}
           </div>
         </div>
       </div>
+      {seletorTemplate && soTemplate && <EnviarTemplateYcloud instanciaId={campos.instanciaId} telefone={campos.telefone} onFechar={() => setSeletorTemplate(false)} onEnviado={() => { setSeletorTemplate(false); onFechar() }} />}
     </div>
   )
 }
@@ -734,7 +755,7 @@ function NovaConversaModal({
  * Nome, Participantes (busca + números avulsos), Mensagem inicial opcional.
  */
 function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: InstanciaAtendimento[]; onFechar: () => void; onGrupoCriado?: (conversationId: number | null) => void }) {
-  const conectadasBaileys = useMemo(() => instancias.filter((i) => i.provedor === 'baileys' && i.status === 'conectada'), [instancias])
+  const conectadasBaileys = useMemo(() => instancias.filter((i) => CAPACIDADES[i.provedor]?.grupos && i.status === 'conectada'), [instancias])
   const [instanciaId, setInstanciaId] = useState(conectadasBaileys[0]?.id || '')
   const [nome, setNome] = useState('')
   const [busca, setBusca] = useState('')

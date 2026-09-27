@@ -99,6 +99,13 @@ export const MENSAGEM_POR_CODIGO_ENGINE: Record<string, string> = {
   PROVEDOR_NAO_SUPORTADO: 'Gestão de grupo só em conexões Baileys.',
   GRUPO_NAO_PERMITIDO: 'Grupo não permitido nesta conexão.',
   FALHA_WHATSAPP: 'O WhatsApp não respondeu; tente de novo.',
+  JANELA_24H_FECHADA: 'Fora da janela de 24 h — escolha um template aprovado.',
+  TEMPLATE_NAO_APROVADO: 'Este template não está aprovado (ou foi pausado). Recarregue a lista e escolha outro.',
+  SALDO_INSUFICIENTE: 'Saldo insuficiente na carteira do WhatsApp Oficial — recarregue para enviar.',
+  NUMERO_RESTRITO: 'O número está restrito pela Meta e não pode enviar agora. Veja a saúde do número.',
+  CREDENCIAL_INVALIDA: 'A chave do WhatsApp Oficial foi recusada — reconecte a chave em Provedores.',
+  INSTANCIA_BLOQUEADA_COBRANCA: 'Envio bloqueado por pendência de cobrança desta conexão.',
+  DESTINATARIO_OPT_OUT: 'O destinatário pediu para não receber mensagens (opt-out).',
 }
 
 /** Traduz um `EngineErro` (ou erro genérico) pra mensagem em PT pronta pra UI. */
@@ -143,7 +150,7 @@ function parseJson(text: string): CorpoErro | null {
   }
 }
 
-export type EngineConectarResposta = { ok: boolean; provedor: 'baileys' | 'zapi'; inboxId: number; conectada?: boolean; webhookUrl?: string }
+export type EngineConectarResposta = { ok: boolean; provedor: 'baileys' | 'zapi' | 'ycloud'; inboxId: number; conectada?: boolean; webhookUrl?: string }
 export type EngineStatusResposta = { status: string; numero: string | null; sessao_em_memoria?: boolean; detalhe?: unknown }
 export type EngineEnviarResposta = { ok: boolean; id: string; messageId?: string; conversationId?: number | null }
 
@@ -159,6 +166,8 @@ export type EnvioEngineOpcoes = {
   /** B2: imagem (data URL/base64) — com `visualizacaoUnica` some depois de aberta. */
   imagemBase64?: string
   visualizacaoUnica?: boolean
+  /** YCloud (§5.1): template aprovado — exigido fora da janela de 24 h. */
+  template?: { nome: string; idioma: string; variaveis?: Record<string, string>; headerMidiaUrl?: string; botoesUrl?: Record<string, string> }
 }
 
 /**
@@ -176,7 +185,7 @@ export type EnvioEngineOpcoes = {
  *  - INSTANCIA_DESCONECTADA / PROVEDOR_NAO_SUPORTADO / GRUPO_NAO_PERMITIDO:
  *    gates de instância (`{ erro, codigo }`), avaliados antes do envio
  */
-const REJEICOES_PRE_ENVIO = ['numero_sem_whatsapp', 'OPERATION_CONTENT_CONFLICT', 'SEND_PERSISTENCE_FAILED', 'INSTANCIA_DESCONECTADA', 'PROVEDOR_NAO_SUPORTADO', 'GRUPO_NAO_PERMITIDO']
+const REJEICOES_PRE_ENVIO = ['numero_sem_whatsapp', 'OPERATION_CONTENT_CONFLICT', 'SEND_PERSISTENCE_FAILED', 'INSTANCIA_DESCONECTADA', 'PROVEDOR_NAO_SUPORTADO', 'GRUPO_NAO_PERMITIDO', 'JANELA_24H_FECHADA', 'TEMPLATE_NAO_APROVADO', 'SALDO_INSUFICIENTE', 'NUMERO_RESTRITO', 'CREDENCIAL_INVALIDA', 'INSTANCIA_BLOQUEADA_COBRANCA', 'DESTINATARIO_OPT_OUT']
 const REJEICAO_RE = new RegExp(`\\b(${REJEICOES_PRE_ENVIO.join('|')})\\b`)
 
 /**
@@ -216,11 +225,16 @@ async function enviarPorInstancia(instanciaId: string, destino: string, texto: s
   if (!token) throw new Error('Engine não configurado (ENGINE_API_TOKEN).')
   const operationId = opcoes.operationId
   const body: Record<string, unknown> = { destino, texto, operationId }
+  if (!destino) delete body.destino
   if (opcoes.mentions?.length) body.mentions = opcoes.mentions
   if (opcoes.quoted?.messageId) body.quoted = { messageId: opcoes.quoted.messageId }
   if (opcoes.especial) body.especial = opcoes.especial
   if (opcoes.imagemBase64) body.imagemBase64 = opcoes.imagemBase64
   if (opcoes.visualizacaoUnica) body.visualizacaoUnica = true
+  if (opcoes.template) {
+    body.template = opcoes.template
+    if (!texto) delete body.texto
+  }
   const incerto = (motivo: MotivoIncerto, msg: string) => new EngineEnvioIncertoError(msg, operationId, motivo)
 
   const controller = new AbortController()

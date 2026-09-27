@@ -1,3 +1,4 @@
+import type { ProvedorChat } from '@/lib/central-conversas/capacidades'
 import type { ChatwootConversa, ChatwootMensagem } from '@/lib/central-conversas/chatwoot'
 import type {
   ConversaMeta,
@@ -23,6 +24,11 @@ export type ConversaAtendimento = ChatwootConversa & {
   atendimentoMeta: ConversaMeta | null
 }
 
+export function instanciaDaConversa(c: ChatwootConversa, instancias: InstanciaAtendimento[]): InstanciaAtendimento | null {
+  const id = parseIdentifier(c.meta?.sender?.identifier)?.instanciaId
+  return (id && instancias.find((i) => i.id === id)) || null
+}
+
 export type AgenteChat = { id: number; name: string }
 
 export type TagConta = { titulo: string; cor: string | null }
@@ -35,7 +41,7 @@ export type InstanciaAtendimento = {
   nome: string
   inboxId: number | null
   papel: 'receptiva' | 'disparo'
-  provedor: 'baileys' | 'zapi'
+  provedor: ProvedorChat
   status: string
 }
 

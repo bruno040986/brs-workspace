@@ -13,6 +13,7 @@
 import { requirePermission, requireCurrentUser } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { clienteChatwootBrs, contaBrs } from './actions'
+import { capacidadesDe } from './capacidades'
 import { engine, engineGrupos, EngineEnvioIncertoError, mensagemErroEngine, type MembroGrupo, type ContatoConexao } from './engine'
 import { parseIdentifier } from '@/components/conversas/atendimento/types'
 
@@ -234,7 +235,7 @@ export async function criarGrupo(input: { instanciaId: string; nome: string; par
     await requirePermission('conversas', 'can_view')
     const user = await requireCurrentUser()
     const inst = await instanciaDaConta(input.instanciaId)
-    if (inst.provedor !== 'baileys') throw new Error('Gestão de grupo só em conexões Baileys.')
+    if (!capacidadesDe(inst.provedor).grupos) throw new Error('Gestão de grupo só em conexões Baileys.')
     const nome = String(input.nome || '').trim()
     if (!nome) throw new Error('Dê um nome ao grupo.')
     const participantes = (input.participantes || []).map(normalizarParticipante)

@@ -7,6 +7,7 @@ import { observarFullpageAberta } from '@/lib/messenger/fullpage-channel'
 import { useAtendimento } from './useAtendimento'
 import ListaConversas from './ListaConversas'
 import ThreadConversa from './ThreadConversa'
+import { instanciaDaConversa } from './types'
 import PainelContato from './PainelContato'
 
 /**
@@ -84,6 +85,7 @@ export default function AtendimentoCompacto() {
             onCitar={at.citar}
             departamento={departamento}
             nomeInstancia={at.nomeInstanciaPorInbox.get(at.selecionada.inbox_id)}
+            instancia={instanciaDaConversa(at.selecionada, at.canaisAtendimento.instancias)}
             departamentos={at.departamentos}
             enviando={at.enviando}
             compacto

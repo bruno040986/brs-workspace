@@ -41,8 +41,12 @@ import AcoesAparelho from './AcoesAparelho'
 import MacroConversa from './MacroConversa'
 import EnviarArtigo from './EnviarArtigo'
 import EnvioEspecialMenu from './EnvioEspecial'
+import EnviarTemplateYcloud from './EnviarTemplateYcloud'
+import { capacidadesDe } from '@/lib/central-conversas/capacidades'
+import { getJanelaConversaYcloud } from '@/lib/central-conversas/ycloud-conversa-actions'
+import type { JanelaConversa } from '@/lib/ycloud/leitura'
 import { enviarPresencaConversa } from '@/lib/central-conversas/presenca-actions'
-import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
+import { VINCULO_COR, VINCULO_LABEL, dataCurta, dataHoraCompleta, ehGrupo, parseIdentifier, type AgenteChat, type ConversaAtendimento, type InstanciaAtendimento, type MensagemComExtras, type RespostaRapida, type RespostaRapidaRow } from './types'
 import { getMeuAgente, type DepartamentoResumo } from '@/lib/central-conversas/actions'
 import { getGrupo } from '@/lib/central-conversas/grupos-actions'
 import type { MembroGrupo } from '@/lib/central-conversas/engine'
@@ -77,6 +81,8 @@ type Props = {
   onCitar: (m: MensagemComExtras | null) => void
   departamento: string | null
   nomeInstancia?: string
+  /** Instância da conversa (provedor decide as capacidades — ADR-7). */
+  instancia?: InstanciaAtendimento | null
   departamentos: DepartamentoResumo[]
   enviando: boolean
   compacto?: boolean
@@ -171,6 +177,7 @@ export default function ThreadConversa({
   onCitar,
   departamento,
   nomeInstancia,
+  instancia,
   departamentos,
   enviando,
   compacto,
@@ -300,6 +307,37 @@ export default function ThreadConversa({
   }, [texto, chipsResposta])
 
   const grupo = ehGrupo(conversa)
+  const caps = capacidadesDe(instancia?.provedor)
+  const ehYcloud = instancia?.provedor === 'ycloud'
+
+  // Janela de 24 h (ADR-6): quem calcula é o servidor; aqui só exibição + contagem regressiva.
+  const [janelaDe, setJanelaDe] = useState<{ id: number; dado: JanelaConversa } | null>(null)
+  const janela = janelaDe?.id === conversa.id ? janelaDe.dado : null
+  const [agora, setAgora] = useState(() => Date.now())
+  const [seletorTemplate, setSeletorTemplate] = useState(false)
+  const ultimaMsgId = mensagens.length ? mensagens[mensagens.length - 1].id : 0
+  useEffect(() => {
+    if (!ehYcloud) return
+    let vivo = true
+    void getJanelaConversaYcloud(conversa.id)
+      .then((r) => vivo && r.success && r.data && setJanelaDe({ id: conversa.id, dado: r.data }))
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [ehYcloud, conversa.id, ultimaMsgId])
+  useEffect(() => {
+    if (!ehYcloud) return
+    const t = setInterval(() => setAgora(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [ehYcloud])
+  const restanteMs = janela?.aberta && janela.expiraEm ? Date.parse(janela.expiraEm) - agora : null
+  useEffect(() => {
+    // Contagem zerou: o servidor decide se a janela fechou de fato.
+    if (ehYcloud && restanteMs !== null && restanteMs <= 0) void getJanelaConversaYcloud(conversa.id).then((r) => r.success && r.data && setJanelaDe({ id: conversa.id, dado: r.data })).catch(() => {})
+  }, [ehYcloud, restanteMs, conversa.id])
+  const janelaFechada = ehYcloud && janela?.aberta === false
+  const rotuloRestante = restanteMs !== null && restanteMs > 0 ? `${Math.floor(restanteMs / 3_600_000)}h ${Math.floor((restanteMs % 3_600_000) / 60_000)}m` : null
   const entidade = conversa.atendimentoMeta?.entidade
 
   useEffect(() => {
@@ -921,7 +959,7 @@ export default function ThreadConversa({
                             }}
                           >
                             {/* Reações Rápida */}
-                            <div style={{ display: 'flex', gap: 4, padding: '4px 6px', borderBottom: '1px solid var(--msn-soft-border)', justifyContent: 'space-between' }}>
+                            {caps.reacoes && <div style={{ display: 'flex', gap: 4, padding: '4px 6px', borderBottom: '1px solid var(--msn-soft-border)', justifyContent: 'space-between' }}>
                               {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
                                 <button
                                   key={emoji}
@@ -936,7 +974,7 @@ export default function ThreadConversa({
                                   {emoji}
                                 </button>
                               ))}
-                            </div>
+                            </div>}
 
                             <button
                               type="button"
@@ -1161,14 +1199,21 @@ export default function ThreadConversa({
             )}
           </div>
           {!notaInterna && <EnviarArtigo onInserir={(link) => setTexto((prev) => (prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? `${prev} ${link}` : `${prev}${link}`))} onErro={(m) => exibirToast(m)} />}
-          {!notaInterna && (
+          {!notaInterna && !ehYcloud && (
             <EnvioEspecialMenu conversationId={conversa.id} onEnviado={() => irParaMensagemEnviada()} onErro={(m) => exibirToast(m)} />
           )}
-          <label className="brs-messenger-toolbar-btn brs-messenger-toolbar-file" title="Enviar arquivo">
-            <Paperclip size={13} />
-            <input ref={fileInputRef} type="file" className="hidden" accept={MIME_ANEXO_ACEITOS} onChange={(e) => void onEscolherArquivo(e.target.files)} />
-          </label>
-          {gravando === 'idle' && (
+          {!(janelaFechada && !notaInterna) && (
+            <label className="brs-messenger-toolbar-btn brs-messenger-toolbar-file" title="Enviar arquivo">
+              <Paperclip size={13} />
+              <input ref={fileInputRef} type="file" className="hidden" accept={MIME_ANEXO_ACEITOS} onChange={(e) => void onEscolherArquivo(e.target.files)} />
+            </label>
+          )}
+          {ehYcloud && !notaInterna && (
+            <button type="button" className="brs-messenger-pill-btn" onClick={() => setSeletorTemplate(true)} title="Enviar template aprovado">
+              Enviar template
+            </button>
+          )}
+          {gravando === 'idle' && !(janelaFechada && !notaInterna) && (
             <button type="button" className="brs-messenger-toolbar-btn" onClick={iniciarGravacao} title="Gravar áudio">
               <Mic size={13} />
             </button>
@@ -1183,7 +1228,16 @@ export default function ThreadConversa({
           </button>
         </div>
 
-        {gravando !== 'idle' ? (
+        {ehYcloud && !notaInterna && janela && (
+          <div style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 8px', marginBottom: 6, borderRadius: 4, background: janela.aberta ? 'rgba(22,163,74,0.12)' : 'rgba(217,119,6,0.14)', color: janela.aberta ? '#15803d' : '#92400e' }}>
+            {janela.aberta ? `Janela aberta${rotuloRestante ? ` — expira em ${rotuloRestante}` : ''}` : 'Janela fechada — use um template'}
+          </div>
+        )}
+        {janelaFechada && !notaInterna ? (
+          <div style={{ fontSize: 12, color: 'var(--msn-muted)', padding: '6px 4px' }}>
+            Passaram mais de 24 h desde a última mensagem do cliente: o WhatsApp só permite enviar um template aprovado. Use &quot;Enviar template&quot; acima (ou registre uma nota interna).
+          </div>
+        ) : gravando !== 'idle' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px' }}>
             {gravando === 'gravando' ? (
               <>
@@ -1249,6 +1303,19 @@ export default function ThreadConversa({
           </div>
         )}
       </div>
+
+      {seletorTemplate && instancia && (
+        <EnviarTemplateYcloud
+          instanciaId={instancia.id}
+          conversationId={conversa.id}
+          onFechar={() => setSeletorTemplate(false)}
+          onEnviado={() => {
+            setSeletorTemplate(false)
+            irParaMensagemEnviada()
+            void getJanelaConversaYcloud(conversa.id).then((r) => r.success && r.data && setJanelaDe({ id: conversa.id, dado: r.data })).catch(() => {})
+          }}
+        />
+      )}
 
       {/* Modal Transferir Chamado */}
       {modalTransferir && (
