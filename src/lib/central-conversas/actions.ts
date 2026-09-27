@@ -1175,7 +1175,7 @@ export async function buscarEntidades(q: string): Promise<{ parceiros: EntidadeB
   }
 }
 
-export type MensagemExtras = { status?: 'enviado' | 'entregue' | 'lido' | 'falhou'; reacoes: Array<{ jid: string; emoji: string }>; /** Texto atual de mensagem editada no WhatsApp (chat_mensagem_edicoes); o original fica no Chatwoot. */ edicao?: { texto: string; origem: 'nos' | 'contato' } }
+export type MensagemExtras = { status?: 'enviado' | 'entregue' | 'lido' | 'falhou' | 'revogada'; reacoes: Array<{ jid: string; emoji: string }>; /** Texto atual de mensagem editada no WhatsApp (chat_mensagem_edicoes); o original fica no Chatwoot. */ edicao?: { texto: string; origem: 'nos' | 'contato' } }
 export type MensagemComExtras = ChatwootMensagem & MensagemExtras
 
 /**

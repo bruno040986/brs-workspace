@@ -427,7 +427,7 @@ export function useAtendimento() {
   useEffect(() => {
     setPresencaContato(null)
     const alvo = selecionada && !ehGrupo(selecionada) ? parseIdentifier(selecionada.meta.sender?.identifier) : null
-    if (!accountId || !alvo?.jid.endsWith('@s.whatsapp.net')) return
+    if (!accountId || !alvo || !(alvo.jid.endsWith('@s.whatsapp.net') || alvo.jid.endsWith('@lid'))) return
     void assinarPresencaConversa(alvo.instanciaId, alvo.jid)
     let expira: ReturnType<typeof setTimeout> | null = null
     const parar = ouvirPresenca(accountId, (p) => {
