@@ -162,7 +162,19 @@ Fonte: https://www.mercadopago.com.br/developers/pt/docs/subscriptions/overview
 - Trial: parâmetro de `trial_days`/free trial na configuração da recorrência.
 - Webhooks: tópicos `subscription_preapproval`,
   `subscription_authorized_payment`, `payment`.
-- **LACUNA F0 → F4:** as páginas de referência detalhada
+- **LACUNA FECHADA (27/09/2026):** a referência do preapproval está viva no
+  site .com.ar/en (o .com.br devolve 404 nessas páginas):
+  https://www.mercadopago.com.ar/developers/en/reference/subscriptions/_preapproval/post
+  Campos confirmados: payer_email (obrig.), card_token_id, reason,
+  external_reference, back_url, status ('pending'|'authorized'),
+  auto_recurring {frequency, frequency_type, transaction_amount,
+  currency_id, start_date, end_date}, free_trial {frequency,
+  frequency_type}. Resposta: id, status, init_point, payer_id,
+  next_payment_date. F4 usa card_token_id + status 'authorized' +
+  start_date no fim do trial (não encurta os 30 dias). Webhook das
+  assinaturas usa o MESMO manifest x-signature do Pix em produção
+  (brs-portal-parceiro/src/app/api/webhooks/mercadopago/route.ts).
+- **Lacuna anterior (registro):** as páginas de referência detalhada
   (`/reference/subscriptions/_preapproval/post` e a página de webhooks)
   retornaram 404 no fetch desta sessão. Antes da F4: reverificar na doc viva
   os campos exatos do preapproval (`auto_recurring.free_trial`,
