@@ -3,7 +3,6 @@
 import { CAPACIDADES, ROTULO_PROVEDOR } from '@/lib/central-conversas/capacidades'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  BadgeCheck,
   Calendar,
   DollarSign,
   Edit2,
@@ -24,7 +23,6 @@ import {
   X,
 } from 'lucide-react'
 import {
-  conectar360dialog,
   conectarInstancia,
   criarChatDeSite,
   criarInstanciaBrs,
@@ -38,6 +36,7 @@ import {
   type InstanciaView,
 } from '@/lib/central-conversas/actions'
 import PublicarStatus from './PublicarStatus'
+import YcloudConexaoCard from './YcloudConexaoCard'
 import { listarDepartamentos, setDepartamentoInstancia, type DepartamentoRow } from '@/lib/central-conversas/departamentos-actions'
 
 type View = Awaited<ReturnType<typeof import('@/lib/central-conversas/actions').getCentralConversasView>>
@@ -109,8 +108,7 @@ export default function InstanciasClient({ view }: { view: View }) {
   const [departamentos, setDepartamentos] = useState<DepartamentoRow[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Estado 360dialog & Chat do site (Canais adicionais)
-  const [d360, setD360] = useState({ nome: 'WhatsApp Oficial', telefone: '', apiKey: '' })
+  // Estado do Chat do site (Canais adicionais)
   const [site, setSite] = useState({ nome: 'Chat do site', siteUrl: 'https://brspromotora.com.br' })
   const [snippet, setSnippet] = useState<string | null>(null)
 
@@ -137,7 +135,6 @@ export default function InstanciasClient({ view }: { view: View }) {
   } | null>(null)
 
   const operadoras = view.operadoras || []
-  const inboxWhats = view.inboxes.filter((i) => i.channel_type === 'Channel::Whatsapp')
   const inboxSite = view.inboxes.filter((i) => i.channel_type === 'Channel::WebWidget')
   const inboxTelegram = view.inboxes.filter((i) => i.channel_type === 'Channel::Telegram')
 
@@ -306,21 +303,6 @@ export default function InstanciasClient({ view }: { view: View }) {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao registrar recarga.')
       setModalRecarga((m) => (m ? { ...m, salvando: false } : null))
-    }
-  }
-
-  async function salvar360(e: React.FormEvent) {
-    e.preventDefault()
-    setBusy('360')
-    setMensagem(null)
-    try {
-      await conectar360dialog(d360)
-      setMensagem({ tipo: 'ok', texto: 'Número oficial conectado via 360dialog. As mensagens já caem no Chatwoot.' })
-      setD360({ ...d360, apiKey: '' })
-    } catch (err) {
-      setMensagem({ tipo: 'erro', texto: err instanceof Error ? err.message : 'Falha ao conectar.' })
-    } finally {
-      setBusy(null)
     }
   }
 
@@ -677,53 +659,8 @@ export default function InstanciasClient({ view }: { view: View }) {
           )
         })}
 
-        {/* CARD: WHATSAPP OFICIAL (360DIALOG) */}
-        <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
-            <div style={{ width: 80, height: 80, borderRadius: 16, display: 'grid', placeItems: 'center', background: 'rgba(233,5,65,.10)', color: 'var(--color-primary)', flexShrink: 0 }}>
-              <BadgeCheck size={40} />
-            </div>
-            <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-              <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-ink)', lineHeight: 1.25 }}>
-                WhatsApp Oficial (360dialog)
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--color-ink-subtle)' }}>
-                API Oficial Meta · Sem grupos
-              </div>
-              <div style={{ marginTop: 2 }}>
-                <span className={`badge ${inboxWhats.length > 0 ? 'badge-success' : ''}`} style={{ fontSize: 11, background: inboxWhats.length > 0 ? undefined : 'rgba(0,0,0,0.06)', color: inboxWhats.length > 0 ? undefined : 'var(--color-ink-subtle)' }}>
-                  {inboxWhats.length > 0 ? 'Conectado' : 'Não configurado'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {inboxWhats.length > 0 && (
-            <div className="alert alert-success" style={{ fontSize: 12 }}>
-              Conectado: {inboxWhats.map((i) => `${i.name}${i.phone_number ? ` (${i.phone_number})` : ''}`).join(', ')}
-            </div>
-          )}
-
-          {view.can_edit && view.conta && (
-            <form onSubmit={salvar360} style={{ display: 'grid', gap: '0.5rem', marginTop: 'auto' }}>
-              <label className="form-field" style={{ margin: 0 }}>
-                <span className="form-label" style={{ fontSize: 11 }}>Nome da caixa</span>
-                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} value={d360.nome} onChange={(e) => setD360({ ...d360, nome: e.target.value })} />
-              </label>
-              <label className="form-field" style={{ margin: 0 }}>
-                <span className="form-label" style={{ fontSize: 11 }}>Número (DDI+DDD+número)</span>
-                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} required placeholder="5511999999999" value={d360.telefone} onChange={(e) => setD360({ ...d360, telefone: e.target.value })} />
-              </label>
-              <label className="form-field" style={{ margin: 0 }}>
-                <span className="form-label" style={{ fontSize: 11 }}>API key 360dialog</span>
-                <input className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} required type="password" value={d360.apiKey} onChange={(e) => setD360({ ...d360, apiKey: e.target.value })} />
-              </label>
-              <button type="submit" className="btn btn-primary btn-sm" disabled={busy === '360'}>
-                {busy === '360' ? <Loader2 size={14} className="spinner" /> : <BadgeCheck size={14} />} Conectar 360dialog
-              </button>
-            </form>
-          )}
-        </div>
+        {/* CARD: WHATSAPP API OFICIAL (YCLOUD) */}
+        <YcloudConexaoCard />
 
         {/* CARD: CHAT DO SITE */}
         <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

@@ -18,7 +18,9 @@ import { sincronizarConexao, sincronizarTodasConexoes, type ResultadoSync } from
 const mensagem = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const PERM_CONFIG = 'sistema-config-whatsapp-oficial'
 const PERM_SAUDE = 'conversas-whatsapp-oficial-saude'
-const ROTA_CARD = '/rh/parceiros/config/provedores/whatsapp-oficial'
+// Card de conexão e painel de saúde foram embutidos em Central de Atendimento
+// (reorganização de 27/09/2026) — não têm mais rota própria.
+const ROTA_CARD = '/central-conversas/canais'
 
 export type ConexaoBrsPublica = {
   temChave: boolean

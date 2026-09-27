@@ -1,10 +1,15 @@
 'use client'
 
 /**
- * Central de Atendimento › Saúde do WhatsApp Oficial (YCloud) — números,
- * qualidade, limite, templates, histórico de mudanças e saldo. Só leitura:
- * tudo vem calculado do servidor (frescor `obsoleto` incluso — a tela não
- * deriva nada). Permissão: conversas-whatsapp-oficial-saude.
+ * Central de Atendimento › "Comunicação" (dashboard) — Saúde do WhatsApp
+ * Oficial (YCloud): números, qualidade, limite, templates, histórico de
+ * mudanças e saldo. Só leitura: tudo vem calculado do servidor (frescor
+ * `obsoleto` incluso — a tela não deriva nada). Permissão:
+ * conversas-whatsapp-oficial-saude — sem ela, a seção não renderiza nada
+ * (oculta em silêncio, sem caixa de erro).
+ *
+ * Extraído de `central-conversas/whatsapp-oficial/page.tsx` (rota removida
+ * 27/09/2026 — o conteúdo agora mora embutido no dashboard `/central-conversas`).
  */
 import { useCallback, useEffect, useState } from 'react'
 import Image from 'next/image'
@@ -138,13 +143,14 @@ function Detalhe({ inst }: { inst: InstanciaOficial }) {
   )
 }
 
-export default function SaudeWhatsAppOficialPage() {
+export default function SaudeWhatsAppOficial() {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [semConexao, setSemConexao] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [sincronizando, setSincronizando] = useState(false)
   const [erro, setErro] = useState('')
   const [okMsg, setOkMsg] = useState('')
+  const [oculto, setOculto] = useState(false)
 
   const carregar = useCallback(async () => {
     const r = await getPainelSaudeYcloud()
@@ -156,11 +162,16 @@ export default function SaudeWhatsAppOficialPage() {
   useEffect(() => {
     getPainelSaudeYcloud()
       .then((r) => {
-        if (!r.success || !r.data) throw new Error(r.error || 'Sem permissão.')
+        // Sem permissão (ou qualquer falha na leitura): a seção some em
+        // silêncio, sem caixa de erro vermelha — ela é opcional no dashboard.
+        if (!r.success || !r.data) {
+          setOculto(true)
+          return
+        }
         setSemConexao(!r.data.conexao)
         setPainel({ instancias: r.data.instancias, saldos: r.data.saldos, conexaoStatus: r.data.conexao?.status || 'nenhuma' })
       })
-      .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar.'))
+      .catch(() => setOculto(true))
       .finally(() => setCarregando(false))
   }, [])
 
@@ -181,6 +192,8 @@ export default function SaudeWhatsAppOficialPage() {
     }
   }
 
+  if (oculto) return null
+
   if (carregando) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--brs-gray-400)', padding: '2rem' }}>
@@ -195,7 +208,7 @@ export default function SaudeWhatsAppOficialPage() {
         <Image src="/logotipos/ycloud.png" alt="YCloud" width={500} height={500} style={{ width: 56, height: 56, borderRadius: 10 }} />
         <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>Saúde do WhatsApp Oficial</h1>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
-          <Link href="/rh/parceiros/config/provedores/whatsapp-oficial" className="btn btn-outline btn-sm">Configurar conta</Link>
+          <Link href="/central-conversas/canais" className="btn btn-outline btn-sm">Configurar conta</Link>
           <button className="btn btn-outline btn-sm" onClick={sincronizar} disabled={sincronizando || semConexao} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {sincronizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Sincronizar agora
           </button>
@@ -211,13 +224,13 @@ export default function SaudeWhatsAppOficialPage() {
 
       {semConexao && (
         <div className="card" style={{ padding: '1rem', fontSize: '0.85rem' }}>
-          Nenhuma conta YCloud conectada. <Link href="/rh/parceiros/config/provedores/whatsapp-oficial" style={{ fontWeight: 700 }}>Cadastre a chave no card WhatsApp Oficial (YCloud)</Link>.
+          Nenhuma conta YCloud conectada. <Link href="/central-conversas/canais" style={{ fontWeight: 700 }}>Cadastre a chave no card WhatsApp API Oficial</Link>.
         </div>
       )}
 
       {painel && painel.conexaoStatus === 'invalida' && (
         <div role="alert" className="card" style={{ padding: '0.8rem 1rem', borderLeft: '4px solid var(--brs-danger)', marginBottom: '1rem', fontWeight: 600, color: 'var(--brs-danger)' }}>
-          A YCloud recusou a chave da conta. Gere uma nova no painel da YCloud e atualize em Provedores e APIs.
+          A YCloud recusou a chave da conta. Gere uma nova no painel da YCloud e atualize em Canais.
         </div>
       )}
 
@@ -238,7 +251,7 @@ export default function SaudeWhatsAppOficialPage() {
 
       {painel && !semConexao && painel.instancias.length === 0 && (
         <div className="card" style={{ padding: '1rem', fontSize: '0.85rem' }}>
-          Nenhum número ativado. <Link href="/rh/parceiros/config/provedores/whatsapp-oficial" style={{ fontWeight: 700 }}>Ative um número no card WhatsApp Oficial (YCloud)</Link>.
+          Nenhum número ativado. <Link href="/central-conversas/canais" style={{ fontWeight: 700 }}>Ative um número no card WhatsApp API Oficial</Link>.
         </div>
       )}
 

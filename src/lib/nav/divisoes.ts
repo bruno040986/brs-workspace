@@ -295,7 +295,6 @@ export const NAV_DIVISOES: NavDivisao[] = [
         perms: [view('central-conversas'), view('comercial-disparo-whatsapp'), view('sistema-comunicados'), view('conversas-whatsapp-oficial-saude')],
         children: [
           { label: 'Canais', href: '/central-conversas/canais', perms: [view('central-conversas')] },
-          { label: 'Saúde do WhatsApp Oficial', href: '/central-conversas/whatsapp-oficial', perms: [view('conversas-whatsapp-oficial-saude')] },
           { label: 'Departamentos', href: '/central-conversas/departamentos', perms: [view('central-conversas')] },
           { label: 'Tags', href: '/central-conversas/tags', perms: [view('central-conversas')] },
           { label: 'Automações', href: '/central-conversas/automacoes', perms: [view('central-conversas')] },
@@ -346,7 +345,6 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'APIs de Instituições Financeiras de Crédito', href: '/rh/parceiros/config/provedores/if-credito', perms: [view('sistema-config-if-credito')] },
           { label: 'API Kaizom', href: '/rh/parceiros/config/provedores/motor-credito', perms: [view('sistema-config-motor-credito')] },
           { label: 'Figurinhas/GIFs (GIPHY)', href: '/rh/parceiros/config/provedores/figurinhas-gifs', perms: [view('sistema-config-figurinhas-gifs')] },
-          { label: 'WhatsApp Oficial (YCloud)', href: '/rh/parceiros/config/provedores/whatsapp-oficial', perms: [view('sistema-config-whatsapp-oficial')] },
           { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', perms: [view('sistema-config-gateways')] },
           { label: 'CNAE', href: '/rh/parceiros/config/provedores/cnae', perms: [view('sistema-config-cnae')] },
           { label: 'CTN', href: '/rh/parceiros/config/provedores/ctn', perms: [view('sistema-config-ctn')] },

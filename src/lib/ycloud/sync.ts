@@ -30,7 +30,7 @@ export async function sincronizarTodasConexoes(): Promise<ResultadoSync> {
       total.erros.push(`${c.nome}: ${msg}`)
       if (e instanceof ErroYcloudApi && e.status === 401) {
         await admin.from('ycloud_conexoes').update({ status: 'invalida', updated_at: new Date().toISOString() }).eq('id', c.id)
-        await notificar(admin, [{ titulo: `WhatsApp Oficial: chave da YCloud inválida (${c.nome})`, corpo: 'A API Key foi recusada. Gere uma nova no painel da YCloud e atualize em Provedores.' }], '/rh/parceiros/config/provedores/whatsapp-oficial')
+        await notificar(admin, [{ titulo: `WhatsApp Oficial: chave da YCloud inválida (${c.nome})`, corpo: 'A API Key foi recusada. Gere uma nova no painel da YCloud e atualize em Central de Atendimento › Canais.' }], '/central-conversas/canais')
       }
     }
   }
@@ -123,7 +123,7 @@ export async function sincronizarConexao(admin: Admin, conexao: ConexaoRow): Pro
   }
 
   await admin.from('ycloud_conexoes').update({ ultimo_teste_em: new Date().toISOString(), status: 'ativa' }).eq('id', conexao.id)
-  if (alertas.length) await notificar(admin, alertas, '/central-conversas/whatsapp-oficial')
+  if (alertas.length) await notificar(admin, alertas, '/central-conversas')
   return { numeros: numerosSync, templates: templatesSync, alertas: alertas.length }
 }
 
