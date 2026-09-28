@@ -318,6 +318,17 @@ export function compareSociosComQsa(
 /** CNAE de correspondente bancário (correspondentes de instituições financeiras). */
 export const CNAE_CORBAN = '6619302'
 
+/** CNAE de promoção de vendas — exigido do MEI no lugar do 6619-3/02 (fora do Anexo XI do Simples para MEI). */
+export const CNAE_PROMOCAO_VENDAS = '7319002'
+
+function hasCnae(cnaeCodes: Array<string | null | undefined>, alvo: string): boolean {
+  return cnaeCodes.some((code) => normalizeText(code).replace(/\D/g, '') === alvo)
+}
+
 export function hasCnaeCorban(cnaeCodes: Array<string | null | undefined>): boolean {
-  return cnaeCodes.some((code) => normalizeText(code).replace(/\D/g, '') === CNAE_CORBAN)
+  return hasCnae(cnaeCodes, CNAE_CORBAN)
+}
+
+export function hasCnaePromocaoVendas(cnaeCodes: Array<string | null | undefined>): boolean {
+  return hasCnae(cnaeCodes, CNAE_PROMOCAO_VENDAS)
 }

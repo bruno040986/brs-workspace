@@ -22,7 +22,7 @@
 import { getFieldByPath, getValueAtPath, type FieldKind } from './agente-corban-fields'
 import { formatCpfOrCnpjDisplay, formatCurrencyDisplay, formatDateDisplay } from './agente-corban'
 import { maskPhone } from './company-bank-accounts'
-import { getFieldProvenance, provenanceValuesDiffer, type FieldProvenanceEntry } from './agente-corban-provenance'
+import { getFieldProvenance, provenanceValuesDiffer, hasCnaePromocaoVendas, type FieldProvenanceEntry } from './agente-corban-provenance'
 import {
   getAdministracao,
   getSocios,
@@ -585,13 +585,32 @@ export function buildValidacaoChecklistSpec(corbanData: Record<string, any> | nu
   if (isPJ) {
     // CNAE de correspondente bancário — única exceção do bloco Receita
     // Federal que sempre precisa de aprovação com justificativa (ou reprovação).
-    specs.push({
-      etapa: 'validacao',
-      chave: 'master.tem_cnae_corban',
-      rotulo: 'Possui CNAE de Correspondente Bancário (6619-3/02)',
-      tipo: 'informacao',
-      valor: getValueAtPath(data, 'master.tem_cnae_corban') === true,
-    })
+    // MEI não pode ter 6619-3/02 (fora do Anexo XI do Simples para MEI) —
+    // exige 7319-0/02 (Promoção de vendas) no lugar (regra 23/09/2026),
+    // calculado em runtime a partir dos CNAEs já presentes no cadastro.
+    if (getValueAtPath(data, 'master.is_mei') === true) {
+      const cnaeCodigos: Array<string | null | undefined> = [
+        getValueAtPath(data, 'master.cnae_main_code'),
+        ...(Array.isArray(getValueAtPath(data, 'master.cnaes_secundarios'))
+          ? (getValueAtPath(data, 'master.cnaes_secundarios') as any[]).map((c) => c?.code)
+          : []),
+      ]
+      specs.push({
+        etapa: 'validacao',
+        chave: 'master.tem_cnae_corban',
+        rotulo: 'Possui CNAE de Promoção de Vendas (7319-0/02)',
+        tipo: 'informacao',
+        valor: hasCnaePromocaoVendas(cnaeCodigos),
+      })
+    } else {
+      specs.push({
+        etapa: 'validacao',
+        chave: 'master.tem_cnae_corban',
+        rotulo: 'Possui CNAE de Correspondente Bancário (6619-3/02)',
+        tipo: 'informacao',
+        valor: getValueAtPath(data, 'master.tem_cnae_corban') === true,
+      })
+    }
 
     // Divergência de capital social × Receita (quando o portal a sinalizou).
     const divergencias = getDivergenciasReceitaLocal(data)

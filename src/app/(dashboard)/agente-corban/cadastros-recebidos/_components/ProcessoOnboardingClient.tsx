@@ -1456,7 +1456,16 @@ function EmpresaSecao({
             </div>
           )}
 
-          {cnaeItem && <CnaeCampo conferidoPeloPortal={cnaeConferidoPeloPortal(corbanData)} item={cnaeItem} busyId={busyId} onAprovarItem={onAprovarItem} onAbrirReprovar={onAbrirReprovar} />}
+          {cnaeItem && (
+            <CnaeCampo
+              conferidoPeloPortal={cnaeConferidoPeloPortal(corbanData)}
+              isMei={master.is_mei === true}
+              item={cnaeItem}
+              busyId={busyId}
+              onAprovarItem={onAprovarItem}
+              onAbrirReprovar={onAbrirReprovar}
+            />
+          )}
 
           <GradeCampos items={camposItems} corbanData={corbanData} modoEdicao={modoEdicao} busyId={busyId} onAbrirEditar={onAbrirEditar} onAbrirReprovar={onAbrirReprovar} />
         </div>
@@ -1474,16 +1483,20 @@ function CnaeCampo({
   item,
   busyId,
   conferidoPeloPortal,
+  isMei,
   onAprovarItem,
   onAbrirReprovar,
 }: {
   item: CorbanOnboardingItem
   busyId: string | null
   conferidoPeloPortal: boolean
+  isMei: boolean
   onAprovarItem: (item: CorbanOnboardingItem) => void
   onAbrirReprovar: (item: CorbanOnboardingItem) => void
 }) {
   const possui = item.valor === true
+  const textoPossui = isMei ? 'Possui CNAE de Promoção de Vendas (7319-0/02)' : 'Possui CNAE de Correspondente Bancário (6619-3/02)'
+  const textoAusente = isMei ? 'Não possui o CNAE 7319-0/02 (promoção de vendas)' : 'Não possui o CNAE 6619-3/02 (correspondente bancário)'
   return (
     <div
       style={{
@@ -1499,7 +1512,7 @@ function CnaeCampo({
             Verificação obrigatória — Receita Federal
           </div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, color: possui ? '#2e7d32' : '#9a6b1a' }}>
-            {possui ? 'Possui CNAE de Correspondente Bancário (6619-3/02)' : 'Não possui o CNAE 6619-3/02 (correspondente bancário)'}
+            {possui ? textoPossui : textoAusente}
           </div>
         </div>
         {conferidoPeloPortal && item.status !== 'reprovado' ? (
