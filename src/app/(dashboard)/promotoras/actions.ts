@@ -3,7 +3,21 @@
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { normalizePromotoraRecord, type PromotoraRecord } from '@/lib/promotoras'
+import { findFiscalOverlaps, isFiscalConfigVigente, normalizePromotoraRecord, todaySaoPauloISO, type FiscalPagador, type FiscalVinculoTipo, type PromotoraRecord } from '@/lib/promotoras'
+import { normalizeInstituicaoFinanceiraRecord } from '@/lib/financial-institutions'
+import { impostoComissaoDaInstituicaoComPromotora } from '@/lib/comissao-liquida'
+
+export type InstituicaoVinculadaPromotora = {
+  financial_institution_id: string
+  financial_institution_name: string
+  financial_institution_logo_url: string
+  vinculo_tipo: FiscalVinculoTipo
+  remuneration_type_name: string
+  pagador: FiscalPagador | undefined
+  effective_from: string
+  effective_to: string | null
+  vigente: boolean
+}
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +57,68 @@ async function safeLookup<T>(query: PromiseLike<{ data: T | null; error: any } |
   }
 }
 
+function validateFiscalOverlaps(payload: PromotoraRecord) {
+  const overlaps = findFiscalOverlaps(payload.fiscal_data?.configurations || [], (config) => config.remuneration_type_id)
+  if (overlaps.length > 0) {
+    const { a, b } = overlaps[0]
+    throw new Error(
+      `Vigências sobrepostas na aba Fiscal para "${a.remuneration_type_name || 'remuneração'}": ` +
+        `${a.effective_from || 'sem início'}–${a.effective_to || 'aberta'} e ${b.effective_from || 'sem início'}–${b.effective_to || 'aberta'}.`,
+    )
+  }
+}
+
+async function carregarInstituicoes() {
+  const { data, error } = await supabaseAdmin.from('financial_institutions').select('*')
+  if (error) throw error
+  return (data || []).map((raw: any) => normalizeInstituicaoFinanceiraRecord(raw))
+}
+
+export async function getInstituicoesVinculadasPromotora(promotoraId: string) {
+  try {
+    await requirePermission('promotoras')
+    if (!promotoraId) return { success: true, items: [] as InstituicaoVinculadaPromotora[] }
+    const hoje = todaySaoPauloISO()
+    const items: InstituicaoVinculadaPromotora[] = (await carregarInstituicoes()).flatMap((instituicao) =>
+      instituicao.fiscal_data.configurations
+        .filter((config) => config.promotora_id === promotoraId)
+        .map((config) => ({
+          financial_institution_id: String(instituicao.id || ''),
+          financial_institution_name: instituicao.name,
+          financial_institution_logo_url: instituicao.logo_url,
+          vinculo_tipo: config.vinculo_tipo || '',
+          remuneration_type_name: config.remuneration_type_name,
+          pagador: config.pagador,
+          effective_from: config.effective_from,
+          effective_to: config.effective_to,
+          vigente: isFiscalConfigVigente(config, hoje),
+        })),
+    )
+    return { success: true, items }
+  } catch (error: any) {
+    console.error('Erro ao buscar instituições vinculadas:', error)
+    return { success: false, error: error.message, items: [] as InstituicaoVinculadaPromotora[] }
+  }
+}
+
+// Recalcula o cache imposto_comissao_percent das IFs cuja config "usar para
+// comissão" é paga por esta promotora (null = promotora sem config marcada/vigente).
+async function recalcularImpostoDasInstituicoes(promotora: PromotoraRecord, promotoraId: string) {
+  const configs = promotora.fiscal_data?.configurations || []
+  for (const instituicao of await carregarInstituicoes()) {
+    const marcada = instituicao.fiscal_data.configurations.find((config) => config.usar_para_comissao === true)
+    if (!marcada || marcada.pagador !== 'promotora' || marcada.promotora_id !== promotoraId) continue
+    const imposto = impostoComissaoDaInstituicaoComPromotora(instituicao.fiscal_data.configurations, () => configs)
+    const { error } = await supabaseAdmin
+      .from('financial_institutions')
+      .update({ imposto_comissao_percent: imposto, updated_at: new Date().toISOString() })
+      .eq('id', instituicao.id)
+    if (error) throw error
+  }
+}
+
 function validateFinancialConfigurations(payload: PromotoraRecord) {
+  validateFiscalOverlaps(payload)
   const configurations = Array.isArray(payload.financial_data?.configurations) ? payload.financial_data.configurations : []
   if (configurations.length === 0) {
     throw new Error('Adicione pelo menos uma Configuração Financeira.')
@@ -214,7 +289,10 @@ export async function savePromotora(payload: PromotoraRecord) {
       savedId = data?.id || ''
     }
 
+    if (savedId) await recalcularImpostoDasInstituicoes(row, savedId)
+
     revalidatePath('/promotoras')
+    revalidatePath('/instituicoes-financeiras')
     if (savedId) revalidatePath(`/promotoras/${savedId}`)
     revalidatePath('/')
     return { success: true, id: savedId }

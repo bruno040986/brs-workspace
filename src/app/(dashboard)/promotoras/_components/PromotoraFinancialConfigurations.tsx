@@ -567,10 +567,13 @@ export function DirectFrequencyCard<T extends { direct: PromotoraFinancialDirect
   config,
   disabled,
   onChange,
+  hideValorMinimoTarifa = false,
 }: {
   config: T
   disabled: boolean
   onChange: (next: T) => void
+  /** Pagador = promotora: esconde valor mínimo e tarifa do pagamento. */
+  hideValorMinimoTarifa?: boolean
 }) {
   const direct = config.direct
 
@@ -841,7 +844,7 @@ export function DirectFrequencyCard<T extends { direct: PromotoraFinancialDirect
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.9rem' }}>
+      <div style={{ display: hideValorMinimoTarifa ? 'none' : 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.9rem' }}>
         <div className="form-group" style={{ marginBottom: 0 }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontWeight: 700, color: 'var(--brs-gray-700)' }}>
             <input
@@ -938,10 +941,13 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
   config,
   disabled,
   onChange,
+  hideValorMinimoTarifa = false,
 }: {
   config: T
   disabled: boolean
   onChange: (next: T) => void
+  /** Pagador = promotora: esconde tarifa e valor mínimo do saque. */
+  hideValorMinimoTarifa?: boolean
 }) {
   function updateIndirect(mutator: (draft: PromotoraFinancialIndirectData) => void) {
     const next = cloneValue(config)
@@ -984,6 +990,7 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
           onChange={(e) => updateIndirect((draft) => { draft.saques_gratuitos_no_mes = inputDigitsValue(e.target.value, 2) })}
         />
       </div>
+      {!hideValorMinimoTarifa && (
         <TariffFields
           title="Tarifa por Saque"
           enabled={true}
@@ -997,6 +1004,8 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
           onChangeReal={(next) => updateIndirect((draft) => { draft.tarifa_valor_real = next })}
           onChangePercent={(next) => updateIndirect((draft) => { draft.tarifa_valor_percentual = next })}
         />
+      )}
+      {!hideValorMinimoTarifa && (
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label className="form-label">Valor Mínimo p/ Saque</label>
         <input
@@ -1008,6 +1017,7 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
           onChange={(e) => updateIndirect((draft) => { draft.valor_minimo_saque = sanitizeMoneyInput(e.target.value, 5) })}
         />
       </div>
+      )}
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label className="form-label">Prazo de Crédito do Saque</label>
         <input
