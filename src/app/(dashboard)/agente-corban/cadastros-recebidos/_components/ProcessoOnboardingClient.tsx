@@ -24,6 +24,7 @@ import {
   CHECKLIST_PROVENANCIA_BADGE,
   CHECKLIST_PROVENANCIA_LABELS,
   CHAVE_CERTIFICACOES_PREFIX,
+  parseCertificacaoChave,
   CHAVE_HISTORICO_REPROVACOES,
   CORBAN_ONBOARDING_ETAPAS,
   CORBAN_ONBOARDING_ETAPAS_ATIVAS,
@@ -62,6 +63,7 @@ import {
 import DocumentViewer, { type DocumentViewerFile } from './DocumentViewer'
 import EtapasFinaisPanel from './EtapasFinaisPanel'
 import EvidenciasBloco, { InstrucoesEvidencia, type EvidenciaComUrl } from './EvidenciasBloco'
+import { avaliarObrigatorios, tiposObrigatorios } from '@/lib/certificacoes'
 import CertificacoesCard from './CertificacoesCard'
 import { solicitarCorrecao } from '../etapas-actions'
 import {
@@ -875,6 +877,11 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
               const faltaEvidencia = analiseSpec
                 ? !docsRelacionados.some((d) => d.status !== 'reprovado')
                 : ehCertificacao && !data.evidencias.some((e) => e.item_id === item.id)
+              const certCpf = ehCertificacao ? parseCertificacaoChave(item.chave) : null
+              const certNaoCumpre =
+                !!certCpf &&
+                tiposObrigatorios(data.certificacoes.tipos).length > 0 &&
+                !avaliarObrigatorios(data.certificacoes.lancamentos.filter((l) => l.cpf === certCpf), data.certificacoes.vinculos, data.certificacoes.tipos).cumpre
 
               return (
                 <div key={item.id} style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 10, padding: '1rem' }}>
@@ -927,8 +934,14 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                     <button
                       type="button"
                       className="btn btn-outline btn-sm"
-                      disabled={busyId === item.id || item.status === 'aprovado' || faltaEvidencia}
-                      title={faltaEvidencia ? 'Anexe o PDF/print deste item antes de aprovar' : undefined}
+                      disabled={busyId === item.id || item.status === 'aprovado' || faltaEvidencia || certNaoCumpre}
+                      title={
+                        faltaEvidencia
+                          ? 'Anexe o PDF/print deste item antes de aprovar'
+                          : certNaoCumpre
+                            ? 'Lance e confira as certificações obrigatórias antes de aprovar'
+                            : undefined
+                      }
                       onClick={() => handleAprovarItem(item)}
                     >
                       {busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Check size={15} />}

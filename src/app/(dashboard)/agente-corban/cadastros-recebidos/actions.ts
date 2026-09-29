@@ -601,7 +601,17 @@ export async function avaliarItem(
       .eq('id', itemId)
       .single()
     if (itemError || !item) throw itemError || new Error('Item não encontrado.')
-    if (input.status === 'aprovado') await exigirEvidencia(admin, item)
+    if (input.status === 'aprovado') {
+      await exigirEvidencia(admin, item)
+      // Certificações CRCP: só aprova se a pessoa do item já cumpre os obrigatórios (sem obrigatório no catálogo, não bloqueia).
+      const cpfCert = parseCertificacaoChave(String(item.chave))
+      if (cpfCert) {
+        const cert = await carregarCertificacoes(admin, [cpfCert])
+        if (tiposObrigatorios(cert.tipos).length > 0 && !pessoaQueCumpre([cpfCert], cert.lancamentos, cert.vinculos, cert.tipos)) {
+          throw new Error('Lance e confira as certificações obrigatórias desta pessoa antes de aprovar (ou reprove o item e solicite correção).')
+        }
+      }
+    }
 
     const { error } = await admin
       .from('corban_onboarding_itens')
