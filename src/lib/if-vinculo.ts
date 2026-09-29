@@ -157,6 +157,21 @@ export function fiscalConfigOptionLabel(
   return `${rem} — ${promotora}${sufixo}`
 }
 
+/** Payload cru do cliente: vínculo e tipo de remuneração precisam vir explícitos (herança só vale na leitura do banco). */
+export function validarFiscalCru(configs: Array<{ vinculo_tipo?: string; remuneration_type_id?: string }> | null | undefined): string[] {
+  const erros: string[] = []
+  ;(configs || []).forEach((c, i) => {
+    if (!c?.vinculo_tipo) erros.push(`Informe o Tipo de Vínculo na Configuração Tributária ${i + 1}.`)
+    if (!c?.remuneration_type_id) erros.push(`Informe o Tipo de Remuneração na Configuração Tributária ${i + 1}.`)
+  })
+  return erros
+}
+
+/** Sanitiza (forma curta) só quando o pagador 'promotora' veio explícito; dado antigo migrado em memória não perde o fiscal. */
+export function pagadorExplicitoPromotora(raw: { pagador?: string } | null | undefined): boolean {
+  return raw?.pagador === 'promotora'
+}
+
 /** Erros de validação do fiscal da IF (vínculo, promotora, pagador e sobreposição de vigência). */
 export function validateFiscalVinculos(configs: PromotoraFiscalConfiguration[]): string[] {
   const erros: string[] = []
@@ -192,10 +207,13 @@ export function escolherFonteImposto(
   promotoraConfigs: (promotoraId: string) => PromotoraFiscalConfiguration[] | null | undefined,
   todayISO: string = todaySaoPauloISO(),
 ): FonteImposto {
-  const marcada = (ifConfigs || []).find((c) => c.usar_para_comissao === true)
+  const marcadas = (ifConfigs || []).filter((c) => c.usar_para_comissao === true)
+  const marcada = marcadas.find((c) => isFiscalConfigVigente(c, todayISO)) || marcadas[0]
   if (!marcada) return { tipo: 'nenhuma', config: null }
   if (marcada.pagador !== 'promotora') return { tipo: 'if', config: marcada }
-  const daPromotora = (promotoraConfigs(marcada.promotora_id || '') || []).find((c) => c.usar_para_comissao === true)
-  return { tipo: 'promotora', config: daPromotora && isFiscalConfigVigente(daPromotora, todayISO) ? daPromotora : null }
+  const daPromotora = (promotoraConfigs(marcada.promotora_id || '') || []).find(
+    (c) => c.usar_para_comissao === true && isFiscalConfigVigente(c, todayISO),
+  )
+  return { tipo: 'promotora', config: daPromotora || null }
 }
 

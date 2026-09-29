@@ -1167,7 +1167,7 @@ export default function PromotoraFiscalConfigurations({
   }
 
   function removeConfig(index: number) {
-    commit(configs.filter((_, currentIndex) => currentIndex !== index), true)
+    commit(configs.filter((_, currentIndex) => currentIndex !== index), false)
   }
 
   // Flag exclusiva: marcar uma configuração desmarca as demais.

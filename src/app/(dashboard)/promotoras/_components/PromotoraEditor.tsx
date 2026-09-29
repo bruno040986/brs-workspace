@@ -1221,7 +1221,7 @@ export default function PromotoraEditor({ promotoraId, readOnly = false, isNew =
     try {
       const res = await savePromotora(item)
       if (res.success) {
-        setMessage({ type: 'success', text: item.id ? 'Promotora atualizada com sucesso.' : 'Promotora criada com sucesso.' })
+        setMessage(res.warning ? { type: 'error', text: res.warning } : { type: 'success', text: item.id ? 'Promotora atualizada com sucesso.' : 'Promotora criada com sucesso.' })
         if (!item.id && res.id) {
           router.replace(`/promotoras/${res.id}`)
         } else {

@@ -6,6 +6,8 @@ import {
   escolherFonteImposto,
   fiscalConfigOptionLabel,
   isFiscalConfigVigente,
+  pagadorExplicitoPromotora,
+  validarFiscalCru,
   validateFiscalVinculos,
 } from '../if-vinculo.ts'
 
@@ -74,4 +76,26 @@ test('rótulo da config fiscal no financeiro', () => {
     fiscalConfigOptionLabel({ remuneration_type_name: 'Bônus Fixo Negociado', vinculo_tipo: 'sub_grade', promotora_name: 'TN Promotora', pagador: 'promotora' }),
     'Bônus Fixo Negociado — TN Promotora (paga a promotora)',
   )
+})
+
+test('item 1: payload cru sem vínculo ou remuneração é rejeitado (sem herança)', () => {
+  assert.equal(validarFiscalCru([{ vinculo_tipo: '', remuneration_type_id: 'r1' }]).length, 1)
+  assert.equal(validarFiscalCru([{ vinculo_tipo: 'direto', remuneration_type_id: '' }]).length, 1)
+  assert.equal(validarFiscalCru([{ vinculo_tipo: 'direto', remuneration_type_id: 'r1' }]).length, 0)
+})
+
+test('item 2: só limpa o fiscal quando o pagador promotora é explícito', () => {
+  assert.equal(pagadorExplicitoPromotora({}), false)
+  assert.equal(pagadorExplicitoPromotora({ pagador: 'if' }), false)
+  assert.equal(pagadorExplicitoPromotora({ pagador: 'promotora' }), true)
+})
+
+test('item 3: prefere a config marcada vigente', () => {
+  const velha = { ...cfg('velha', '2025-01-01', '2025-12-31'), usar_para_comissao: true, pagador: 'if' }
+  const atual = { ...cfg('atual', '2026-01-01', null), usar_para_comissao: true, pagador: 'if' }
+  assert.equal(escolherFonteImposto([velha, atual], () => [], '2026-09-29').config?.id, 'atual')
+  const paga = { ...cfg('p', '2026-01-01', null, 'p1'), usar_para_comissao: true, pagador: 'promotora' }
+  const pVelha = { ...cfg('pv', '2025-01-01', '2025-12-31'), usar_para_comissao: true }
+  const pAtual = { ...cfg('pa', '2026-01-01', null), usar_para_comissao: true }
+  assert.equal(escolherFonteImposto([paga], () => [pVelha, pAtual], '2026-09-29').config?.id, 'pa')
 })

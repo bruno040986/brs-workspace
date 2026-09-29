@@ -1,5 +1,6 @@
 import {
   deriveFiscalVinculo,
+  pagadorExplicitoPromotora,
   resolveFiscalConfigId,
   sanitizeFinancialConfigForPagador,
   type LegacyVinculo,
@@ -31,6 +32,7 @@ export {
   pagadorLabel,
   fiscalConfigOptionLabel,
   validateFiscalVinculos,
+  validarFiscalCru,
   escolherFonteImposto,
   isFiscalConfigVigente,
   todaySaoPauloISO,
@@ -617,7 +619,10 @@ export function normalizeInstituicaoFinanceiraRecord(
   }
   const fiscalRaw = normalizePromotoraFiscalData(input.fiscal_data)
   const fiscalConfigs = fiscalRaw.configurations.map((config) =>
-    sanitizeFiscalConfigForPagador({ ...config, ...deriveFiscalVinculo(config, legacyByRemunerationType) }),
+    {
+      ...(pagadorExplicitoPromotora(config) ? sanitizeFiscalConfigForPagador(config) : config),
+      ...deriveFiscalVinculo(config, legacyByRemunerationType),
+    },
   )
 
   return {

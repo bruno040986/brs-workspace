@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import {
   normalizeInstituicaoFinanceiraRecord,
+  validarFiscalCru,
   validateFiscalVinculos,
   type InstituicaoFinanceiraRecord,
 } from '@/lib/financial-institutions'
@@ -176,6 +177,8 @@ export async function saveInstituicaoFinanceira(payload: InstituicaoFinanceiraRe
   try {
     await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
 
+    const erroCru = validarFiscalCru(payload.fiscal_data?.configurations)[0]
+    if (erroCru) return { success: false, error: erroCru }
     const row = normalizeInstituicaoFinanceiraRecord(payload)
     if (!row.name) return { success: false, error: 'O Nome Comercial é obrigatório.' }
     validateFinancialConfigurations(row)

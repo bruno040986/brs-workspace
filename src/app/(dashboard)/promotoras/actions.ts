@@ -69,7 +69,7 @@ function validateFiscalOverlaps(payload: PromotoraRecord) {
 }
 
 async function carregarInstituicoes() {
-  const { data, error } = await supabaseAdmin.from('financial_institutions').select('*')
+  const { data, error } = await supabaseAdmin.from('financial_institutions').select('*').is('deleted_at', null)
   if (error) throw error
   return (data || []).map((raw: any) => normalizeInstituicaoFinanceiraRecord(raw))
 }
@@ -114,6 +114,29 @@ async function recalcularImpostoDasInstituicoes(promotora: PromotoraRecord, prom
       .update({ imposto_comissao_percent: imposto, updated_at: new Date().toISOString() })
       .eq('id', instituicao.id)
     if (error) throw error
+  }
+}
+
+// Só linhas NOVAS (IF que não estava no registro salvo) precisam de vínculo declarado com pagador=promotora.
+async function validateInstituicoesDeclaradas(payload: PromotoraRecord) {
+  if (!payload.id) return
+  const { data, error } = await supabaseAdmin.from('promotoras').select('financial_data').eq('id', payload.id).maybeSingle()
+  if (error) throw error
+  const anteriores = new Set<string>(
+    ((data?.financial_data as any)?.configurations || []).map((config: any) => String(config?.financial_institution_id || '')),
+  )
+  const novas = (payload.financial_data?.configurations || []).filter(
+    (config) => config.financial_institution_id && !anteriores.has(config.financial_institution_id),
+  )
+  if (novas.length === 0) return
+  const permitidas = new Set(
+    (await carregarInstituicoes())
+      .filter((instituicao) => instituicao.fiscal_data.configurations.some((config) => config.promotora_id === payload.id && config.pagador === 'promotora'))
+      .map((instituicao) => String(instituicao.id)),
+  )
+  const invalida = novas.find((config) => !permitidas.has(config.financial_institution_id))
+  if (invalida) {
+    throw new Error(`A instituição ${invalida.financial_institution_name || ''} não declara esta promotora como pagadora no cadastro dela.`)
   }
 }
 
@@ -257,6 +280,15 @@ export async function savePromotora(payload: PromotoraRecord) {
     if (!row.cnpj) return { success: false, error: 'O CNPJ é obrigatório.' }
     if (!row.razao_social) return { success: false, error: 'A razão social é obrigatória.' }
     validateFinancialConfigurations(row)
+    await validateInstituicoesDeclaradas(row)
+
+    let marcadaJa = false
+    for (const config of row.fiscal_data.configurations) {
+      if (config.usar_para_comissao === true) {
+        if (marcadaJa) config.usar_para_comissao = false
+        marcadaJa = true
+      }
+    }
 
     const dbRow: Record<string, any> = {
       cnpj: row.cnpj,
@@ -289,13 +321,21 @@ export async function savePromotora(payload: PromotoraRecord) {
       savedId = data?.id || ''
     }
 
-    if (savedId) await recalcularImpostoDasInstituicoes(row, savedId)
+    let warning: string | undefined
+    if (savedId) {
+      try {
+        await recalcularImpostoDasInstituicoes(row, savedId)
+      } catch (error: any) {
+        console.error('Erro ao recalcular imposto das instituições:', error)
+        warning = 'Promotora salva, mas não foi possível recalcular o imposto das instituições vinculadas. Salve novamente.'
+      }
+    }
 
     revalidatePath('/promotoras')
     revalidatePath('/instituicoes-financeiras')
     if (savedId) revalidatePath(`/promotoras/${savedId}`)
     revalidatePath('/')
-    return { success: true, id: savedId }
+    return { success: true, id: savedId, warning }
   } catch (error: any) {
     console.error('Erro ao salvar promotora:', error)
     if (String(error?.message || '').includes("Could not find the 'promotoras'")) {
