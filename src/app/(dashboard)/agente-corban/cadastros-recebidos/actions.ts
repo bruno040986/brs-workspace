@@ -603,12 +603,13 @@ export async function avaliarItem(
     if (itemError || !item) throw itemError || new Error('Item não encontrado.')
     if (input.status === 'aprovado') {
       await exigirEvidencia(admin, item)
-      // Certificações CRCP: só aprova se a pessoa do item já cumpre os obrigatórios (sem obrigatório no catálogo, não bloqueia).
-      const cpfCert = parseCertificacaoChave(String(item.chave))
-      if (cpfCert) {
-        const cert = await carregarCertificacoes(admin, [cpfCert])
-        if (tiposObrigatorios(cert.tipos).length > 0 && !pessoaQueCumpre([cpfCert], cert.lancamentos, cert.vinculos, cert.tipos)) {
-          throw new Error('Lance e confira as certificações obrigatórias desta pessoa antes de aprovar (ou reprove o item e solicite correção).')
+      // Certificações CRCP: só bloqueia se NENHUM envolvido do processo cumpre os obrigatórios (mesma regra de concluir a Análise).
+      if (parseCertificacaoChave(String(item.chave))) {
+        const { data: irmaos } = await admin.from('corban_onboarding_itens').select('chave').eq('processo_id', item.processo_id).eq('etapa', 'analise')
+        const cpfsCert = (irmaos || []).map((i: any) => parseCertificacaoChave(String(i.chave))).filter(Boolean) as string[]
+        const cert = await carregarCertificacoes(admin, cpfsCert)
+        if (tiposObrigatorios(cert.tipos).length > 0 && !pessoaQueCumpre(cpfsCert, cert.lancamentos, cert.vinculos, cert.tipos)) {
+          throw new Error('Nenhum envolvido cumpre as certificações obrigatórias; lance e confira antes de aprovar (ou reprove e solicite correção).')
         }
       }
     }

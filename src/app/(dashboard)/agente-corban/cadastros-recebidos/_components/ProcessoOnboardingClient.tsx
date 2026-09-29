@@ -63,7 +63,7 @@ import {
 import DocumentViewer, { type DocumentViewerFile } from './DocumentViewer'
 import EtapasFinaisPanel from './EtapasFinaisPanel'
 import EvidenciasBloco, { InstrucoesEvidencia, type EvidenciaComUrl } from './EvidenciasBloco'
-import { avaliarObrigatorios, tiposObrigatorios } from '@/lib/certificacoes'
+import { pessoaQueCumpre, tiposObrigatorios } from '@/lib/certificacoes'
 import CertificacoesCard from './CertificacoesCard'
 import { solicitarCorrecao } from '../etapas-actions'
 import {
@@ -562,6 +562,10 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
     await refresh()
   }
 
+  const cpfsCertProcesso = useMemo(
+    () => data.itens.map((i) => parseCertificacaoChave(i.chave)).filter(Boolean) as string[],
+    [data.itens],
+  )
   const itensEtapa = useMemo(
     () => data.itens.filter((item) => item.etapa === etapaSelecionada),
     [data.itens, etapaSelecionada],
@@ -877,11 +881,10 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
               const faltaEvidencia = analiseSpec
                 ? !docsRelacionados.some((d) => d.status !== 'reprovado')
                 : ehCertificacao && !data.evidencias.some((e) => e.item_id === item.id)
-              const certCpf = ehCertificacao ? parseCertificacaoChave(item.chave) : null
               const certNaoCumpre =
-                !!certCpf &&
+                ehCertificacao &&
                 tiposObrigatorios(data.certificacoes.tipos).length > 0 &&
-                !avaliarObrigatorios(data.certificacoes.lancamentos.filter((l) => l.cpf === certCpf), data.certificacoes.vinculos, data.certificacoes.tipos).cumpre
+                !pessoaQueCumpre(cpfsCertProcesso, data.certificacoes.lancamentos, data.certificacoes.vinculos, data.certificacoes.tipos)
 
               return (
                 <div key={item.id} style={{ border: '1px solid var(--brs-gray-200)', borderRadius: 10, padding: '1rem' }}>
@@ -939,7 +942,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                         faltaEvidencia
                           ? 'Anexe o PDF/print deste item antes de aprovar'
                           : certNaoCumpre
-                            ? 'Lance e confira as certificações obrigatórias antes de aprovar'
+                            ? 'Nenhum envolvido cumpre as certificações obrigatórias; lance e confira antes de aprovar (ou reprove e solicite correção)'
                             : undefined
                       }
                       onClick={() => handleAprovarItem(item)}
