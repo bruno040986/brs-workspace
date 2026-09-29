@@ -200,3 +200,45 @@ export function calcularGradeComissionamento(params: {
     }
   })
 }
+
+// ---------------------------------------------------------------------------
+// Descrição gerada da Tabela de Comissão (forma · convênio · oferta · juros · seguro)
+// Sem instituição e sem formalização. `nome` legado não entra.
+// ---------------------------------------------------------------------------
+
+export type DescricaoTabelaInput = {
+  formaNome?: string | null
+  formaNomeCurto?: string | null
+  convenioNome?: string | null
+  convenioNomeReduzido?: string | null
+  oferta?: string | null
+  taxa_juros_tipo?: 'fixa' | 'faixa' | null
+  taxa_juros?: number | null
+  taxa_juros_min?: number | null
+  taxa_juros_max?: number | null
+  com_seguro?: boolean | null
+}
+
+const taxaPtBr = (v: number | null | undefined) =>
+  v === null || v === undefined || !Number.isFinite(Number(v)) ? null : `${Number(v).toFixed(2).replace('.', ',')}%`
+
+export function descricaoTabela(t: DescricaoTabelaInput): string {
+  const limpo = (s: string | null | undefined) => (s ?? '').trim() || null
+  let juros: string | null = null
+  if (t.taxa_juros_tipo === 'fixa') juros = taxaPtBr(t.taxa_juros)
+  else if (t.taxa_juros_tipo === 'faixa') {
+    const min = taxaPtBr(t.taxa_juros_min)
+    const max = taxaPtBr(t.taxa_juros_max)
+    juros = min && max ? `${min} a ${max}` : min ?? max
+  }
+  const seguro = t.com_seguro === true ? 'Com seguro' : t.com_seguro === false ? 'Sem seguro' : null
+  return [
+    limpo(t.formaNomeCurto) ?? limpo(t.formaNome),
+    limpo(t.convenioNomeReduzido) ?? limpo(t.convenioNome),
+    limpo(t.oferta),
+    juros,
+    seguro,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
