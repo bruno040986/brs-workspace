@@ -668,47 +668,7 @@ function normalizeFiscalVinculoTipo(value: any): FiscalVinculoTipo {
   return (['direto', 'sub_grade', 'sub_indicado', 'sub_zero'].includes(raw) ? raw : '') as FiscalVinculoTipo
 }
 
-/** 'YYYY-MM-DD' de hoje em America/Sao_Paulo — usado pra vigência (ativa/inativa) das configs fiscais. */
-export function todaySaoPauloISO(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
-}
-
-/** Vigente = já começou e ainda não terminou, na data de referência (padrão: hoje em SP). */
-export function isFiscalConfigVigente(
-  config: { effective_from: string; effective_to: string | null },
-  todayISO: string = todaySaoPauloISO(),
-): boolean {
-  if (config.effective_from && config.effective_from > todayISO) return false
-  if (config.effective_to && config.effective_to < todayISO) return false
-  return true
-}
-
-/** Vigência aberta (effective_to vazio) conta como indo até o infinito. */
-export function fiscalVigenciasOverlap(
-  a: { effective_from: string; effective_to: string | null },
-  b: { effective_from: string; effective_to: string | null },
-): boolean {
-  const aFrom = a.effective_from || '0000-01-01'
-  const aTo = a.effective_to || '9999-12-31'
-  const bFrom = b.effective_from || '0000-01-01'
-  const bTo = b.effective_to || '9999-12-31'
-  return aFrom <= bTo && bFrom <= aTo
-}
-
-/** Pares de configs com a MESMA chave (groupKeyFn) cuja vigência se sobrepõe. */
-export function findFiscalOverlaps<T extends { effective_from: string; effective_to: string | null }>(
-  configs: T[],
-  groupKeyFn: (config: T) => string,
-): Array<{ a: T; b: T }> {
-  const overlaps: Array<{ a: T; b: T }> = []
-  for (let i = 0; i < configs.length; i++) {
-    for (let j = i + 1; j < configs.length; j++) {
-      if (groupKeyFn(configs[i]) !== groupKeyFn(configs[j])) continue
-      if (fiscalVigenciasOverlap(configs[i], configs[j])) overlaps.push({ a: configs[i], b: configs[j] })
-    }
-  }
-  return overlaps
-}
+export { todaySaoPauloISO, isFiscalConfigVigente, fiscalVigenciasOverlap, findFiscalOverlaps } from './if-vinculo.ts'
 
 function hasLegacyFiscalFields(raw: RawRecord) {
   return Boolean(

@@ -1,5 +1,10 @@
 import {
-  findFiscalOverlaps,
+  deriveFiscalVinculo,
+  resolveFiscalConfigId,
+  sanitizeFinancialConfigForPagador,
+  type LegacyVinculo,
+} from '@/lib/if-vinculo'
+import {
   normalizeCommercialContacts,
   normalizeFinancialDirectData,
   normalizeFinancialIndirectData,
@@ -19,7 +24,17 @@ import {
   type PromotoraSystemEntry,
 } from '@/lib/promotoras'
 
-export { isFiscalConfigVigente, todaySaoPauloISO, fiscalVigenciasOverlap, findFiscalOverlaps } from '@/lib/promotoras'
+export {
+  deriveFiscalVinculo,
+  resolveFiscalConfigId,
+  sanitizeFinancialConfigForPagador,
+  pagadorLabel,
+  fiscalConfigOptionLabel,
+  validateFiscalVinculos,
+  escolherFonteImposto,
+  isFiscalConfigVigente,
+  todaySaoPauloISO,
+} from '@/lib/if-vinculo'
 import type { CnaeInfo, InscricaoEstadualInfo, SocioReceitaInfo } from '@/lib/cnpj-consulta'
 
 // ---------------------------------------------------------------------------
@@ -539,6 +554,27 @@ function normalizeVinculoTipo(value: any): InstituicaoVinculoTipo {
   return (['direto', 'sub_grade', 'sub_indicado', 'sub_zero'].includes(raw) ? raw : '') as InstituicaoVinculoTipo
 }
 
+/** Config fiscal paga pela promotora é "curta": zera os dados fiscais que vêm do cadastro da promotora. */
+export function sanitizeFiscalConfigForPagador(config: PromotoraFiscalConfiguration): PromotoraFiscalConfiguration {
+  if (config.pagador !== 'promotora') return config
+  const vazio = { custom: false, value: '' }
+  return {
+    ...config,
+    nfse_emission_type_id: '',
+    nfse_emission_type_name: '',
+    company_profile_id: '',
+    company_profile_name: '',
+    figure_id: '',
+    figure_label: '',
+    figure_snapshot: normalizePromotoraFiscalData({ configurations: [{}] }).configurations[0].figure_snapshot,
+    meio_envio_nfse: 'email',
+    nfse_email: '',
+    nfse_system_url: '',
+    retention_overrides: { irpj: vazio, csll: vazio, pis: vazio, cofins: vazio, ibs: vazio, cbs: vazio },
+    comissao_ajuste_adicional: '',
+  }
+}
+
 function normalizeFinancialConfigurations(raw: any): InstituicaoFinancialConfiguration[] {
   const rows = Array.isArray(raw?.configurations) ? raw.configurations : []
   return rows.map((config: any) => {
@@ -546,6 +582,7 @@ function normalizeFinancialConfigurations(raw: any): InstituicaoFinancialConfigu
     return {
       ...createEmptyInstituicaoFinancialConfiguration(),
       id: text(value.id, 80) || createId('fi-fin'),
+      fiscal_config_id: text(value.fiscal_config_id, 80),
       remuneration_type_id: text(value.remuneration_type_id, 80),
       remuneration_type_name: text(value.remuneration_type_name, 120),
       vinculo_tipo: normalizeVinculoTipo(value.vinculo_tipo),
@@ -570,6 +607,18 @@ export function normalizeInstituicaoFinanceiraRecord(
   const sacOuvidoria = input.sac_ouvidoria && typeof input.sac_ouvidoria === 'object' ? input.sac_ouvidoria : ({} as any)
   const links = input.links_data && typeof input.links_data === 'object' ? input.links_data : ({} as any)
   const financial = input.financial_data && typeof input.financial_data === 'object' ? input.financial_data : ({} as any)
+
+  const financialConfigs = normalizeFinancialConfigurations(financial)
+  const legacyByRemunerationType = new Map<string, LegacyVinculo>()
+  for (const legacy of financialConfigs) {
+    if (legacy.remuneration_type_id && legacy.vinculo_tipo && !legacyByRemunerationType.has(legacy.remuneration_type_id)) {
+      legacyByRemunerationType.set(legacy.remuneration_type_id, legacy)
+    }
+  }
+  const fiscalRaw = normalizePromotoraFiscalData(input.fiscal_data)
+  const fiscalConfigs = fiscalRaw.configurations.map((config) =>
+    sanitizeFiscalConfigForPagador({ ...config, ...deriveFiscalVinculo(config, legacyByRemunerationType) }),
+  )
 
   return {
     id: input.id,
@@ -603,10 +652,17 @@ export function normalizeInstituicaoFinanceiraRecord(
       sac: normalizeSacChannel(sacOuvidoria.sac),
       ouvidoria: normalizeSacChannel(sacOuvidoria.ouvidoria),
     },
-    fiscal_data: normalizePromotoraFiscalData(input.fiscal_data),
+    fiscal_data: { ...fiscalRaw, configurations: fiscalConfigs },
     financial_data: {
       empresa_contratada_id: text(financial.empresa_contratada_id, 80),
-      configurations: normalizeFinancialConfigurations(financial),
+      configurations: financialConfigs.map((config) => {
+        const fiscalId = resolveFiscalConfigId(config, fiscalConfigs)
+        const fiscal = fiscalConfigs.find((f) => f.id === fiscalId)
+        return sanitizeFinancialConfigForPagador(
+          fiscal ? { ...config, fiscal_config_id: fiscalId, remuneration_type_id: fiscal.remuneration_type_id, remuneration_type_name: fiscal.remuneration_type_name } : config,
+          fiscal?.pagador,
+        )
+      }),
     },
     systems: normalizeSystems(input.systems),
     links_data: normalizeLinksData(links),

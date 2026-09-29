@@ -16,6 +16,7 @@
  */
 
 import { percentSequenceToNumber } from '@/lib/tax-regimes'
+import { escolherFonteImposto, todaySaoPauloISO } from '@/lib/if-vinculo'
 import type { PromotoraFiscalConfiguration } from '@/lib/promotoras'
 
 const RETENCAO_KEYS = ['irpj', 'csll', 'pis', 'cofins', 'ibs', 'cbs'] as const
@@ -77,4 +78,18 @@ export function impostoComissaoDaInstituicao(
   const config = encontrarConfigComissao(configurations)
   if (!config) return null
   return calcularImpostoComissao(config).totalPercent
+}
+
+/**
+ * Fonte única do cache imposto_comissao_percent de uma IF (ver escolherFonteImposto).
+ * Paga pela promotora: total do fiscal DELA (a config curta da IF não tem ajuste
+ * próprio); sem config marcada/vigente => null (pendência, nunca zero).
+ */
+export function impostoComissaoDaInstituicaoComPromotora(
+  ifConfigs: PromotoraFiscalConfiguration[] | null | undefined,
+  promotoraConfigs: (promotoraId: string) => PromotoraFiscalConfiguration[] | null | undefined,
+  todayISO: string = todaySaoPauloISO(),
+): number | null {
+  const fonte = escolherFonteImposto(ifConfigs, promotoraConfigs, todayISO)
+  return fonte.config ? calcularImpostoComissao(fonte.config).totalPercent : null
 }
