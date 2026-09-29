@@ -330,13 +330,11 @@ export default function CertificacoesCard({
           </div>
         </div>
       ) : (
-        item.status !== 'aprovado' && (
-          <div>
-            <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => setAbrirForm(true)}>
-              <Plus size={14} /> Lançar certificação
-            </button>
-          </div>
-        )
+        <div>
+          <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => setAbrirForm(true)}>
+            <Plus size={14} /> Lançar certificação
+          </button>
+        </div>
       )}
     </div>
   )
