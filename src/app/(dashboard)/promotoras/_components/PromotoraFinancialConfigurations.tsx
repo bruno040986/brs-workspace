@@ -26,6 +26,8 @@ type RemunerationTypeLookup = {
 }
 
 type Props = {
+  /** IDs das IFs que declaram esta promotora como pagadora; null = não carregado (sem restrição). */
+  allowedInstitutionIds?: string[] | null
   value: PromotoraFinancialData
   lookups: PromotoraLookupPayload | null
   availableRemunerationTypes: RemunerationTypeLookup[]
@@ -1070,11 +1072,13 @@ function FinancialConfigurationCard({
   disabled,
   remunerationTypes,
   institutions,
+  undeclaredVinculo = false,
   companyBankAccounts,
   receiptMethods,
   onChange,
   onRemove,
 }: {
+  undeclaredVinculo?: boolean
   config: PromotoraFinancialConfiguration
   index: number
   disabled: boolean
@@ -1088,8 +1092,10 @@ function FinancialConfigurationCard({
   const [open, setOpen] = useState(true)
 
   const selectedInstitution = useMemo(
-    () => institutions.find((institution) => institution.id === config.financial_institution_id) || null,
-    [config.financial_institution_id, institutions],
+    () =>
+      institutions.find((institution) => institution.id === config.financial_institution_id) ||
+      (config.financial_institution_id ? { name: config.financial_institution_name, logo_url: config.financial_institution_logo_url } : null),
+    [config.financial_institution_id, config.financial_institution_name, config.financial_institution_logo_url, institutions],
   )
 
   function update(mutator: (draft: PromotoraFinancialConfiguration) => void) {
@@ -1125,6 +1131,7 @@ function FinancialConfigurationCard({
             <SummaryBadge>{config.payment_mode === 'direto' ? 'Pagamento Direto' : 'Pagamento Indireto'}</SummaryBadge>
             {config.remuneration_type_name ? <SummaryBadge>{config.remuneration_type_name}</SummaryBadge> : null}
             {config.financial_institution_name ? <SummaryBadge>{config.financial_institution_name}</SummaryBadge> : null}
+            {undeclaredVinculo ? <span className="badge badge-gray" style={{ background: '#FFFBEB', color: '#92400E' }}>Vínculo não declarado no cadastro da IF</span> : null}
           </div>
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.84rem' }}>
             Combine tipo de remuneração, instituição financeira e regras de pagamento nesta mesma linha.
@@ -1297,10 +1304,12 @@ export default function PromotoraFinancialConfigurations({
   companyBankAccounts,
   disabled = false,
   onChange,
+  allowedInstitutionIds = null,
 }: Props) {
   const configs = Array.isArray(value.configurations) ? value.configurations : []
   const receiptMethods = lookups?.receiptMethods || []
-  const financialInstitutions = lookups?.financialInstitutions || []
+  const allowed = allowedInstitutionIds ? new Set(allowedInstitutionIds) : null
+  const financialInstitutions = (lookups?.financialInstitutions || []).filter((item) => !allowed || allowed.has(item.id))
 
   function updateFinancialData(mutator: (draft: PromotoraFinancialData) => void) {
     const next = cloneValue(value)
@@ -1363,6 +1372,7 @@ export default function PromotoraFinancialConfigurations({
             disabled={disabled}
             remunerationTypes={availableRemunerationTypes}
             institutions={financialInstitutions}
+            undeclaredVinculo={!!allowed && !!config.financial_institution_id && !allowed.has(config.financial_institution_id)}
             companyBankAccounts={companyBankAccounts}
             receiptMethods={receiptMethods}
             onChange={(next) => updateConfiguration(index, next)}
