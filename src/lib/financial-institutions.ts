@@ -1,19 +1,25 @@
 import {
+  findFiscalOverlaps,
   normalizeCommercialContacts,
   normalizeFinancialDirectData,
   normalizeFinancialIndirectData,
   normalizeOperationalContacts,
   normalizePromotoraFiscalData,
   normalizeSystems,
+  type FiscalPagador,
+  type FiscalVinculoTipo,
   type PromotoraCommercialContact,
   type PromotoraFinancialDirectData,
   type PromotoraFinancialIndirectData,
   type PromotoraFinancialPaymentMode,
   type PromotoraFinancialWeekDay,
+  type PromotoraFiscalConfiguration,
   type PromotoraFiscalData,
   type PromotoraOperationalContact,
   type PromotoraSystemEntry,
 } from '@/lib/promotoras'
+
+export { isFiscalConfigVigente, todaySaoPauloISO, fiscalVigenciasOverlap, findFiscalOverlaps } from '@/lib/promotoras'
 import type { CnaeInfo, InscricaoEstadualInfo, SocioReceitaInfo } from '@/lib/cnpj-consulta'
 
 // ---------------------------------------------------------------------------
@@ -52,7 +58,7 @@ export const INSTITUICAO_TIPOS: Array<{ value: InstituicaoTipo; label: string }>
   { value: 'fintech', label: 'Fintech' },
 ]
 
-export type InstituicaoVinculoTipo = '' | 'direto' | 'sub_grade' | 'sub_indicado' | 'sub_zero'
+export type InstituicaoVinculoTipo = FiscalVinculoTipo
 
 export const INSTITUICAO_VINCULO_TIPOS: Array<{ value: Exclude<InstituicaoVinculoTipo, ''>; label: string }> = [
   { value: 'direto', label: 'Direto' },
@@ -173,11 +179,17 @@ export type InstituicaoLinksData = {
 
 export type InstituicaoFinancialConfiguration = {
   id: string
+  /** Referência à config fiscal (fiscal_data.configurations[].id) que define vínculo, promotora e pagador. */
+  fiscal_config_id: string
   remuneration_type_id: string
   remuneration_type_name: string
+  /** @deprecated Legado (pré-26/09/2026) — só lido pra migrar; vínculo agora vem da config fiscal referenciada. */
   vinculo_tipo: InstituicaoVinculoTipo
+  /** @deprecated Legado — idem. */
   promotora_id: string
+  /** @deprecated Legado — idem. */
   promotora_name: string
+  /** @deprecated Legado — idem. */
   promotora_logo_url: string
   prazo_repasse_enabled: boolean
   prazo_repasse_para_agente: string
@@ -289,6 +301,7 @@ export function createEmptySacChannel(): InstituicaoSacChannel {
 export function createEmptyInstituicaoFinancialConfiguration(): InstituicaoFinancialConfiguration {
   return {
     id: createId('fi-fin'),
+    fiscal_config_id: '',
     remuneration_type_id: '',
     remuneration_type_name: '',
     vinculo_tipo: '',

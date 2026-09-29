@@ -51,6 +51,17 @@ export type PromotoraFiscalRetentionOverride = {
   value: string
 }
 
+/**
+ * Tipo de vínculo entre a Instituição Financeira e a BRS numa configuração
+ * fiscal. Vive aqui (não em financial-institutions.ts) porque a config fiscal
+ * — de onde o vínculo passou a ser escolhido (26/09/2026) — é o mesmo tipo
+ * `PromotoraFiscalConfiguration` usado pela Promotora e pela IF.
+ */
+export type FiscalVinculoTipo = '' | 'direto' | 'sub_grade' | 'sub_indicado' | 'sub_zero'
+
+/** Quem emite a cobrança/nota desta remuneração: a IF direto ou a promotora. */
+export type FiscalPagador = 'if' | 'promotora'
+
 export type PromotoraFiscalConfiguration = {
   id: string
   remuneration_type_id: string
@@ -77,6 +88,19 @@ export type PromotoraFiscalConfiguration = {
   usar_para_comissao?: boolean
   /** Ajuste adicional em centésimos de % (ex.: "50" = 0,50%). */
   comissao_ajuste_adicional?: string
+  /**
+   * Vínculo desta remuneração (só usado pelo cadastro de Instituições
+   * Financeiras — 26/09/2026). Ausente/'' numa config de IF antiga é
+   * migrado na leitura (ver deriveFiscalVinculo em financial-institutions.ts).
+   * Numa config fiscal da própria Promotora este campo não se aplica.
+   */
+  vinculo_tipo?: FiscalVinculoTipo
+  /** Promotora "madrinha" do vínculo (sub_grade/sub_indicado/sub_zero). */
+  promotora_id?: string
+  promotora_name?: string
+  promotora_logo_url?: string
+  /** Quem paga esta remuneração — obrigatório em sub_grade/sub_indicado; fixo em direto ('if') e sub_zero ('promotora'). */
+  pagador?: FiscalPagador
 }
 
 export type PromotoraFiscalData = {
@@ -631,7 +655,59 @@ function normalizePromotoraFiscalConfiguration(raw: any): PromotoraFiscalConfigu
     // Sequência de CENTÉSIMOS de % ("0100" = 1,00%) — nunca passar por
     // normalizePercent, que reinterpretaria como valor decimal (bug 24/08).
     comissao_ajuste_adicional: normalizeRateDigits(record.comissao_ajuste_adicional),
+    vinculo_tipo: normalizeFiscalVinculoTipo(record.vinculo_tipo),
+    promotora_id: normalizeText(record.promotora_id ?? '', 80),
+    promotora_name: normalizeText(record.promotora_name ?? '', 200),
+    promotora_logo_url: normalizeText(record.promotora_logo_url ?? '', 500),
+    pagador: record.pagador === 'promotora' ? 'promotora' : record.pagador === 'if' ? 'if' : undefined,
   }
+}
+
+function normalizeFiscalVinculoTipo(value: any): FiscalVinculoTipo {
+  const raw = String(value || '').trim()
+  return (['direto', 'sub_grade', 'sub_indicado', 'sub_zero'].includes(raw) ? raw : '') as FiscalVinculoTipo
+}
+
+/** 'YYYY-MM-DD' de hoje em America/Sao_Paulo — usado pra vigência (ativa/inativa) das configs fiscais. */
+export function todaySaoPauloISO(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+}
+
+/** Vigente = já começou e ainda não terminou, na data de referência (padrão: hoje em SP). */
+export function isFiscalConfigVigente(
+  config: { effective_from: string; effective_to: string | null },
+  todayISO: string = todaySaoPauloISO(),
+): boolean {
+  if (config.effective_from && config.effective_from > todayISO) return false
+  if (config.effective_to && config.effective_to < todayISO) return false
+  return true
+}
+
+/** Vigência aberta (effective_to vazio) conta como indo até o infinito. */
+export function fiscalVigenciasOverlap(
+  a: { effective_from: string; effective_to: string | null },
+  b: { effective_from: string; effective_to: string | null },
+): boolean {
+  const aFrom = a.effective_from || '0000-01-01'
+  const aTo = a.effective_to || '9999-12-31'
+  const bFrom = b.effective_from || '0000-01-01'
+  const bTo = b.effective_to || '9999-12-31'
+  return aFrom <= bTo && bFrom <= aTo
+}
+
+/** Pares de configs com a MESMA chave (groupKeyFn) cuja vigência se sobrepõe. */
+export function findFiscalOverlaps<T extends { effective_from: string; effective_to: string | null }>(
+  configs: T[],
+  groupKeyFn: (config: T) => string,
+): Array<{ a: T; b: T }> {
+  const overlaps: Array<{ a: T; b: T }> = []
+  for (let i = 0; i < configs.length; i++) {
+    for (let j = i + 1; j < configs.length; j++) {
+      if (groupKeyFn(configs[i]) !== groupKeyFn(configs[j])) continue
+      if (fiscalVigenciasOverlap(configs[i], configs[j])) overlaps.push({ a: configs[i], b: configs[j] })
+    }
+  }
+  return overlaps
 }
 
 function hasLegacyFiscalFields(raw: RawRecord) {
