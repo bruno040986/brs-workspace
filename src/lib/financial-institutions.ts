@@ -618,12 +618,10 @@ export function normalizeInstituicaoFinanceiraRecord(
     }
   }
   const fiscalRaw = normalizePromotoraFiscalData(input.fiscal_data)
-  const fiscalConfigs = fiscalRaw.configurations.map((config) =>
-    {
-      ...(pagadorExplicitoPromotora(config) ? sanitizeFiscalConfigForPagador(config) : config),
-      ...deriveFiscalVinculo(config, legacyByRemunerationType),
-    },
-  )
+  const fiscalConfigs = fiscalRaw.configurations.map((config) => ({
+    ...(pagadorExplicitoPromotora(config) ? sanitizeFiscalConfigForPagador(config) : config),
+    ...deriveFiscalVinculo(config, legacyByRemunerationType),
+  }))
 
   return {
     id: input.id,
