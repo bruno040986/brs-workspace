@@ -71,6 +71,7 @@ const SYSTEM_MODULES = [
   { id: 'workspace-convenios', name: 'Convênios', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'workspace-averbadoras', name: 'Averbadoras', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'workspace-operadoras-telefonia', name: 'Operadoras de Telefonia', parentId: 'cat-div-cadastros', level: 1 },
+  { id: 'operacional-propostas-catalogos', name: 'Status e Situações de Proposta', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'promotoras', name: 'Promotoras', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-estrutura', name: 'Comerciais (Estrutura Comercial)', parentId: 'cat-div-cadastros', level: 1 },
   { id: 'comercial-agentes', name: 'Agentes Comerciais', parentId: 'comercial-estrutura', level: 2 },

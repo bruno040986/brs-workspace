@@ -146,6 +146,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
         ],
       },
       { label: 'Operadoras de Telefonia', href: '/operadoras-telefonia', perms: [view('workspace-operadoras-telefonia')] },
+      { label: 'Status e Situações de Proposta', href: '/propostas-catalogos', perms: [view('operacional-propostas-catalogos')] },
       {
         label: 'Comerciais',
         href: '/rh/parceiros/config/comercial',

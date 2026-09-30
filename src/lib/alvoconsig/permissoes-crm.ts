@@ -40,6 +40,13 @@ export const PERMISSOES_CRM = [
   { chave: 'config.usuarios_criar_editar', grupo: 'Configurações', rotulo: 'Criar e editar usuários' },
   { chave: 'config.usuarios_criar_master', grupo: 'Configurações', rotulo: 'Criar usuários com perfil Master' },
   { chave: 'config.scripts', grupo: 'Configurações', rotulo: 'Editar scripts de ligação' },
+  { chave: 'config.esteira', grupo: 'Configurações', rotulo: 'Editar SLA, trava e dias sem atualização da esteira' },
+  // Esteira de propostas (digitações)
+  { chave: 'propostas.solicitar_digitacao', grupo: 'Esteira de Propostas', rotulo: 'Solicitar digitação a partir de simulação respondida' },
+  { chave: 'propostas.ver_minhas', grupo: 'Esteira de Propostas', rotulo: 'Ver as propostas que eu pedi ou opero' },
+  { chave: 'propostas.ver_todas', grupo: 'Esteira de Propostas', rotulo: 'Ver todas as propostas do parceiro' },
+  { chave: 'propostas.digitar', grupo: 'Esteira de Propostas', rotulo: 'Assumir, digitar, alterar status/situação e pendenciar' },
+  { chave: 'propostas.gerir', grupo: 'Esteira de Propostas', rotulo: 'Reabrir final, editar após pago e reatribuir' },
   // Personalização
   { chave: 'personalizacao.tema', grupo: 'Personalização', rotulo: 'Escolher tema' },
   { chave: 'personalizacao.logo_parceiro', grupo: 'Personalização', rotulo: 'Alterar o logotipo do parceiro' },
