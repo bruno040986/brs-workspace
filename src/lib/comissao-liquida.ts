@@ -4,8 +4,8 @@
  * Fonte: a configuração tributária da Instituição Financeira marcada com
  * `usar_para_comissao` (flag exclusiva). Regra do Bruno (23/08/2026):
  * - ISS (seção 1) entra sempre que habilitado — não tem creditamento;
- * - Retenções da seção 4 entram sempre que habilitadas (valor do override
- *   quando customizado, senão o da figura) — retidos por exigência fiscal/IF;
+ * - Retenções da seção 4 entram só quando habilitadas na figura E marcadas
+ *   no formulário (override.custom), com o valor do override;
  * - Impostos com creditamento (PIS/COFINS da seção 2, CBS/IBS da seção 3)
  *   NUNCA entram — no Lucro Real os créditos cobrem o débito;
  * - Ajuste adicional opcional (arredondamento/custo % não-tributário).
@@ -15,9 +15,9 @@
  * fechamentos futuros) leem só a coluna.
  */
 
-import { percentSequenceToNumber } from '@/lib/tax-regimes'
-import { escolherFonteImposto, todaySaoPauloISO } from '@/lib/if-vinculo'
-import type { PromotoraFiscalConfiguration } from '@/lib/promotoras'
+import { percentSequenceToNumber } from './tax-regimes.ts'
+import { escolherFonteImposto, todaySaoPauloISO } from './if-vinculo.ts'
+import type { PromotoraFiscalConfiguration } from './promotoras.ts'
 
 const RETENCAO_KEYS = ['irpj', 'csll', 'pis', 'cofins', 'ibs', 'cbs'] as const
 const RETENCAO_LABELS: Record<(typeof RETENCAO_KEYS)[number], string> = {
@@ -49,10 +49,10 @@ export function calcularImpostoComissao(config: PromotoraFiscalConfiguration): I
   const section4 = snapshotConfig?.section_4 || {}
   for (const key of RETENCAO_KEYS) {
     const campo = section4?.[key]
-    if (!campo?.enabled) continue
     const override = config.retention_overrides?.[key]
-    const valor = override?.custom ? String(override.value || '') : String(campo.value || '')
-    itens.push({ label: RETENCAO_LABELS[key], percent: percentSequenceToNumber(valor) })
+    // "Marcado" = checkbox do formulário (override.custom); sem marca não entra, nem com valor da figura.
+    if (!campo?.enabled || !override?.custom) continue
+    itens.push({ label: RETENCAO_LABELS[key], percent: percentSequenceToNumber(String(override.value || '')) })
   }
 
   const ajustePercent = percentSequenceToNumber(String(config.comissao_ajuste_adicional || ''))

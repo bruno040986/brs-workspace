@@ -1,4 +1,4 @@
-import { onlyDigits } from '@/lib/company-bank-accounts'
+import { onlyDigits } from './company-bank-accounts.ts'
 
 export type TaxRateField = {
   enabled: boolean
