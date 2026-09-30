@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export type PromotoraOption = { id: string; name: string; logo_url: string; is_active: boolean }
 
@@ -17,6 +18,8 @@ export default function PromotoraAutocomplete({
 }) {
   const [query, setQuery] = useState(value.name || '')
   const [isOpen, setIsOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number } | null>(null)
 
   useEffect(() => {
     setQuery(value.name || '')
@@ -31,10 +34,31 @@ export default function PromotoraAutocomplete({
 
   const showSuggestions = !disabled && isOpen && query.trim().length >= 3 && filtered.length > 0
 
+  // Lista em portal + position:fixed: cards/seções com overflow:hidden cortavam o dropdown absoluto.
+  useLayoutEffect(() => {
+    if (!showSuggestions) return
+    const place = () => {
+      const r = inputRef.current?.getBoundingClientRect()
+      if (!r) return
+      const cabeEmbaixo = window.innerHeight - r.bottom >= 8 * 48 || window.innerHeight - r.bottom >= r.top
+      setPos(cabeEmbaixo
+        ? { left: r.left, width: r.width, top: r.bottom + 4 }
+        : { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 4 })
+    }
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
+  }, [showSuggestions])
+
   return (
     <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
       <label className="form-label">Promotora</label>
       <input
+        ref={inputRef}
         className="form-control"
         disabled={disabled}
         value={query}
@@ -55,19 +79,21 @@ export default function PromotoraAutocomplete({
           window.setTimeout(() => setIsOpen(false), 120)
         }}
       />
-      {showSuggestions ? (
+      {showSuggestions && pos ? createPortal(
         <div
           style={{
-            position: 'absolute',
-            zIndex: 20,
-            left: 0,
-            right: 0,
-            top: '4.7rem',
+            position: 'fixed',
+            zIndex: 2000,
+            left: pos.left,
+            width: pos.width,
+            top: pos.top,
+            bottom: pos.bottom,
+            maxHeight: '60vh',
+            overflowY: 'auto',
             background: '#fff',
             border: '1px solid var(--brs-gray-200)',
             borderRadius: 14,
             boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)',
-            overflow: 'hidden',
           }}
         >
           {filtered.map((item) => (
@@ -98,7 +124,8 @@ export default function PromotoraAutocomplete({
               <span style={{ fontSize: '0.75rem', color: 'var(--brs-gray-500)' }}>{item.is_active ? 'Ativa' : 'Inativa'}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {!disabled && query.trim().length > 0 && query.trim().length < 3 ? (
         <div style={{ marginTop: '0.35rem', fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>
