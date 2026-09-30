@@ -57,7 +57,7 @@ import type {
 import PromotoraFinancialConfigurations from './PromotoraFinancialConfigurations'
 import PromotoraFiscalConfigurations from './PromotoraFiscalConfigurations'
 import type { PromotoraLookupPayload } from '../actions'
-import { getPromotora, getPromotoraLookups, savePromotora, setPromotoraStatus } from '../actions'
+import { getInstituicoesVinculadasPromotora, getPromotora, getPromotoraLookups, savePromotora, setPromotoraStatus, type InstituicaoVinculadaPromotora } from '../actions'
 
 type TabKey = 'dados' | 'contatos' | 'fiscal' | 'financeiro' | 'sistemas'
 type ContactTab = 'comercial' | 'operacional'
@@ -876,10 +876,44 @@ function BankAccountCard({
   )
 }
 
+const VINCULO_LABELS: Record<string, string> = {
+  direto: 'Direto',
+  sub_grade: 'Subestabelecido Grade',
+  sub_indicado: 'Subestabelecido Indicado',
+  sub_zero: 'Subestabelecido Zero',
+}
+
+function InstituicoesVinculadasCard({ items }: { items: InstituicaoVinculadaPromotora[] }) {
+  return (
+    <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+      <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>Instituições vinculadas</div>
+      <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', margin: '0.2rem 0 0.75rem' }}>
+        Somente leitura — o vínculo é declarado na aba Fiscal do cadastro de cada instituição.
+      </div>
+      {items.length === 0 ? (
+        <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.88rem' }}>Nenhuma instituição declara vínculo com esta promotora.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: '0.5rem' }}>
+          {items.map((row, index) => (
+            <div key={`${row.financial_institution_id}-${index}`} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <strong>{row.financial_institution_name}</strong>
+              <span className="badge badge-gray">{VINCULO_LABELS[row.vinculo_tipo] || row.vinculo_tipo}</span>
+              <span className="badge badge-gray">{row.remuneration_type_name || 'Sem remuneração'}</span>
+              <span className="badge badge-gray">Paga: {row.pagador === 'promotora' ? 'Promotora' : row.pagador === 'if' ? 'Instituição' : 'não informado'}</span>
+              <span className={`badge ${row.vigente ? 'badge-success' : 'badge-gray'}`}>{row.vigente ? 'Ativa' : 'Encerrada'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PromotoraEditor({ promotoraId, readOnly = false, isNew = false }: { promotoraId?: string; readOnly?: boolean; isNew?: boolean }) {
   const router = useRouter()
   const [item, setItem] = useState<PromotoraRecord | null>(null)
   const [lookups, setLookups] = useState<PromotoraLookupPayload | null>(null)
+  const [vinculadas, setVinculadas] = useState<InstituicaoVinculadaPromotora[] | null>(null)
   const [banks, setBanks] = useState<BankLookup[]>([])
   const [activeTab, setActiveTab] = useState<TabKey>('dados')
   const [activeContactTab, setActiveContactTab] = useState<ContactTab>('comercial')
@@ -893,11 +927,14 @@ export default function PromotoraEditor({ promotoraId, readOnly = false, isNew =
   async function loadData() {
     setLoading(true)
     try {
-      const [lookupsRes, bankRes, itemRes] = await Promise.all([
+      const [lookupsRes, bankRes, itemRes, vinculadasRes] = await Promise.all([
         getPromotoraLookups(),
         fetch('/api/lookups/banks').then((r) => r.json()).catch(() => null),
         !isNew && promotoraId ? getPromotora(promotoraId) : Promise.resolve({ success: true, item: null }),
+        !isNew && promotoraId ? getInstituicoesVinculadasPromotora(promotoraId) : Promise.resolve({ success: true, items: [] as InstituicaoVinculadaPromotora[] }),
       ])
+
+      setVinculadas(vinculadasRes.success ? vinculadasRes.items : null)
 
       if (lookupsRes.success) setLookups(lookupsRes.lookups || null)
       else setMessage({ type: 'error', text: lookupsRes.error || 'Erro ao carregar listas.' })
@@ -1184,7 +1221,7 @@ export default function PromotoraEditor({ promotoraId, readOnly = false, isNew =
     try {
       const res = await savePromotora(item)
       if (res.success) {
-        setMessage({ type: 'success', text: item.id ? 'Promotora atualizada com sucesso.' : 'Promotora criada com sucesso.' })
+        setMessage(res.warning ? { type: 'error', text: res.warning } : { type: 'success', text: item.id ? 'Promotora atualizada com sucesso.' : 'Promotora criada com sucesso.' })
         if (!item.id && res.id) {
           router.replace(`/promotoras/${res.id}`)
         } else {
@@ -1601,6 +1638,7 @@ export default function PromotoraEditor({ promotoraId, readOnly = false, isNew =
 
       {activeTab === 'fiscal' && (
         <PromotoraFiscalConfigurations
+          enableComissaoLiquida
           value={item.fiscal_data || { configurations: [] }}
           companyFiscalData={selectedCompanyFiscalData}
           companyLabel={String(selectedCompany?.nickname || '')}
@@ -1612,8 +1650,13 @@ export default function PromotoraEditor({ promotoraId, readOnly = false, isNew =
         />
       )}
 
+      {activeTab === 'financeiro' && vinculadas && (
+        <InstituicoesVinculadasCard items={vinculadas} />
+      )}
+
       {activeTab === 'financeiro' && (
         <PromotoraFinancialConfigurations
+          allowedInstitutionIds={!item.id ? [] : vinculadas ? vinculadas.filter((row) => row.pagador === 'promotora').map((row) => row.financial_institution_id) : null}
           value={item.financial_data || {
             realiza_comissao: false,
             solicitar_saque: false,

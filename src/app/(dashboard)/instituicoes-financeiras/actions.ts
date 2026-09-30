@@ -5,11 +5,12 @@ import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import {
   normalizeInstituicaoFinanceiraRecord,
-  vinculoHabilitaCamposFinanceiros,
-  vinculoHabilitaPromotora,
+  validarFiscalCru,
+  validateFiscalVinculos,
   type InstituicaoFinanceiraRecord,
 } from '@/lib/financial-institutions'
-import { impostoComissaoDaInstituicao } from '@/lib/comissao-liquida'
+import { impostoComissaoDaInstituicaoComPromotora } from '@/lib/comissao-liquida'
+import { normalizePromotoraFiscalData } from '@/lib/promotoras'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,37 +53,20 @@ async function safeLookup<T>(query: PromiseLike<{ data: T | null; error: any }>)
 }
 
 function validateFinancialConfigurations(payload: InstituicaoFinanceiraRecord) {
-  const configurations = Array.isArray(payload.financial_data?.configurations)
-    ? payload.financial_data.configurations
-    : []
+  const erros = validateFiscalVinculos(payload.fiscal_data?.configurations || [])
+  if (erros.length > 0) throw new Error(erros[0])
 
+  const fiscalIds = new Set((payload.fiscal_data?.configurations || []).map((config) => config.id))
   const seen = new Set<string>()
+  const configurations = Array.isArray(payload.financial_data?.configurations) ? payload.financial_data.configurations : []
   configurations.forEach((config, index) => {
-    const remunerationTypeId = String(config.remuneration_type_id || '').trim()
-    const vinculo = config.vinculo_tipo
-
-    if (!remunerationTypeId) {
-      throw new Error(`Informe o Tipo de Remuneração na Configuração Financeira ${index + 1}.`)
+    if (!config.fiscal_config_id || !fiscalIds.has(config.fiscal_config_id)) {
+      throw new Error(`Selecione a Configuração Tributária na Configuração Financeira ${index + 1}.`)
     }
-    if (!vinculo) {
-      throw new Error(`Informe o Tipo de Vínculo na Configuração Financeira ${index + 1}.`)
+    if (seen.has(config.fiscal_config_id)) {
+      throw new Error('Não é permitido salvar duas configurações financeiras para a mesma Configuração Tributária.')
     }
-    if (vinculoHabilitaPromotora(vinculo) && !String(config.promotora_id || '').trim()) {
-      throw new Error(`Selecione a Promotora na Configuração Financeira ${index + 1} (obrigatória para vínculo subestabelecido).`)
-    }
-    if (!vinculoHabilitaCamposFinanceiros(vinculo)) {
-      // Subestabelecido Zero: campos financeiros ficam na Promotora
-      config.prazo_repasse_enabled = false
-      config.prazo_repasse_para_agente = ''
-      config.conta_bancaria_index = ''
-      config.forma_recebimento_id = ''
-    }
-
-    const key = `${remunerationTypeId}::${vinculo}::${String(config.promotora_id || '').trim()}`
-    if (seen.has(key)) {
-      throw new Error('Não é permitido salvar duas configurações financeiras com a mesma combinação de Tipo de Remuneração, Tipo de Vínculo e Promotora.')
-    }
-    seen.add(key)
+    seen.add(config.fiscal_config_id)
   })
 }
 
@@ -117,7 +101,7 @@ export async function getInstituicaoFinanceira(id: string) {
       .eq('id', id)
       .maybeSingle()
     if (error) throw error
-    return { success: true, item: data || null }
+    return { success: true, item: data ? normalizeInstituicaoFinanceiraRecord(data) : null }
   } catch (error: any) {
     console.error('Erro ao buscar instituição financeira:', error)
     return { success: false, error: error.message }
@@ -193,6 +177,8 @@ export async function saveInstituicaoFinanceira(payload: InstituicaoFinanceiraRe
   try {
     await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
 
+    const erroCru = validarFiscalCru(payload.fiscal_data?.configurations)[0]
+    if (erroCru) return { success: false, error: erroCru }
     const row = normalizeInstituicaoFinanceiraRecord(payload)
     if (!row.name) return { success: false, error: 'O Nome Comercial é obrigatório.' }
     validateFinancialConfigurations(row)
@@ -209,7 +195,18 @@ export async function saveInstituicaoFinanceira(payload: InstituicaoFinanceiraRe
         flagJaMarcada = true
       }
     }
-    const impostoComissao = impostoComissaoDaInstituicao(configuracoesFiscais as any)
+    const marcada = configuracoesFiscais.find((config) => config?.usar_para_comissao === true)
+    let promotoraConfigs: any[] = []
+    if (marcada?.pagador === 'promotora' && marcada.promotora_id) {
+      const { data: promotora, error: promotoraError } = await supabaseAdmin
+        .from('promotoras')
+        .select('fiscal_data')
+        .eq('id', marcada.promotora_id)
+        .maybeSingle()
+      if (promotoraError) throw promotoraError
+      promotoraConfigs = normalizePromotoraFiscalData(promotora?.fiscal_data).configurations
+    }
+    const impostoComissao = impostoComissaoDaInstituicaoComPromotora(configuracoesFiscais as any, () => promotoraConfigs)
 
     const dbRow: Record<string, any> = {
       imposto_comissao_percent: impostoComissao,

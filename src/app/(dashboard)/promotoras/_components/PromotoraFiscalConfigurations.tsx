@@ -9,7 +9,9 @@ import { getTaxRegimeTotals, formatPercentSequence, type TaxRateField } from '@/
 import { createEmptyFiscalFigure, normalizeCompanyFiscalData, type CompanyFiscalData, type FiscalFigureRecord } from '@/lib/company-fiscal-data'
 import { calcularImpostoComissao } from '@/lib/comissao-liquida'
 import type { PromotoraLookupPayload } from '../actions'
-import type { PromotoraFiscalConfiguration, PromotoraFiscalData, PromotoraFiscalRetentionOverride } from '@/lib/promotoras'
+import { isFiscalConfigVigente, type FiscalPagador, type FiscalVinculoTipo, type PromotoraFiscalConfiguration, type PromotoraFiscalData, type PromotoraFiscalRetentionOverride } from '@/lib/promotoras'
+import { INSTITUICAO_VINCULO_TIPOS } from '@/lib/financial-institutions'
+import PromotoraAutocomplete, { type PromotoraOption } from '@/app/(dashboard)/instituicoes-financeiras/_components/PromotoraAutocomplete'
 
 type Props = {
   value: PromotoraFiscalData
@@ -22,6 +24,9 @@ type Props = {
   onAutoSave?: () => void | Promise<void>
   /** Instituições Financeiras: habilita a flag de imposto da comissão líquida. */
   enableComissaoLiquida?: boolean
+  /** Instituições Financeiras: vínculo (direto/sub) + promotora + pagador antes do resto do formulário. */
+  enableVinculo?: boolean
+  promotoras?: PromotoraOption[]
 }
 
 type SectionField = {
@@ -600,7 +605,7 @@ function ComissaoLiquidaSection({
       </label>
       <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '-0.4rem' }}>
         Entram na soma o ISS e os impostos passíveis de retenção habilitados (com os overrides acima).
-        Impostos com creditamento nunca entram. Flag única por instituição — marcar aqui desmarca as demais.
+        Impostos com creditamento nunca entram. Flag única por cadastro — marcar aqui desmarca as demais.
       </div>
 
       {marcada ? (
@@ -676,6 +681,8 @@ function ConfigurationCard({
   onAutoSave,
   enableComissaoLiquida,
   onToggleComissao,
+  enableVinculo,
+  promotoras,
 }: {
   config: PromotoraFiscalConfiguration
   companyFiscalData: CompanyFiscalData | null
@@ -688,7 +695,18 @@ function ConfigurationCard({
   companyId?: string
   enableComissaoLiquida?: boolean
   onToggleComissao?: (marcada: boolean) => void
+  enableVinculo?: boolean
+  promotoras?: PromotoraOption[]
 }) {
+  const vigente = isFiscalConfigVigente({ effective_from: config.effective_from, effective_to: config.effective_to })
+  const usaVinculo = enableVinculo === true
+  const vinculo: FiscalVinculoTipo = config.vinculo_tipo || ''
+  const precisaPromotora = usaVinculo && vinculo !== '' && vinculo !== 'direto'
+  const promotoraOk = !precisaPromotora || !!config.promotora_id
+  const precisaPagador = vinculo === 'sub_grade' || vinculo === 'sub_indicado'
+  const remuneracaoOk = !!config.remuneration_type_id
+  const pronto = !usaVinculo || (vinculo !== '' && promotoraOk && remuneracaoOk && (!precisaPagador || !!config.pagador))
+  const curto = usaVinculo && config.pagador === 'promotora'
   const companyName = String(companyLabel || '').trim() || 'Empresa contratada'
   const figureOptions = useMemo(() => buildFigureOptions(companyFiscalData), [companyFiscalData])
 
@@ -793,19 +811,101 @@ function ConfigurationCard({
     }, false)
   }
 
+  const remunerationField = (
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Tipo de Remuneração</label>
+          <select
+            className="form-control"
+            disabled={disabled}
+            value={config.remuneration_type_id || ''}
+            onChange={(e) => {
+              const selected = remunerationTypes.find((item) => item.id === e.target.value)
+              update({
+                remuneration_type_id: e.target.value,
+                remuneration_type_name: selected?.name || '',
+              }, false)
+            }}
+          >
+            <option value="">Selecione</option>
+            {remunerationTypes.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.name}{opt.is_active ? '' : ' (Inativo)'}
+              </option>
+            ))}
+          </select>
+        </div>
+  )
+
+  const vinculoBlock = usaVinculo ? (
+    <div style={{ display: 'grid', gap: '0.8rem', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+      <div className="form-group" style={{ marginBottom: 0 }}>
+        <label className="form-label">Tipo de Vínculo</label>
+        <select
+          className="form-control"
+          disabled={disabled}
+          value={vinculo}
+          onChange={(e) => {
+            const next = e.target.value as FiscalVinculoTipo
+            update({
+              vinculo_tipo: next,
+              pagador: next === 'direto' ? 'if' : next === 'sub_zero' ? 'promotora' : undefined,
+              ...(next === 'direto' ? { promotora_id: '', promotora_name: '', promotora_logo_url: '' } : {}),
+            }, false)
+          }}
+        >
+          <option value="">Selecione</option>
+          {INSTITUICAO_VINCULO_TIPOS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+      {precisaPromotora ? (
+        <PromotoraAutocomplete
+          value={{ id: config.promotora_id || '', name: config.promotora_name || '', logo_url: config.promotora_logo_url || '' }}
+          promotoras={promotoras || []}
+          disabled={disabled}
+          onChange={(next) => update({ promotora_id: next.id, promotora_name: next.name, promotora_logo_url: next.logo_url }, false)}
+        />
+      ) : null}
+      {vinculo !== '' && promotoraOk ? remunerationField : null}
+      {precisaPagador && promotoraOk && remuneracaoOk ? (
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Quem paga esta remuneração?</label>
+          <select
+            className="form-control"
+            disabled={disabled}
+            value={config.pagador || ''}
+            onChange={(e) => update({ pagador: (e.target.value || undefined) as FiscalPagador | undefined }, false)}
+          >
+            <option value="">Selecione</option>
+            <option value="if">Instituição financeira</option>
+            <option value="promotora">Promotora</option>
+          </select>
+        </div>
+      ) : null}
+    </div>
+  ) : null
+
   return (
     <div className="card" style={{ padding: '1rem', border: '1px solid var(--brs-gray-100)', display: 'grid', gap: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'grid', gap: '0.3rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <div style={{ fontWeight: 800, color: 'var(--brs-gray-900)' }}>Configuração Tributária</div>
-            <span className={`badge ${config.effective_to ? 'badge-gray' : 'badge-success'}`}>{config.effective_to ? 'Inativa' : 'Ativa'}</span>
+            <span className={`badge ${vigente ? 'badge-success' : 'badge-gray'}`}>{vigente ? 'Ativa' : 'Inativa'}</span>
             <span className="badge badge-gray" style={{ background: '#F8FAFC', color: 'var(--brs-gray-600)' }}>
               {config.figure_label || 'Sem figura selecionada'}
             </span>
             <span className="badge badge-gray" style={{ background: '#EFF6FF', color: 'var(--brs-navy)' }}>
               {companyName}
             </span>
+            {usaVinculo && vinculo ? (
+              <span className="badge badge-gray">{INSTITUICAO_VINCULO_TIPOS.find((opt) => opt.value === vinculo)?.label}</span>
+            ) : null}
+            {usaVinculo && config.promotora_name ? <span className="badge badge-gray">{config.promotora_name}</span> : null}
+            {usaVinculo && config.pagador ? (
+              <span className="badge badge-gray">Paga: {config.pagador === 'promotora' ? 'Promotora' : 'Instituição'}</span>
+            ) : null}
           </div>
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.86rem' }}>
             Vincule tipo de remuneração, tipo de emissão e a figura tributária da empresa contratada.
@@ -820,7 +920,9 @@ function ConfigurationCard({
         ) : null}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: '0.8rem' }}>
+      {vinculoBlock}
+
+      <div style={{ display: pronto ? 'grid' : 'none', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: '0.8rem' }}>
         <div className="form-group" style={{ marginBottom: 0 }}>
           <label className="form-label">Vigência inicial</label>
           <input
@@ -846,7 +948,7 @@ function ConfigurationCard({
         <div className="form-group" style={{ marginBottom: 0 }}>
           <label className="form-label">Status</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-            <span className={`badge ${config.effective_to ? 'badge-gray' : 'badge-success'}`}>{config.effective_to ? 'Inativa' : 'Ativa'}</span>
+            <span className={`badge ${vigente ? 'badge-success' : 'badge-gray'}`}>{vigente ? 'Ativa' : 'Inativa'}</span>
             <span className="badge badge-gray" style={{ background: '#EFF6FF', color: 'var(--brs-navy)' }}>
               {config.effective_from ? `Início: ${formatDateDisplay(config.effective_from)}` : 'Sem vigência inicial'}
             </span>
@@ -854,29 +956,8 @@ function ConfigurationCard({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.8rem' }}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Tipo de Remuneração</label>
-          <select
-            className="form-control"
-            disabled={disabled}
-            value={config.remuneration_type_id || ''}
-            onChange={(e) => {
-              const selected = remunerationTypes.find((item) => item.id === e.target.value)
-              update({
-                remuneration_type_id: e.target.value,
-                remuneration_type_name: selected?.name || '',
-              }, false)
-            }}
-          >
-            <option value="">Selecione</option>
-            {remunerationTypes.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.name}{opt.is_active ? '' : ' (Inativo)'}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div style={{ display: usaVinculo && (!pronto || curto) ? 'none' : 'grid', gridTemplateColumns: `repeat(${usaVinculo ? 2 : 3}, minmax(0, 1fr))`, gap: '0.8rem' }}>
+        {!usaVinculo && remunerationField}
 
         <div className="form-group" style={{ marginBottom: 0 }}>
           <label className="form-label">Tipo de Emissão de NFSe</label>
@@ -928,7 +1009,19 @@ function ConfigurationCard({
         </div>
       </div>
 
-      {config.figure_id ? (
+      {curto && pronto ? (
+        <div style={{ display: 'grid', gap: '0.6rem', padding: '1rem', borderRadius: 14, border: '1px solid var(--brs-gray-100)', background: '#F8FAFC' }}>
+          <div style={{ color: 'var(--brs-gray-600)', fontSize: '0.88rem' }}>
+            Os dados fiscais vêm do cadastro da promotora {config.promotora_name || ''}.
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: 'var(--brs-gray-900)' }}>
+            <input type="checkbox" disabled={disabled} checked={config.usar_para_comissao === true} onChange={(e) => onToggleComissao?.(e.target.checked)} />
+            Usar esta configuração no cálculo da comissão líquida (Comissionamento)
+          </label>
+        </div>
+      ) : null}
+
+      {usaVinculo && (!pronto || curto) ? null : config.figure_id ? (
         <div style={{ borderRadius: 16, border: '1px solid var(--brs-gray-100)', background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)', padding: '1rem', display: 'grid', gap: '0.9rem' }}>
           <FigureCatalogSummary figure={configFigure} />
           <SectionPreview
@@ -1036,6 +1129,8 @@ export default function PromotoraFiscalConfigurations({
   onChange,
   onAutoSave,
   enableComissaoLiquida = false,
+  enableVinculo = false,
+  promotoras,
 }: Props) {
   const configs = value?.configurations || []
   const safeCompanyFiscalData = useMemo(() => normalizeCompanyFiscalData(companyFiscalData), [companyFiscalData])
@@ -1072,7 +1167,7 @@ export default function PromotoraFiscalConfigurations({
   }
 
   function removeConfig(index: number) {
-    commit(configs.filter((_, currentIndex) => currentIndex !== index), true)
+    commit(configs.filter((_, currentIndex) => currentIndex !== index), false)
   }
 
   // Flag exclusiva: marcar uma configuração desmarca as demais.
@@ -1129,6 +1224,8 @@ export default function PromotoraFiscalConfigurations({
               onRemove={() => removeConfig(index)}
               onAutoSave={onAutoSave}
               enableComissaoLiquida={enableComissaoLiquida}
+              enableVinculo={enableVinculo}
+              promotoras={promotoras}
               onToggleComissao={(marcada) => marcarComissao(index, marcada)}
             />
           </div>

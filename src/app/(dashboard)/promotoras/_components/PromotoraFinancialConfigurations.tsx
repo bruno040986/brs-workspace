@@ -26,6 +26,8 @@ type RemunerationTypeLookup = {
 }
 
 type Props = {
+  /** IDs das IFs que declaram esta promotora como pagadora; null = não carregado (sem restrição). */
+  allowedInstitutionIds?: string[] | null
   value: PromotoraFinancialData
   lookups: PromotoraLookupPayload | null
   availableRemunerationTypes: RemunerationTypeLookup[]
@@ -567,10 +569,13 @@ export function DirectFrequencyCard<T extends { direct: PromotoraFinancialDirect
   config,
   disabled,
   onChange,
+  hideValorMinimoTarifa = false,
 }: {
   config: T
   disabled: boolean
   onChange: (next: T) => void
+  /** Pagador = promotora: esconde valor mínimo e tarifa do pagamento. */
+  hideValorMinimoTarifa?: boolean
 }) {
   const direct = config.direct
 
@@ -841,7 +846,7 @@ export function DirectFrequencyCard<T extends { direct: PromotoraFinancialDirect
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.9rem' }}>
+      <div style={{ display: hideValorMinimoTarifa ? 'none' : 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.9rem' }}>
         <div className="form-group" style={{ marginBottom: 0 }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontWeight: 700, color: 'var(--brs-gray-700)' }}>
             <input
@@ -938,10 +943,13 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
   config,
   disabled,
   onChange,
+  hideValorMinimoTarifa = false,
 }: {
   config: T
   disabled: boolean
   onChange: (next: T) => void
+  /** Pagador = promotora: esconde tarifa e valor mínimo do saque. */
+  hideValorMinimoTarifa?: boolean
 }) {
   function updateIndirect(mutator: (draft: PromotoraFinancialIndirectData) => void) {
     const next = cloneValue(config)
@@ -984,6 +992,7 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
           onChange={(e) => updateIndirect((draft) => { draft.saques_gratuitos_no_mes = inputDigitsValue(e.target.value, 2) })}
         />
       </div>
+      {!hideValorMinimoTarifa && (
         <TariffFields
           title="Tarifa por Saque"
           enabled={true}
@@ -997,6 +1006,8 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
           onChangeReal={(next) => updateIndirect((draft) => { draft.tarifa_valor_real = next })}
           onChangePercent={(next) => updateIndirect((draft) => { draft.tarifa_valor_percentual = next })}
         />
+      )}
+      {!hideValorMinimoTarifa && (
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label className="form-label">Valor Mínimo p/ Saque</label>
         <input
@@ -1008,6 +1019,7 @@ export function IndirectConfigurationCard<T extends { indirect: PromotoraFinanci
           onChange={(e) => updateIndirect((draft) => { draft.valor_minimo_saque = sanitizeMoneyInput(e.target.value, 5) })}
         />
       </div>
+      )}
       <div className="form-group" style={{ marginBottom: 0 }}>
         <label className="form-label">Prazo de Crédito do Saque</label>
         <input
@@ -1060,11 +1072,13 @@ function FinancialConfigurationCard({
   disabled,
   remunerationTypes,
   institutions,
+  undeclaredVinculo = false,
   companyBankAccounts,
   receiptMethods,
   onChange,
   onRemove,
 }: {
+  undeclaredVinculo?: boolean
   config: PromotoraFinancialConfiguration
   index: number
   disabled: boolean
@@ -1078,8 +1092,10 @@ function FinancialConfigurationCard({
   const [open, setOpen] = useState(true)
 
   const selectedInstitution = useMemo(
-    () => institutions.find((institution) => institution.id === config.financial_institution_id) || null,
-    [config.financial_institution_id, institutions],
+    () =>
+      institutions.find((institution) => institution.id === config.financial_institution_id) ||
+      (config.financial_institution_id ? { name: config.financial_institution_name, logo_url: config.financial_institution_logo_url } : null),
+    [config.financial_institution_id, config.financial_institution_name, config.financial_institution_logo_url, institutions],
   )
 
   function update(mutator: (draft: PromotoraFinancialConfiguration) => void) {
@@ -1115,6 +1131,7 @@ function FinancialConfigurationCard({
             <SummaryBadge>{config.payment_mode === 'direto' ? 'Pagamento Direto' : 'Pagamento Indireto'}</SummaryBadge>
             {config.remuneration_type_name ? <SummaryBadge>{config.remuneration_type_name}</SummaryBadge> : null}
             {config.financial_institution_name ? <SummaryBadge>{config.financial_institution_name}</SummaryBadge> : null}
+            {undeclaredVinculo ? <span className="badge badge-gray" style={{ background: '#FFFBEB', color: '#92400E' }}>Vínculo não declarado no cadastro da IF</span> : null}
           </div>
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.84rem' }}>
             Combine tipo de remuneração, instituição financeira e regras de pagamento nesta mesma linha.
@@ -1287,10 +1304,13 @@ export default function PromotoraFinancialConfigurations({
   companyBankAccounts,
   disabled = false,
   onChange,
+  allowedInstitutionIds = null,
 }: Props) {
   const configs = Array.isArray(value.configurations) ? value.configurations : []
   const receiptMethods = lookups?.receiptMethods || []
-  const financialInstitutions = lookups?.financialInstitutions || []
+  const allowed = allowedInstitutionIds ? new Set(allowedInstitutionIds) : null
+  const semVinculo = !!allowed && allowed.size === 0
+  const financialInstitutions = (lookups?.financialInstitutions || []).filter((item) => !allowed || allowed.has(item.id))
 
   function updateFinancialData(mutator: (draft: PromotoraFinancialData) => void) {
     const next = cloneValue(value)
@@ -1326,7 +1346,7 @@ export default function PromotoraFinancialConfigurations({
               Escolha uma ou mais configurações e mantenha a combinação única por remuneração e instituição.
             </div>
           </div>
-          {!disabled && (
+          {!disabled && !semVinculo && (
             <button type="button" className="btn btn-primary" onClick={addConfiguration}>
               <Plus size={16} />
               Nova Configuração
@@ -1336,11 +1356,17 @@ export default function PromotoraFinancialConfigurations({
 
       </div>
 
-      {configs.length === 0 ? (
+      {semVinculo && configs.length === 0 ? (
+        <div className="card" style={{ padding: '1.25rem', border: '1px dashed var(--brs-gray-300)', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
+          <Building2 size={30} style={{ marginBottom: '0.6rem', color: 'var(--brs-gray-300)' }} />
+          <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)' }}>Nenhuma instituição financeira vinculada a esta promotora ainda.</div>
+          <div style={{ marginTop: '0.35rem' }}>Vincule a promotora no cadastro da IF (aba Fiscal e Tributário) e depois volte aqui para configurar o financeiro.</div>
+        </div>
+      ) : configs.length === 0 ? (
         <div className="card" style={{ padding: '1.25rem', border: '1px dashed var(--brs-gray-300)', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
           <Building2 size={30} style={{ marginBottom: '0.6rem', color: 'var(--brs-gray-300)' }} />
           <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)' }}>Nenhuma configuração financeira adicionada</div>
-          <div style={{ marginTop: '0.35rem' }}>Crie pelo menos uma combinação de remuneração e instituição financeira para continuar.</div>
+          <div style={{ marginTop: '0.35rem' }}>Adicione uma combinação de remuneração e instituição financeira quando precisar.</div>
         </div>
       ) : null}
 
@@ -1353,6 +1379,7 @@ export default function PromotoraFinancialConfigurations({
             disabled={disabled}
             remunerationTypes={availableRemunerationTypes}
             institutions={financialInstitutions}
+            undeclaredVinculo={!!allowed && !!config.financial_institution_id && !allowed.has(config.financial_institution_id)}
             companyBankAccounts={companyBankAccounts}
             receiptMethods={receiptMethods}
             onChange={(next) => updateConfiguration(index, next)}

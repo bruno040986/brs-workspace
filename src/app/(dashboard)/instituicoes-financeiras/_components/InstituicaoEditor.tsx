@@ -46,6 +46,7 @@ import {
   createEmptyInstituicaoFinanceira,
   createEmptyMarketingLink,
   createEmptyTarifaArquivo,
+  normalizeInstituicaoFinanceiraRecord,
   normalizeLinksData,
   normalizeApiConexao,
   API_CONEXAO_CAMPOS,
@@ -447,30 +448,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
 
       if (itemRes.success) {
         if (itemRes.item) {
-          // Mescla com o registro vazio para garantir todos os campos (registros antigos só tinham nome + logo)
-          const empty = createEmptyInstituicaoFinanceira()
-          const raw = itemRes.item as any
-          setItem({
-            ...empty,
-            ...raw,
-            institution_type: (raw.institution_type || '') as InstituicaoTipo,
-            general_data: { ...empty.general_data, ...(raw.general_data || {}) },
-            social_media: { ...empty.social_media, ...(raw.social_media || {}) },
-            sac_ouvidoria: {
-              sac: { ...empty.sac_ouvidoria.sac, ...(raw.sac_ouvidoria?.sac || {}), atendimento: Array.isArray(raw.sac_ouvidoria?.sac?.atendimento) && raw.sac_ouvidoria.sac.atendimento.length > 0 ? raw.sac_ouvidoria.sac.atendimento : empty.sac_ouvidoria.sac.atendimento },
-              ouvidoria: { ...empty.sac_ouvidoria.ouvidoria, ...(raw.sac_ouvidoria?.ouvidoria || {}), atendimento: Array.isArray(raw.sac_ouvidoria?.ouvidoria?.atendimento) && raw.sac_ouvidoria.ouvidoria.atendimento.length > 0 ? raw.sac_ouvidoria.ouvidoria.atendimento : empty.sac_ouvidoria.ouvidoria.atendimento },
-            },
-            fiscal_data: raw.fiscal_data && Array.isArray(raw.fiscal_data.configurations) ? raw.fiscal_data : { configurations: [] },
-            financial_data: {
-              empresa_contratada_id: String(raw.financial_data?.empresa_contratada_id || ''),
-              configurations: Array.isArray(raw.financial_data?.configurations) ? raw.financial_data.configurations : [],
-            },
-            contacts_commercial: Array.isArray(raw.contacts_commercial) ? raw.contacts_commercial : [],
-            contacts_operational: Array.isArray(raw.contacts_operational) ? raw.contacts_operational : [],
-            systems: Array.isArray(raw.systems) ? raw.systems : [],
-            links_data: normalizeLinksData(raw.links_data),
-            api_conexao: normalizeApiConexao(raw.api_conexao),
-          })
+          setItem(normalizeInstituicaoFinanceiraRecord(itemRes.item as any))
         }
       } else {
         setMessage({ type: 'error', text: 'Erro ao carregar instituição financeira.' })
@@ -504,11 +482,6 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
     const raw = (selectedCompany as any)?.company_data?.bank_accounts
     return Array.isArray(raw) ? raw : []
   }, [selectedCompany])
-
-  const availableFinancialRemunerationTypes = useMemo(() => {
-    const linkedIds = new Set((item?.fiscal_data?.configurations || []).map((config) => String(config.remuneration_type_id || '').trim()).filter(Boolean))
-    return (lookups?.remunerationTypes || []).filter((type) => linkedIds.has(type.id))
-  }, [item?.fiscal_data?.configurations, lookups?.remunerationTypes])
 
   const fiscalLookups = useMemo(() => (lookups ? { ...lookups, financialInstitutions: [] } : null), [lookups])
 
@@ -1197,6 +1170,8 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
       {activeTab === 'fiscal' && (
         <PromotoraFiscalConfigurations
           enableComissaoLiquida
+          enableVinculo
+          promotoras={lookups?.promotoras || []}
           value={item.fiscal_data || { configurations: [] }}
           companyFiscalData={selectedCompanyFiscalData}
           companyLabel={String(selectedCompany?.nickname || '')}
@@ -1212,7 +1187,7 @@ export default function InstituicaoEditor({ instituicaoId, readOnly = false, isN
         <InstituicaoFinancialConfigurations
           value={item.financial_data || { empresa_contratada_id: '', configurations: [] }}
           lookups={lookups}
-          availableRemunerationTypes={availableFinancialRemunerationTypes}
+          fiscalConfigs={item.fiscal_data?.configurations || []}
           companyBankAccounts={companyBankAccounts}
           disabled={isReadOnly}
           onChange={(next) => updateItem(item ? { ...item, financial_data: next } : item)}

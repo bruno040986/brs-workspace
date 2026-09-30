@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, Building2, CheckCircle, Edit2, Eye, Loader2, Plus, Power, PowerOff, Search } from 'lucide-react'
 import { INSTITUICAO_TIPOS, type InstituicaoTipo } from '@/lib/financial-institutions'
+import ScrollSyncTable from '@/components/forms/ScrollSyncTable'
 import { getInstituicoesFinanceiras, setInstituicaoFinanceiraStatus } from './actions'
 
 type InstituicaoListItem = {
@@ -151,7 +152,7 @@ export default function InstituicoesFinanceirasPage() {
       </div>
 
       <div className="card">
-        <div className="table-wrapper">
+        <ScrollSyncTable>
           <table className="data-table">
             <thead>
               <tr>
@@ -227,7 +228,7 @@ export default function InstituicoesFinanceirasPage() {
               )}
             </tbody>
           </table>
-        </div>
+        </ScrollSyncTable>
       </div>
     </div>
   )

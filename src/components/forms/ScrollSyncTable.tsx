@@ -19,7 +19,7 @@ export default function ScrollSyncTable({ children, maxHeight }: { children: Rea
   useEffect(() => {
     const body = bodyRef.current
     if (!body) return
-    const update = () => setScrollWidth(body.scrollWidth)
+    const update = () => setScrollWidth(body.scrollWidth > body.clientWidth ? body.scrollWidth : 0)
     update()
     const observer = new ResizeObserver(update)
     observer.observe(body)
@@ -37,7 +37,7 @@ export default function ScrollSyncTable({ children, maxHeight }: { children: Rea
 
   return (
     <div className="scroll-sync-table">
-      <div ref={topRef} className="scroll-sync-table__top" onScroll={() => sync(topRef.current, bodyRef.current)}>
+      <div ref={topRef} className="scroll-sync-table__top" style={scrollWidth ? undefined : { display: 'none' }} onScroll={() => sync(topRef.current, bodyRef.current)}>
         <div style={{ width: scrollWidth, height: 1 }} />
       </div>
       <div
