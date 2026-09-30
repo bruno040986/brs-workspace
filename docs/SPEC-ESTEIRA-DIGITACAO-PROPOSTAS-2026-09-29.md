@@ -361,11 +361,11 @@ As rotas são `/crm/propostas` e `/atendente/propostas`, com o mesmo componente 
 
 ### 6.5 Catálogos no Workspace
 
-Menu novo na divisão **Operacional**: **"Status e Situações de Proposta"**, `href: '/propostas-catalogos'`, com abas **Status** (CRUD com grupo e flags; índice único impede dois `padrao_cadastro`), **Situações** (CRUD + status sugerido) e **Configuração** (a linha de `propostas_esteira_config`, com o aviso "sem efeito ainda"). Nada é apagado: inativar tira o item da escolha e mantém as propostas antigas legíveis.
+Menu novo na divisão **Cadastros**: **"Status e Situações de Proposta"**, `href: '/propostas-catalogos'`, com abas **Status** (CRUD com grupo e flags; índice único impede dois `padrao_cadastro`), **Situações** (CRUD + status sugerido) e **Configuração** (a linha de `propostas_esteira_config`, com o aviso "sem efeito ainda"). Nada é apagado: inativar tira o item da escolha e mantém as propostas antigas legíveis.
 
 Os 4 pontos da REGRA FIXA "permissões acompanham o menu", na mesma entrega:
-1. `src/app/(dashboard)/usuarios/page.tsx` → `SYSTEM_MODULES`: `{ id: 'operacional-propostas-catalogos', name: 'Status e Situações de Proposta', parentId: 'cat-div-operacional', level: 1 }`.
-2. `src/lib/nav/divisoes.ts`: item na divisão Operacional, perto de "Painel de Operações", com `perms: [view('operacional-propostas-catalogos')]`.
+1. `src/app/(dashboard)/usuarios/page.tsx` → `SYSTEM_MODULES`: `{ id: 'operacional-propostas-catalogos', name: 'Status e Situações de Proposta', parentId: 'cat-div-cadastros', level: 1 }`.
+2. `src/lib/nav/divisoes.ts`: item na divisão Cadastros, perto de "Formas de Contrato", com `perms: [view('operacional-propostas-catalogos')]`.
 3. `src/lib/auth/permissions.ts`: `'/propostas-catalogos'` nos **dois** mapas (o de página, linha ~187, e o de prefixo, linha ~292), com `any([view('operacional-propostas-catalogos')])`.
 4. Seed na migration: `INSERT` em `profile_permissions` e `user_permissions` a partir de quem tem `sistema-usuarios-root`, no mesmo molde do seed de `20260905102132`.
 
@@ -459,14 +459,13 @@ Futuras (só registradas, fora desta entrega):
 | Balão com custo (polling ou Realtime demais). | Um canal por usuário em `crm_notificacoes`, reuso dos canais existentes, reconciliação de 60 s só com a aba visível. |
 | Catálogo editado no Workspace quebra propostas antigas. | Os itens nunca são apagados, só inativados. `grupo` fica denormalizado na proposta, então mudar o grupo de um status não reescreve o passado (fica registrado como decisão consciente). |
 
-## 11. Perguntas em aberto (com default recomendado)
+## 11. Decisões finais das perguntas em aberto (29/09/2026)
 
-1. **Como registrar o aceite do cliente?** Default: checkbox obrigatório "Cliente aceitou esta oferta" no modal de Solicitar digitação, gravado no evento `criada` com autor e hora. Sem estado novo na solicitação e sem prova anexada na v1.
-2. **Uma simulação pode gerar mais de uma proposta?** Default: uma **viva** por vez (índice único parcial). Uma nova só depois que a anterior estiver em CANCELADO (ex.: reprovou e vai tentar outra IF com nova simulação, ou com a mesma).
-3. **O que fazer com `propostas_credito.status` (CHECK de 10 valores)?** Default: o catálogo manda para todas as origens. O `status` legado passa a ser só o estado técnico da integração (simulando/erro/aguardando_liberacao_interna) e é revisto na fatia do adaptador FyDigital, que passa a mapear o enum da IF → `status_proposta_id`/`situacao_proposta_id` (é a "Transferência de Status" do ARW).
-4. **O Painel de Operações da BRS (`/operacoes`) mostra as propostas manuais dos parceiros?** Default: **não**, filtrar `origem <> 'manual'`, porque a BRS não participa da esteira do tenant. A produção do parceiro chega à BRS depois, pelos relatórios e pela migração do ARW.
-5. **A proposta deve mover `crm_ofertas.estagio` (funil AC-Oferta no WeSales)?** Default: sim, mas numa fatia futura, mapeando por grupo (em_andamento → `digitacao_analise_bancaria`, pago → `proposta_paga`, cancelado → `reprovadas_operacional`), com coluna opcional de estágio no status para exceções. Na v1 não mexe.
-6. **Qual status está configurado no ARW como "mesa de digitação"?** Default: a fila da esteira é `digitada_em is null` e a flag só é guardada para a migração. Se o ARW usar um status próprio de "aguardando digitação", ele entra no catálogo sem mudar a regra.
-7. **O catálogo fica em menu próprio (chave nova) ou dentro de Comissionamento (`sistema-config-credito`)?** Default: menu próprio `operacional-propostas-catalogos`. Status de proposta é operação, não comissão, e quem mantém a mesa pode não ter acesso às tabelas de comissão.
-8. **Exceção à regra "simulação antes" (recontratação, portabilidade vinda de fora)?** Default: **não** na v1. Reavaliar depois de 30 dias de uso, se aparecer caso real.
-9. **"Obrigatório WhatsApp/e-mail ao pendenciar" (config do ARW) vale na esteira?** Default: não. A notificação interna + aviso no chat interno bastam, e a flag fica guardada sem efeito.
+1. **DECIDIDA — Como registrar o aceite do cliente?** Caixa obrigatória "Cliente aceitou esta oferta" no modal de Solicitar digitação, gravada com autor e hora no evento `criada`. Sem estado novo na solicitação e sem prova anexada na v1.
+2. **DECIDIDA — Uma simulação pode gerar mais de uma proposta?** Uma **viva** por vez (índice único parcial). Uma nova só depois que a anterior estiver em CANCELADO. Exceção à regra "simulação antes" fica para reavaliar após 30 dias de uso.
+3. **DECIDIDA — O que fazer com `propostas_credito.status` (CHECK de 10 valores)?** O catálogo manda para todas as origens. O `status` legado passa a ser só o estado técnico da integração e é revisto na fatia do adaptador FyDigital, que mapeia o enum da IF → `status_proposta_id`/`situacao_proposta_id`.
+4. **DECIDIDA — O Painel de Operações da BRS (`/operacoes`) mostra as propostas manuais dos parceiros?** **Não**. Filtrar `origem <> 'manual'`, porque a BRS não participa da esteira do tenant. A produção do parceiro chega à BRS depois, pelos relatórios e pela migração do ARW.
+5. **DECIDIDA — A proposta deve mover `crm_ofertas.estagio` (funil AC-Oferta no WeSales)?** Sim, mas numa fatia futura. Na v1 não mexe.
+6. **DECIDIDA — Qual status está configurado no ARW como "mesa de digitação"?** A fila da esteira é `digitada_em is null` e a flag só é guardada para a migração. Se o ARW usar um status próprio de "aguardando digitação", ele entra no catálogo sem mudar a regra.
+7. **DECIDIDA — Onde ficam os catálogos de Status e Situação?** Menu próprio "Status e Situações de Proposta" na divisão **Cadastros** (não Operacional). Chave única `operacional-propostas-catalogos` para RBA. Status de proposta é operação e configuração, não comissão, e quem mantém a mesa pode não ter acesso às tabelas de comissão.
+8. **DECIDIDA — "Obrigatório WhatsApp/e-mail ao pendenciar" (config do ARW) vale na esteira?** Não. A notificação interna + aviso no chat interno bastam. A flag fica guardada sem efeito.
