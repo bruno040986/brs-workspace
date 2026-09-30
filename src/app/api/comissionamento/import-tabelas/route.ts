@@ -27,6 +27,7 @@ import {
 import {
   carregarCatalogo,
   lerPlanilha,
+  relacaoSubZero,
   resolverReferencia,
   salvarAliases,
   type Catalogo,
@@ -41,6 +42,7 @@ const MAX_LINHAS = 20_000
 type TabelaExistente = {
   id: string
   codigo_tabela_banco: string | null
+  codigo_tabela_promotora: string | null
   nome: string
   institution_id: string
   promotora_id: string | null
@@ -54,6 +56,7 @@ type TabelaExistente = {
   taxa_juros_max: number | null
   observacao: string | null
   id_arw: string | null
+  is_active: boolean
 }
 
 function chaveIdentidade(dados: LinhaAnalisada['dados']) {
@@ -101,6 +104,7 @@ function montarDiff(dados: LinhaAnalisada['dados'], atual: TabelaExistente, nome
 
   const comparacoes: DiffCampo[] = [
     { campo: 'codigo_tabela_banco', label: 'Código no banco', atual: String(atual.codigo_tabela_banco || '-'), novo: String(dados.codigo_tabela_banco || '-') },
+    { campo: 'codigo_tabela_promotora', label: 'Código Tabela Promotora', atual: String(atual.codigo_tabela_promotora || '-'), novo: String(dados.codigo_tabela_promotora || '-') },
     { campo: 'nome', label: 'Nome', atual: atual.nome, novo: dados.nome },
     { campo: 'institution_id', label: 'Financeira', atual: fmtRef(atual.institution_id), novo: fmtRef(dados.institution_id) },
     { campo: 'promotora_id', label: 'Promotora', atual: atual.promotora_id ? fmtRef(atual.promotora_id) : 'Direto', novo: dados.promotora_id ? fmtRef(dados.promotora_id) : 'Direto' },
@@ -139,12 +143,14 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   const catalogo: Catalogo = await carregarCatalogo(admin)
   const { data: existentesData } = await admin
     .from('tabelas_comissao')
-    .select('id, codigo_tabela_banco, nome, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, id_arw')
+    .select('id, codigo_tabela_banco, codigo_tabela_promotora, nome, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, id_arw, is_active')
     .is('deleted_at', null)
+    .eq('is_active', true)
   const existentes = (existentesData || []) as TabelaExistente[]
 
   const linhas: LinhaAnalisada[] = []
   const identidadesVistas = new Set<string>()
+  const codigoPromotoraPorIdentidade = new Map<string, string>()
 
   for (let i = 0; i < planilha.rows.length; i++) {
     const row = planilha.rows[i]
@@ -163,6 +169,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
 
     const dados: LinhaAnalisada['dados'] = {
       codigo_tabela_banco: String(celula(row, 'codigo_tabela_banco') ?? '').trim() || null,
+      codigo_tabela_promotora: String(celula(row, 'codigo_tabela_promotora') ?? '').trim() || null,
       nome,
       financeira_texto: financeiraTexto,
       promotora_texto: promotoraTexto,
@@ -200,13 +207,41 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
       continue
     }
 
+    if (dados.codigo_tabela_promotora && !relacaoSubZero(catalogo, dados.institution_id, dados.promotora_id)) {
+      linhas.push({
+        n,
+        status: 'invalida',
+        erro: 'Código Tabela Promotora só pode ser preenchido para uma relação vigente de Subestabelecido Zero entre a financeira e a promotora.',
+        dados,
+        pendencias: [],
+        matchId: null,
+        diff: [],
+      })
+      continue
+    }
+
     // Planilha única: linhas repetem a tabela (uma por prazo) — só a 1ª conta.
     const identidade = chaveIdentidade(dados)
     if (identidadesVistas.has(identidade)) {
+      const primeiroCodigo = codigoPromotoraPorIdentidade.get(identidade) || ''
+      const codigoAtual = normalizarTexto(dados.codigo_tabela_promotora)
+      if (primeiroCodigo !== codigoAtual) {
+        linhas.push({
+          n,
+          status: 'invalida',
+          erro: 'A mesma tabela bancária aparece no arquivo com Códigos Tabela Promotora diferentes. Use um único código de tabela da promotora; códigos específicos por prazo devem ir em codigo_prazo_promotora.',
+          dados,
+          pendencias: [],
+          matchId: null,
+          diff: [],
+        })
+        continue
+      }
       linhas.push({ n, status: 'repetida', dados, pendencias: [], matchId: null, diff: [] })
       continue
     }
     identidadesVistas.add(identidade)
+    codigoPromotoraPorIdentidade.set(identidade, normalizarTexto(dados.codigo_tabela_promotora))
 
     const existente = encontrarExistente(dados, existentes)
     if (!existente) {
@@ -289,6 +324,7 @@ export async function POST(request: NextRequest) {
 
       const base = {
         codigo_tabela_banco: linha.dados.codigo_tabela_banco,
+        codigo_tabela_promotora: linha.dados.codigo_tabela_promotora,
         nome: linha.dados.nome,
         institution_id: linha.dados.institution_id!,
         promotora_id: linha.dados.promotora_id,
@@ -311,10 +347,16 @@ export async function POST(request: NextRequest) {
         criadas += 1
         resultado.push({ n: linha.n, acao: 'criada', id: data?.id })
       } else if (linha.status === 'atualizacao' && linha.matchId && aprovadasSet.has(linha.n)) {
-        const { error } = await admin.from('tabelas_comissao').update(base).eq('id', linha.matchId)
-        if (error) throw error
+        const trocaCodigoPromotora = linha.diff.some((diff) => diff.campo === 'codigo_tabela_promotora')
+        if (trocaCodigoPromotora) {
+          const { error } = await admin.rpc('comissionamento_versionar_tabela', { p_tabela_id: linha.matchId, p_nova: base })
+          if (error) throw error
+        } else {
+          const { error } = await admin.from('tabelas_comissao').update(base).eq('id', linha.matchId)
+          if (error) throw error
+        }
         atualizadas += 1
-        resultado.push({ n: linha.n, acao: 'atualizada', id: linha.matchId })
+        resultado.push({ n: linha.n, acao: trocaCodigoPromotora ? 'versionada' : 'atualizada', id: linha.matchId })
       } else if (linha.status === 'atualizacao') {
         resultado.push({ n: linha.n, acao: 'atualizacao_rejeitada', id: linha.matchId || undefined })
       } else {

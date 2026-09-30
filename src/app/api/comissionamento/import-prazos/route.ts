@@ -43,6 +43,7 @@ import { formaPagamentoLabel, formaPagamentoUsaFaixa } from '@/lib/comissionamen
 import {
   carregarCatalogo,
   lerPlanilha,
+  relacaoSubZero,
   resolverReferencia,
   salvarAliases,
   type Catalogo,
@@ -61,6 +62,7 @@ type TabelaRef = TabelaCadastrada & { codigo: number }
 type PrazoExistente = {
   id: string
   tabela_comissao_id: string
+  codigo_prazo_promotora: string | null
   forma_pagamento: string
   valor_inicial: number | null
   valor_final: number | null
@@ -74,10 +76,12 @@ type PrazoExistente = {
   seguro: number | null
   forma_pagamento_seguro: string | null
   id_arw: string | null
+  is_active: boolean
 }
 
 type DadosPrazo = {
   tabela_comissao_id: string | null
+  codigo_prazo_promotora: string | null
   forma_pagamento: string | null
   valor_inicial: number | null
   valor_final: number | null
@@ -119,6 +123,11 @@ function mesmoPrazo(item: PrazoExistente, dados: DadosPrazo) {
   )
 }
 
+function prazosSeSobrepoem(item: PrazoExistente, dados: DadosPrazo) {
+  if (dados.prazo_inicial === null || dados.prazo_final === null) return false
+  return dados.prazo_inicial <= Number(item.prazo_final) && Number(item.prazo_inicial) <= dados.prazo_final
+}
+
 function chaveIdentidadePrazo(dados: DadosPrazo) {
   return [dados.tabela_comissao_id, dados.prazo_inicial, dados.prazo_final, dados.valor_inicial ?? '', dados.valor_final ?? ''].join('|')
 }
@@ -135,7 +144,12 @@ function fmtData(valor: string | null) {
 
 function montarDiffPrazo(dados: DadosPrazo, atual: PrazoExistente): DiffCampo[] {
   const comparacoes: DiffCampo[] = [
+    { campo: 'codigo_prazo_promotora', label: 'Código Prazo Promotora', atual: atual.codigo_prazo_promotora || '-', novo: dados.codigo_prazo_promotora || '-' },
     { campo: 'forma_pagamento', label: 'Forma de pagamento', atual: formaPagamentoLabel(atual.forma_pagamento), novo: formaPagamentoLabel(dados.forma_pagamento) },
+    { campo: 'prazo_inicial', label: 'Prazo inicial', atual: String(atual.prazo_inicial), novo: String(dados.prazo_inicial ?? '-') },
+    { campo: 'prazo_final', label: 'Prazo final', atual: String(atual.prazo_final), novo: String(dados.prazo_final ?? '-') },
+    { campo: 'valor_inicial', label: 'Valor inicial da faixa', atual: fmtNum(atual.valor_inicial === null ? null : Number(atual.valor_inicial)), novo: fmtNum(dados.valor_inicial) },
+    { campo: 'valor_final', label: 'Valor final da faixa', atual: fmtNum(atual.valor_final === null ? null : Number(atual.valor_final)), novo: fmtNum(dados.valor_final) },
     { campo: 'data_base', label: 'Data base', atual: fmtData(atual.data_base), novo: fmtData(dados.data_base) },
     { campo: 'data_bloqueio', label: 'Data bloqueio', atual: fmtData(atual.data_bloqueio), novo: fmtData(dados.data_bloqueio) },
     { campo: 'manter_enquadramento', label: 'Manter enquadramento', atual: atual.manter_enquadramento ? 'Sim' : 'Não', novo: dados.manter_enquadramento ? 'Sim' : 'Não' },
@@ -168,18 +182,21 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   const [{ data: tabelasData }, { data: prazosData }] = await Promise.all([
     admin
       .from('tabelas_comissao')
-      .select('id, codigo, nome, codigo_tabela_banco, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, id_arw')
+      .select('id, codigo, nome, codigo_tabela_banco, codigo_tabela_promotora, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, id_arw')
       .is('deleted_at', null)
+      .eq('is_active', true)
       .order('codigo', { ascending: true }),
     admin
       .from('prazos_comissao')
-      .select('id, tabela_comissao_id, forma_pagamento, valor_inicial, valor_final, prazo_inicial, prazo_final, data_base, data_bloqueio, manter_enquadramento, comissao, emissao, seguro, forma_pagamento_seguro, id_arw'),
+      .select('id, tabela_comissao_id, codigo_prazo_promotora, forma_pagamento, valor_inicial, valor_final, prazo_inicial, prazo_final, data_base, data_bloqueio, manter_enquadramento, comissao, emissao, seguro, forma_pagamento_seguro, id_arw, is_active')
+      .eq('is_active', true),
   ])
   const indiceTabelas = indexarTabelas((tabelasData || []) as TabelaRef[])
   const prazosExistentes = (prazosData || []) as PrazoExistente[]
 
   const linhas: LinhaPrazo[] = []
   const identidadesVistas = new Set<string>()
+  const matchesVistos = new Set<string>()
 
   for (let i = 0; i < planilha.rows.length; i++) {
     const row = planilha.rows[i]
@@ -207,6 +224,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
 
     const dados: DadosPrazo = {
       tabela_comissao_id: null,
+      codigo_prazo_promotora: String(celula(row, 'codigo_prazo_promotora') ?? '').trim() || null,
       forma_pagamento: formaPagamento,
       valor_inicial: usaFaixa ? parseTaxaPlanilha(celula(row, 'valor_inicial')) : null,
       valor_final: usaFaixa ? parseTaxaPlanilha(celula(row, 'valor_final')) : null,
@@ -239,6 +257,20 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     if (!tabelaLinha.codigo_tabela_banco && formalizacaoTexto && !formalizacaoId) pendencias.push({ campo: 'tipo_formalizacao' as CampoReferencia, texto: formalizacaoTexto, textoNormalizado: normalizarTexto(formalizacaoTexto) })
     if (pendencias.length > 0) {
       linhas.push({ n, status: 'pendencia', descricao, pendencias, matchId: null, diff: [], dados })
+      continue
+    }
+
+    if ((tabelaLinha.codigo_tabela_promotora || dados.codigo_prazo_promotora) && !relacaoSubZero(catalogo, institutionId, promotoraId)) {
+      linhas.push({
+        n,
+        status: 'invalida',
+        erro: 'Códigos da promotora só podem ser preenchidos para uma relação vigente de Subestabelecido Zero entre a financeira e a promotora.',
+        descricao,
+        pendencias: [],
+        matchId: null,
+        diff: [],
+        dados,
+      })
       continue
     }
 
@@ -275,13 +307,55 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
     }
     identidadesVistas.add(identidade)
 
-    // Match: tabela + intervalo de prazos + faixa de valores.
-    const existente = prazosExistentes.find((item) => item.tabela_comissao_id === tabela.id && mesmoPrazo(item, dados))
+    // Match normal: tabela + intervalo de prazos + faixa de valores.
+    // Quando a promotora troca o código da linha, ela também pode alterar a
+    // faixa de prazo. Nesse caso a identidade antiga deixa de bater; aceitamos
+    // como versão anterior somente se houver UM ÚNICO prazo vigente sobreposto
+    // na mesma tabela com código diferente. Se houver mais de um, exigimos que
+    // o operador corrija o lote em vez de escolher silenciosamente.
+    let existente = prazosExistentes.find((item) => item.tabela_comissao_id === tabela.id && mesmoPrazo(item, dados))
+    if (!existente && dados.codigo_prazo_promotora) {
+      const sobrepostos = prazosExistentes.filter(
+        (item) =>
+          item.tabela_comissao_id === tabela.id &&
+          prazosSeSobrepoem(item, dados) &&
+          normalizarTexto(item.codigo_prazo_promotora) !== normalizarTexto(dados.codigo_prazo_promotora),
+      )
+      if (sobrepostos.length > 1) {
+        linhas.push({
+          n,
+          status: 'invalida',
+          erro: 'A faixa alterada se sobrepõe a mais de um prazo vigente da tabela. Não é seguro decidir automaticamente qual versão deve ser encerrada; ajuste a faixa/códigos do lote para tornar o vínculo inequívoco.',
+          descricao: descricaoLinha,
+          pendencias: [],
+          matchId: null,
+          diff: [],
+          dados,
+        })
+        continue
+      }
+      existente = sobrepostos[0]
+    }
 
     if (!existente) {
       linhas.push({ n, status: 'nova', descricao: descricaoLinha, pendencias: [], matchId: null, diff: [], dados })
       continue
     }
+
+    if (matchesVistos.has(existente.id)) {
+      linhas.push({
+        n,
+        status: 'invalida',
+        erro: 'Mais de uma linha do arquivo tenta substituir o mesmo prazo vigente. Ajuste as faixas/códigos para que cada versão anterior tenha uma única sucessora.',
+        descricao: descricaoLinha,
+        pendencias: [],
+        matchId: null,
+        diff: [],
+        dados,
+      })
+      continue
+    }
+    matchesVistos.add(existente.id)
 
     const diff = montarDiffPrazo(dados, existente)
     linhas.push({ n, status: diff.length === 0 ? 'sem_mudanca' : 'atualizacao', descricao: descricaoLinha, pendencias: [], matchId: existente.id, diff, dados })
@@ -372,6 +446,7 @@ export async function POST(request: NextRequest) {
 
       const base = {
         tabela_comissao_id: linha.dados.tabela_comissao_id!,
+        codigo_prazo_promotora: linha.dados.codigo_prazo_promotora,
         forma_pagamento: linha.dados.forma_pagamento!,
         valor_inicial: linha.dados.valor_inicial,
         valor_final: linha.dados.valor_final,
@@ -394,10 +469,16 @@ export async function POST(request: NextRequest) {
         criadas += 1
         resultado.push({ n: linha.n, acao: 'criada', id: data?.id })
       } else if (linha.status === 'atualizacao' && linha.matchId && aprovadasSet.has(linha.n)) {
-        const { error } = await admin.from('prazos_comissao').update(base).eq('id', linha.matchId)
-        if (error) throw error
+        const trocaCodigoPromotora = linha.diff.some((diff) => diff.campo === 'codigo_prazo_promotora')
+        if (trocaCodigoPromotora) {
+          const { error } = await admin.rpc('comissionamento_versionar_prazo', { p_prazo_id: linha.matchId, p_novo: base })
+          if (error) throw error
+        } else {
+          const { error } = await admin.from('prazos_comissao').update(base).eq('id', linha.matchId)
+          if (error) throw error
+        }
         atualizadas += 1
-        resultado.push({ n: linha.n, acao: 'atualizada', id: linha.matchId })
+        resultado.push({ n: linha.n, acao: trocaCodigoPromotora ? 'versionada' : 'atualizada', id: linha.matchId })
       } else if (linha.status === 'atualizacao') {
         resultado.push({ n: linha.n, acao: 'atualizacao_rejeitada', id: linha.matchId || undefined })
       } else {

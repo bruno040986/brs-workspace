@@ -1,19 +1,20 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle, Download, Edit2, Loader2, Plus, Power, PowerOff, Table2, X } from 'lucide-react'
-import { getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setTabelaComissaoAtiva, type TabelaComissaoPayload } from '../actions'
+import { AlertCircle, CheckCircle, Download, Edit2, Loader2, Plus, Power, PowerOff, Table2, Trash2, X } from 'lucide-react'
+import { excluirTabelasComissao, getComissionamentoLookups, getTabelasComissao, saveTabelaComissao, setTabelaComissaoAtiva, type TabelaComissaoPayload } from '../actions'
 import { gerarCsvTabelasCadastradas } from '@/lib/comissionamento-import'
 import { FILTROS_TABELAS_PADRAO, ORDENS_TABELAS, filtrarTabelas, type FiltrosTabelas } from '@/lib/comissionamento-filtros'
 import { ComboboxFiltro, OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
 
-type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null }
+type Instituicao = { id: string; name: string; logo_url: string | null; is_active?: boolean; imposto_comissao_percent?: number | null; promotoras_sub_zero?: string[] }
 type Lookup = { id: string; nome: string; codigo?: string | null; is_active?: boolean; origem_margem?: string }
 type Promotora = { id: string; nome: string; is_active: boolean }
 type TabelaComissao = {
   id: string
   codigo: number
   codigo_tabela_banco: string | null
+  codigo_tabela_promotora: string | null
   nome: string
   institution_id: string
   promotora_id: string | null
@@ -29,12 +30,14 @@ type TabelaComissao = {
   id_arw: string | null
   is_active: boolean
   created_at?: string | null
+  vigencia_inicio?: string | null
+  vigencia_fim?: string | null
   financial_institutions: Instituicao | null
   promotoras: { id: string; razao_social: string | null; nome_fantasia: string | null } | null
   formas_contrato: Lookup | null
   convenios: Lookup | null
   tipos_formalizacao: Lookup | null
-  prazos_comissao: Array<{ id: string }>
+  prazos_comissao: Array<{ id: string; is_active: boolean }>
 }
 type Lookups = { instituicoes: Instituicao[]; formasContrato: Lookup[]; convenios: Lookup[]; tiposFormalizacao: Lookup[]; promotoras: Promotora[] }
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
@@ -91,6 +94,8 @@ export default function TabelasComissaoPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editing, setEditing] = useState<EditingTabela | null>(null)
   const [saving, setSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
   async function loadData() {
     setLoading(true)
@@ -119,6 +124,10 @@ export default function TabelasComissaoPage() {
   }, [])
 
   const filteredItems = useMemo(() => filtrarTabelas(items, aplicados), [items, aplicados])
+  const itensSelecionaveis = filteredItems.filter((item) => !item.vigencia_fim)
+  const todosVisiveisSelecionados = itensSelecionaveis.length > 0 && itensSelecionaveis.every((item) => selectedIds.has(item.id))
+  const instituicaoEditing = lookups.instituicoes.find((item) => item.id === editing?.institution_id)
+  const relacaoSubZeroEditing = !!editing?.promotora_id && instituicaoEditing?.promotoras_sub_zero?.includes(String(editing.promotora_id)) === true
 
   function atualizarFiltro<K extends keyof FiltrosTabelas>(campo: K, valor: FiltrosTabelas[K]) {
     setFiltros((atual) => ({ ...atual, [campo]: valor }))
@@ -130,7 +139,7 @@ export default function TabelasComissaoPage() {
   }
 
   function openNew() {
-    setEditing({ codigo_tabela_banco: '', nome: '', institution_id: '', promotora_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '', juros_tipo: '', juros_fixa: '', juros_min: '', juros_max: '' })
+    setEditing({ codigo_tabela_banco: '', codigo_tabela_promotora: '', nome: '', institution_id: '', promotora_id: '', forma_contrato_id: '', convenio_id: '', tipo_formalizacao_id: '', com_seguro: null, observacao: '', id_arw: '', juros_tipo: '', juros_fixa: '', juros_min: '', juros_max: '' })
     setIsModalOpen(true)
   }
 
@@ -138,6 +147,7 @@ export default function TabelasComissaoPage() {
     setEditing({
       id: item.id,
       codigo_tabela_banco: item.codigo_tabela_banco || '',
+      codigo_tabela_promotora: item.codigo_tabela_promotora || '',
       nome: item.nome,
       institution_id: item.institution_id,
       promotora_id: item.promotora_id || '',
@@ -164,6 +174,7 @@ export default function TabelasComissaoPage() {
       const res = await saveTabelaComissao({
         id: editing.id,
         codigo_tabela_banco: editing.codigo_tabela_banco || null,
+        codigo_tabela_promotora: relacaoSubZeroEditing ? editing.codigo_tabela_promotora || null : null,
         nome: String(editing.nome || ''),
         institution_id: String(editing.institution_id || ''),
         promotora_id: editing.promotora_id || null,
@@ -199,6 +210,7 @@ export default function TabelasComissaoPage() {
     const csv = gerarCsvTabelasCadastradas(
       filteredItems.map((item) => ({
         codigo_tabela_banco: item.codigo_tabela_banco,
+        codigo_tabela_promotora: item.codigo_tabela_promotora,
         nome: item.nome,
         financeira: item.financial_institutions?.name || '',
         promotora: item.promotoras?.nome_fantasia || item.promotoras?.razao_social || '',
@@ -241,6 +253,44 @@ export default function TabelasComissaoPage() {
     }
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((atual) => {
+      const next = new Set(atual)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedIds((atual) => {
+      const next = new Set(atual)
+      for (const item of itensSelecionaveis) {
+        if (checked) next.add(item.id)
+        else next.delete(item.id)
+      }
+      return next
+    })
+  }
+
+  async function handleDeleteSelected() {
+    if (!selectedIds.size) return
+    if (!confirm(`Excluir ${selectedIds.size} tabela(s) selecionada(s)?`)) return
+    setDeleting(true)
+    setMessage(null)
+    try {
+      const res = await excluirTabelasComissao([...selectedIds])
+      if (!res.success) throw new Error(res.error || 'Erro ao excluir tabelas.')
+      setMessage({ type: 'success', text: `${res.count || selectedIds.size} tabela(s) excluída(s).` })
+      setSelectedIds(new Set())
+      await loadData()
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Erro ao excluir tabelas.' })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="page-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
@@ -249,6 +299,7 @@ export default function TabelasComissaoPage() {
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>Cadastro de tabelas de comissão por instituição, forma de contrato e convênio.</div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {selectedIds.size > 0 && <button type="button" className="btn btn-outline" onClick={handleDeleteSelected} disabled={deleting}><Trash2 size={16} />Excluir selecionadas ({selectedIds.size})</button>}
           <button type="button" className="btn btn-outline" onClick={handleExportCsv} disabled={loading} title="Exporta as tabelas filtradas no layout do modelo de importação (colunas de prazo em branco)"><Download size={16} />Exportar CSV</button>
           <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} />Nova Tabela</button>
         </div>
@@ -277,27 +328,32 @@ export default function TabelasComissaoPage() {
       <div className="card">
         <div className="table-wrapper">
           <table className="data-table">
-            <thead><tr><th>Código</th><th>Instituição</th><th>Promotora</th><th>Código no Banco</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
+            <thead><tr><th><input type="checkbox" checked={todosVisiveisSelecionados} onChange={(e) => toggleAllVisible(e.target.checked)} aria-label="Selecionar tabelas visíveis" /></th><th>Código</th><th>Instituição</th><th>Promotora</th><th>Código no Banco</th><th>Cód. Promotora</th><th>Nome</th><th>Forma de Contrato</th><th>Convênio</th><th>Formalização</th><th>Seguro</th><th>Juros</th><th>Qtd. Prazos</th><th>Vigência</th><th>Status</th><th style={{ textAlign: 'right' }}>Ações</th></tr></thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={13} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={16} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={13} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Table2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhuma tabela encontrada</h3><p>Cadastre a primeira tabela de comissão.</p></div></td></tr>
+                <tr><td colSpan={16} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Table2 size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhuma tabela encontrada</h3><p>Cadastre a primeira tabela de comissão.</p></div></td></tr>
               ) : filteredItems.map((item) => (
                 <tr key={item.id}>
+                  <td><input type="checkbox" checked={selectedIds.has(item.id)} disabled={!!item.vigencia_fim} onChange={() => toggleSelected(item.id)} aria-label={`Selecionar ${item.nome}`} /></td>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.codigo}</td>
                   <td><div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}><div style={{ width: 32, height: 32, border: '1px solid var(--brs-gray-200)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fff' }}>{item.financial_institutions?.logo_url ? <img src={item.financial_institutions.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Table2 size={16} style={{ color: 'var(--brs-gray-400)' }} />}</div><span style={{ fontWeight: 600 }}>{item.financial_institutions?.name || '-'}</span></div></td>
                   <td>{promotoraLabel(item)}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_tabela_banco || '-'}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.codigo_tabela_promotora || '-'}</td>
                   <td style={{ fontWeight: 600 }}>{item.nome}</td>
                   <td>{item.formas_contrato?.nome || '-'}</td>
                   <td>{item.convenios?.nome || '-'}</td>
                   <td>{item.tipos_formalizacao?.nome || '-'}</td>
                   <td>{seguroLabel(item.com_seguro)}</td>
                   <td style={{ fontSize: '0.85rem' }}>{jurosLabel(item)}</td>
-                  <td>{item.prazos_comissao?.length || 0}</td>
-                  <td><span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>{item.is_active ? 'Ativo' : 'Inativo'}</span></td>
-                  <td style={{ textAlign: 'right' }}><div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit2 size={15} /></button><button type="button" className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id} title={item.is_active ? 'Inativar' : 'Ativar'} aria-label={item.is_active ? 'Inativar' : 'Ativar'}>{busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}</button></div></td>
+                  <td>{item.prazos_comissao?.filter((prazo) => prazo.is_active).length || 0}</td>
+                  <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{item.vigencia_inicio ? new Date(item.vigencia_inicio).toLocaleDateString('pt-BR') : '-'}{item.vigencia_fim ? ` a ${new Date(item.vigencia_fim).toLocaleDateString('pt-BR')}` : ' em diante'}</td>
+                  <td><span className={`badge ${item.is_active ? 'badge-success' : 'badge-gray'}`}>{item.vigencia_fim ? 'Histórico' : item.is_active ? 'Ativo' : 'Inativo'}</span></td>
+                  <td style={{ textAlign: 'right' }}>
+                    {item.vigencia_fim ? <span style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem' }}>Somente leitura</span> : <div style={{ display: 'inline-flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm btn-acao" onClick={() => openEdit(item)} title="Editar" aria-label="Editar"><Edit2 size={15} /></button><button type="button" className={`btn btn-sm btn-acao ${item.is_active ? 'btn-outline' : 'btn-primary'}`} onClick={() => handleToggle(item)} disabled={busyId === item.id} title={item.is_active ? 'Inativar' : 'Ativar'} aria-label={item.is_active ? 'Inativar' : 'Ativar'}>{busyId === item.id ? <Loader2 size={15} className="spinner" /> : item.is_active ? <PowerOff size={15} /> : <Power size={15} />}</button></div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -313,6 +369,7 @@ export default function TabelasComissaoPage() {
               <div className="modal-body">
                 <div className="form-grid form-grid-2">
                   <div className="form-group"><label className="form-label">Código no Banco</label><input type="text" className="form-control" value={editing?.codigo_tabela_banco || ''} onChange={(e) => setEditing({ ...editing, codigo_tabela_banco: e.target.value })} /></div>
+                  {relacaoSubZeroEditing && <div className="form-group"><label className="form-label">Código Tabela Promotora</label><input type="text" className="form-control" value={editing?.codigo_tabela_promotora || ''} onChange={(e) => setEditing({ ...editing, codigo_tabela_promotora: e.target.value })} /><small style={{ color: 'var(--brs-gray-500)' }}>Opcional. Código interno da promotora; não substitui o código do banco.</small></div>}
                   <div className="form-group"><label className="form-label">Nome <span className="required">*</span></label><input type="text" className="form-control" required value={editing?.nome || ''} onChange={(e) => setEditing({ ...editing, nome: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Instituição <span className="required">*</span></label><select className="form-control" required value={editing?.institution_id || ''} onChange={(e) => setEditing({ ...editing, institution_id: e.target.value })}><option value="">Selecione</option>{lookups.instituicoes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
                   <div className="form-group"><label className="form-label">Promotora</label><select className="form-control" value={editing?.promotora_id || ''} onChange={(e) => setEditing({ ...editing, promotora_id: e.target.value })}><option value="">Direto (sem promotora)</option>{lookups.promotoras.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></div>

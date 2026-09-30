@@ -14,16 +14,17 @@ import {
 } from '@/lib/comissionamento'
 import { CAMPOS_DATA_PRAZO, FILTROS_PRAZOS_PADRAO, ORDENS_PRAZOS, type FiltrosPrazos } from '@/lib/comissionamento-filtros'
 import ScrollSyncTable from '@/components/forms/ScrollSyncTable'
-import { excluirPrazoComissao, getComissionamentoLookups, getPrazosComissao, getSpreads, type PrazoComissaoPayload } from '../actions'
+import { excluirPrazoComissao, excluirPrazosComissao, getComissionamentoLookups, getPrazosComissao, getSpreads, type PrazoComissaoPayload } from '../actions'
 import { CampoFiltro, ComboboxFiltro, OPCOES_BLOQUEIO, OPCOES_SEGURO, PainelFiltros, SelectFiltro, TextoFiltro } from '../_components/PainelFiltros'
 
-type Instituicao = { id: string; name: string; logo_url?: string | null; imposto_comissao_percent: number | null }
+type Instituicao = { id: string; name: string; logo_url?: string | null; imposto_comissao_percent: number | null; promotoras_sub_zero?: string[] }
 type TipoAgente = { id: string; name: string; codigo_arw: number | null; percentual_repasse: number | null }
 type TabelaLookup = {
   id: string
   codigo: number | null
   nome: string
   codigo_tabela_banco: string | null
+  codigo_tabela_promotora: string | null
   institution_id: string
   forma_contrato_id: string
   convenio_id: string | null
@@ -36,6 +37,8 @@ type TabelaLookup = {
   taxa_juros_min?: number | null
   taxa_juros_max?: number | null
   observacao?: string | null
+  vigencia_inicio?: string | null
+  vigencia_fim?: string | null
   financial_institutions: Instituicao | null
   formas_contrato: { id: string; nome: string } | null
   convenios: { id: string; nome: string } | null
@@ -55,6 +58,9 @@ type Prazo = PrazoComissaoPayload & {
   forma_pagamento_seguro: string | null
   id_arw: string | null
   lote_importacao: string | null
+  codigo_prazo_promotora: string | null
+  vigencia_inicio: string | null
+  vigencia_fim: string | null
   tabelas_comissao: TabelaLookup | null
 }
 type OpcaoLookup = { id: string; nome: string }
@@ -117,6 +123,8 @@ export default function PrazosComissaoPage() {
   const [totalEncontrado, setTotalEncontrado] = useState(0)
   // Tipos de agente marcados: só escolhem quais colunas de repasse aparecem (vazio = todas).
   const [agentesFiltro, setAgentesFiltro] = useState<string[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
   async function carregarPrazos(proximos: FiltrosPrazos) {
     setLoading(true)
@@ -221,6 +229,47 @@ export default function PrazosComissaoPage() {
     }
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((atual) => {
+      const next = new Set(atual)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const itensSelecionaveis = items.filter((item) => !item.vigencia_fim)
+  const todosVisiveisSelecionados = itensSelecionaveis.length > 0 && itensSelecionaveis.every((item) => selectedIds.has(item.id))
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedIds((atual) => {
+      const next = new Set(atual)
+      for (const item of itensSelecionaveis) {
+        if (checked) next.add(item.id)
+        else next.delete(item.id)
+      }
+      return next
+    })
+  }
+
+  async function handleDeleteSelected() {
+    if (!selectedIds.size) return
+    if (!confirm(`Excluir ${selectedIds.size} prazo(s) selecionado(s)?`)) return
+    setDeleting(true)
+    setMessage(null)
+    try {
+      const res = await excluirPrazosComissao([...selectedIds])
+      if (!res.success) throw new Error(res.error || 'Erro ao excluir prazos comissão.')
+      setMessage({ type: 'success', text: `${res.count || selectedIds.size} prazo(s) excluído(s).` })
+      setSelectedIds(new Set())
+      await carregarPrazos(aplicados)
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Erro ao excluir prazos comissão.' })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   function handleExportCsv() {
     if (!items.length) {
       setMessage({ type: 'error', text: 'Nenhum prazo para exportar com o filtro atual.' })
@@ -232,6 +281,7 @@ export default function PrazosComissaoPage() {
         return {
           tabela: {
             codigo_tabela_banco: t?.codigo_tabela_banco ?? null,
+            codigo_tabela_promotora: t?.codigo_tabela_promotora ?? null,
             nome: t?.nome || '',
             financeira: t?.financial_institutions?.name || '',
             promotora: t?.promotoras?.nome_fantasia || t?.promotoras?.razao_social || '',
@@ -245,6 +295,7 @@ export default function PrazosComissaoPage() {
             taxa_juros_max: t?.taxa_juros_max ?? null,
             observacao: t?.observacao ?? null,
           },
+          codigo_prazo_promotora: item.codigo_prazo_promotora,
           forma_pagamento: item.forma_pagamento,
           valor_inicial: item.valor_inicial,
           valor_final: item.valor_final,
@@ -287,7 +338,13 @@ export default function PrazosComissaoPage() {
           <div style={{ color: 'var(--brs-gray-500)', fontSize: '0.9rem', marginTop: '0.25rem' }}>Espelho dos prazos e comissões configurados no ARW.</div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-outline" onClick={handleExportCsv} disabled={loading} title="Exporta os prazos filtrados com as 25 colunas preenchidas — reimportável no Passo 2 para atualização em lote">
+          {selectedIds.size > 0 && (
+            <button type="button" className="btn btn-outline" onClick={handleDeleteSelected} disabled={deleting}>
+              <Trash2 size={16} />
+              Excluir selecionados ({selectedIds.size})
+            </button>
+          )}
+          <button type="button" className="btn btn-outline" onClick={handleExportCsv} disabled={loading} title="Exporta os prazos filtrados no layout completo — reimportável no Passo 2 para atualização em lote">
             <Download size={16} />
             Exportar CSV
           </button>
@@ -368,12 +425,15 @@ export default function PrazosComissaoPage() {
           <table className="data-table">
             <thead>
               <tr>
+                <th><input type="checkbox" checked={todosVisiveisSelecionados} onChange={(e) => toggleAllVisible(e.target.checked)} aria-label="Selecionar prazos visíveis" /></th>
                 <th>Código</th>
                 <th>Data Base</th>
                 <th>Tabela de Comissão</th>
                 <th>Prazo</th>
                 <th>IF</th>
                 <th>Promotora</th>
+                <th>Cód. Tab. Promotora</th>
+                <th>Cód. Prazo Promotora</th>
                 <th>Forma Contrato</th>
                 <th>Convênio</th>
                 <th>Seguro</th>
@@ -382,25 +442,29 @@ export default function PrazosComissaoPage() {
                 {colunasAgente.map((column) => <th key={column}>{column}</th>)}
                 <th>Lote Importação</th>
                 <th>Código ARW</th>
+                <th>Vigência</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={14 + colunasAgente.length} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
+                <tr><td colSpan={18 + colunasAgente.length} style={{ textAlign: 'center', padding: '3rem' }}><span className="spinner" style={{ borderTopColor: 'var(--brs-navy)' }} /></td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={14 + colunasAgente.length} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Clock size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum prazo encontrado</h3><p>Ajuste os filtros ou cadastre um prazo comissão.</p></div></td></tr>
+                <tr><td colSpan={18 + colunasAgente.length} style={{ textAlign: 'center', padding: '3rem' }}><div className="empty-state"><Clock size={48} style={{ color: 'var(--brs-gray-300)', marginBottom: '1rem' }} /><h3>Nenhum prazo encontrado</h3><p>Ajuste os filtros ou cadastre um prazo comissão.</p></div></td></tr>
               ) : items.map((item) => {
                 const tabela = item.tabelas_comissao
                 const emPercentual = formaPagamentoEmPercentual(item.forma_pagamento)
                 return (
                   <tr key={item.id}>
+                    <td><input type="checkbox" checked={selectedIds.has(item.id)} disabled={!!item.vigencia_fim} onChange={() => toggleSelected(item.id)} aria-label={`Selecionar prazo ${item.codigo ?? item.id}`} /></td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.codigo ?? '-'}</td>
                     <td>{formatDate(item.data_base)}</td>
                     <td style={{ fontWeight: 600 }}>{tabela?.nome || '-'}{tabela?.codigo_tabela_banco ? ` (${tabela.codigo_tabela_banco})` : ''}</td>
                     <td>{item.prazo_inicial} a {item.prazo_final}</td>
                     <td>{tabela?.financial_institutions?.name || '-'}</td>
                     <td>{promotoraLabel(tabela)}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>{tabela?.codigo_tabela_promotora || '-'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>{item.codigo_prazo_promotora || '-'}</td>
                     <td>{tabela?.formas_contrato?.nome || '-'}</td>
                     <td>{tabela?.convenios?.nome || '-'}</td>
                     <td>{seguroBadge(tabela?.com_seguro)}</td>
@@ -409,15 +473,16 @@ export default function PrazosComissaoPage() {
                     {colunasAgente.map((column) => <td key={column}>{repasseAgente(item, column)}</td>)}
                     <td>{item.lote_importacao || '-'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{item.id_arw || '-'}</td>
+                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{item.vigencia_inicio ? new Date(item.vigencia_inicio).toLocaleDateString('pt-BR') : '-'}{item.vigencia_fim ? ` a ${new Date(item.vigencia_fim).toLocaleDateString('pt-BR')}` : ' em diante'}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'nowrap', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                      {item.vigencia_fim ? <span style={{ color: 'var(--brs-gray-400)', fontSize: '0.78rem' }}>Somente leitura</span> : <div style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'nowrap', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
                         <Link href={`/comissionamento/prazos/${item.id}`} className="btn btn-ghost btn-sm btn-acao" title="Editar" aria-label="Editar">
                           <Edit2 size={15} />
                         </Link>
                         <button type="button" className="btn btn-outline btn-sm btn-acao" onClick={() => handleDelete(item)} disabled={busyId === item.id} title="Excluir" aria-label="Excluir">
                           {busyId === item.id ? <Loader2 size={15} className="spinner" /> : <Trash2 size={15} />}
                         </button>
-                      </div>
+                      </div>}
                     </td>
                   </tr>
                 )

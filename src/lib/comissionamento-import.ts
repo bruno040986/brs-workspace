@@ -9,6 +9,7 @@
 export const MODELO_TABELAS_HEADERS = [
   // Identidade/atributos da TABELA DE COMISSÃO (passo 1)
   'codigo_tabela_banco',
+  'codigo_tabela_promotora',
   'nome',
   'financeira',
   'promotora',
@@ -22,6 +23,7 @@ export const MODELO_TABELAS_HEADERS = [
   'taxa_juros_max',
   'observacao',
   // Campos do PRAZO COMISSÃO (passo 2 — ignorados no passo 1)
+  'codigo_prazo_promotora',
   'forma_pagamento',
   'valor_inicial',
   'valor_final',
@@ -38,13 +40,14 @@ export const MODELO_TABELAS_HEADERS = [
 
 /** Colunas exigidas no passo 1 (Tabelas). As demais são toleradas/ignoradas. */
 export const COLUNAS_TABELA = [
-  'codigo_tabela_banco', 'nome', 'financeira', 'promotora', 'forma_contrato',
+  'codigo_tabela_banco', 'codigo_tabela_promotora', 'nome', 'financeira', 'promotora', 'forma_contrato',
   'convenio', 'tipo_formalizacao', 'seguro', 'taxa_juros_tipo', 'taxa_juros',
   'taxa_juros_min', 'taxa_juros_max', 'observacao',
 ] as const
 
 export const MODELO_TABELAS_EXEMPLO = [
   '827004875',
+  '',
   'REFIN 1 OFERTA C/ SEGURO TX 2,38%',
   'BANCO SANTANDER',
   '',
@@ -54,6 +57,7 @@ export const MODELO_TABELAS_EXEMPLO = [
   'com',
   'fixa',
   '2,38',
+  '',
   '',
   '',
   '',
@@ -78,6 +82,7 @@ export function gerarModeloCsv(): string {
 /** Linha de tabela cadastrada, já com os vínculos resolvidos para nome (como a tela lista). */
 export type TabelaParaExportar = {
   codigo_tabela_banco: string | null
+  codigo_tabela_promotora: string | null
   nome: string
   financeira: string
   promotora: string
@@ -106,6 +111,7 @@ function taxaCsv(value: number | null | undefined): string {
 function celulasTabela(t: TabelaParaExportar): unknown[] {
   return [
     t.codigo_tabela_banco,
+    t.codigo_tabela_promotora,
     t.nome,
     t.financeira,
     t.promotora,
@@ -128,7 +134,7 @@ function montarCsv(linhas: unknown[][]): string {
 
 /**
  * Exporta as tabelas cadastradas no MESMO layout do modelo de importação:
- * as 13 colunas de tabela preenchidas, as 12 de prazo em branco — o operador
+ * as colunas de tabela preenchidas e as de prazo em branco — o operador
  * completa só os prazos e sobe a planilha direto no Passo 2 do importador.
  */
 export function gerarCsvTabelasCadastradas(tabelas: TabelaParaExportar[]): string {
@@ -139,6 +145,7 @@ export function gerarCsvTabelasCadastradas(tabelas: TabelaParaExportar[]): strin
 /** Prazo cadastrado + a tabela dele, para exportação completa. */
 export type PrazoParaExportar = {
   tabela: TabelaParaExportar
+  codigo_prazo_promotora: string | null
   forma_pagamento: string | null
   valor_inicial: number | null
   valor_final: number | null
@@ -160,7 +167,7 @@ function dataCsv(value: string | null | undefined): string {
 }
 
 /**
- * Exporta os PRAZOS cadastrados com as 25 colunas preenchidas (tabela + prazo).
+ * Exporta os PRAZOS cadastrados no layout completo (tabela + prazo).
  * Reimportável direto no Passo 2: cada linha casa pela identidade da tabela +
  * intervalo de prazo + faixa de valores, e vira ATUALIZAÇÃO com diff aprovável
  * — é o caminho para atualização de comissão em lote.
@@ -169,6 +176,7 @@ export function gerarCsvPrazosCadastrados(prazos: PrazoParaExportar[]): string {
   return montarCsv(
     prazos.map((p) => [
       ...celulasTabela(p.tabela),
+      p.codigo_prazo_promotora || '',
       p.forma_pagamento || '',
       taxaCsv(p.valor_inicial),
       taxaCsv(p.valor_final),
@@ -244,6 +252,7 @@ export type LinhaAnalisada = {
   erro?: string
   dados: {
     codigo_tabela_banco: string | null
+    codigo_tabela_promotora: string | null
     nome: string
     financeira_texto: string
     promotora_texto: string
@@ -299,6 +308,7 @@ export function chaveResolucao(campo: CampoReferencia, textoNormalizado: string)
 /** Campos da tabela comparados quando a linha não tem código (tudo, menos observação). */
 export type CamposTabela = {
   codigo_tabela_banco: string | null
+  codigo_tabela_promotora: string | null
   nome: string
   institution_id: string | null
   promotora_id: string | null
@@ -350,6 +360,7 @@ const nomeRef = (id: string | null, nomes: Map<string, string>, vazio = '-') => 
 
 const CAMPOS_TABELA: CampoTabela[] = [
   { label: 'Código no banco', chave: (t) => normalizarTexto(t.codigo_tabela_banco), exibir: (t) => t.codigo_tabela_banco || '-' },
+  { label: 'Código tabela promotora', chave: (t) => normalizarTexto(t.codigo_tabela_promotora), exibir: (t) => t.codigo_tabela_promotora || '-' },
   { label: 'Nome', chave: (t) => normalizarTexto(t.nome), exibir: (t) => t.nome || '-' },
   { label: 'Financeira', chave: (t) => t.institution_id || '', exibir: (t, nomes) => nomeRef(t.institution_id, nomes) },
   { label: 'Promotora', chave: (t) => t.promotora_id || '', exibir: (t, nomes) => nomeRef(t.promotora_id, nomes, 'Direto') },
@@ -364,14 +375,25 @@ const CAMPOS_TABELA: CampoTabela[] = [
   { label: 'Taxa de juros', chave: jurosChave, exibir: jurosTexto },
 ]
 
+// O código da promotora é versionável. Ele participa do diff, mas NÃO da
+// identidade: quando mudar, precisamos encontrar a versão corrente para poder
+// encerrá-la e criar a nova, em vez de tratar a linha como uma tabela inédita.
+const CAMPOS_TABELA_IDENTIDADE = CAMPOS_TABELA.filter((campo) => campo.label !== 'Código tabela promotora')
+
 /** Todos os campos da tabela (menos observação): igual aqui = mesma tabela, quando não há código. */
 export function chaveTabelaCompleta(t: CamposTabela): string {
-  return JSON.stringify(CAMPOS_TABELA.map((campo) => campo.chave(t)))
+  return JSON.stringify(CAMPOS_TABELA_IDENTIDADE.map((campo) => campo.chave(t)))
 }
 
 /** Regra de sempre para tabela COM código: financeira + promotora + forma + convênio + código. */
 function chaveComCodigo(t: CamposTabela): string {
-  return JSON.stringify([t.institution_id || '', t.promotora_id || '', t.forma_contrato_id || '', t.convenio_id || '', normalizarTexto(t.codigo_tabela_banco)])
+  return JSON.stringify([
+    t.institution_id || '',
+    t.promotora_id || '',
+    t.forma_contrato_id || '',
+    t.convenio_id || '',
+    normalizarTexto(t.codigo_tabela_banco),
+  ])
 }
 
 /** Campos em que duas tabelas diferem, com o valor de cada lado (para mensagens). */
@@ -463,6 +485,7 @@ export function lerCamposTabela(
 
   return {
     codigo_tabela_banco: texto('codigo_tabela_banco') || null,
+    codigo_tabela_promotora: texto('codigo_tabela_promotora') || null,
     nome: texto('nome'),
     financeira_texto: financeira,
     promotora_texto: promotora,

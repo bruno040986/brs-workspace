@@ -15,14 +15,16 @@ import {
 } from '@/lib/comissionamento'
 import { getComissionamentoLookups, getPrazoComissao, getSpreads, savePrazoComissao } from '../../actions'
 
-type Instituicao = { id: string; name: string; imposto_comissao_percent: number | null }
+type Instituicao = { id: string; name: string; imposto_comissao_percent: number | null; promotoras_sub_zero?: string[] }
 type TipoAgente = { id: string; name: string; codigo_arw: number | null; percentual_repasse: number | null }
 type TabelaLookup = {
   id: string
   codigo?: number
   nome: string
   codigo_tabela_banco: string | null
+  codigo_tabela_promotora: string | null
   institution_id: string
+  promotora_id: string | null
   forma_contrato_id: string
   convenio_id: string | null
   tipo_formalizacao_id?: string | null
@@ -35,6 +37,7 @@ type FeedbackMessage = { type: 'success' | 'error'; text: string }
 type FormState = {
   id?: string
   tabela_comissao_id: string
+  codigo_prazo_promotora: string
   forma_pagamento: string
   valor_inicial: string
   valor_final: string
@@ -52,6 +55,7 @@ type FormState = {
 
 const emptyForm: FormState = {
   tabela_comissao_id: '',
+  codigo_prazo_promotora: '',
   forma_pagamento: 'percentual',
   valor_inicial: '',
   valor_final: '',
@@ -207,6 +211,7 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
         setForm({
           id: String(item.id),
           tabela_comissao_id: String(item.tabela_comissao_id || ''),
+          codigo_prazo_promotora: String(item.codigo_prazo_promotora || ''),
           forma_pagamento: String(item.forma_pagamento || 'percentual'),
           valor_inicial: inputValue(item.valor_inicial),
           valor_final: inputValue(item.valor_final),
@@ -239,6 +244,9 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
   const [tabelaDropdownOpen, setTabelaDropdownOpen] = useState(false)
   const selectedTabela = useMemo(() => lookups.tabelasComissao.find((item) => item.id === form.tabela_comissao_id) || null, [form.tabela_comissao_id, lookups.tabelasComissao])
   const selectedInstitution = useMemo(() => lookups.instituicoes.find((item) => item.id === selectedTabela?.institution_id) || null, [lookups.instituicoes, selectedTabela])
+  const relacaoSubZero = Boolean(
+    selectedTabela?.promotora_id && selectedInstitution?.promotoras_sub_zero?.includes(selectedTabela.promotora_id),
+  )
   const contexto = useMemo<ContextoTabela | null>(() => selectedTabela ? {
     formaContratoId: selectedTabela.forma_contrato_id,
     institutionId: selectedTabela.institution_id,
@@ -294,7 +302,6 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
         return query.split(/\s+/).every((parte) => alvo.includes(parte))
       })
       .slice(0, 20)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabelaQuery, lookups.tabelasComissao, form.tabela_comissao_id])
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -309,6 +316,7 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
       const res = await savePrazoComissao({
         id: form.id,
         tabela_comissao_id: form.tabela_comissao_id,
+        codigo_prazo_promotora: relacaoSubZero ? form.codigo_prazo_promotora || null : null,
         forma_pagamento: form.forma_pagamento,
         valor_inicial: numberOrNull(form.valor_inicial),
         valor_final: numberOrNull(form.valor_final),
@@ -406,6 +414,13 @@ export default function PrazoComissaoEditor({ prazoId }: { prazoId?: string }) {
                   )}
                 </div>
               </div>
+              {relacaoSubZero ? (
+                <div className="form-group" style={{ gridColumn: 'span 3' }}>
+                  <label className="form-label">Código Prazo Promotora</label>
+                  <input type="text" className="form-control" value={form.codigo_prazo_promotora} onChange={(e) => setField('codigo_prazo_promotora', e.target.value)} />
+                  <small style={{ color: 'var(--brs-gray-500)' }}>Opcional. Código da linha/prazo no sistema da promotora.</small>
+                </div>
+              ) : null}
               <div className="form-group" style={{ gridColumn: 'span 6' }}>
                 <label className="form-label">Forma de Pagamento Comissão</label>
                 <select className="form-control" value={form.forma_pagamento} onChange={(e) => setField('forma_pagamento', e.target.value)}>

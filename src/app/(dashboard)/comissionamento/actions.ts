@@ -11,6 +11,8 @@ import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { ORIGENS_MARGEM } from '@/lib/comissionamento'
 import { hojeSaoPaulo, montarConsultaPrazos, type FiltrosPrazos, type OpFiltro, type OrdemOp } from '@/lib/comissionamento-filtros'
+import { normalizeInstituicaoFinanceiraRecord } from '@/lib/financial-institutions'
+import { isFiscalConfigVigente } from '@/lib/if-vinculo'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +29,21 @@ const PERMISSION_RESOURCE = 'sistema-config-credito'
 
 const REVALIDATE_BASE = '/comissionamento'
 
+async function relacaoSubZeroAtual(institutionId: string, promotoraId: string | null | undefined) {
+  if (!institutionId || !promotoraId) return false
+  const { data, error } = await supabaseAdmin
+    .from('financial_institutions')
+    .select('id, name, fiscal_data, financial_data')
+    .eq('id', institutionId)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return false
+  const instituicao = normalizeInstituicaoFinanceiraRecord(data as any)
+  return instituicao.fiscal_data.configurations.some(
+    (config) => config.vinculo_tipo === 'sub_zero' && config.promotora_id === promotoraId && isFiscalConfigVigente(config),
+  )
+}
+
 // ----------------------------------------------------------------------------
 // Lookups compartilhados
 // ----------------------------------------------------------------------------
@@ -37,7 +54,7 @@ export async function getComissionamentoLookups() {
     const [instituicoes, formas, formalizacoes, convenios, tiposAgente, tabelas, promotoras] = await Promise.all([
       supabaseAdmin
         .from('financial_institutions')
-        .select('id, name, logo_url, is_active, imposto_comissao_percent')
+        .select('id, name, logo_url, is_active, imposto_comissao_percent, fiscal_data, financial_data')
         .is('deleted_at', null)
         .order('is_active', { ascending: false })
         .order('name'),
@@ -50,7 +67,7 @@ export async function getComissionamentoLookups() {
         .order('codigo_arw', { ascending: true, nullsFirst: false }),
       supabaseAdmin
         .from('tabelas_comissao')
-        .select('id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, is_active')
+        .select('id, codigo, nome, codigo_tabela_banco, codigo_tabela_promotora, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, is_active, vigencia_inicio, vigencia_fim')
         .is('deleted_at', null)
         .order('is_active', { ascending: false })
         .order('nome'),
@@ -66,7 +83,21 @@ export async function getComissionamentoLookups() {
 
     return {
       success: true,
-      instituicoes: instituicoes.data || [],
+      instituicoes: (instituicoes.data || []).map((row: any) => {
+        const normalizada = normalizeInstituicaoFinanceiraRecord(row)
+        return {
+          id: row.id,
+          name: row.name,
+          logo_url: row.logo_url,
+          is_active: row.is_active,
+          imposto_comissao_percent: row.imposto_comissao_percent,
+          promotoras_sub_zero: [...new Set(
+            normalizada.fiscal_data.configurations
+              .filter((config) => config.vinculo_tipo === 'sub_zero' && !!config.promotora_id && isFiscalConfigVigente(config))
+              .map((config) => String(config.promotora_id)),
+          )],
+        }
+      }),
       formasContrato: formas.data || [],
       tiposFormalizacao: formalizacoes.data || [],
       convenios: convenios.data || [],
@@ -228,6 +259,7 @@ export async function saveImpostoInstituicao(institutionId: string, impostoPerce
 export type TabelaComissaoPayload = {
   id?: string
   codigo_tabela_banco?: string | null
+  codigo_tabela_promotora?: string | null
   nome: string
   institution_id: string
   forma_contrato_id: string
@@ -251,7 +283,7 @@ export async function getTabelasComissao() {
     const { data, error } = await supabaseAdmin
       .from('tabelas_comissao')
       .select(
-        '*, financial_institutions ( id, name, logo_url, imposto_comissao_percent ), formas_contrato ( id, nome, origem_margem ), convenios ( id, nome, codigo ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ), prazos_comissao ( id )',
+        '*, financial_institutions ( id, name, logo_url, imposto_comissao_percent ), formas_contrato ( id, nome, origem_margem ), convenios ( id, nome, codigo ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ), prazos_comissao ( id, is_active )',
       )
       .is('deleted_at', null)
       .order('is_active', { ascending: false })
@@ -272,6 +304,11 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
     if (!payload.institution_id) return { success: false, error: 'Selecione a instituição financeira.' }
     if (!payload.forma_contrato_id) return { success: false, error: 'Selecione a forma de contrato.' }
 
+    const codigoPromotora = String(payload.codigo_tabela_promotora || '').trim() || null
+    if (codigoPromotora && !(await relacaoSubZeroAtual(payload.institution_id, payload.promotora_id))) {
+      return { success: false, error: 'Código Tabela Promotora só pode ser informado quando a relação da instituição com a promotora vigente for Subestabelecido Zero.' }
+    }
+
     const tipoJuros = payload.taxa_juros_tipo === 'fixa' || payload.taxa_juros_tipo === 'faixa' ? payload.taxa_juros_tipo : null
     const juros = (valor: number | null | undefined) => {
       const parsed = Number(valor)
@@ -286,6 +323,7 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
 
     const row = {
       codigo_tabela_banco: String(payload.codigo_tabela_banco || '').trim() || null,
+      codigo_tabela_promotora: codigoPromotora,
       nome,
       institution_id: payload.institution_id,
       forma_contrato_id: payload.forma_contrato_id,
@@ -301,11 +339,28 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
       taxa_juros_max: taxaMax,
       updated_at: new Date().toISOString(),
     }
-    const query = payload.id
-      ? supabaseAdmin.from('tabelas_comissao').update(row).eq('id', payload.id)
-      : supabaseAdmin.from('tabelas_comissao').insert(row)
-    const { error } = await query
-    if (error) throw error
+    if (payload.id) {
+      const { data: atual, error: atualError } = await supabaseAdmin
+        .from('tabelas_comissao')
+        .select('codigo_tabela_promotora, vigencia_fim')
+        .eq('id', payload.id)
+        .maybeSingle()
+      if (atualError) throw atualError
+      if (atual?.vigencia_fim) {
+        return { success: false, error: 'Esta é uma versão histórica encerrada e não pode ser alterada.' }
+      }
+      const codigoAtual = String(atual?.codigo_tabela_promotora || '').trim() || null
+      if (codigoAtual !== codigoPromotora) {
+        const { error } = await supabaseAdmin.rpc('comissionamento_versionar_tabela', { p_tabela_id: payload.id, p_nova: row })
+        if (error) throw error
+      } else {
+        const { error } = await supabaseAdmin.from('tabelas_comissao').update(row).eq('id', payload.id)
+        if (error) throw error
+      }
+    } else {
+      const { error } = await supabaseAdmin.from('tabelas_comissao').insert(row)
+      if (error) throw error
+    }
 
     revalidatePath(`${REVALIDATE_BASE}/tabelas`)
     return { success: true }
@@ -318,6 +373,17 @@ export async function saveTabelaComissao(payload: TabelaComissaoPayload) {
 export async function setTabelaComissaoAtiva(id: string, isActive: boolean) {
   try {
     await requirePermission(PERMISSION_RESOURCE, 'can_activate_inactivate')
+    if (isActive) {
+      const { data: atual, error: atualError } = await supabaseAdmin
+        .from('tabelas_comissao')
+        .select('vigencia_fim')
+        .eq('id', id)
+        .maybeSingle()
+      if (atualError) throw atualError
+      if (atual?.vigencia_fim) {
+        return { success: false, error: 'Esta é uma versão histórica encerrada e não pode ser reativada. Edite a versão vigente ou crie uma nova vigência.' }
+      }
+    }
     const { error } = await supabaseAdmin
       .from('tabelas_comissao')
       .update({ is_active: isActive, updated_at: new Date().toISOString() })
@@ -330,12 +396,45 @@ export async function setTabelaComissaoAtiva(id: string, isActive: boolean) {
   }
 }
 
+export async function excluirTabelasComissao(ids: string[]) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_delete')
+    const lista = [...new Set((ids || []).filter((id) => /^[0-9a-f-]{36}$/i.test(String(id))))]
+    if (!lista.length) return { success: false, error: 'Selecione ao menos uma tabela.' }
+    const { data: historicas, error: historicasError } = await supabaseAdmin
+      .from('tabelas_comissao')
+      .select('id')
+      .in('id', lista)
+      .not('vigencia_fim', 'is', null)
+    if (historicasError) throw historicasError
+    if ((historicas || []).length > 0) return { success: false, error: 'A seleção contém versão histórica encerrada. Histórico é somente leitura e não pode ser excluído.' }
+    const agora = new Date().toISOString()
+    const { error: prazosError } = await supabaseAdmin
+      .from('prazos_comissao')
+      .update({ is_active: false, vigencia_fim: agora, updated_at: agora })
+      .in('tabela_comissao_id', lista)
+      .eq('is_active', true)
+    if (prazosError) throw prazosError
+    const { error } = await supabaseAdmin
+      .from('tabelas_comissao')
+      .update({ deleted_at: agora, is_active: false, vigencia_fim: agora, updated_at: agora })
+      .in('id', lista)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/tabelas`)
+    revalidatePath(`${REVALIDATE_BASE}/prazos`)
+    return { success: true, count: lista.length }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Prazo Comissão
 // ----------------------------------------------------------------------------
 export type PrazoComissaoPayload = {
   id?: string
   tabela_comissao_id: string
+  codigo_prazo_promotora?: string | null
   forma_pagamento: string
   valor_inicial?: number | null
   valor_final?: number | null
@@ -376,7 +475,7 @@ export async function getPrazosComissao(filtros: Partial<FiltrosPrazos> = {}) {
       supabaseAdmin
         .from('prazos_comissao')
         .select(
-          '*, tabelas_comissao!inner ( id, codigo, nome, codigo_tabela_banco, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, is_active, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
+          '*, tabelas_comissao!inner ( id, codigo, nome, codigo_tabela_banco, codigo_tabela_promotora, institution_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, promotora_id, com_seguro, is_active, vigencia_inicio, vigencia_fim, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, financial_institutions ( id, name, imposto_comissao_percent ), formas_contrato ( id, nome ), convenios ( id, nome ), tipos_formalizacao ( id, nome ), promotoras ( id, razao_social, nome_fantasia ) )',
           { count: 'exact' },
         ),
       consulta.filtros,
@@ -415,6 +514,19 @@ export async function savePrazoComissao(payload: PrazoComissaoPayload) {
     await requirePermission(PERMISSION_RESOURCE, payload.id ? 'can_edit' : 'can_include')
     if (!payload.tabela_comissao_id) return { success: false, error: 'Selecione a Tabela de Comissão.' }
 
+    const codigoPromotora = String(payload.codigo_prazo_promotora || '').trim() || null
+    if (codigoPromotora) {
+      const { data: tabela, error: tabelaError } = await supabaseAdmin
+        .from('tabelas_comissao')
+        .select('institution_id, promotora_id')
+        .eq('id', payload.tabela_comissao_id)
+        .maybeSingle()
+      if (tabelaError) throw tabelaError
+      if (!tabela || !(await relacaoSubZeroAtual(String(tabela.institution_id), tabela.promotora_id ? String(tabela.promotora_id) : null))) {
+        return { success: false, error: 'Código Prazo Promotora só pode ser informado quando a tabela estiver ligada a uma relação Subestabelecido Zero vigente.' }
+      }
+    }
+
     const prazoInicial = Number.parseInt(String(payload.prazo_inicial), 10)
     const prazoFinal = Number.parseInt(String(payload.prazo_final), 10)
     if (!Number.isFinite(prazoInicial) || prazoInicial <= 0) return { success: false, error: 'Informe o prazo inicial.' }
@@ -426,6 +538,7 @@ export async function savePrazoComissao(payload: PrazoComissaoPayload) {
 
     const row = {
       tabela_comissao_id: payload.tabela_comissao_id,
+      codigo_prazo_promotora: codigoPromotora,
       forma_pagamento: payload.forma_pagamento,
       valor_inicial: usaFaixa ? payload.valor_inicial ?? null : null,
       valor_final: usaFaixa ? payload.valor_final ?? null : null,
@@ -441,11 +554,28 @@ export async function savePrazoComissao(payload: PrazoComissaoPayload) {
       id_arw: String(payload.id_arw || '').trim() || null,
       updated_at: new Date().toISOString(),
     }
-    const query = payload.id
-      ? supabaseAdmin.from('prazos_comissao').update(row).eq('id', payload.id)
-      : supabaseAdmin.from('prazos_comissao').insert(row)
-    const { error } = await query
-    if (error) throw error
+    if (payload.id) {
+      const { data: atual, error: atualError } = await supabaseAdmin
+        .from('prazos_comissao')
+        .select('codigo_prazo_promotora, vigencia_fim')
+        .eq('id', payload.id)
+        .maybeSingle()
+      if (atualError) throw atualError
+      if (atual?.vigencia_fim) {
+        return { success: false, error: 'Esta é uma versão histórica encerrada e não pode ser alterada.' }
+      }
+      const codigoAtual = String(atual?.codigo_prazo_promotora || '').trim() || null
+      if (codigoAtual !== codigoPromotora) {
+        const { error } = await supabaseAdmin.rpc('comissionamento_versionar_prazo', { p_prazo_id: payload.id, p_novo: row })
+        if (error) throw error
+      } else {
+        const { error } = await supabaseAdmin.from('prazos_comissao').update(row).eq('id', payload.id)
+        if (error) throw error
+      }
+    } else {
+      const { error } = await supabaseAdmin.from('prazos_comissao').insert(row)
+      if (error) throw error
+    }
 
     revalidatePath(`${REVALIDATE_BASE}/prazos`)
     return { success: true }
@@ -458,10 +588,38 @@ export async function savePrazoComissao(payload: PrazoComissaoPayload) {
 export async function excluirPrazoComissao(id: string) {
   try {
     await requirePermission(PERMISSION_RESOURCE, 'can_delete')
+    const { data: atual, error: atualError } = await supabaseAdmin
+      .from('prazos_comissao')
+      .select('vigencia_fim')
+      .eq('id', id)
+      .maybeSingle()
+    if (atualError) throw atualError
+    if (atual?.vigencia_fim) return { success: false, error: 'Versões históricas encerradas são somente leitura e não podem ser excluídas.' }
     const { error } = await supabaseAdmin.from('prazos_comissao').delete().eq('id', id)
     if (error) throw error
     revalidatePath(`${REVALIDATE_BASE}/prazos`)
     return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export async function excluirPrazosComissao(ids: string[]) {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_delete')
+    const lista = [...new Set((ids || []).filter((id) => /^[0-9a-f-]{36}$/i.test(String(id))))]
+    if (!lista.length) return { success: false, error: 'Selecione ao menos um prazo.' }
+    const { data: historicos, error: historicosError } = await supabaseAdmin
+      .from('prazos_comissao')
+      .select('id')
+      .in('id', lista)
+      .not('vigencia_fim', 'is', null)
+    if (historicosError) throw historicosError
+    if ((historicos || []).length > 0) return { success: false, error: 'A seleção contém versão histórica encerrada. Histórico é somente leitura e não pode ser excluído.' }
+    const { error } = await supabaseAdmin.from('prazos_comissao').delete().in('id', lista)
+    if (error) throw error
+    revalidatePath(`${REVALIDATE_BASE}/prazos`)
+    return { success: true, count: lista.length }
   } catch (error: any) {
     return { success: false, error: error.message }
   }

@@ -241,8 +241,8 @@ export default function ImportarComissionamentoPage() {
       </div>
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: '#F8FAFC' }}>
-        <div style={{ color: 'var(--brs-gray-700)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-          A MESMA planilha (modelo único) serve para os dois passos: no Passo 1 o sistema usa só as colunas da tabela e ignora as repetições (uma linha por prazo repete a tabela — só a primeira conta); no Passo 2, a mesma planilha é lida de novo e cada linha vira um Prazo Comissão da tabela correspondente. Importe sempre o Passo 1 antes do Passo 2.
+          <div style={{ color: 'var(--brs-gray-700)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+          A MESMA planilha (modelo único) serve para os dois passos: no Passo 1 o sistema usa só as colunas da tabela e ignora as repetições (uma linha por prazo repete a tabela — só a primeira conta); no Passo 2, a mesma planilha é lida de novo e cada linha vira um Prazo Comissão da tabela correspondente. Importe sempre o Passo 1 antes do Passo 2. Quando um código da promotora mudar, a linha aparecerá como atualização para aprovação; ao aprovar, a versão anterior é encerrada e uma nova vigência é criada, preservando o histórico.
         </div>
       </div>
 

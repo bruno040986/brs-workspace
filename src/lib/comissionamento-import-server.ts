@@ -6,6 +6,8 @@
 
 import * as XLSX from 'xlsx'
 import { chaveResolucao, normalizarTexto, type CampoReferencia, type Resolucoes } from '@/lib/comissionamento-import'
+import { normalizeInstituicaoFinanceiraRecord } from '@/lib/financial-institutions'
+import { isFiscalConfigVigente } from '@/lib/if-vinculo'
 
 export type AdminClient = {
   from: (table: string) => any
@@ -22,7 +24,7 @@ export function lerPlanilha(buffer: Buffer): { headers: string[]; rows: unknown[
 }
 
 export type Catalogo = {
-  financeiras: Array<{ id: string; nome: string; codigoBanco: string }>
+  financeiras: Array<{ id: string; nome: string; codigoBanco: string; promotorasSubZero: string[] }>
   promotoras: Array<{ id: string; nome: string; razao: string }>
   convenios: Array<{ id: string; nome: string; codigo: string }>
   formas: Array<{ id: string; nome: string; codigoArw: string }>
@@ -34,7 +36,7 @@ export type Catalogo = {
 
 export async function carregarCatalogo(admin: AdminClient): Promise<Catalogo> {
   const [financeiras, promotoras, convenios, formas, formalizacoes, aliases] = await Promise.all([
-    admin.from('financial_institutions').select('id, name, linked_bank_code').is('deleted_at', null),
+    admin.from('financial_institutions').select('id, name, linked_bank_code, fiscal_data, financial_data').is('deleted_at', null),
     admin.from('promotoras').select('id, razao_social, nome_fantasia'),
     admin.from('convenios').select('id, nome, codigo').is('deleted_at', null),
     admin.from('formas_contrato').select('id, nome, codigo_arw'),
@@ -55,11 +57,18 @@ export async function carregarCatalogo(admin: AdminClient): Promise<Catalogo> {
   for (const row of formalizacoes.data || []) nomes.set(String(row.id), String(row.nome))
 
   return {
-    financeiras: (financeiras.data || []).map((row: any) => ({
-      id: String(row.id),
-      nome: normalizarTexto(row.name),
-      codigoBanco: normalizarTexto(row.linked_bank_code),
-    })),
+    financeiras: (financeiras.data || []).map((row: any) => {
+      const normalizada = normalizeInstituicaoFinanceiraRecord(row)
+      const promotorasSubZero = normalizada.fiscal_data.configurations
+        .filter((config) => config.vinculo_tipo === 'sub_zero' && !!config.promotora_id && isFiscalConfigVigente(config))
+        .map((config) => String(config.promotora_id))
+      return {
+        id: String(row.id),
+        nome: normalizarTexto(row.name),
+        codigoBanco: normalizarTexto(row.linked_bank_code),
+        promotorasSubZero: [...new Set(promotorasSubZero)],
+      }
+    }),
     promotoras: (promotoras.data || []).map((row: any) => ({
       id: String(row.id),
       nome: normalizarTexto(row.nome_fantasia),
@@ -83,6 +92,11 @@ export async function carregarCatalogo(admin: AdminClient): Promise<Catalogo> {
     aliases: aliasesMap,
     nomes,
   }
+}
+
+export function relacaoSubZero(catalogo: Catalogo, institutionId: string | null, promotoraId: string | null): boolean {
+  if (!institutionId || !promotoraId) return false
+  return catalogo.financeiras.find((item) => item.id === institutionId)?.promotorasSubZero.includes(promotoraId) === true
 }
 
 export function resolverReferencia(

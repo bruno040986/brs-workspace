@@ -34,6 +34,7 @@ const nomes = new Map([
 function tabela(o: Partial<CamposTabela> = {}): CamposTabela {
   return {
     codigo_tabela_banco: null,
+    codigo_tabela_promotora: null,
     nome: 'Novo 1 Oferta S/ Seguro',
     institution_id: 'inst-1',
     promotora_id: null,
@@ -93,6 +94,10 @@ describe('chaveTabelaCompleta', () => {
     }
   })
 
+  test('código da promotora é versionável e não muda a identidade da tabela', () => {
+    assert.equal(chaveTabelaCompleta(tabela({ codigo_tabela_promotora: 'BEVI-001' })), base)
+  })
+
   test('seguro em branco (null) não é o mesmo que "sem seguro"', () => {
     assert.notEqual(chaveTabelaCompleta(tabela({ com_seguro: null })), chaveTabelaCompleta(tabela({ com_seguro: false })))
   })
@@ -117,6 +122,12 @@ describe('candidatasDaLinha — linha COM código (regra de sempre)', () => {
   test('nome, juros, seguro e formalização diferentes não impedem (atualização pendente no passo 1 não trava os prazos)', () => {
     const linha = tabela({ codigo_tabela_banco: '81034875', nome: 'Nome novo', taxa_juros: 2.6, com_seguro: true, tipo_formalizacao_id: null })
     assert.deepEqual(candidatasDaLinha(indexarTabelas([t]), linha, null), [t])
+  })
+
+  test('mudança do código da promotora ainda localiza a versão corrente da mesma tabela bancária', () => {
+    const atual = cadastrada('t-cod', { codigo_tabela_banco: '81034875', promotora_id: 'prom-1', codigo_tabela_promotora: '876542' })
+    const nova = tabela({ codigo_tabela_banco: '81034875', promotora_id: 'prom-1', codigo_tabela_promotora: '876543' })
+    assert.deepEqual(candidatasDaLinha(indexarTabelas([atual]), nova, null), [atual])
   })
 
   test('mesmo código em outra financeira, promotora, forma ou convênio é outra tabela', () => {
@@ -258,5 +269,12 @@ describe('lerCamposTabela', () => {
 describe('camposDiferentes', () => {
   test('mostra nomes legíveis das referências e "Direto" para promotora vazia', () => {
     assert.deepEqual(camposDiferentes(tabela({ promotora_id: 'prom-1' }), tabela({ promotora_id: null }), nomes), [{ label: 'Promotora', a: 'Promotora X', b: 'Direto' }])
+  })
+
+
+  test('mostra mudança do código da promotora no diff mesmo sem mudar a identidade', () => {
+    const atual = tabela({ codigo_tabela_promotora: '876542' })
+    const novo = tabela({ codigo_tabela_promotora: '876543' })
+    assert.deepEqual(camposDiferentes(atual, novo, nomes), [{ label: 'Código tabela promotora', a: '876542', b: '876543' }])
   })
 })
