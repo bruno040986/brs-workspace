@@ -77,7 +77,8 @@ export async function listarPropostas(filtro?: {
   try {
     await requirePermission(RESOURCE)
     const admin = await createAdminClient()
-    let query = admin.from('propostas_credito').select(SELECT_PROPOSTA).order('updated_at', { ascending: false }).limit(500)
+    // Propostas manuais da esteira do tenant (CRM) não aparecem pra BRS (spec esteira §11.4)
+    let query = admin.from('propostas_credito').select(SELECT_PROPOSTA).neq('origem', 'manual').order('updated_at', { ascending: false }).limit(500)
     if (filtro?.forma_contrato_id) query = query.eq('forma_contrato_id', filtro.forma_contrato_id)
     if (filtro?.status) query = query.eq('status', filtro.status)
     if (filtro?.instituicao_id) query = query.eq('instituicao_financeira_id', filtro.instituicao_id)
@@ -120,7 +121,7 @@ export async function getProposta(id: string): Promise<{ success: boolean; data?
     if (!id) throw new Error('Proposta inválida.')
     const admin = await createAdminClient()
 
-    const { data: proposta, error } = await admin.from('propostas_credito').select(SELECT_PROPOSTA).eq('id', id).maybeSingle()
+    const { data: proposta, error } = await admin.from('propostas_credito').select(SELECT_PROPOSTA).eq('id', id).neq('origem', 'manual').maybeSingle()
     if (error) throw error
     if (!proposta) throw new Error('Proposta não encontrada.')
     const p: any = proposta
