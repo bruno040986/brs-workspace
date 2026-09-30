@@ -1338,6 +1338,90 @@ export async function removerEvidencia(evidenciaId: string): Promise<{ success: 
   }
 }
 
+// Vídeo Nuvidio: upload direto do navegador ao Storage (Server Action estoura o limite de corpo, 413).
+export async function prepararUploadVideoNuvidio(
+  processoId: string,
+  fileName: string,
+  mimeType: string,
+  tamanho: number,
+): Promise<{ success: true; path: string; token: string } | { success: false; error: string }> {
+  try {
+    await requirePermission(RESOURCE, 'can_include')
+    const admin = await createAdminClient()
+    if (!mimeType.startsWith('video/')) throw new Error('O arquivo precisa ser um vídeo.')
+    if (tamanho > 200 * 1024 * 1024) throw new Error('Vídeo acima de 200 MB.')
+    const { data: proc } = await admin.from('corban_onboarding_processos').select('id').eq('id', processoId).maybeSingle()
+    if (!proc) throw new Error('Processo não encontrado.')
+    const extBruta = (fileName.split('.').pop() || '').toLowerCase()
+    const ext = /^[a-z0-9]{1,8}$/.test(extBruta) ? extBruta : 'bin'
+    const path = `${processoId}/video_nuvidio/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const { data, error } = await admin.storage.from(BUCKET).createSignedUploadUrl(path)
+    if (error || !data) throw error || new Error('Falha ao gerar URL de upload.')
+    return { success: true, path: data.path, token: data.token }
+  } catch (error: any) {
+    console.error('Erro ao preparar upload do vídeo Nuvidio:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export async function finalizarUploadVideoNuvidio(
+  processoId: string,
+  path: string,
+  fileName: string,
+  mimeType: string,
+  tamanho: number,
+): Promise<{ success: true; docId: string } | { success: false; error: string }> {
+  try {
+    const { user } = await requirePermission(RESOURCE, 'can_include')
+    const admin = await createAdminClient()
+    const prefixo = `${processoId}/video_nuvidio/`
+    if (!path.startsWith(prefixo) || path.includes('..')) throw new Error('Caminho inválido.')
+
+    const { data: achados, error: listError } = await admin.storage
+      .from(BUCKET)
+      .list(`${processoId}/video_nuvidio`, { search: path.slice(prefixo.length) })
+    if (listError) throw listError
+    if (!achados?.some((o) => o.name === path.slice(prefixo.length))) throw new Error('Arquivo não encontrado no Storage.')
+
+    // Sem hash: o arquivo não passa pelo servidor (coluna hash_sha256 é nullable).
+    const { data: inserted, error: insertError } = await admin
+      .from('corban_onboarding_docs_analise')
+      .insert({
+        processo_id: processoId,
+        alvo_tipo: 'processo',
+        alvo_valor: '',
+        tipo_documento: 'video_nuvidio',
+        arquivo_url: path,
+        file_name: fileName,
+        tamanho_bytes: tamanho,
+        mime_type: mimeType,
+        created_by: user.id,
+      })
+      .select('id')
+      .single()
+    if (insertError) throw insertError
+
+    const { error: updError } = await admin
+      .from('corban_onboarding_processos')
+      .update({ nuvidio_video_url: path, updated_at: new Date().toISOString() })
+      .eq('id', processoId)
+    if (updError) throw updError
+
+    await admin.from('corban_onboarding_eventos').insert({
+      processo_id: processoId,
+      tipo: 'doc_analise_enviado',
+      detalhe: { doc_id: inserted.id, tipo_documento: 'video_nuvidio', alvo_tipo: 'processo', alvo_valor: '' },
+      actor_id: user.id,
+    })
+
+    revalidatePath(`/agente-corban/cadastros-recebidos/${processoId}`)
+    return { success: true, docId: inserted.id }
+  } catch (error: any) {
+    console.error('Erro ao finalizar upload do vídeo Nuvidio:', error)
+    return { success: false, error: error.message }
+  }
+}
+
 export async function uploadDocAnalise(
   processoId: string,
   formData: FormData,

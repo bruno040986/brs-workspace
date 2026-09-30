@@ -24,7 +24,8 @@ import {
   salvarRetornoArw,
   uploadPdfAssinado,
 } from '../etapas-actions'
-import { uploadDocAnalise } from '../actions'
+import { finalizarUploadVideoNuvidio, prepararUploadVideoNuvidio } from '../actions'
+import { createClient } from '@/lib/supabase/client'
 import type { RetornoArw } from '../etapas-actions'
 import { formatCpfOrCnpjDisplay, formatDateDisplay } from '@/lib/agente-corban'
 import { getAdministracao, getSociosPF } from '@/lib/agente-corban-signatarios'
@@ -229,15 +230,23 @@ function EtapaNuvidio({
     if (!files || !files[0] || subindo) return
     setSubindo(true)
     try {
-      const fd = new FormData()
-      fd.append('file', files[0])
-      fd.append('alvo_tipo', 'processo')
-      fd.append('alvo_valor', '')
-      fd.append('tipo_documento', 'video_nuvidio')
-      const res = await uploadDocAnalise(processo.id, fd)
+      const file = files[0]
+      if (file.size > 200 * 1024 * 1024) {
+        onMensagem({ tipo: 'erro', texto: `Vídeo com ${(file.size / 1048576).toFixed(0)} MB: o limite é 200 MB.` })
+        return
+      }
+      const prep = await prepararUploadVideoNuvidio(processo.id, file.name, file.type, file.size)
+      if (!prep.success) return onMensagem({ tipo: 'erro', texto: prep.error })
+      const { error: upErr } = await createClient()
+        .storage.from('partner-analise')
+        .uploadToSignedUrl(prep.path, prep.token, file, { contentType: file.type })
+      if (upErr) return onMensagem({ tipo: 'erro', texto: `Falha ao enviar o vídeo: ${upErr.message}` })
+      const res = await finalizarUploadVideoNuvidio(processo.id, prep.path, file.name, file.type, file.size)
       if (!res.success) onMensagem({ tipo: 'erro', texto: res.error })
       else onMensagem({ tipo: 'ok', texto: 'Vídeo salvo!' })
       await onRefresh()
+    } catch (e) {
+      onMensagem({ tipo: 'erro', texto: `Erro ao subir o vídeo: ${e instanceof Error ? e.message : 'falha desconhecida'}` })
     } finally {
       setSubindo(false)
       if (fileRef.current) fileRef.current.value = ''
