@@ -1309,6 +1309,7 @@ export default function PromotoraFinancialConfigurations({
   const configs = Array.isArray(value.configurations) ? value.configurations : []
   const receiptMethods = lookups?.receiptMethods || []
   const allowed = allowedInstitutionIds ? new Set(allowedInstitutionIds) : null
+  const semVinculo = !!allowed && allowed.size === 0
   const financialInstitutions = (lookups?.financialInstitutions || []).filter((item) => !allowed || allowed.has(item.id))
 
   function updateFinancialData(mutator: (draft: PromotoraFinancialData) => void) {
@@ -1345,7 +1346,7 @@ export default function PromotoraFinancialConfigurations({
               Escolha uma ou mais configurações e mantenha a combinação única por remuneração e instituição.
             </div>
           </div>
-          {!disabled && (
+          {!disabled && !semVinculo && (
             <button type="button" className="btn btn-primary" onClick={addConfiguration}>
               <Plus size={16} />
               Nova Configuração
@@ -1355,11 +1356,17 @@ export default function PromotoraFinancialConfigurations({
 
       </div>
 
-      {configs.length === 0 ? (
+      {semVinculo && configs.length === 0 ? (
+        <div className="card" style={{ padding: '1.25rem', border: '1px dashed var(--brs-gray-300)', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
+          <Building2 size={30} style={{ marginBottom: '0.6rem', color: 'var(--brs-gray-300)' }} />
+          <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)' }}>Nenhuma instituição financeira vinculada a esta promotora ainda.</div>
+          <div style={{ marginTop: '0.35rem' }}>Vincule a promotora no cadastro da IF (aba Fiscal e Tributário) e depois volte aqui para configurar o financeiro.</div>
+        </div>
+      ) : configs.length === 0 ? (
         <div className="card" style={{ padding: '1.25rem', border: '1px dashed var(--brs-gray-300)', textAlign: 'center', color: 'var(--brs-gray-500)' }}>
           <Building2 size={30} style={{ marginBottom: '0.6rem', color: 'var(--brs-gray-300)' }} />
           <div style={{ fontWeight: 800, color: 'var(--brs-gray-800)' }}>Nenhuma configuração financeira adicionada</div>
-          <div style={{ marginTop: '0.35rem' }}>Crie pelo menos uma combinação de remuneração e instituição financeira para continuar.</div>
+          <div style={{ marginTop: '0.35rem' }}>Adicione uma combinação de remuneração e instituição financeira quando precisar.</div>
         </div>
       ) : null}
 

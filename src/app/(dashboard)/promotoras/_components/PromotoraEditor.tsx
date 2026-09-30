@@ -1656,7 +1656,7 @@ export default function PromotoraEditor({ promotoraId, readOnly = false, isNew =
 
       {activeTab === 'financeiro' && (
         <PromotoraFinancialConfigurations
-          allowedInstitutionIds={vinculadas ? vinculadas.filter((row) => row.pagador === 'promotora').map((row) => row.financial_institution_id) : null}
+          allowedInstitutionIds={!item.id ? [] : vinculadas ? vinculadas.filter((row) => row.pagador === 'promotora').map((row) => row.financial_institution_id) : null}
           value={item.financial_data || {
             realiza_comissao: false,
             solicitar_saque: false,

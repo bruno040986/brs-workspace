@@ -143,10 +143,6 @@ async function validateInstituicoesDeclaradas(payload: PromotoraRecord) {
 function validateFinancialConfigurations(payload: PromotoraRecord) {
   validateFiscalOverlaps(payload)
   const configurations = Array.isArray(payload.financial_data?.configurations) ? payload.financial_data.configurations : []
-  if (configurations.length === 0) {
-    throw new Error('Adicione pelo menos uma Configuração Financeira.')
-  }
-
   const allowedRemunerationIds = new Set(
     (payload.fiscal_data?.configurations || [])
       .map((config) => String(config.remuneration_type_id || '').trim())
