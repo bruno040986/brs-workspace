@@ -2,6 +2,7 @@
 
 import type { ComercialResumo } from '@/lib/comerciais-hierarquia'
 import type { CatalogosArw } from '@/lib/agente-corban-onboarding'
+import { lerValorChavePix } from '@/lib/agente-corban-banco'
 import { EVIDENCIA_ACEITA, resolveEvidenciaTipo, type CorbanOnboardingEvidencia } from '@/lib/agente-corban-onboarding'
 import {
   CHAVE_CERTIFICACOES_PREFIX,
@@ -899,7 +900,7 @@ export async function avaliarChavePix(
     const { error } = await admin
       .from('corban_onboarding_itens')
       .update({
-        valor: { ...(item.valor || {}), respostas },
+        valor: { ...lerValorChavePix(item.valor), respostas },
         status: tudoOk ? 'aprovado' : 'reprovado',
         motivo_reprovacao: tudoOk ? null : `Conferência da chave PIX falhou: ${falhas.join(', ')}.`,
         instrucoes_correcao: tudoOk ? null : 'Reenvie os dados bancários corretos ou uma chave PIX válida.',

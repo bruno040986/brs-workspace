@@ -29,6 +29,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { RetornoArw } from '../etapas-actions'
 import { formatCpfOrCnpjDisplay, formatDateDisplay } from '@/lib/agente-corban'
 import { getAdministracao, getSociosPF } from '@/lib/agente-corban-signatarios'
+import { bancoVigente } from '@/lib/agente-corban-banco'
 import { LIMITE_OPERACIONAL_PADRAO, type CatalogosArw } from '@/lib/agente-corban-onboarding'
 import { maskPhone } from '@/lib/company-bank-accounts'
 import { nomeComercial, opcoesComerciais, type ComercialCargo, type ComercialResumo } from '@/lib/comerciais-hierarquia'
@@ -41,6 +42,7 @@ type Props = {
   agente: Record<string, any>
   comerciais: ComercialResumo[]
   catalogos: CatalogosArw
+  itens: Array<{ etapa: string; chave: string; valor: unknown }>
   onRefresh: () => Promise<void>
   onMensagem: (m: Mensagem) => void
 }
@@ -81,7 +83,7 @@ function CampoCopiavel({ label, valor, nota }: { label: string; valor: string; n
   )
 }
 
-export default function EtapasFinaisPanel({ etapa, processo, agente, comerciais, catalogos, onRefresh, onMensagem }: Props) {
+export default function EtapasFinaisPanel({ etapa, processo, agente, comerciais, catalogos, itens, onRefresh, onMensagem }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const corban: Record<string, any> = agente.corban_data || {}
 
@@ -105,7 +107,7 @@ export default function EtapasFinaisPanel({ etapa, processo, agente, comerciais,
 
   // ---------------------------------------------------------------------- ARW
   if (etapa === 'arw') {
-    return <EtapaArw processo={processo} agente={agente} corban={corban} comerciais={comerciais} catalogos={catalogos} busy={busy} rodar={rodar} />
+    return <EtapaArw processo={processo} agente={agente} corban={corban} comerciais={comerciais} catalogos={catalogos} itens={itens} busy={busy} rodar={rodar} />
   }
 
   // ---------------------------------------------------------------- LIMITE
@@ -379,12 +381,14 @@ function EtapaArw({
   corban,
   comerciais,
   catalogos,
+  itens,
   busy,
   rodar,
 }: {
   processo: Record<string, any>
   agente: Record<string, any>
   corban: Record<string, any>
+  itens: Array<{ etapa: string; chave: string; valor: unknown }>
   comerciais: ComercialResumo[]
   catalogos: CatalogosArw
   busy: string | null
@@ -399,7 +403,7 @@ function EtapaArw({
   const master: Record<string, any> = corban?.master || {}
   const contatos: Record<string, any> = corban?.contacts || {}
   const end: Record<string, any> = corban?.address || {}
-  const banco: Record<string, any> = corban?.bank || {}
+  const banco = bancoVigente(corban?.bank || {}, itens)
   const isPJ = (master.person_type || agente.person_type) === 'PJ'
   const socios = getSociosPF(corban)
   const principal = socios.find((s) => s.is_principal) || socios[0] || {}

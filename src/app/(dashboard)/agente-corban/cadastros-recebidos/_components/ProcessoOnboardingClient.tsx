@@ -61,6 +61,7 @@ import {
   type ReprovacaoCategoria,
 } from '@/lib/agente-corban-onboarding'
 import DocumentViewer, { type DocumentViewerFile } from './DocumentViewer'
+import { lerValorChavePix } from '@/lib/agente-corban-banco'
 import EtapasFinaisPanel from './EtapasFinaisPanel'
 import EvidenciasBloco, { InstrucoesEvidencia, type EvidenciaComUrl } from './EvidenciasBloco'
 import { pessoaQueCumpre, tiposObrigatorios } from '@/lib/certificacoes'
@@ -752,6 +753,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
             agente={data.agente as unknown as Record<string, any>}
             comerciais={data.comerciais}
             catalogos={data.catalogos}
+            itens={data.itens}
             onRefresh={refresh}
             onMensagem={(m) => setMessage({ type: m.tipo === 'ok' ? 'success' : 'error', text: m.texto })}
           />
@@ -1831,7 +1833,7 @@ function ChavePixCampo({
   onEvidenciasChanged: () => Promise<void>
   onErro: (texto: string) => void
 }) {
-  const respostasAtuais = item.valor?.respostas as { existe: boolean; pertenceCnpj: boolean; mesmaInstituicao: boolean } | null
+  const respostasAtuais = lerValorChavePix(item.valor).respostas as { existe: boolean; pertenceCnpj: boolean; mesmaInstituicao: boolean } | null
   const [existe, setExiste] = useState<boolean | null>(respostasAtuais?.existe ?? null)
   const [pertenceCnpj, setPertenceCnpj] = useState<boolean | null>(respostasAtuais?.pertenceCnpj ?? null)
   const [mesmaInstituicao, setMesmaInstituicao] = useState<boolean | null>(respostasAtuais?.mesmaInstituicao ?? null)
@@ -1851,7 +1853,7 @@ function ChavePixCampo({
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
         <div>
           <div style={{ fontSize: '0.68rem', color: 'var(--brs-gray-500)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Chave PIX da Empresa</div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{String(item.valor?.pix_key || '—')}</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{lerValorChavePix(item.valor).pix_key || '—'}</div>
         </div>
         <span className={`badge ${CORBAN_ONBOARDING_ITEM_STATUS_BADGE[item.status]}`}>{CORBAN_ONBOARDING_ITEM_STATUS_LABELS[item.status]}</span>
       </div>
