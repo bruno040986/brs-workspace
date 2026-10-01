@@ -126,6 +126,72 @@ function revalidateAgenteCorbanPaths(id?: string | null) {
   }
 }
 
+const PARTNER_AUTH_DOMAIN = 'parceiro.brspromotora.com.br'
+
+async function findPartnerAuthUserIdByEmail(email: string): Promise<string | null> {
+  const target = email.trim().toLowerCase()
+  let page = 1
+  while (page <= 20) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 })
+    if (error) throw error
+    const users = data?.users || []
+    const found = users.find((user) => String(user.email || '').trim().toLowerCase() === target)
+    if (found) return found.id
+    if (users.length < 200) return null
+    page += 1
+  }
+  return null
+}
+
+async function ensurePartnerPortalAuth(params: {
+  partnerId: string
+  arwCode: unknown
+  password: unknown
+  currentAuthUserId?: unknown
+}) {
+  const arwCode = String(params.arwCode || '').trim().toLowerCase()
+  const password = String(params.password || '').trim()
+  if (!arwCode || !password) return null
+
+  const email = `${arwCode}@${PARTNER_AUTH_DOMAIN}`
+  let authUserId = String(params.currentAuthUserId || '').trim() || null
+
+  if (!authUserId) authUserId = await findPartnerAuthUserIdByEmail(email)
+
+  if (!authUserId) {
+    const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    })
+    if (createError) {
+      authUserId = await findPartnerAuthUserIdByEmail(email)
+      if (!authUserId) throw createError
+    } else {
+      authUserId = created.user?.id || null
+    }
+  }
+
+  if (!authUserId) throw new Error('Falha ao provisionar o login do Portal Parceiro.')
+
+  const { data: authData, error: getAuthError } = await supabaseAdmin.auth.admin.getUserById(authUserId)
+  if (getAuthError) throw getAuthError
+  const currentEmail = String(authData.user?.email || '').trim().toLowerCase()
+  const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+    ...(currentEmail !== email ? { email, email_confirm: true } : {}),
+    password,
+  })
+  if (authUpdateError) throw authUpdateError
+
+  const { error: linkError } = await supabaseAdmin
+    .from('agentes_parceiros')
+    .update({ auth_user_id: authUserId })
+    .eq('id', params.partnerId)
+  if (linkError) throw linkError
+
+  return authUserId
+}
+
 export async function getAgenteCorbanList(): Promise<
   | { success: true; items: AgenteCorbanListItem[] }
   | { success: false; error: string; items: [] }
@@ -299,24 +365,20 @@ export async function saveAgenteCorbanRecord(draft: Partial<AgenteCorbanDraft>) 
         .eq('id', recordId)
       if (error) throw error
 
-      // A senha do parceiro é sempre gerada no ARW e colada aqui (sem
-      // integração automática com o ARW) — este campo é a fonte da verdade
-      // pro login do Portal Parceiro/AlvoConsig. Ao mudar, sincroniza no
-      // Supabase Auth de verdade (decisão Bruno 27/08/2026).
-      const novaSenha = String(persistence.temporary_password || '').trim()
-      const senhaAnterior = String(existingRecord?.temporary_password || '').trim()
-      if (novaSenha && novaSenha !== senhaAnterior) {
-        const authUserId = existingRecord?.auth_user_id ? String(existingRecord.auth_user_id) : null
-        if (authUserId) {
-          const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, { password: novaSenha })
-          if (authError) {
-            console.error('Erro ao sincronizar senha do parceiro com o Auth:', authError)
-            return {
-              success: false,
-              error: `Cadastro salvo, mas a senha de acesso NÃO foi sincronizada: ${authError.message}`,
-              id: recordId,
-            }
-          }
+      try {
+        await ensurePartnerPortalAuth({
+          partnerId: recordId,
+          arwCode: persistence.arw_code,
+          password: persistence.temporary_password,
+          currentAuthUserId: existingRecord?.auth_user_id,
+        })
+      } catch (authError: unknown) {
+        const authMessage = authError instanceof Error ? authError.message : String(authError)
+        console.error('Erro ao provisionar/sincronizar acesso do parceiro no Auth:', authError)
+        return {
+          success: false,
+          error: `Cadastro salvo, mas o acesso ao Portal Parceiro NÃO foi sincronizado: ${authMessage}`,
+          id: recordId,
         }
       }
 
@@ -363,6 +425,13 @@ export async function saveAgenteCorbanRecord(draft: Partial<AgenteCorbanDraft>) 
           .eq('id', existing.id)
         if (updateError) throw updateError
 
+        await ensurePartnerPortalAuth({
+          partnerId: existing.id,
+          arwCode: fallbackPersistence.arw_code,
+          password: fallbackPersistence.temporary_password,
+          currentAuthUserId: existing.auth_user_id,
+        })
+
         revalidateAgenteCorbanPaths(existing.id)
         return { success: true, id: existing.id, reused: true }
       }
@@ -371,6 +440,13 @@ export async function saveAgenteCorbanRecord(draft: Partial<AgenteCorbanDraft>) 
     }
 
     const insertedId = data?.id || null
+    if (insertedId) {
+      await ensurePartnerPortalAuth({
+        partnerId: insertedId,
+        arwCode: insertPayload.arw_code,
+        password: insertPayload.temporary_password,
+      })
+    }
     revalidateAgenteCorbanPaths(insertedId)
     return { success: true, id: insertedId }
   } catch (error: any) {
