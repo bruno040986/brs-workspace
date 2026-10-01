@@ -511,7 +511,7 @@ function RetentionSection({
       key: item.key,
       label: item.label,
       field: {
-        enabled: item.field.enabled,
+        enabled: item.field.enabled && !!override?.custom,
         value: override?.custom ? override.value : item.field.value,
       } satisfies TaxRateField,
     }
