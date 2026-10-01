@@ -456,6 +456,16 @@ export function useAtendimento() {
         if (selecionadaIdRef.current) void carregarThread(selecionadaIdRef.current, { silencioso: true })
       }, 400)
     }
+    // Rajadas (disparo em massa) coalescem: lista+contadores recarregam 1x a cada 2 s (trailing).
+    let listaTimer: ReturnType<typeof setTimeout> | null = null
+    const recarregarListaDebounced = () => {
+      if (listaTimer) return
+      listaTimer = setTimeout(() => {
+        listaTimer = null
+        void carregarLista()
+        void carregarContadoresRef.current()
+      }, 2000)
+    }
     // Nome único por montagem: dock e /conversas montam este hook ao mesmo tempo,
     // e o supabase-js reaproveita canal de mesmo nome (o 2º .on() após subscribe lança).
     const canal = supabase
@@ -465,8 +475,7 @@ export function useAtendimento() {
         { event: 'INSERT', schema: 'public', table: 'chat_eventos', filter: `chatwoot_account_id=eq.${accountId}` },
         (payload) => {
           const ev = payload.new as { payload?: { conversation_id?: number } }
-          void carregarLista()
-          void carregarContadoresRef.current()
+          recarregarListaDebounced()
           if (selecionadaIdRef.current && ev.payload?.conversation_id === selecionadaIdRef.current) {
             void carregarThread(selecionadaIdRef.current, { silencioso: true })
           }
@@ -487,6 +496,7 @@ export function useAtendimento() {
       .subscribe()
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer)
+      if (listaTimer) clearTimeout(listaTimer)
       supabase.removeChannel(canal)
     }
   }, [accountId])
