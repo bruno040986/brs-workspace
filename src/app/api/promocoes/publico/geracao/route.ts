@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   if (!titular) return LINK_INVALIDO()
 
   const snapshot = lerSnapshot(g.snapshot)
-  const ids = snapshot.operacoes.map((o) => o.id).filter(Boolean)
+  const ids = snapshot.operacoes.map((o: any) => o.id).filter(Boolean)
   const instituicoes = new Map<string, string>()
   if (ids.length) {
     const { data } = await admin.from('promocao_operacoes').select('id, instituicao_texto, financial_institutions ( name )').in('id', ids)
