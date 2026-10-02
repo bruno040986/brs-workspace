@@ -35,7 +35,7 @@
 | 1.14 | **Impedidos (§19).** | `promocao_cpfs_bloqueados` consultada em TODO cadastro (servidor, indicador, indicado) e na apuração do sorteio. Erro genérico `422 CPF_NAO_ELEGIVEL` ("Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul."). |
 | 1.15 | **Ganhador bloqueado / número desconsiderado no sorteio.** | Apuração pula números `desconsiderado`, inscrições `canceladas`, CPFs bloqueados. Resultado é `apurado` → humano valida → `validado`. |
 | 1.16 | **Pix "Dados bancários"** exige banco/agência/conta; outras chaves exigem só a chave. | `check` no banco (§2.6). Tipo de chave: `cpf \| telefone \| email \| aleatoria \| dados_bancarios`. |
-| 1.17 | **Mensagem de pagamento com CPF mascarado** no formato `X00.XXX.000-00`. | Lido como: 1º dígito oculto, dígitos 2–3 visíveis, bloco do meio oculto, bloco 7–9 visível, DV oculto. Implementação §3.7: `12345678901` → `*23.***.890-**`. |
+| 1.17 | **Mensagem de pagamento com CPF mascarado** no formato `X00.XXX.000-00`. | Lido como: 1º dígito oculto, dígitos 2–3 visíveis, bloco do meio oculto, bloco 7–9 visível, DV oculto. Implementação §3.7: `12345678901` → `*23.***.789-**`. |
 | 1.18 | **Marca.** | Nenhum texto/URL público cita BRS. URLs nas mensagens: `https://nuazul.com.br/...` (config `site_base_url`). |
 | 1.19 | **Multi-cidade.** | `promocao_campanhas` com `convenio_id`, `slug`, `cidade`, `uf`. Toda tabela filha carrega `campanha_id`. API pública recebe `campanha` (slug) no body/query. |
 
@@ -374,7 +374,8 @@ export function hashOtp(codigo: string, otpId: string): string             // sh
 
 ### 3.7 `mascara.ts`
 ```ts
-export function mascararCpf(cpf: string): string      // '12345678901' → '*23.***.890-**'  (visível: dígitos 2–3 e 7–9; segue o padrão X00.XXX.000-00 do regras.md)
+export function mascararCpf(cpf: string): string      // '12345678901' → '*23.***.789-**'  (visível: dígitos 2–3 e 7–9; segue o padrão X00.XXX.000-00 do regras.md)
+// Também em mascara.ts (frente A entregou): formatarTelefone, formatarValor ('1.234,56'), formatarCnpj, nomeCurto ('Maria S.'), formatarDataBr; em dias-uteis.ts: ehFeriado; em mensagens.ts: urlWhatsapp(telefone, texto).
 export function mascararTelefone(d: string): string   // '5561999990000' → '(61) *****-0000'
 export function mascararPix(tipo: PixTipo, chave: string | null): string  // cpf→mascararCpf; telefone→mascararTelefone; email→'a***@dominio'; aleatoria→'****-...-' últimos 4; dados_bancarios→'conta ***' + últimos 2
 export function formatarCpf(cpf: string): string       // 000.000.000-00
@@ -383,7 +384,7 @@ export function formatarReais(centavos: number): string // 'R$ 1.234,56'
 
 ### 3.8 `mensagens.ts` — catálogo (§6.3), funções puras `texto*(…)`.
 
-Testes (`src/lib/promocoes/__tests__/*.test.ts`, vitest já no repo): elegibilidade (exemplo 7.500→2/saldo 2.500; +2.500→4), proporção limítrofe (10.000,00 → 50%; 10.000,01 → 40%), nunca revoga, regra de data (3 modos), sorteio circular (99999→00000, equidistante → superior), dias úteis atravessando 12/10 e 02/11, máscara, CPF.
+Testes (`src/lib/promocoes/__tests__/*.test.ts`, **`node:test` + `node:assert/strict`** — é o runner do repo, `npm test` = `node --test --experimental-strip-types`; NÃO há vitest instalado; imports relativos com extensão `.ts`): elegibilidade (exemplo 7.500→2/saldo 2.500; +2.500→4), proporção limítrofe (10.000,00 → 50%; 10.000,01 → 40%), nunca revoga, regra de data (3 modos), sorteio circular (99999→00000, equidistante → superior), dias úteis atravessando 12/10 e 02/11, máscara, CPF.
 
 ---
 

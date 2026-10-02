@@ -10,6 +10,16 @@ create extension if not exists pgcrypto;
 -- ---------------------------------------------------------------------------
 create sequence if not exists public.promocao_codigo_seq start with 100001;
 
+-- Próximo número da sequence (inscrição e indicação compartilham; prefixo distingue).
+create or replace function public.promocao_proximo_codigo()
+returns bigint
+language sql
+as $$
+  select nextval('public.promocao_codigo_seq');
+$$;
+grant usage on sequence public.promocao_codigo_seq to service_role;
+grant execute on function public.promocao_proximo_codigo() to service_role;
+
 -- ---------------------------------------------------------------------------
 -- 1) promocao_campanhas — campanha + config (§2.1)
 -- ---------------------------------------------------------------------------
@@ -544,6 +554,9 @@ begin
     select n.numero from public.promocao_numeros n where n.geracao_id = g.id order by n.numero;
 end;
 $$;
+
+grant execute on function public.promocao_limite_tentar(text, integer, integer) to service_role;
+grant execute on function public.promocao_gerar_numeros(uuid, text, jsonb, text, text) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 18) RLS ligada SEM policy (service role) + updated_at
