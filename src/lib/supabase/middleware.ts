@@ -166,6 +166,8 @@ export async function updateSession(request: NextRequest) {
     '/api/zapi/webhook',
     '/api/nuvidio/webhook',
     '/api/if-credito/fydigital/webhook',
+    // API pública da promoção NuAzul (sem sessão; validação, honeypot, OTP e rate limit no handler).
+    '/api/promocoes/publico',
     // Autentica por NVTI_SERVICE_TOKEN no handler (rota de serviço dos orquestradores).
     '/api/nvti/interno',
     // Consulta CPF paga do CRM AlvoConsig (também NVTI_SERVICE_TOKEN no handler).

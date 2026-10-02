@@ -10,6 +10,7 @@
 
 import type { EngineJob } from './decisions'
 import { buildDedupeKey } from './decisions'
+import { registrarHandlersPromocao } from '@/lib/promocoes/jobs'
 import { selectStageActions, resolveNextStage, type StageModel } from './stage-actions'
 
 let registered = false
@@ -350,5 +351,6 @@ export function registerBuiltinHandlers(deps: { registerHandler: (kind: string, 
   deps.registerHandler('send_whatsapp', handleSendWhatsapp)
   deps.registerHandler('advance_stage', handleAdvanceStage)
   deps.registerHandler('sync_signature_status', handleSyncSignatureStatus)
+  registrarHandlersPromocao(deps)
   registered = true
 }
