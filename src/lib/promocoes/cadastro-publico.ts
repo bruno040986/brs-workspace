@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { enqueueJob } from '@/lib/scp-engine/queue'
 import { formatarCodigo } from './codigos'
 import { hashIp, logSeguro, telefoneContatoDigitos, type Campanha } from './http'

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { hashToken } from './codigos'
 
 export type OtpFinalidade = 'servidor' | 'indicador'

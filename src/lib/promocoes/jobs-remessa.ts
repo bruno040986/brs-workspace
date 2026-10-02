@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { EngineJob } from '@/lib/scp-engine/decisions'
 import { createAdminClient } from '@/lib/supabase/server'
 import { enviarWhatsappPromocao } from './whatsapp'

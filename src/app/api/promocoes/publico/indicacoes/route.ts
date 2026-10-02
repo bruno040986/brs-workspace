@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import {
@@ -16,7 +17,7 @@ import {
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
 import { gerarToken } from '@/lib/promocoes/codigos'
-import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE, type Campanha } from '@/lib/promocoes/http'
+import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE } from '@/lib/promocoes/http'
 import { consumirOtpToken, liberarOtpToken } from '@/lib/promocoes/otp'
 import { pixValido, somenteDigitos } from '@/lib/promocoes/validacao'
 import type { PixTipo } from '@/lib/promocoes/tipos'

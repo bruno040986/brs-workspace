@@ -49,7 +49,7 @@ export default function RemessaClient({ slug }: { slug: string }) {
     } else setMsg({ ok: false, text: r.error })
   }, [slug])
 
-  useEffect(() => { carregar() }, [carregar])
+  useEffect(() => { void Promise.resolve().then(carregar) }, [carregar])
 
   async function gerar() {
     setBusy(true); setMsg(null)

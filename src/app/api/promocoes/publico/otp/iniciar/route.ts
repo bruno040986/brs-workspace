@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'

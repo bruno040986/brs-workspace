@@ -7,7 +7,7 @@
  * remessa, com evento de auditoria).
  */
 import { revalidatePath } from 'next/cache'
-import { requirePermission } from '@/lib/auth/server'
+import { hasPermissionForUser, requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { enqueueJob } from '@/lib/scp-engine/queue'
 import type { PermissionAction } from '@/lib/auth/permissions'
@@ -515,11 +515,12 @@ export async function removerBloqueado(slug: string, id: string): Promise<R> {
 
 /* ----------------------------- configuração ------------------------- */
 
-export async function getConfig(slug: string): Promise<R<{ campanha: any; convenios: Array<{ id: string; nome: string }> }>> {
+export async function getConfig(slug: string): Promise<R<{ campanha: any; convenios: Array<{ id: string; nome: string }>; podeEditar: boolean }>> {
   try {
-    const { db, camp } = await ctx(slug, 'comercial-promocoes-config')
+    const { db, camp, userId } = await ctx(slug, 'comercial-promocoes-config')
+    const podeEditar = await hasPermissionForUser(userId, 'comercial-promocoes-config', 'can_edit')
     const { data: conv } = await db.from('convenios').select('id, nome').order('nome')
-    return { ok: true, campanha: camp, convenios: conv || [] }
+    return { ok: true, campanha: camp, convenios: conv || [], podeEditar }
   } catch (e) {
     return { ok: false, error: msg(e) }
   }

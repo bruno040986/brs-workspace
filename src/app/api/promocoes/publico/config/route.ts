@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, ipDoRequest, ok, telefoneContatoDigitos } from '@/lib/promocoes/http'

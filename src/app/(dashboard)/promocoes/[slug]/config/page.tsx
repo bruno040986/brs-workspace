@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { Loader2, Settings } from 'lucide-react'
 import { getConfig, salvarConfig } from '@/lib/promocoes/actions'
 import { Aviso, Titulo, reaisParaCentavos, useCarga, type Feedback } from '../../_components/ui'
+import { statusInstanciaPromocao, type InstanciaPromocaoView } from '@/lib/promocoes/instancia-actions'
 import InstanciaCard from './InstanciaCard'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -83,10 +84,15 @@ export default function ConfigPage() {
   const [f, setF] = useState<Record<string, any> | null>(null)
   const [fb, setFb] = useState<Feedback>(null)
   const [saving, setSaving] = useState(false)
+  const [inst, setInst] = useState<{ v: InstanciaPromocaoView | null } | null>(null)
 
   useEffect(() => {
     if (data) void Promise.resolve().then(() => setF(paraForm(data.campanha)))
   }, [data])
+
+  useEffect(() => {
+    void statusInstanciaPromocao(slug).then((r) => setInst({ v: r.ok ? r.instancia : null }))
+  }, [slug])
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -172,7 +178,7 @@ export default function ConfigPage() {
         </form>
       )}
       <div style={{ marginTop: '1.5rem' }}>
-        <InstanciaCard slug={slug} inicial={null} podeEditar />
+        {inst && data && <InstanciaCard slug={slug} inicial={inst.v} podeEditar={data.podeEditar} />}
       </div>
     </div>
   )

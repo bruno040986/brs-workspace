@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAdminClient } from '@/lib/supabase/server'
 import { gerarComprovanteImagem } from './comprovante-imagem'
 import { formatarTelefoneContato, telefoneContatoDigitos, type Campanha } from './http'

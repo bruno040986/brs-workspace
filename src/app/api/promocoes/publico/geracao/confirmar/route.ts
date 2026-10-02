@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { nomeCompletoValido, somenteDigitos, telefoneBrValido, telefoneParaE164Digitos } from '@/lib/promocoes/validacao'

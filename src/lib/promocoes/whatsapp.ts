@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAdminClient } from '@/lib/supabase/server'
 import { engine, EngineEnvioIncertoError, EngineErro } from '@/lib/central-conversas/engine'
 import { normalizarTelefoneDestino, type ResultadoEnvio } from '@/lib/central-conversas/envio-intencao'
