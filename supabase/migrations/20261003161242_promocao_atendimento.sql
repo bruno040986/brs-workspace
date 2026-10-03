@@ -45,14 +45,21 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- 2) promocao_inscricoes — token de posse do cadastro concluído (servidor)
---    (o indicador prova posse com o comprovante_token_hash já existente em promocao_indicacoes)
+-- 2) tokens de posse do cadastro concluído (servidor em promocao_inscricoes,
+--    indicador em promocao_indicacoes). Token próprio, só no corpo JSON — NUNCA o
+--    comprovante_token_hash, que circula em URL (M1 da revisão de segurança).
 -- ---------------------------------------------------------------------------
 alter table public.promocao_inscricoes
   add column if not exists atendimento_token_hash text null,
   add column if not exists atendimento_token_expira_em timestamptz null;
 create unique index if not exists promocao_inscricoes_atend_token_uq
   on public.promocao_inscricoes (atendimento_token_hash) where atendimento_token_hash is not null;
+
+alter table public.promocao_indicacoes
+  add column if not exists atendimento_token_hash text null,
+  add column if not exists atendimento_token_expira_em timestamptz null;
+create unique index if not exists promocao_indicacoes_atend_token_uq
+  on public.promocao_indicacoes (atendimento_token_hash) where atendimento_token_hash is not null;
 
 -- ---------------------------------------------------------------------------
 -- 3) promocao_pedidos_atendimento
