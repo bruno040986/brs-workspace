@@ -14,6 +14,7 @@ import type { PermissionAction } from '@/lib/auth/permissions'
 import { somenteDigitos, cpfValido, telefoneParaE164Digitos } from './validacao'
 import { mascararCpf, mascararPix, mascararTelefone } from './mascara'
 import { prazoLink } from './dias-uteis'
+import { fimDoMinuto } from './seguranca'
 import { AVISO_INDICACAO_POSTERIOR, calcularElegibilidade, direitosDoIndicador, indicacaoVale, inscricaoPodeSerIndicada, operacoesConsideradasParaIndicador } from './elegibilidade'
 import { dentroDoPeriodo, opsValidasDaInscricao, parametrosDaCampanha, primeiraDigitacaoDaInscricao, recalcularDireitos, titularesDosNumeros } from './direitos-service'
 import type { OperacaoConfirmada, TipoOperacao } from './tipos'
@@ -38,6 +39,11 @@ async function ctx(slug: string, chave = CH, acao: PermissionAction = 'can_view'
 async function evento(db: any, campanhaId: string, entidade: string, entidadeId: string, tipo: string, dados: any, userId: string | null) {
   await db.from('promocao_eventos').insert({ campanha_id: campanhaId, entidade, entidade_id: entidadeId, tipo, dados, ator_user_id: userId })
 }
+
+const mascararFinal = (v: unknown) => (v ? `***${String(v).slice(-4)}` : null)
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T/
+const mesmoValor = (a: unknown, b: unknown) =>
+  typeof a === 'string' && typeof b === 'string' && ISO_RE.test(a) && ISO_RE.test(b) ? new Date(a).getTime() === new Date(b).getTime() : JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 const like = (q: string) => `%${q.replace(/[%,()]/g, ' ').trim()}%`
 
@@ -334,9 +340,11 @@ export async function salvarOperacao(slug: string, i: OperacaoInput): Promise<R>
 
 export async function excluirOperacao(slug: string, id: string): Promise<R> {
   try {
-    const { db } = await ctx(slug, CH, 'can_edit')
+    const { db, camp, userId } = await ctx(slug, CH, 'can_edit')
+    const { data: op } = await db.from('promocao_operacoes').select('id, tipo, valor_liquido_centavos').eq('id', id).eq('campanha_id', camp.id).eq('status', 'informada').maybeSingle()
     const { error } = await db.from('promocao_operacoes').delete().eq('id', id).eq('status', 'informada')
     if (error) throw error
+    if (op) await evento(db, camp.id, 'operacao', id, 'operacao.excluida', { id, produto: op.tipo, valor_centavos: op.valor_liquido_centavos }, userId)
     return { ok: true }
   } catch (e) {
     return { ok: false, error: msg(e) }
@@ -561,10 +569,17 @@ export async function salvarConfig(slug: string, patch: Record<string, any>): Pr
       if (!e164) throw new Error('Informe DDD + número (ex.: 61 3199-1754).')
       row.telefone_contato = e164
     }
+    for (const k of ['fim_em', 'prazo_geracao_ate']) if (typeof row[k] === 'string') row[k] = fimDoMinuto(row[k])
+    const mudancas: Record<string, { antes: unknown; depois: unknown }> = {}
+    for (const k of Object.keys(row)) {
+      const antes = (camp as any)[k]
+      if (mesmoValor(antes, row[k])) continue
+      mudancas[k] = k === 'telefone_contato' ? { antes: mascararFinal(antes), depois: mascararFinal(row[k]) } : { antes: antes ?? null, depois: row[k] ?? null }
+    }
     row.updated_at = new Date().toISOString()
     const { error } = await db.from('promocao_campanhas').update(row).eq('id', camp.id)
     if (error) throw error
-    await evento(db, camp.id, 'campanha', camp.id, 'campanha.config_alterada', { campos: Object.keys(row) }, userId)
+    await evento(db, camp.id, 'campanha', camp.id, 'campanha.config_alterada', { campos: Object.keys(mudancas), mudancas }, userId)
     revalidatePath(`/promocoes/${slug}`, 'layout')
     return { ok: true }
   } catch (e) {
