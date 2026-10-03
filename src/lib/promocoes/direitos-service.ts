@@ -65,7 +65,12 @@ async function criarGeracaoSeNecessario(
   const { data: vivas } = await db.from('promocao_geracoes').select('id, qtd').eq('direito_id', direito.id).in('status', ['pendente', 'enviado'])
   if ((vivas || []).some((g: any) => Number(g.qtd) === qtd)) return
   if ((vivas || []).length) {
-    await db.from('promocao_geracoes').update({ status: 'cancelado', cancelado_em: new Date().toISOString(), updated_at: new Date().toISOString() }).in('id', vivas.map((g: any) => g.id))
+    // filtro de status: geração confirmada entre o select e o update (usado) não pode ser cancelada
+    await db.from('promocao_geracoes').update({ status: 'cancelado', cancelado_em: new Date().toISOString(), updated_at: new Date().toISOString() }).in('id', vivas.map((g: any) => g.id)).in('status', ['pendente', 'enviado'])
+    // recarrega o emitido: se mudou, houve confirmação concorrente e a qtd calculada está velha
+    // (a confirmação dispara novo recálculo, que emite a quantidade correta)
+    const { data: atual } = await db.from('promocao_direitos').select('qtd_emitida').eq('id', direito.id).single()
+    if (Number(atual?.qtd_emitida ?? 0) !== Number(direito.qtd_emitida)) return
   }
   const { token, hash } = gerarToken()
   const { data: ger, error } = await db
@@ -97,6 +102,19 @@ export async function recalcularDireitos(inscricaoId: string): Promise<void> {
   const { data: c, error: e2 } = await db.from('promocao_campanhas').select('*').eq('id', insc.campanha_id).single()
   if (e2) throw e2
   const p = parametrosDaCampanha(c)
+
+  // CPF bloqueado (servidor ou indicador): não gera direito nem link
+  let cpfIndicador: string | null = null
+  if (insc.indicacao_id) {
+    const { data: i0 } = await db.from('promocao_indicacoes').select('indicador:promocao_indicadores(cpf)').eq('id', insc.indicacao_id).single()
+    cpfIndicador = i0?.indicador?.cpf ?? null
+  }
+  const cpfs = [insc.cpf, cpfIndicador].filter(Boolean)
+  const { data: bloq } = await db.from('promocao_cpfs_bloqueados').select('cpf').in('cpf', cpfs).or(`campanha_id.is.null,campanha_id.eq.${c.id}`)
+  if (bloq?.length) {
+    await db.from('promocao_eventos').insert({ campanha_id: c.id, entidade: 'inscricao', entidade_id: inscricaoId, tipo: 'direitos.bloqueado_cpf', dados: {} })
+    return
+  }
   const { ops, rows } = await opsValidasDaInscricao(inscricaoId, c)
   const instituicao = new Map<string, string | null>(rows.map((r: any) => [r.id, r.instituicao_texto]))
 
