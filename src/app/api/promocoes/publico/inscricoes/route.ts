@@ -17,6 +17,7 @@ import {
 } from '@/lib/promocoes/cadastro-publico'
 import { MSG_NASCIMENTO, validarNascimento } from '@/lib/promocoes/validacao'
 import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE, type Campanha } from '@/lib/promocoes/http'
+import { novoTokenAtendimento } from '@/lib/promocoes/atendimento'
 import { consumirOtpToken, liberarOtpToken } from '@/lib/promocoes/otp'
 import { instanciaPromocaoDisponivel } from '@/lib/promocoes/whatsapp'
 
@@ -30,6 +31,7 @@ async function resposta(admin: any, camp: Campanha, row: any) {
     telefoneVerificado: Boolean(row.telefone_verificado),
     wesales: row.wesales_status === 'ok' ? 'ok' : 'pendente',
     whatsappUrl: await urlWhatsapp(admin, camp, row.codigo),
+    atendimentoToken: await novoTokenAtendimento(admin, row.id),
   })
 }
 
@@ -200,5 +202,6 @@ export async function POST(request: NextRequest) {
     telefoneVerificado: verificado,
     wesales,
     whatsappUrl: await urlWhatsapp(admin, camp, inscricao.codigo),
+    atendimentoToken: await novoTokenAtendimento(admin, inscricao.id),
   })
 }

@@ -73,6 +73,14 @@ export type Campanha = {
   pixel_meta_id: string | null
   ga4_id: string | null
   gads_id: string | null
+  parceiro_atendimento_id: string | null
+  instancia_atendimento_id: string | null
+  instancia_atendimento_reserva_id: string | null
+  atendimento_liberado_em: string | null
+  atendimento_pausado: boolean
+  limite_atendimento_indicador_hora: number
+  limite_atendimento_instancia_hora: number
+  limite_atendimento_instancia_dia: number
 }
 
 export async function buscarCampanha(slug: unknown, statusPermitidos: string[] = ['ativa']): Promise<Campanha | null> {

@@ -16,8 +16,10 @@ import {
   str,
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
+import { novoTokenAtendimentoIndicacao } from '@/lib/promocoes/atendimento'
+import { textoIndicadorParaIndicado, urlWhatsappIndicado } from '@/lib/promocoes/atendimento-textos'
 import { gerarToken } from '@/lib/promocoes/codigos'
-import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE } from '@/lib/promocoes/http'
+import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, telefoneContatoDigitos, UUID_RE, type Campanha } from '@/lib/promocoes/http'
 import { consumirOtpToken, liberarOtpToken } from '@/lib/promocoes/otp'
 import { pixDoIndicado } from '@/lib/promocoes/seguranca'
 import { pixValido, somenteDigitos } from '@/lib/promocoes/validacao'
@@ -40,9 +42,16 @@ async function novoComprovante(admin: any, indicacaoId: string) {
   return token
 }
 
-async function respostaExistente(admin: any, ind: any) {
-  const { data: insc } = await admin.from('promocao_inscricoes').select('id, codigo, telefone_verificado, wesales_status').eq('id', ind.inscricao_id).maybeSingle()
-  const { data: indicador } = await admin.from('promocao_indicadores').select('telefone_verificado').eq('id', ind.indicador_id).maybeSingle()
+/** Botão B: texto e URL montados no servidor (redação única). null → o site esconde o botão. */
+async function urlIndicador(admin: any, camp: Campanha, v: { nomeIndicado: string; telefoneIndicado: string; nomeIndicador: string; numeroIndicacao: string; codigoInscricao: string }) {
+  const contatoDigitos = await telefoneContatoDigitos(admin, camp)
+  if (!contatoDigitos) return null
+  return urlWhatsappIndicado(v.telefoneIndicado, textoIndicadorParaIndicado({ ...v, contatoDigitos }))
+}
+
+async function respostaExistente(admin: any, camp: Campanha, ind: any) {
+  const { data: insc } = await admin.from('promocao_inscricoes').select('id, codigo, nome, telefone, telefone_verificado, wesales_status').eq('id', ind.inscricao_id).maybeSingle()
+  const { data: indicador } = await admin.from('promocao_indicadores').select('nome, telefone_verificado').eq('id', ind.indicador_id).maybeSingle()
   const token = await novoComprovante(admin, ind.id)
   return ok({
     indicacaoId: ind.id,
@@ -50,8 +59,12 @@ async function respostaExistente(admin: any, ind: any) {
     codigoInscricaoIndicado: insc?.codigo,
     comprovanteToken: token,
     comprovanteUrl: `/api/promo/comprovante?t=${token}`,
+    atendimentoToken: await novoTokenAtendimentoIndicacao(admin, ind.id),
     telefoneVerificado: Boolean(indicador?.telefone_verificado),
     wesales: insc?.wesales_status === 'ok' ? 'ok' : 'pendente',
+    whatsappIndicadoUrl: insc && indicador
+      ? await urlIndicador(admin, camp, { nomeIndicado: insc.nome, telefoneIndicado: insc.telefone, nomeIndicador: indicador.nome, numeroIndicacao: ind.numero, codigoInscricao: insc.codigo })
+      : null,
   })
 }
 
@@ -132,7 +145,7 @@ export async function POST(request: NextRequest) {
   const admin: any = await createAdminClient()
 
   const { data: repetida } = await admin.from('promocao_indicacoes').select('*').eq('submission_id', submissionId).eq('campanha_id', camp.id).maybeSingle()
-  if (repetida) return respostaExistente(admin, repetida)
+  if (repetida) return respostaExistente(admin, camp, repetida)
 
   const otpExigido = camp.otp_obrigatorio && (await instanciaPromocaoDisponivel(camp.id).catch(() => false))
   const tokenInformado = typeof body.otpToken === 'string' && body.otpToken ? body.otpToken : null
@@ -251,7 +264,7 @@ export async function POST(request: NextRequest) {
     await admin.from('promocao_inscricoes').delete().eq('id', inscricao.id)
     if (String(eInd?.code) === '23505') {
       const { data: r2 } = await admin.from('promocao_indicacoes').select('*').eq('submission_id', submissionId).maybeSingle()
-      if (r2) return respostaExistente(admin, r2)
+      if (r2) return respostaExistente(admin, camp, r2)
       await devolverToken()
       return JA_INDICADO()
     }
@@ -278,7 +291,9 @@ export async function POST(request: NextRequest) {
     codigoInscricaoIndicado: codigoInscricao,
     comprovanteToken: token,
     comprovanteUrl: `/api/promo/comprovante?t=${token}`,
+    atendimentoToken: await novoTokenAtendimentoIndicacao(admin, indicacao.id),
     telefoneVerificado: verificado,
     wesales,
+    whatsappIndicadoUrl: await urlIndicador(admin, camp, { nomeIndicado: indicado.nome, telefoneIndicado: indicado.telefone, nomeIndicador: indicador.nome, numeroIndicacao, codigoInscricao }),
   })
 }

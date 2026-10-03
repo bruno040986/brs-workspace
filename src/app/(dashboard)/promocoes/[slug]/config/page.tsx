@@ -7,6 +7,7 @@ import { getConfig, salvarConfig } from '@/lib/promocoes/actions'
 import { Aviso, Titulo, reaisParaCentavos, useCarga, type Feedback } from '../../_components/ui'
 import { statusInstanciaPromocao, type InstanciaPromocaoView } from '@/lib/promocoes/instancia-actions'
 import InstanciaCard from './InstanciaCard'
+import AtendimentoCard from './AtendimentoCard'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -179,6 +180,7 @@ export default function ConfigPage() {
       )}
       <div style={{ marginTop: '1.5rem' }}>
         {inst && data && <InstanciaCard slug={slug} inicial={inst.v} podeEditar={data.podeEditar} />}
+        {data && <AtendimentoCard slug={slug} podeEditar={data.podeEditar} />}
       </div>
     </div>
   )
