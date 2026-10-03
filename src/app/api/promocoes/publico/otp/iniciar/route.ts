@@ -28,7 +28,9 @@ export async function POST(request: NextRequest) {
   if (!finalidade || erros.length) return erro('TELEFONE_INVALIDO', 'Informe um WhatsApp válido com DDD.', 422)
 
   const limite = await aplicarLimites([
-    [`rl:otp:ip:${ip}`, 10, 3600],
+    [`rl:otp:ip:${ip}`, 100, 3600],
+    [`rl:otp:ip-dia:${ip}`, 30, 86400],
+    [`rl:otp:global:${camp.id}`, 300, 3600],
     [`rl:otp:tel:${telefone}`, 3, 3600],
   ])
   if (limite) return limite

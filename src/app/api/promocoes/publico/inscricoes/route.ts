@@ -12,7 +12,6 @@ import {
   lerTelefone,
   proximoCodigo,
   sincronizarComTimeout,
-  str,
   urlWhatsapp,
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
@@ -42,7 +41,7 @@ export async function POST(request: NextRequest) {
   const userAgent = request.headers.get('user-agent') || ''
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
-  const limiteIp = await aplicarLimites([[`rl:insc:ip:${ip}`, 20, 3600]])
+  const limiteIp = await aplicarLimites([[`rl:insc:ip:${ip}`, 200, 3600]])
   if (limiteIp) return limiteIp
 
   const erros: CampoInvalido[] = []
@@ -56,7 +55,10 @@ export async function POST(request: NextRequest) {
   if (erros.length) return erro('DADOS_INVALIDOS', 'Confira os campos informados.', 422, { campos: erros })
   if (body.consentPromocao !== true) return erro('CONSENTIMENTO_OBRIGATORIO', 'É preciso aceitar o regulamento para participar.', 409)
   const consentContato = body.consentContatoComercial === true
-  const versao = str(body.regulamentoVersao, 40) || camp.regulamento_versao
+  if (typeof body.regulamentoVersao === 'string' && body.regulamentoVersao && body.regulamentoVersao !== camp.regulamento_versao) {
+    return erro('REGULAMENTO_DESATUALIZADO', 'O regulamento foi atualizado. Recarregue a página e aceite novamente.', 409)
+  }
+  const versao = camp.regulamento_versao
 
   const limiteTel = await aplicarLimites([[`rl:insc:tel:${telefone}`, 5, 3600]])
   if (limiteTel) return limiteTel
@@ -70,15 +72,6 @@ export async function POST(request: NextRequest) {
     return erro('CPF_NAO_ELEGIVEL', 'Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul.', 422)
   }
 
-  const respostaCpfExistente = async (): Promise<Response | null> => {
-    const { data: existente } = await admin.from('promocao_inscricoes').select('*').eq('campanha_id', camp.id).eq('cpf', cpf).maybeSingle()
-    if (!existente) return null
-    if (existente.telefone === telefone) return resposta(admin, camp, existente)
-    return erro('CPF_JA_INSCRITO', 'Este CPF já possui inscrição. Fale com a NuAzul se precisar de ajuda.', 409)
-  }
-  const jaInscrito = await respostaCpfExistente()
-  if (jaInscrito) return jaInscrito
-
   const otpExigido = camp.otp_obrigatorio && (await instanciaPromocaoDisponivel(camp.id).catch(() => false))
   const tokenInformado = typeof body.otpToken === 'string' && body.otpToken ? body.otpToken : null
   let verificado = false
@@ -89,16 +82,55 @@ export async function POST(request: NextRequest) {
   }
   if (otpExigido && !verificado) return erro('OTP_OBRIGATORIO', 'Confirme seu WhatsApp com o código enviado.', 401)
 
-  let codigo: string
-  try {
-    codigo = await proximoCodigo(admin, camp.prefixo_codigo)
-  } catch (e) {
-    logSeguro('codigo', e)
-    if (tokenInformado && verificado) await liberarOtpToken(admin, tokenInformado)
-    return erro('ERRO_INTERNO', 'Não foi possível concluir o cadastro agora. Tente novamente.', 500)
+  // CPF já inscrito: só revela/assume com posse comprovada do telefone (OTP verificado); nunca confirma vínculo CPF↔telefone sem isso
+  const JA_INSCRITO = () => erro('CPF_JA_INSCRITO', 'Este CPF já possui inscrição. Fale com a NuAzul se precisar de ajuda.', 409)
+  const tratarCpfExistente = async (): Promise<{ resp: Response | null; assumida: any | null }> => {
+    const { data: existente } = await admin.from('promocao_inscricoes').select('*').eq('campanha_id', camp.id).eq('cpf', cpf).maybeSingle()
+    if (!existente) return { resp: null, assumida: null }
+    if (otpExigido && !verificado) return { resp: JA_INSCRITO(), assumida: null }
+    if (existente.telefone === telefone) return { resp: await resposta(admin, camp, existente), assumida: null }
+    if (existente.origem === 'indicacao' && verificado) {
+      // indicado confirmou o próprio WhatsApp: o servidor assume o cadastro (vínculo e código mantidos)
+      const { data: up, error: eUp } = await admin
+        .from('promocao_inscricoes')
+        .update({
+          nome,
+          telefone,
+          telefone_verificado: true,
+          email,
+          data_nascimento: nascimento ?? existente.data_nascimento,
+          consent_promocao: true,
+          consent_contato_comercial: consentContato,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existente.id)
+        .select('*')
+        .single()
+      if (eUp || !up) {
+        logSeguro('inscricao assumir', eUp)
+        await liberarOtpToken(admin, tokenInformado!).catch(() => undefined)
+        return { resp: erro('ERRO_INTERNO', 'Não foi possível concluir o cadastro agora. Tente novamente.', 500), assumida: null }
+      }
+      await registrarEvento(admin, camp.id, 'inscricao', existente.id, 'inscricao.assumida_pelo_servidor', { telefoneAnteriorFinal: String(existente.telefone || '').slice(-4) })
+      return { resp: null, assumida: up }
+    }
+    return { resp: JA_INSCRITO(), assumida: null }
+  }
+  const ex = await tratarCpfExistente()
+  if (ex.resp) return ex.resp
+
+  let codigo = ''
+  if (!ex.assumida) {
+    try {
+      codigo = await proximoCodigo(admin, camp.prefixo_codigo)
+    } catch (e) {
+      logSeguro('codigo', e)
+      if (tokenInformado && verificado) await liberarOtpToken(admin, tokenInformado)
+      return erro('ERRO_INTERNO', 'Não foi possível concluir o cadastro agora. Tente novamente.', 500)
+    }
   }
 
-  const { data: inscricao, error } = await admin
+  const { data: inscricao, error } = ex.assumida ? { data: ex.assumida, error: null } : await admin
     .from('promocao_inscricoes')
     .insert({
       campanha_id: camp.id,
@@ -120,8 +152,8 @@ export async function POST(request: NextRequest) {
     if (String(error?.code) === '23505') {
       const { data: r2 } = await admin.from('promocao_inscricoes').select('*').eq('submission_id', submissionId).maybeSingle()
       if (r2) return resposta(admin, camp, r2)
-      const r3 = await respostaCpfExistente()
-      if (r3) return r3
+      const r3 = await tratarCpfExistente()
+      if (r3.resp) return r3.resp
     }
     logSeguro('inscricao insert', error)
     if (tokenInformado && verificado) await liberarOtpToken(admin, tokenInformado)
@@ -137,14 +169,14 @@ export async function POST(request: NextRequest) {
     logSeguro('aceites', e)
   }
   await gravarTracking(admin, { campanhaId: camp.id, inscricaoId: inscricao.id, ip, userAgent }, body.tracking)
-  await registrarEvento(admin, camp.id, 'inscricao', inscricao.id, 'inscricao.criada', { origem: 'direta', telefoneVerificado: verificado })
+  await registrarEvento(admin, camp.id, 'inscricao', inscricao.id, 'inscricao.criada', { origem: ex.assumida ? 'indicacao_assumida' : 'direta', telefoneVerificado: verificado })
 
   const wesales = await sincronizarComTimeout(inscricao.id)
   return ok({
     inscricaoId: inscricao.id,
-    codigo,
+    codigo: inscricao.codigo,
     telefoneVerificado: verificado,
     wesales,
-    whatsappUrl: await urlWhatsapp(admin, camp, codigo),
+    whatsappUrl: await urlWhatsapp(admin, camp, inscricao.codigo),
   })
 }

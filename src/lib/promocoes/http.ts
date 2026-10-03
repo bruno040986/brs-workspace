@@ -14,6 +14,7 @@ export function ok(body: Record<string, unknown>) {
   return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } })
 }
 
+// Limites por IP são SOFT (rewrite externo da Vercel pode colapsar/forjar o XFF); proteção real = telefone/CPF/global.
 export function ipDoRequest(request: NextRequest): string {
   const xff = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
   return (xff || request.headers.get('x-real-ip') || 'desconhecido').slice(0, 64)

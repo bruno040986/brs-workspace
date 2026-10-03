@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
   const userAgent = request.headers.get('user-agent') || ''
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
-  const limiteIp = await aplicarLimites([[`rl:ind:ip:${ip}`, 20, 3600]])
+  const limiteIp = await aplicarLimites([[`rl:ind:ip:${ip}`, 200, 3600]])
   if (limiteIp) return limiteIp
 
   const erros: CampoInvalido[] = []
@@ -111,11 +111,15 @@ export async function POST(request: NextRequest) {
   if (erros.length) return erro('DADOS_INVALIDOS', 'Confira os campos informados.', 422, { campos: erros })
   if (pixErros.length || !pix) return erro('PIX_INVALIDO', 'Confira os dados da chave Pix.', 422, { campos: pixErros })
   if (indicador.cpf === indicado.cpf) return erro('AUTOINDICACAO', 'Não é possível indicar o próprio CPF.', 422)
+  if (indicador.telefone === indicado.telefone) return erro('AUTOINDICACAO', 'O WhatsApp do indicado não pode ser o mesmo do indicador.', 422)
   if (!maiorDe18(indicador.nascimento!, hojeSp())) return erro('MENOR_DE_IDADE', 'O indicador deve ter 18 anos ou mais.', 422)
   if (body.consentPromocao !== true || body.declaraRelacaoLegitima !== true) {
     return erro('CONSENTIMENTO_OBRIGATORIO', 'É preciso aceitar o regulamento e declarar a relação com o indicado.', 409)
   }
-  const versao = str(body.regulamentoVersao, 40) || camp.regulamento_versao
+  if (typeof body.regulamentoVersao === 'string' && body.regulamentoVersao && body.regulamentoVersao !== camp.regulamento_versao) {
+    return erro('REGULAMENTO_DESATUALIZADO', 'O regulamento foi atualizado. Recarregue a página e aceite novamente.', 409)
+  }
+  const versao = camp.regulamento_versao
 
   const limiteTel = await aplicarLimites([[`rl:ind:tel:${indicador.telefone}`, 10, 3600]])
   if (limiteTel) return limiteTel
@@ -166,15 +170,17 @@ export async function POST(request: NextRequest) {
   let indicadorId: string
   const { data: indExistente } = await admin.from('promocao_indicadores').select('*').eq('campanha_id', camp.id).eq('cpf', indicador.cpf).maybeSingle()
   if (indExistente) {
+    // sem posse comprovada do indicador existente, telefone/Pix/nome nunca são sobrescritos pela API pública
     const mudouPix = ['pix_tipo', 'pix_chave', 'banco_codigo', 'agencia', 'conta'].some((k) => (indExistente[k] ?? null) !== ((dadosIndicador as any)[k] ?? null))
-    const agora = new Date().toISOString()
-    const { error: eUp } = await admin
-      .from('promocao_indicadores')
-      .update({ ...dadosIndicador, telefone_verificado: verificado || indExistente.telefone_verificado, ...(mudouPix ? { pix_atualizado_em: agora } : {}), updated_at: agora })
-      .eq('id', indExistente.id)
-    if (eUp) return falhaInterna('indicador update', eUp)
+    if (indExistente.telefone !== indicador.telefone || mudouPix) {
+      await devolverToken()
+      return erro('INDICADOR_DADOS_DIVERGENTES', 'Já existe cadastro de indicador com este CPF. Para alterar telefone ou chave Pix, fale com a NuAzul.', 409)
+    }
+    if (verificado && !indExistente.telefone_verificado) {
+      const { error: eUp } = await admin.from('promocao_indicadores').update({ telefone_verificado: true, updated_at: new Date().toISOString() }).eq('id', indExistente.id)
+      if (eUp) return falhaInterna('indicador update', eUp)
+    }
     indicadorId = indExistente.id
-    if (mudouPix) await registrarEvento(admin, camp.id, 'indicador', indicadorId, 'indicador.pix_alterado', { tipoAnterior: indExistente.pix_tipo, tipoNovo: pix.tipo })
   } else {
     const { data: novo, error: eIns } = await admin.from('promocao_indicadores').insert({ campanha_id: camp.id, cpf: indicador.cpf, ...dadosIndicador }).select('id').single()
     if (eIns || !novo) return falhaInterna('indicador insert', eIns)

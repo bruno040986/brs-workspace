@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
-  const limite = await aplicarLimites([[`rl:otpc:ip:${ipDoRequest(request)}`, 30, 600]])
+  const limite = await aplicarLimites([[`rl:otpc:ip:${ipDoRequest(request)}`, 300, 600]])
   if (limite) return limite
 
   const otpId = typeof body.otpId === 'string' ? body.otpId : ''

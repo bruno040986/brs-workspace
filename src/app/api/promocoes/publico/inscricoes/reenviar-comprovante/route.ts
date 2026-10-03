@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
 
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
-  const limite = await aplicarLimites([[`rl:reenv:ip:${ipDoRequest(request)}`, 10, 3600]])
+  const limite = await aplicarLimites([
+    [`rl:reenv:ip:${ipDoRequest(request)}`, 100, 3600],
+    [`rl:reenv:global:${camp.id}`, 300, 3600],
+  ])
   if (limite) return limite
 
   const erros: Array<{ campo: string; msg: string }> = []

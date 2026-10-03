@@ -20,8 +20,9 @@ export async function POST(request: NextRequest) {
   if (t.length < 20 || t.length > 100) return erro('LINK_INVALIDO', 'Este comprovante não está mais disponível.', 404)
   const hash = hashToken(t)
   const limite = await aplicarLimites([
-    [`rl:compenv:ip:${ipDoRequest(request)}`, 20, 3600],
+    [`rl:compenv:ip:${ipDoRequest(request)}`, 200, 3600],
     [`rl:compenv:tok:${hash}`, 6, 86400],
+    [`rl:compenv:global:${camp.id}`, 300, 3600],
   ])
   if (limite) return limite
 

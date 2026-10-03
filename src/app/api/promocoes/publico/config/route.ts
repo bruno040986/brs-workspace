@@ -7,7 +7,7 @@ import { instanciaPromocaoDisponivel } from '@/lib/promocoes/whatsapp'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const limite = await aplicarLimites([[`rl:config:ip:${ipDoRequest(request)}`, 120, 600]])
+  const limite = await aplicarLimites([[`rl:config:ip:${ipDoRequest(request)}`, 600, 600]])
   if (limite) return limite
   const camp = await buscarCampanha(request.nextUrl.searchParams.get('campanha'), ['ativa', 'encerrada_cadastro', 'encerrada'])
   if (!camp) return CAMPANHA_INDISPONIVEL()

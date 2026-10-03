@@ -45,7 +45,7 @@ export async function enviarWhatsappPromocao(e: EnvioPromocao): Promise<Resultad
   await admin
     .from('promocao_envios')
     .upsert(
-      { campanha_id: e.campanhaId, chave: e.chave, tipo: e.tipo, telefone: e.telefone, texto: e.texto, tem_imagem: Boolean(e.imagemBase64) },
+      { campanha_id: e.campanhaId, chave: e.chave, tipo: e.tipo, telefone: e.telefone, texto: e.tipo === 'otp' ? '[otp]' : e.texto, tem_imagem: Boolean(e.imagemBase64) },
       { onConflict: 'chave', ignoreDuplicates: true },
     )
   const { data: envio, error } = await admin.from('promocao_envios').select('id, operation_id, status, tentativas').eq('chave', e.chave).maybeSingle()

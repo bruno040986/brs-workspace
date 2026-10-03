@@ -14,6 +14,7 @@ import {
   numerosDaGeracao,
   numerosValidosDoTitular,
   registrarEvento,
+  NO_STORE,
   tokenValido,
   uaDe,
 } from '@/lib/promocoes/geracao-publico'
@@ -24,7 +25,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 async function resposta(admin: any, g: any, token: string) {
   const [numeros, validos] = await Promise.all([numerosDaGeracao(admin, g.id), numerosValidosDoTitular(admin, g)])
-  return NextResponse.json({ numeros: numeros.map(formatarNumeroSorte), totalNumeros: validos.length, comprovanteToken: token })
+  return NextResponse.json({ numeros: numeros.map(formatarNumeroSorte), totalNumeros: validos.length, comprovanteToken: token }, { headers: NO_STORE })
 }
 
 export async function POST(request: NextRequest) {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   const admin: any = await createAdminClient()
   const ip = ipDe(request)
-  if (await limiteExcedido(admin, `rl:geracao:ip:${ip}`, 30, 600)) return LIMITE_EXCEDIDO()
+  if (await limiteExcedido(admin, `rl:geracao:ip:${ip}`, 300, 600)) return LIMITE_EXCEDIDO()
 
   const carregada = await carregarGeracao(admin, t, true)
   if (!carregada || (body.campanha && carregada.campanha?.slug !== body.campanha)) return LINK_INVALIDO()
@@ -50,6 +51,10 @@ export async function POST(request: NextRequest) {
 
   if (aceiteRegulamento !== true || typeof regulamentoVersao !== 'string' || !regulamentoVersao) {
     return erro(409, 'ACEITE_OBRIGATORIO', 'É necessário aceitar o regulamento para gerar os números.')
+  }
+
+  if (regulamentoVersao !== campanha.regulamento_versao) {
+    return erro(409, 'REGULAMENTO_DESATUALIZADO', 'O regulamento foi atualizado. Recarregue a página e aceite novamente.')
   }
 
   const campos: Array<{ campo: string; msg: string }> = []
@@ -84,7 +89,7 @@ export async function POST(request: NextRequest) {
     telefone: telefoneParaE164Digitos(telefone) || telefone,
     email: email || null,
     aceiteRegulamento: true,
-    regulamentoVersao,
+    regulamentoVersao: campanha.regulamento_versao,
   }
   const { error } = await admin.rpc('promocao_gerar_numeros', {
     p_geracao_id: g.id,
@@ -115,7 +120,7 @@ export async function POST(request: NextRequest) {
       sujeito_id: g.id,
       finalidade: 'regulamento_geracao',
       aceito: true,
-      versao_texto: regulamentoVersao,
+      versao_texto: campanha.regulamento_versao,
       ip,
       user_agent: uaDe(request),
     })

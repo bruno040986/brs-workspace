@@ -5,6 +5,7 @@ import { formatarNumeroSorte } from '@/lib/promocoes/codigos'
 import { mascararTelefone } from '@/lib/promocoes/mascara'
 import {
   LIMITE_EXCEDIDO,
+  NO_STORE,
   LINK_INVALIDO,
   PRAZO_ENCERRADO,
   carregarGeracao,
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
   if (!tokenValido(t)) return LINK_INVALIDO()
 
   const admin: any = await createAdminClient()
-  if (await limiteExcedido(admin, `rl:geracao:ip:${ipDe(request)}`, 30, 600)) return LIMITE_EXCEDIDO()
+  if (await limiteExcedido(admin, `rl:geracao:ip:${ipDe(request)}`, 300, 600)) return LIMITE_EXCEDIDO()
 
   const carregada = await carregarGeracao(admin, t)
   if (!carregada || carregada.estado === 'invalido') return LINK_INVALIDO()
@@ -72,5 +73,5 @@ export async function GET(request: NextRequest) {
     regulamentoUrl: campanha.regulamento_url,
     regulamentoVersao: campanha.regulamento_versao,
     primeiraGeracao: !usadas,
-  })
+  }, { headers: NO_STORE })
 }

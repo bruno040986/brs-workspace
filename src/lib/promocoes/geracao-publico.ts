@@ -10,14 +10,17 @@ export type GeracaoCarregada = {
   estado: 'ok' | 'invalido' | 'encerrado'
 }
 
+export const NO_STORE = { 'Cache-Control': 'no-store' }
+
 export function erro(status: number, code: string, message: string, extra: Record<string, unknown> = {}) {
-  return NextResponse.json({ error: { code, message, ...extra } }, { status })
+  return NextResponse.json({ error: { code, message, ...extra } }, { status, headers: NO_STORE })
 }
 
 export const LINK_INVALIDO = () => erro(404, 'LINK_INVALIDO', 'Este link não é válido ou já foi utilizado. Fale com a NuAzul.')
 export const PRAZO_ENCERRADO = () => erro(410, 'PRAZO_ENCERRADO', 'O prazo para gerar seus números terminou.')
 export const LIMITE_EXCEDIDO = () => erro(429, 'LIMITE_EXCEDIDO', 'Muitas tentativas. Aguarde alguns minutos e tente novamente.')
 
+// IP só como limite SOFT: atrás do rewrite externo da Vercel o XFF pode colapsar/ser forjado; a proteção real é por telefone/CPF/campanha.
 export function ipDe(request: NextRequest): string {
   return (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown'
 }

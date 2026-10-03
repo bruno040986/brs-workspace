@@ -12,7 +12,7 @@ export const maxDuration = 30
 const INVALIDO = () => erro('LINK_INVALIDO', 'Este comprovante não está mais disponível.', 404)
 
 export async function GET(request: NextRequest) {
-  const limite = await aplicarLimites([[`rl:comp:ip:${ipDoRequest(request)}`, 60, 600]])
+  const limite = await aplicarLimites([[`rl:comp:ip:${ipDoRequest(request)}`, 600, 600]])
   if (limite) return limite
   const t = request.nextUrl.searchParams.get('t') || ''
   if (t.length < 20 || t.length > 100) return INVALIDO()
