@@ -231,3 +231,11 @@ test('M7 — abertura do atendimento e URL wa.me', () => {
   assert.ok(texto.endsWith('Meu código de inscrição é VPG-100001. Número de indicação: IND-100002.'))
   assert.ok(urlWhatsapp('5561999990000', 'oi lá').startsWith('https://wa.me/5561999990000?text=oi%20l'))
 })
+
+test('telefoneParaE164Digitos normaliza para wa.me (55 + DDD + número)', () => {
+  assert.equal(telefoneParaE164Digitos('6131991754'), '556131991754')
+  assert.equal(telefoneParaE164Digitos('61981617033'), '5561981617033')
+  assert.equal(telefoneParaE164Digitos('556131991754'), '556131991754')
+  assert.equal(telefoneParaE164Digitos('(61) 3199-1754'), '556131991754')
+  assert.equal(telefoneParaE164Digitos(''), null)
+})
