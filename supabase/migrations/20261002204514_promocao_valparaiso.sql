@@ -3,7 +3,8 @@
 -- timestamptz no banco; CPF char(11); telefone só dígitos (55DDDN...). RLS ligada
 -- SEM policy em todas as tabelas (acesso só por service role). Idempotente.
 
-create extension if not exists pgcrypto;
+-- pgcrypto fica no schema `extensions` neste projeto (padrão 20260825120000: extensions.gen_random_bytes)
+create extension if not exists pgcrypto with schema extensions;
 
 -- ---------------------------------------------------------------------------
 -- 0) Sequence dos códigos (inscrição VPG-100001 / indicação IND-100001)
@@ -14,11 +15,14 @@ create sequence if not exists public.promocao_codigo_seq start with 100001;
 create or replace function public.promocao_proximo_codigo()
 returns bigint
 language sql
+set search_path = public, extensions
 as $$
   select nextval('public.promocao_codigo_seq');
 $$;
 grant usage on sequence public.promocao_codigo_seq to service_role;
 grant execute on function public.promocao_proximo_codigo() to service_role;
+revoke execute on function public.promocao_proximo_codigo() from public, anon, authenticated;
+revoke usage, select on sequence public.promocao_codigo_seq from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 1) promocao_campanhas — campanha + config (§2.1)
@@ -464,6 +468,7 @@ create table if not exists public.promocao_limites (
 create or replace function public.promocao_limite_tentar(p_chave text, p_limite integer, p_janela_seg integer)
 returns boolean
 language plpgsql
+set search_path = public, extensions
 as $$
 declare
   v_contagem integer;
@@ -494,6 +499,7 @@ create or replace function public.promocao_gerar_numeros(
 )
 returns setof integer
 language plpgsql
+set search_path = public, extensions
 as $$
 declare
   g record;
@@ -524,7 +530,7 @@ begin
       raise exception 'SERIE_ESGOTADA' using errcode = 'P0002';
     end if;
     -- CSPRNG (pgcrypto): 4 bytes → inteiro sem sinal → mod 100000 (viés desprezível, ~1,5e-5)
-    v_bytes := gen_random_bytes(4);
+    v_bytes := extensions.gen_random_bytes(4);
     v_numero := (
       ((get_byte(v_bytes, 0)::bigint << 24) | (get_byte(v_bytes, 1)::bigint << 16) | (get_byte(v_bytes, 2)::bigint << 8) | get_byte(v_bytes, 3)::bigint)
       % 100000
@@ -555,8 +561,61 @@ begin
 end;
 $$;
 
+-- Expurgo (sem cron ainda — agendado depois): OTPs > 7 dias, contadores de rate limit > 1 dia.
+create or replace function public.promocao_expurgar()
+returns table (otps_apagados integer, limites_apagados integer)
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_otps integer;
+  v_limites integer;
+begin
+  delete from public.promocao_otps where created_at < now() - interval '7 days';
+  get diagnostics v_otps = row_count;
+  delete from public.promocao_limites where janela_inicio < now() - interval '1 day';
+  get diagnostics v_limites = row_count;
+  return query select v_otps, v_limites;
+end;
+$$;
+
+-- Só service_role executa as funções (PostgREST expõe tudo em public por padrão).
 grant execute on function public.promocao_limite_tentar(text, integer, integer) to service_role;
 grant execute on function public.promocao_gerar_numeros(uuid, text, jsonb, text, text) to service_role;
+grant execute on function public.promocao_expurgar() to service_role;
+revoke execute on function public.promocao_limite_tentar(text, integer, integer) from public, anon, authenticated;
+revoke execute on function public.promocao_gerar_numeros(uuid, text, jsonb, text, text) from public, anon, authenticated;
+revoke execute on function public.promocao_expurgar() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 17b) Imutabilidade: eventos e aceites são append-only; número emitido nunca é
+--      apagado (desconsiderar = UPDATE de status/motivo, que continua liberado).
+-- ---------------------------------------------------------------------------
+create or replace function public.promocao_bloquear_mutacao()
+returns trigger
+language plpgsql
+set search_path = public, extensions
+as $$
+begin
+  raise exception '% é imutável (operação % bloqueada)', tg_table_name, tg_op using errcode = 'P0003';
+end;
+$$;
+revoke execute on function public.promocao_bloquear_mutacao() from public, anon, authenticated;
+
+drop trigger if exists promocao_eventos_imutavel on public.promocao_eventos;
+create trigger promocao_eventos_imutavel
+  before update or delete on public.promocao_eventos
+  for each row execute function public.promocao_bloquear_mutacao();
+
+drop trigger if exists promocao_aceites_imutavel on public.promocao_aceites;
+create trigger promocao_aceites_imutavel
+  before update or delete on public.promocao_aceites
+  for each row execute function public.promocao_bloquear_mutacao();
+
+drop trigger if exists promocao_numeros_sem_delete on public.promocao_numeros;
+create trigger promocao_numeros_sem_delete
+  before delete on public.promocao_numeros
+  for each row execute function public.promocao_bloquear_mutacao();
 
 -- ---------------------------------------------------------------------------
 -- 18) RLS ligada SEM policy (service role) + updated_at

@@ -282,6 +282,11 @@ função promocao_limite_tentar(p_chave text, p_limite int, p_janela_seg int) re
   upsert; se janela_inicio + janela < now() → zera; contagem++ ; return contagem <= p_limite
 ```
 
+### 2.17b Blindagem (revisão Fable, entregue na migration)
+- Funções `promocao_proximo_codigo()`, `promocao_limite_tentar`, `promocao_gerar_numeros`, `promocao_expurgar()` só para `service_role` (`revoke execute … from public, anon, authenticated`); sequence idem; `set search_path = public, extensions`; pgcrypto qualificado `extensions.gen_random_bytes`.
+- Imutabilidade por trigger: `promocao_eventos` e `promocao_aceites` sem UPDATE/DELETE; `promocao_numeros` sem DELETE (desconsiderar = UPDATE de `status/motivo/desconsiderado_*`, liberado).
+- `promocao_expurgar()` apaga `promocao_otps` > 7 dias e `promocao_limites` > 1 dia; cron será agendado depois (não criar agora).
+
 ### 2.18 RLS + seed de permissões
 ```
 alter table <todas promocao_*> enable row level security;   -- sem policy
