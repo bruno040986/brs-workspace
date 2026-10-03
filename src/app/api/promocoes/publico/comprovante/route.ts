@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       indicadoNome: indicado.nome,
       indicadoCpfMascarado: mascararCpf(ind.cpf_indicado),
       contato: formatarTelefoneContato(await telefoneContatoDigitos(admin, camp as Campanha)),
+      sorteio: camp.data_sorteio,
     })
     return new NextResponse(new Uint8Array(png), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, no-store' } })
   } catch (e) {

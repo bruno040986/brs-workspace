@@ -8,7 +8,7 @@ import { ehDiaUtil, prazoLink, prazoPix, somarDiasUteis, dataCivilSp } from '../
 import { cpfValido, maiorDe18, nomeCompletoValido, pixValido, telefoneBrValido, telefoneParaE164Digitos } from '../validacao.ts'
 import { formatarCnpj, formatarCpf, formatarValor, mascararCpf, mascararPix, mascararTelefone, nomeCurto } from '../mascara.ts'
 import { formatarCodigo, formatarNumeroSorte, gerarCodigoOtp, gerarToken, hashToken } from '../codigos.ts'
-import { textoAvisoPagamento, textoAberturaAtendimento, urlWhatsapp } from '../mensagens.ts'
+import { textoAvisoPagamento, textoAberturaAtendimento, urlWhatsapp, textoLinkIndicador } from '../mensagens.ts'
 
 const op = (id: string, tipo: OperacaoConfirmada['tipo'], reais: number, dig = '2026-10-05', pag: string | null = '2026-10-06'): OperacaoConfirmada => ({
   id, tipo, valorCentavos: Math.round(reais * 100), dataDigitacao: dig, dataPagamento: pag,
@@ -238,4 +238,11 @@ test('telefoneParaE164Digitos normaliza para wa.me (55 + DDD + número)', () => 
   assert.equal(telefoneParaE164Digitos('556131991754'), '556131991754')
   assert.equal(telefoneParaE164Digitos('(61) 3199-1754'), '556131991754')
   assert.equal(telefoneParaE164Digitos(''), null)
+})
+
+test('texto do sorteio lê a data da campanha, com fallback 09/12/2026', () => {
+  const v = { nome: 'A', indicado: 'B', url: 'u', prazo: '2026-12-08', contato: '61999999999' }
+  assert.match(textoLinkIndicador({ ...v, sorteio: '2026-12-09' }), /Federal de 09\/12\/2026/)
+  assert.match(textoLinkIndicador(v), /Federal de 09\/12\/2026/)
+  assert.match(textoLinkIndicador({ ...v, sorteio: '2026-12-16' }), /Federal de 16\/12\/2026/)
 })

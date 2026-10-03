@@ -2,6 +2,7 @@
 import type { EngineJob } from '@/lib/scp-engine/decisions'
 import { createAdminClient } from '@/lib/supabase/server'
 import { enviarWhatsappPromocao, type ResultadoEnvio } from './whatsapp'
+import { dataCivilSp } from './dias-uteis'
 import { gerarImagemComprovanteNumeros } from './comprovante-numeros-imagem'
 import { carregarTitular, numerosValidosDoTitular, numerosDaGeracao } from './geracao-publico'
 import { formatarNumeroSorte } from './codigos'
@@ -9,7 +10,6 @@ import { formatarTelefone } from './mascara'
 import { telefoneContatoDigitos } from './http'
 import { textoComprovanteNumeros, textoLinkIndicador, textoLinkServidor } from './mensagens'
 
-const fmtData = (iso: string) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short' }).format(new Date(iso))
 
 /** Rejeição definitiva (número sem WhatsApp) não se retenta; o resto volta ao motor. */
 function concluirOuRetentar(r: ResultadoEnvio): void {
@@ -32,7 +32,7 @@ export async function handleEnviarLinkNumeros(job: EngineJob): Promise<void> {
   if (!c || !titular) throw new Error('Campanha ou titular não encontrados.')
 
   const url = `${String(c.site_base_url).replace(/\/$/, '')}/${c.slug}/promocao/numeros?t=${encodeURIComponent(token)}`
-  const prazo = fmtData(c.prazo_geracao_ate)
+  const prazo = dataCivilSp(c.prazo_geracao_ate)
   const contato = (await telefoneContatoDigitos(sb, c)) || ''
   const nome = String(titular.nome).split(' ')[0]
 
@@ -42,9 +42,9 @@ export async function handleEnviarLinkNumeros(job: EngineJob): Promise<void> {
     const { data: ind } = d ? await sb.from('promocao_inscricoes').select('nome').eq('id', d.inscricao_id).maybeSingle() : { data: null }
     const partes = String(ind?.nome || '').trim().split(/\s+/)
     const indicado = partes.length > 1 ? `${partes[0]} ${partes[partes.length - 1][0]}.` : partes[0] || 'servidor'
-    texto = textoLinkIndicador({ nome, indicado, url, prazo, contato })
+    texto = textoLinkIndicador({ nome, indicado, url, prazo, contato, sorteio: c.data_sorteio })
   } else {
-    texto = textoLinkServidor({ nome, qtd: g.qtd, url, prazo, contato })
+    texto = textoLinkServidor({ nome, qtd: g.qtd, url, prazo, contato, sorteio: c.data_sorteio })
   }
 
   const r = await enviarWhatsappPromocao({
@@ -73,11 +73,11 @@ export async function enviarComprovanteNumeros(geracaoId: string, n: number): Pr
   const [daGeracao, todos] = await Promise.all([numerosDaGeracao(sb, g.id), numerosValidosDoTitular(sb, g)])
   const nome = String(g.dados_confirmados?.nome || titular.nome)
   const contato = formatarTelefone((await telefoneContatoDigitos(sb, c)) || '')
-  const texto = textoComprovanteNumeros({ nome, numeros: daGeracao, total: todos.length, regulamentoUrl: c.regulamento_url })
+  const texto = textoComprovanteNumeros({ nome, numeros: daGeracao, total: todos.length, regulamentoUrl: c.regulamento_url, sorteio: c.data_sorteio })
 
   let imagemBase64: string | undefined
   try {
-    const png = await gerarImagemComprovanteNumeros({ nome, numeros: daGeracao.map(formatarNumeroSorte), total: todos.length, contato: contato || null })
+    const png = await gerarImagemComprovanteNumeros({ nome, numeros: daGeracao.map(formatarNumeroSorte), total: todos.length, contato: contato || null, sorteio: c.data_sorteio })
     imagemBase64 = `data:image/png;base64,${png.toString('base64')}`
   } catch (e: any) {
     console.error('imagem do comprovante de números falhou', g.id, e?.message)
