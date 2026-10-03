@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ slug: string }> }) {
   try {
-    await requirePermission('comercial-promocoes-config', 'can_view')
+    await requirePermission('comercial-promocoes-config', 'can_edit')
   } catch {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }

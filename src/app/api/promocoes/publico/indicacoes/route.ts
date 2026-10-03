@@ -17,8 +17,9 @@ import {
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
 import { gerarToken } from '@/lib/promocoes/codigos'
-import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE } from '@/lib/promocoes/http'
+import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE } from '@/lib/promocoes/http'
 import { consumirOtpToken, liberarOtpToken } from '@/lib/promocoes/otp'
+import { pixDoIndicado } from '@/lib/promocoes/seguranca'
 import { pixValido, somenteDigitos } from '@/lib/promocoes/validacao'
 import type { PixTipo } from '@/lib/promocoes/tipos'
 import { instanciaPromocaoDisponivel } from '@/lib/promocoes/whatsapp'
@@ -87,6 +88,8 @@ export async function POST(request: NextRequest) {
   const userAgent = request.headers.get('user-agent') || ''
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
+  const fechado = cadastroFechado(camp)
+  if (fechado) return fechado
   const limiteIp = await aplicarLimites([[`rl:ind:ip:${ip}`, 200, 3600]])
   if (limiteIp) return limiteIp
 
@@ -113,6 +116,7 @@ export async function POST(request: NextRequest) {
   if (pixErros.length || !pix) return erro('PIX_INVALIDO', 'Confira os dados da chave Pix.', 422, { campos: pixErros })
   if (indicador.cpf === indicado.cpf) return erro('AUTOINDICACAO', 'Não é possível indicar o próprio CPF.', 422)
   if (indicador.telefone === indicado.telefone) return erro('AUTOINDICACAO', 'O WhatsApp do indicado não pode ser o mesmo do indicador.', 422)
+  if (pixDoIndicado(pix, indicado)) return erro('PIX_DO_INDICADO', 'A chave Pix não pode pertencer ao servidor indicado.', 422)
   if (!maiorDe18(indicador.nascimento!, hojeSp())) return erro('MENOR_DE_IDADE', 'O indicador deve ter 18 anos ou mais.', 422)
   if (body.consentPromocao !== true || body.declaraRelacaoLegitima !== true) {
     return erro('CONSENTIMENTO_OBRIGATORIO', 'É preciso aceitar o regulamento e declarar a relação com o indicado.', 409)
@@ -130,15 +134,6 @@ export async function POST(request: NextRequest) {
   const { data: repetida } = await admin.from('promocao_indicacoes').select('*').eq('submission_id', submissionId).eq('campanha_id', camp.id).maybeSingle()
   if (repetida) return respostaExistente(admin, repetida)
 
-  if (await cpfBloqueado(admin, camp.id, [indicador.cpf, indicado.cpf])) {
-    return erro('CPF_NAO_ELEGIVEL', 'Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul.', 422)
-  }
-
-  const { data: jaInscrito } = await admin.from('promocao_inscricoes').select('id, origem').eq('campanha_id', camp.id).eq('cpf', indicado.cpf).maybeSingle()
-  // §9.4: inscrição direta (ou com proposta) anterior à indicação nunca é vinculada a indicador
-  if (jaInscrito?.origem === 'direta') return erro('SERVIDOR_JA_PARTICIPA', MSG_JA_PARTICIPA, 409)
-  if (jaInscrito) return JA_INDICADO()
-
   const otpExigido = camp.otp_obrigatorio && (await instanciaPromocaoDisponivel(camp.id).catch(() => false))
   const tokenInformado = typeof body.otpToken === 'string' && body.otpToken ? body.otpToken : null
   let verificado = false
@@ -151,6 +146,24 @@ export async function POST(request: NextRequest) {
   const devolverToken = async () => {
     if (tokenInformado && verificado) await liberarOtpToken(admin, tokenInformado).catch(() => undefined)
   }
+
+  // consultas de CPF só DEPOIS do OTP (sem oráculo de CPF para quem não provou o telefone)
+  if (await cpfBloqueado(admin, camp.id, [indicador.cpf, indicado.cpf])) {
+    await devolverToken()
+    return erro('CPF_NAO_ELEGIVEL', 'Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul.', 422)
+  }
+
+  const { data: jaInscrito } = await admin.from('promocao_inscricoes').select('id, origem').eq('campanha_id', camp.id).eq('cpf', indicado.cpf).maybeSingle()
+  // §9.4: inscrição direta (ou com proposta) anterior à indicação nunca é vinculada a indicador
+  if (jaInscrito?.origem === 'direta') {
+    await devolverToken()
+    return erro('SERVIDOR_JA_PARTICIPA', MSG_JA_PARTICIPA, 409)
+  }
+  if (jaInscrito) {
+    await devolverToken()
+    return JA_INDICADO()
+  }
+
   const falhaInterna = async (contexto: string, e: unknown) => {
     logSeguro(contexto, e)
     await devolverToken()

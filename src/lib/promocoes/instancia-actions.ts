@@ -54,7 +54,10 @@ export async function statusInstanciaPromocao(slug: string) {
   return executar('can_view', async () => {
     const admin: any = await createAdminClient()
     const c = await campanha(admin, slug)
-    return { instancia: await instancia(admin, c.instancia_id) }
+    const inst = await instancia(admin, c.instancia_id)
+    // QR de pareamento só para quem edita (can_view não pareia o número)
+    const podeEditar = await requirePermission(RECURSO, 'can_edit').then(() => true, () => false)
+    return { instancia: inst && !podeEditar ? { ...inst, ultimo_qr: null } : inst }
   })
 }
 
