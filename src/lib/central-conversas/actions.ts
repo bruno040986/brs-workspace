@@ -26,7 +26,7 @@ import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from '.
 import { ChatwootConta, type ChatwootConversa, type ChatwootMensagem } from './chatwoot'
 import { listarAgendamentos, type AcaoAgendada } from './agendamento-actions'
 
-const LIMITE_INSTANCIAS_BRS = 3
+const LIMITE_INSTANCIAS_BRS = 4
 const contatosHigienizadosSet = new Set<number>()
 const conversasRoteadasSet = new Set<number>()
 
