@@ -5,7 +5,7 @@ import { calcularElegibilidade, direitosDoIndicador, montarSnapshotGeracao, indi
 import { PARAMETROS_PADRAO, type OperacaoConfirmada } from '../tipos.ts'
 import { apurarContemplado, parseNumeroLoteria } from '../sorteio.ts'
 import { ehDiaUtil, prazoLink, prazoPix, somarDiasUteis, dataCivilSp } from '../dias-uteis.ts'
-import { cpfValido, maiorDe18, validarNascimento, nomeCompletoValido, pixValido, telefoneBrValido, telefoneParaE164Digitos } from '../validacao.ts'
+import { cpfValido, maiorDe18, validarNascimento, decidirNascimentoNoContato, nomeCompletoValido, pixValido, telefoneBrValido, telefoneParaE164Digitos } from '../validacao.ts'
 import { formatarCnpj, formatarCpf, formatarValor, mascararCpf, mascararPix, mascararTelefone, nomeCurto } from '../mascara.ts'
 import { formatarCodigo, formatarNumeroSorte, gerarCodigoOtp, gerarToken, hashToken } from '../codigos.ts'
 import { textoAvisoPagamento, textoAberturaAtendimento, urlWhatsapp, textoLinkIndicador } from '../mensagens.ts'
@@ -257,4 +257,11 @@ test('validarNascimento: ausente, inválida, futura e menor falham; válida pass
   assert.equal(validarNascimento('2008-10-04', hoje), null)
   assert.equal(validarNascimento('2008-10-03', hoje), '2008-10-03')
   assert.equal(validarNascimento('1985-05-20', hoje), '1985-05-20')
+})
+
+test('decidirNascimentoNoContato: vazio grava, igual mantém, diferente diverge', () => {
+  assert.equal(decidirNascimentoNoContato(undefined, '1985-05-20'), 'gravar')
+  assert.equal(decidirNascimentoNoContato('', '1985-05-20'), 'gravar')
+  assert.equal(decidirNascimentoNoContato('1985-05-20T00:00:00.000Z', '1985-05-20'), 'manter')
+  assert.equal(decidirNascimentoNoContato('1990-01-01', '1985-05-20'), 'divergente')
 })

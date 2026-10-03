@@ -6,6 +6,7 @@ import {
   customFieldEntry,
   findContactByCpf,
   findOpportunitiesByContact,
+  getContact,
   resolveCustomField,
   resolvePipelineStage,
   updateContact,
@@ -14,6 +15,7 @@ import {
 import { WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { createAdminClient } from '@/lib/supabase/server'
 import { registrarEvento } from './http'
+import { decidirNascimentoNoContato } from './validacao'
 
 export type ResultadoSync = { status: 'ok' | 'erro'; erro?: string }
 
@@ -101,7 +103,10 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
         contactId = contact.id
       } else if (duplicateOfId) {
         contactId = duplicateOfId
-        await updateContact(contactId, { customFields: entradas, ...(nascimento ? { dateOfBirth: nascimento } : {}) })
+        // achado por telefone, não por CPF: pode ser outra pessoa; nunca troca nascimento existente
+        const decisao = nascimento ? decidirNascimentoNoContato((await getContact(contactId))?.dateOfBirth, nascimento) : 'manter'
+        await updateContact(contactId, { customFields: entradas, ...(decisao === 'gravar' ? { dateOfBirth: nascimento } : {}) })
+        if (decisao === 'divergente') await registrarEvento(admin, insc.campanha_id, 'inscricao', inscricaoId, 'wesales.nascimento_divergente', { contactId, divergente: true })
         await registrarEvento(admin, insc.campanha_id, 'inscricao', inscricaoId, 'wesales.duplicado_por_telefone', { contactId })
       } else {
         throw new Error('WeSales não devolveu o contato')

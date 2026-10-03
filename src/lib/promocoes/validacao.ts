@@ -58,6 +58,13 @@ export function validarNascimento(raw: unknown, hoje: string): string | null {
   return maiorDe18(v, hoje) ? v : null
 }
 
+/** Contato achado só por telefone (pode ser outra pessoa): grava nascimento apenas se o contato não tem. */
+export function decidirNascimentoNoContato(existenteDob: unknown, informado: string): 'gravar' | 'manter' | 'divergente' {
+  const e = typeof existenteDob === 'string' ? existenteDob.trim().slice(0, 10) : ''
+  if (!e) return 'gravar'
+  return e === informado ? 'manter' : 'divergente'
+}
+
 /** ≥ 2 palavras, ≥ 5 caracteres, só letras (com acento), espaços, apóstrofo e hífen. */
 export function nomeCompletoValido(nome: string): boolean {
   const n = String(nome ?? '').trim().replace(/\s+/g, ' ')
