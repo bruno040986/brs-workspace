@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { estadoAtendimento, mascararNumeroInstancia, validarConfigAtendimento, type PatchAtendimento } from '../atendimento-config-regras.ts'
+import { estadoAtendimento, mascararNumeroInstancia, validarConfigAtendimento, validarParceiroAtendimento, type PatchAtendimento } from '../atendimento-config-regras.ts'
 
 const base: PatchAtendimento = {
   parceiro_atendimento_id: 'p1', instancia_atendimento_id: 'a', instancia_atendimento_reserva_id: 'b',
@@ -47,4 +47,10 @@ test('estado: pausado > sem instância > aguardando > pronto', () => {
   assert.equal(estadoAtendimento({ ...c, principalStatus: 'desconectada', reservaStatus: 'conectada' }, agora), 'pronto')
   assert.equal(estadoAtendimento({ ...c, atendimento_liberado_em: null }, agora), 'aguardando_liberacao')
   assert.equal(estadoAtendimento({ ...c, atendimento_liberado_em: '2026-10-05T13:00:00Z' }, agora), 'aguardando_liberacao')
+})
+
+test('parceiro: precisa existir e ter conta de chat, erro genérico', () => {
+  assert.equal(validarParceiroAtendimento(true, 1), null)
+  assert.equal(validarParceiroAtendimento(false, 1), 'Parceiro inválido.')
+  assert.equal(validarParceiroAtendimento(true, 0), 'Parceiro inválido.')
 })

@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { LIMITES_PADRAO, estadoAtendimento, validarConfigAtendimento, type EstadoAtendimento, type PatchAtendimento } from './atendimento-config-regras'
+import { LIMITES_PADRAO, estadoAtendimento, validarConfigAtendimento, validarParceiroAtendimento, type EstadoAtendimento, type PatchAtendimento } from './atendimento-config-regras'
 
 // Config do "Solicitar atendimento" (CONTRATO-ATENDIMENTO §6). Só lê/grava as 8 colunas novas;
 // nunca conecta/desconecta instância de parceiro (isso é feito no CRM do parceiro).
@@ -43,6 +43,13 @@ const configDe = (camp: any): ConfigAtendimento => ({
   limite_atendimento_instancia_hora: camp.limite_atendimento_instancia_hora ?? LIMITES_PADRAO.instancia_hora,
   limite_atendimento_instancia_dia: camp.limite_atendimento_instancia_dia ?? LIMITES_PADRAO.instancia_dia,
 })
+
+async function exigirParceiroComConta(db: any, parceiroId: string) {
+  const { data: p } = await db.from('agentes_parceiros').select('id').eq('id', parceiroId).maybeSingle()
+  const { count } = await db.from('chat_contas').select('id', { count: 'exact', head: true }).eq('agente_parceiro_id', parceiroId)
+  const erro = validarParceiroAtendimento(!!p, count || 0)
+  if (erro) throw new Error(erro)
+}
 
 const nomeParceiro = (a: any) => String(a.fantasy_name || a.name || '—')
 
@@ -89,7 +96,7 @@ export async function getConfigAtendimento(slug: string): Promise<R<{ config: Co
 /** Busca por código ARW ou nome; só parceiros que têm conta de chat. */
 export async function buscarParceirosAtendimento(slug: string, q: string): Promise<R<{ parceiros: ParceiroOpcao[] }>> {
   try {
-    const { db } = await ctx(slug, 'can_view')
+    const { db } = await ctx(slug, 'can_edit')
     const termo = q.replace(/[%,()*]/g, ' ').trim()
     let qb = db.from('agentes_parceiros').select('id, arw_code, name, fantasy_name').order('arw_code').limit(15)
     if (termo) qb = qb.or(`arw_code.ilike.%${termo}%,name.ilike.%${termo}%,fantasy_name.ilike.%${termo}%`)
@@ -105,7 +112,8 @@ export async function buscarParceirosAtendimento(slug: string, q: string): Promi
 
 export async function listarInstanciasDoParceiro(slug: string, parceiroId: string): Promise<R<{ instancias: InstanciaOpcao[] }>> {
   try {
-    const { db } = await ctx(slug, 'can_view')
+    const { db } = await ctx(slug, 'can_edit')
+    await exigirParceiroComConta(db, String(parceiroId))
     return { ok: true, instancias: await instanciasDoParceiro(db, parceiroId) }
   } catch (e) {
     return { ok: false, error: msg(e) }
@@ -133,8 +141,7 @@ export async function salvarConfigAtendimento(slug: string, patch: PatchAtendime
       limite_atendimento_instancia_dia: Number(patch.limite_atendimento_instancia_dia),
     }
     if (row.parceiro_atendimento_id) {
-      const { data: p } = await db.from('agentes_parceiros').select('id').eq('id', row.parceiro_atendimento_id).maybeSingle()
-      if (!p) throw new Error('Parceiro não encontrado.')
+      await exigirParceiroComConta(db, row.parceiro_atendimento_id)
     }
     const instancias = await instanciasDoParceiro(db, row.parceiro_atendimento_id)
     const antes = configDe(camp)

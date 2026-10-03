@@ -62,3 +62,8 @@ export function estadoAtendimento(
   if (!c.atendimento_liberado_em || new Date(c.atendimento_liberado_em).getTime() > agora.getTime()) return 'aguardando_liberacao'
   return 'pronto'
 }
+
+/** Parceiro precisa existir e ter conta de chat; erro genérico (não vira oráculo de ids). */
+export function validarParceiroAtendimento(existe: boolean, qtdContas: number): string | null {
+  return existe && qtdContas > 0 ? null : 'Parceiro inválido.'
+}
