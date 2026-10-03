@@ -101,7 +101,7 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
         contactId = contact.id
       } else if (duplicateOfId) {
         contactId = duplicateOfId
-        await updateContact(contactId, { customFields: entradas })
+        await updateContact(contactId, { customFields: entradas, ...(nascimento ? { dateOfBirth: nascimento } : {}) })
         await registrarEvento(admin, insc.campanha_id, 'inscricao', inscricaoId, 'wesales.duplicado_por_telefone', { contactId })
       } else {
         throw new Error('WeSales não devolveu o contato')

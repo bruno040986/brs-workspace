@@ -48,6 +48,16 @@ export function maiorDe18(dataNascimento: string, hoje: string): boolean {
   return idade >= 18
 }
 
+export const MSG_NASCIMENTO = 'Informe sua data de nascimento (você precisa ter 18 anos ou mais).'
+
+/** Nascimento obrigatório do servidor: AAAA-MM-DD real, passado e >= 18 anos. */
+export function validarNascimento(raw: unknown, hoje: string): string | null {
+  const v = typeof raw === 'string' ? raw.trim() : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || v < '1900-01-01' || v > hoje) return null
+  if (new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) !== v) return null
+  return maiorDe18(v, hoje) ? v : null
+}
+
 /** ≥ 2 palavras, ≥ 5 caracteres, só letras (com acento), espaços, apóstrofo e hífen. */
 export function nomeCompletoValido(nome: string): boolean {
   const n = String(nome ?? '').trim().replace(/\s+/g, ' ')
