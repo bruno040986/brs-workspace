@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { limiteTentar } from './rate-limit'
+import { telefoneParaE164Digitos } from './validacao'
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -86,11 +87,15 @@ export async function buscarCampanha(slug: unknown, statusPermitidos: string[] =
 export const CAMPANHA_INDISPONIVEL = () => erro('CAMPANHA_INDISPONIVEL', 'Campanha indisponível.', 404)
 
 export async function telefoneContatoDigitos(admin: any, c: Campanha): Promise<string | null> {
-  if (c.telefone_contato) return c.telefone_contato.replace(/\D/g, '')
+  if (c.telefone_contato) return paraWhatsappBR(c.telefone_contato)
   if (!c.instancia_id) return null
   const { data } = await admin.from('chat_instancias').select('numero').eq('id', c.instancia_id).maybeSingle()
-  const d = String(data?.numero || '').replace(/\D/g, '')
-  return d || null
+  return paraWhatsappBR(String(data?.numero || ''))
+}
+
+/** Dígitos com 55 p/ wa.me; inválido pelo validador volta só os dígitos (ou null se vazio). */
+function paraWhatsappBR(t: string): string | null {
+  return telefoneParaE164Digitos(t) ?? (t.replace(/\D/g, '') || null)
 }
 
 export function formatarTelefoneContato(d: string | null): string {

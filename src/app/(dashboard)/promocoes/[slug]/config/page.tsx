@@ -44,7 +44,7 @@ const SECOES: Array<{ titulo: string; campos: Campo[] }> = [
     titulo: 'Comunicação e WeSales',
     campos: [
       { k: 'otp_obrigatorio', label: 'Código por WhatsApp obrigatório (OTP)', tipo: 'bool', ajuda: 'Desligado ou com a instância fora do ar, o cadastro segue marcado como não verificado.' },
-      { k: 'telefone_contato', label: 'WhatsApp de contato NuAzul (dígitos)', tipo: 'text' },
+      { k: 'telefone_contato', label: 'WhatsApp de contato NuAzul (DDD + número; o 55 é adicionado automaticamente)', tipo: 'text' },
       { k: 'site_base_url', label: 'URL base do site', tipo: 'text' },
       { k: 'regulamento_url', label: 'URL do regulamento', tipo: 'text' },
       { k: 'regulamento_versao', label: 'Versão do regulamento', tipo: 'text' },

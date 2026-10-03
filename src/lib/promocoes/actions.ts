@@ -11,7 +11,7 @@ import { hasPermissionForUser, requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { enqueueJob } from '@/lib/scp-engine/queue'
 import type { PermissionAction } from '@/lib/auth/permissions'
-import { somenteDigitos, cpfValido } from './validacao'
+import { somenteDigitos, cpfValido, telefoneParaE164Digitos } from './validacao'
 import { mascararCpf, mascararPix, mascararTelefone } from './mascara'
 import { prazoLink } from './dias-uteis'
 import { AVISO_INDICACAO_POSTERIOR, calcularElegibilidade, direitosDoIndicador, indicacaoVale, inscricaoPodeSerIndicada, operacoesConsideradasParaIndicador } from './elegibilidade'
@@ -556,7 +556,11 @@ export async function salvarConfig(slug: string, patch: Record<string, any>): Pr
       const f = row.faixas_cartao
       if (!Array.isArray(f) || !f.length || f.some((x: any) => typeof x.pct !== 'number' || (x.ate !== null && typeof x.ate !== 'number'))) throw new Error('Faixas de cartão inválidas.')
     }
-    if (row.telefone_contato) row.telefone_contato = somenteDigitos(row.telefone_contato)
+    if (row.telefone_contato) {
+      const e164 = telefoneParaE164Digitos(row.telefone_contato)
+      if (!e164) throw new Error('Informe DDD + número (ex.: 61 3199-1754).')
+      row.telefone_contato = e164
+    }
     row.updated_at = new Date().toISOString()
     const { error } = await db.from('promocao_campanhas').update(row).eq('id', camp.id)
     if (error) throw error
