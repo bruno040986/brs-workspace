@@ -2,7 +2,7 @@
  * Catálogo de mensagens WhatsApp da promoção (CONTRATO §6.3). Texto FINAL — não
  * parafrasear. Funções puras; quem envia é src/lib/promocoes/whatsapp.ts (frente E).
  */
-import { formatarDataBr, formatarTelefone } from './mascara.ts'
+import { dataSorteioBr, formatarDataBr, formatarTelefone } from './mascara.ts'
 import { formatarNumeroSorte } from './codigos.ts'
 
 const NOME_PROMOCAO = 'NuAzul – Você Sempre no Azul | Valparaíso de Goiás'
@@ -30,37 +30,37 @@ export function textoComprovanteIndicacao(v: { indicador: string; indicado: stri
 }
 
 /** M3 — link de números ao servidor. `prazo` = YYYY-MM-DD */
-export function textoLinkServidor(v: { nome: string; qtd: number; url: string; prazo: string; contato: string }): string {
+export function textoLinkServidor(v: { nome: string; qtd: number; url: string; prazo: string; contato: string; sorteio?: string | null }): string {
   return [
     `Olá, ${v.nome}! Suas operações na promoção ${NOME_PROMOCAO} foram confirmadas e você tem ${v.qtd} número(s) da sorte para gerar.`,
     '',
     'Acesse o seu link individual, confira seus dados e as operações consideradas, aceite o regulamento e gere seus números:',
     v.url,
     '',
-    `O link é pessoal e pode ser usado uma única vez, até ${formatarDataBr(v.prazo)}. Sorteio pela Loteria Federal de 11/11/2026. Dúvidas: ${formatarTelefone(v.contato)}`,
+    `O link é pessoal e pode ser usado uma única vez, até ${formatarDataBr(v.prazo)}. Sorteio pela Loteria Federal de ${dataSorteioBr(v.sorteio)}. Dúvidas: ${formatarTelefone(v.contato)}`,
   ].join('\n')
 }
 
 /** M4 — link de número ao indicador. `indicado` já curto (ex.: "Maria S.") */
-export function textoLinkIndicador(v: { nome: string; indicado: string; url: string; prazo: string; contato: string }): string {
+export function textoLinkIndicador(v: { nome: string; indicado: string; url: string; prazo: string; contato: string; sorteio?: string | null }): string {
   return [
     `Olá, ${v.nome}! O servidor que você indicou (${v.indicado}) cumpriu as regras da promoção ${NOME_PROMOCAO} e você ganhou 1 número da sorte.`,
     '',
     `Gere o seu número pelo link individual (uso único, até ${formatarDataBr(v.prazo)}):`,
     v.url,
     '',
-    `Sorteio pela Loteria Federal de 11/11/2026. Dúvidas: ${formatarTelefone(v.contato)}`,
+    `Sorteio pela Loteria Federal de ${dataSorteioBr(v.sorteio)}. Dúvidas: ${formatarTelefone(v.contato)}`,
   ].join('\n')
 }
 
 /** M5 — comprovante de números gerados */
-export function textoComprovanteNumeros(v: { nome: string; numeros: number[]; total: number; regulamentoUrl: string }): string {
+export function textoComprovanteNumeros(v: { nome: string; numeros: number[]; total: number; regulamentoUrl: string; sorteio?: string | null }): string {
   return [
     `${v.nome}, seus números da sorte na promoção ${NOME_PROMOCAO}:`,
     ...v.numeros.map(formatarNumeroSorte),
     '',
     `Total de números até agora: ${v.total}. Guarde esta mensagem.`,
-    `Sorteio: 1º prêmio da Loteria Federal de 11/11/2026. Se o número sorteado não tiver sido distribuído, vale a aproximação prevista no regulamento. A NuAzul entrará em contato com o ganhador pelos dados informados. Regulamento: ${v.regulamentoUrl}`,
+    `Sorteio: 1º prêmio da Loteria Federal de ${dataSorteioBr(v.sorteio)}. Se o número sorteado não tiver sido distribuído, vale a aproximação prevista no regulamento. A NuAzul entrará em contato com o ganhador pelos dados informados. Regulamento: ${v.regulamentoUrl}`,
   ].join('\n')
 }
 

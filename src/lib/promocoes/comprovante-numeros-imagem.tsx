@@ -3,12 +3,14 @@
  * ImageResponse (next/og), mesmo padrão do oferta-imagem do CRM. Só servidor.
  */
 import { ImageResponse } from 'next/og'
+import { dataSorteioBr } from './mascara'
 
 export type DadosImagemNumeros = {
   nome: string
   numeros: string[]
   total: number
   contato: string | null
+  sorteio?: string | null
 }
 
 const AZUL = '#0b3d91'
@@ -32,7 +34,7 @@ export async function gerarImagemComprovanteNumeros(d: DadosImagemNumeros): Prom
         </div>
         <div style={{ display: 'flex', fontSize: 38, fontWeight: 700 }}>{`Total de números até agora: ${d.total}`}</div>
         <div style={{ display: 'flex', fontSize: 28, marginTop: 20, opacity: 0.85 }}>
-          Sorteio pelo 1º prêmio da Loteria Federal de 11/11/2026. Guarde este comprovante.
+          Sorteio pelo 1º prêmio da Loteria Federal de {dataSorteioBr(d.sorteio)}. Guarde este comprovante.
         </div>
         {d.contato ? <div style={{ display: 'flex', fontSize: 28, marginTop: 12, opacity: 0.85 }}>{`Dúvidas: ${d.contato}`}</div> : null}
         <div style={{ display: 'flex', fontSize: 24, marginTop: 28, opacity: 0.7 }}>iPhone 17e 256 GB · Regulamento em nuazul.com.br</div>

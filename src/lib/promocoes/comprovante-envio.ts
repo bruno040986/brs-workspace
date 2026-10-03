@@ -47,6 +47,7 @@ export async function enviarComprovanteIndicacao(indicacaoId: string, n: number)
     indicadoNome: indicado.nome,
     indicadoCpfMascarado: mascararCpf(ind.cpf_indicado),
     contato,
+    sorteio: camp.data_sorteio,
   })
   return enviarWhatsappPromocao({
     campanhaId: ind.campanha_id,

@@ -3,11 +3,12 @@
  * indicador (números da sorte: comprovante-numeros-imagem.tsx). Sem marca BRS. Devolve o PNG como Buffer.
  */
 import { ImageResponse } from 'next/og'
+import { dataSorteioBr } from './mascara'
 
 const AZUL = '#0b3d91'
 const AZUL_CLARO = '#e8f0fe'
 const TITULO = 'Você Sempre no Azul | Valparaíso de Goiás'
-const RODAPE = 'iPhone 17e 256 GB · Loteria Federal 11/11/2026 · Regulamento em nuazul.com.br'
+const rodape = (sorteio?: string | null) => `iPhone 17e 256 GB · Loteria Federal ${dataSorteioBr(sorteio)} · Regulamento em nuazul.com.br`
 
 export type DadosComprovante = {
   numeroIndicacao: string
@@ -15,6 +16,7 @@ export type DadosComprovante = {
   indicadoNome: string
   indicadoCpfMascarado: string
   contato: string
+  sorteio?: string | null
 }
 
 function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
@@ -70,7 +72,7 @@ export async function gerarComprovanteImagem(d: DadosComprovante): Promise<Buffe
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: '#fff', borderRadius: 36, padding: '36px 44px' }}>
         {corpoIndicacao(d)}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center', color: '#cbd5e1', fontSize: 24, marginTop: 22 }}>{RODAPE}</div>
+      <div style={{ display: 'flex', justifyContent: 'center', color: '#cbd5e1', fontSize: 24, marginTop: 22 }}>{rodape(d.sorteio)}</div>
     </div>
   )
   const resposta = new ImageResponse(el, { width: 1080, height: 1350 })

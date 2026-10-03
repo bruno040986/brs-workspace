@@ -76,6 +76,11 @@ export function nomeCurto(nome: string): string {
 }
 
 /** '2026-11-10' → '10/11/2026' */
+/** Data do sorteio (fallback 09/12/2026 se a campanha vier sem data). */
+export function dataSorteioBr(dataIso?: string | null): string {
+  return dataIso ? formatarDataBr(dataIso) : '09/12/2026'
+}
+
 export function formatarDataBr(dataIso: string): string {
   const [a, m, d] = dataIso.slice(0, 10).split('-')
   return `${d}/${m}/${a}`
