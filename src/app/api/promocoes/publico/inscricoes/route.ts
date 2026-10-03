@@ -6,7 +6,7 @@ import {
   gravarAceites,
   gravarTracking,
   lerCpf,
-  lerData,
+  hojeSp,
   lerEmail,
   lerNome,
   lerTelefone,
@@ -15,6 +15,7 @@ import {
   urlWhatsapp,
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
+import { MSG_NASCIMENTO, validarNascimento } from '@/lib/promocoes/validacao'
 import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE, type Campanha } from '@/lib/promocoes/http'
 import { consumirOtpToken, liberarOtpToken } from '@/lib/promocoes/otp'
 import { instanciaPromocaoDisponivel } from '@/lib/promocoes/whatsapp'
@@ -50,9 +51,12 @@ export async function POST(request: NextRequest) {
   const nome = lerNome(body.nome, 'nome', erros)
   const cpf = lerCpf(body.cpf, 'cpf', erros)
   const telefone = lerTelefone(body.telefone, 'telefone', erros)
-  const nascimento = lerData(body.dataNascimento, 'dataNascimento', erros, false)
+  // obrigatório (WeSales qualifica crédito com ela); exceção: assumir inscrição de indicação que já tem nascimento (tratado abaixo)
+  const nascimentoInformado = body.dataNascimento !== undefined && body.dataNascimento !== null && body.dataNascimento !== ''
+  const nascimento = validarNascimento(body.dataNascimento, hojeSp())
   const email = lerEmail(body.email, 'email', erros)
   if (erros.length) return erro('DADOS_INVALIDOS', 'Confira os campos informados.', 422, { campos: erros })
+  if (nascimentoInformado && !nascimento) return erro('NASCIMENTO_INVALIDO', MSG_NASCIMENTO, 422)
   if (body.consentPromocao !== true) return erro('CONSENTIMENTO_OBRIGATORIO', 'É preciso aceitar o regulamento para participar.', 409)
   const consentContato = body.consentContatoComercial === true
   if (typeof body.regulamentoVersao === 'string' && body.regulamentoVersao && body.regulamentoVersao !== camp.regulamento_versao) {
@@ -91,6 +95,10 @@ export async function POST(request: NextRequest) {
     if (existente.telefone === telefone) return { resp: await resposta(admin, camp, existente), assumida: null }
     if (existente.origem === 'indicacao' && verificado) {
       // indicado confirmou o próprio WhatsApp: o servidor assume o cadastro (vínculo e código mantidos)
+      if (!nascimento && !existente.data_nascimento) {
+        await liberarOtpToken(admin, tokenInformado!).catch(() => undefined)
+        return { resp: erro('NASCIMENTO_INVALIDO', MSG_NASCIMENTO, 422), assumida: null }
+      }
       const { data: up, error: eUp } = await admin
         .from('promocao_inscricoes')
         .update({
@@ -118,6 +126,10 @@ export async function POST(request: NextRequest) {
   }
   const ex = await tratarCpfExistente()
   if (ex.resp) return ex.resp
+  if (!ex.assumida && !nascimento) {
+    if (tokenInformado && verificado) await liberarOtpToken(admin, tokenInformado).catch(() => undefined)
+    return erro('NASCIMENTO_INVALIDO', MSG_NASCIMENTO, 422)
+  }
 
   let codigo = ''
   if (!ex.assumida) {
