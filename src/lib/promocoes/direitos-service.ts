@@ -61,16 +61,16 @@ async function criarGeracaoSeNecessario(
   titular: { tipo: 'inscricao' | 'indicador'; id: string; telefone: string },
   snapshot: Record<string, any>,
   vinculos: Array<{ operacaoId: string; valorUtilizadoCentavos: number }>,
-) {
+): Promise<boolean> {
   const { data: vivas } = await db.from('promocao_geracoes').select('id, qtd').eq('direito_id', direito.id).in('status', ['pendente', 'enviado'])
-  if ((vivas || []).some((g: any) => Number(g.qtd) === qtd)) return
+  if ((vivas || []).some((g: any) => Number(g.qtd) === qtd)) return false
   if ((vivas || []).length) {
     // filtro de status: geração confirmada entre o select e o update (usado) não pode ser cancelada
     await db.from('promocao_geracoes').update({ status: 'cancelado', cancelado_em: new Date().toISOString(), updated_at: new Date().toISOString() }).in('id', vivas.map((g: any) => g.id)).in('status', ['pendente', 'enviado'])
     // recarrega o emitido: se mudou, houve confirmação concorrente e a qtd calculada está velha
-    // (a confirmação dispara novo recálculo, que emite a quantidade correta)
+    // (quem chama enfileira novo recálculo)
     const { data: atual } = await db.from('promocao_direitos').select('qtd_emitida').eq('id', direito.id).single()
-    if (Number(atual?.qtd_emitida ?? 0) !== Number(direito.qtd_emitida)) return
+    if (Number(atual?.qtd_emitida ?? 0) !== Number(direito.qtd_emitida)) return true
   }
   const { token, hash } = gerarToken()
   const { data: ger, error } = await db
@@ -93,6 +93,7 @@ async function criarGeracaoSeNecessario(
     await db.from('promocao_geracao_operacoes').insert(vinculos.map((v) => ({ geracao_id: ger.id, operacao_id: v.operacaoId, valor_utilizado_centavos: v.valorUtilizadoCentavos })))
   }
   await enqueueJob({ kind: 'promocoes.enviar_link_numeros', payload: { geracaoId: ger.id, token }, dedupeKey: `promo-link:${ger.id}`, maxAttempts: 8 })
+  return false
 }
 
 export async function recalcularDireitos(inscricaoId: string): Promise<void> {
@@ -145,7 +146,11 @@ export async function recalcularDireitos(inscricaoId: string): Promise<void> {
     const snap = montarSnapshotGeracao(ops, usadoAnterior, el.numerosAEmitir, p)
     const { vinculos, ...resto } = snap
     const snapshot = { ...resto, operacoes: snap.operacoes.map((o) => ({ ...o, instituicao: instituicao.get(o.id) ?? null })) }
-    await criarGeracaoSeNecessario(db, c, dServ, el.numerosAEmitir, { tipo: 'inscricao', id: inscricaoId, telefone: insc.telefone }, snapshot, vinculos)
+    const desatualizado = await criarGeracaoSeNecessario(db, c, dServ, el.numerosAEmitir, { tipo: 'inscricao', id: inscricaoId, telefone: insc.telefone }, snapshot, vinculos)
+    if (desatualizado) {
+      // confirmação concorrente mudou o emitido: refaz o cálculo logo depois
+      await enqueueJob({ kind: 'promocoes.recalcular_direitos', payload: { inscricaoId }, dedupeKey: `promo-recalc:${inscricaoId}:${dServ.qtd_emitida}`, runAfterIso: new Date(Date.now() + 5000).toISOString(), maxAttempts: 5 })
+    }
   }
 
   if (!insc.indicacao_id) return
@@ -195,7 +200,10 @@ export async function recalcularDireitos(inscricaoId: string): Promise<void> {
       usadoNestaCentavos: p.minimoCentavos,
       saldoCentavos: e.totalCentavos - p.minimoCentavos,
     }
-    await criarGeracaoSeNecessario(db, c, dNum, 1, { tipo: 'indicador', id: ind.indicador_id, telefone: ind.indicador.telefone }, snapshot, [])
+    const desatualizado = await criarGeracaoSeNecessario(db, c, dNum, 1, { tipo: 'indicador', id: ind.indicador_id, telefone: ind.indicador.telefone }, snapshot, [])
+    if (desatualizado) {
+      await enqueueJob({ kind: 'promocoes.recalcular_direitos', payload: { inscricaoId }, dedupeKey: `promo-recalc:${inscricaoId}:${dNum.qtd_emitida}`, runAfterIso: new Date(Date.now() + 5000).toISOString(), maxAttempts: 5 })
+    }
   }
 }
 
