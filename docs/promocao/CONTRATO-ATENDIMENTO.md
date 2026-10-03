@@ -20,7 +20,7 @@
 |---|---|---|
 | 1.1 | **Quem pede é o titular do cadastro recém-concluído?** O `otpToken` é consumido (uso único) no `POST /inscricoes`; a resposta do servidor não traz segredo nenhum. | **Servidor:** `POST /inscricoes` passa a devolver `atendimentoToken` (32 bytes base64url via `gerarToken()`; só o `sha256` fica em `promocao_inscricoes.atendimento_token_hash`, validade **24 h** em `atendimento_token_expira_em`). Emitido em TODAS as saídas 200 da rota (nova, `repetida`, `assumida`, "mesmo telefone"), sempre renovando o hash (último vence). **Indicador:** reutiliza o `comprovanteToken` que já volta no `POST /indicacoes` (`promocao_indicacoes.comprovante_token_hash`, 24 h) — é a mesma prova que o `comprovante/enviar` já aceita. Token inválido/expirado → `404 LINK_INVALIDO` (genérico). |
 | 1.2 | **Disparar para telefone/CPF alheio.** | O site NUNCA manda telefone, CPF nem instância: o alvo é derivado no servidor a partir do token (servidor → `promocao_inscricoes.telefone`; indicado → `telefone` da inscrição do indicado). Servidor só recebe se `promocao_inscricoes.telefone_verificado = true` (OTP provou posse). Indicado: exige `promocao_indicadores.telefone_verificado = true` do indicador (quem consente provou quem é) + `autorizacao: true` no body (prova gravada no pedido). OTP desligado/instância OTP fora → cadastro segue, mas o botão da empresa fica indisponível (`401 TELEFONE_NAO_VERIFICADO`). |
-| 1.3 | **Unicidade.** | `UNIQUE (campanha_id, tipo, cpf_alvo)` e `UNIQUE (campanha_id, telefone_alvo)` em `promocao_pedidos_atendimento`. Linha nasce só depois de TODOS os gates; 23505 → `409 JA_ENVIADO` com o `status` atual. Pedido `rejeitado` (número sem WhatsApp) também bloqueia nova tentativa (nada a ganhar reenviando ao mesmo número). |
+| 1.3 | **Unicidade — "é um envio só por CPF" (Bruno).** | `UNIQUE (campanha_id, cpf_alvo)` — INDEPENDENTE do `tipo` — e `UNIQUE (campanha_id, telefone_alvo)` em `promocao_pedidos_atendimento`. Indicado que já recebeu a mensagem pela indicação e depois se cadastra como servidor (mesmo com outro telefone) NÃO recebe 2ª mensagem: o `GET /estado` do servidor devolve `ja_enviado` e o `POST` devolve `409 JA_ENVIADO`, qualquer que seja o tipo do pedido existente. Linha nasce só depois de TODOS os gates; 23505 (em qualquer dos 2 índices) → `409 JA_ENVIADO` com o `status` do pedido existente. Pedido `rejeitado` (número sem WhatsApp) também bloqueia nova tentativa. A coluna `tipo` fica só como registro de qual botão originou o envio. |
 | 1.4 | **Limite por indicador 30/h (RH da prefeitura).** | **Janela deslizante real por contagem**: `count(*) from promocao_pedidos_atendimento where campanha_id=? and indicador_id=? and created_at > now()-1h` ≥ `limite_atendimento_indicador_hora` → `429 LIMITE_INDICADOR`. Não usa `promocao_limite_tentar` (janela fixa que reinicia e conta tentativas falhas). Corrida de 2 requests simultâneos pode dar 31: limite é de proteção, não contábil — aceito. |
 | 1.5 | **Teto por instância.** | Mesma contagem por `instancia_usada_id`: `created_at > now()-1h` ≥ `limite_atendimento_instancia_hora` ou `created_at > now()-24h` ≥ `limite_atendimento_instancia_dia` → instância "cheia". "Dia" = 24 h deslizantes (mais estrito e sem fuso). Defaults seguros: 40/h, 200/24 h (configuráveis). |
 | 1.6 | **Allowlist e fallback.** | Candidatas, nesta ordem: `instancia_atendimento_id`, `instancia_atendimento_reserva_id`. Cada uma só vale se: existe, `deleted_at is null`, `status='conectada'`, `conta_id → chat_contas.agente_parceiro_id = parceiro_atendimento_id`, `id <> campanha.instancia_id` (nunca a 7033/OTP) e não "cheia" (1.5). Primeira que passa é a usada. Nenhuma → `409 ATENDIMENTO_INDISPONIVEL` (sem detalhe público) ou `429 LIMITE_INSTANCIA` se a única causa foi teto. |
@@ -75,7 +75,7 @@ envio_id uuid null fk promocao_envios
 instancia_usada_id uuid null fk chat_instancias       -- fixada antes do 1º POST; trigger impede troca
 erro text null, enviado_em timestamptz null
 created_at, updated_at (trigger_set_timestamp)
-unique (campanha_id, tipo, cpf_alvo); unique (campanha_id, telefone_alvo)
+unique (campanha_id, cpf_alvo)  -- independente do tipo; unique (campanha_id, telefone_alvo)
 index (campanha_id, indicador_id, created_at desc) where indicador_id not null
 index (instancia_usada_id, created_at desc) where instancia_usada_id not null
 index (status, created_at)
@@ -105,7 +105,7 @@ Resposta 200 (sempre 200 quando campanha e token válidos):
 ```
 Regras (primeira que casar):
 1. token inválido/expirado → `404 LINK_INVALIDO` ("Este cadastro não está mais disponível. Recarregue a página.")
-2. pedido existente: `rejeitado` → `botao:'falhou'`, mensagem M-F (§5.5); senão → `botao:'ja_enviado'`, mensagem M-J (§5.5) + `status`.
+2. pedido existente por CPF alvo OU telefone alvo (qualquer `tipo`, §1.3): `rejeitado` → `botao:'falhou'`, mensagem M-F (§5.5); senão → `botao:'ja_enviado'`, mensagem M-J (§5.5) + `status`.
 3. gates 1.7 falhando, OU telefone não verificado (1.2), OU CPF bloqueado, OU nenhuma candidata conectada (ignora teto aqui) → `botao:'indisponivel'`, `mensagem: ''` (site simplesmente não mostra o botão).
 4. senão `botao:'disponivel'`, `mensagem: ''`.
 
@@ -127,7 +127,7 @@ Ordem FIXA:
 8. `tipo='indicado'` e `autorizacao !== true` → `409 SEM_CONSENTIMENTO`.
 9. telefone verificado (1.2) → `401 TELEFONE_NAO_VERIFICADO`.
 10. `cpfBloqueado(admin, camp.id, [cpf_alvo, cpfIndicador?])` → `409 ATENDIMENTO_INDISPONIVEL`.
-11. pedido existente por (campanha, tipo, cpf_alvo) OU (campanha, telefone_alvo) → `409 JA_ENVIADO { status }` (se `status='rejeitado'`, mensagem M-F).
+11. pedido existente por (campanha, cpf_alvo) OU (campanha, telefone_alvo) — SEM filtrar por tipo → `409 JA_ENVIADO { status }` (se `status='rejeitado'`, mensagem M-F; a mensagem M-J/M-F é a do `tipo` da REQUISIÇÃO, não a do pedido gravado).
 12. `tipo='indicado'`: contagem 1.4 ≥ limite → `429 LIMITE_INDICADOR`.
 13. `escolherInstancia` (§4.3) → null: `409 ATENDIMENTO_INDISPONIVEL` se nenhuma conectada; `429 LIMITE_INSTANCIA` se havia conectada mas todas cheias.
 14. `insert promocao_pedidos_atendimento` (`pendente`, `instancia_usada_id` já preenchida, consentimento + ip + ua) — 23505 → repete passo 11.
@@ -180,7 +180,7 @@ export async function resolverAlvo(admin, campanhaId, tipo, t): Promise<Alvo | n
   // servidor: promocao_inscricoes where atendimento_token_hash=hashToken(t) and campanha_id and status='ativa' and atendimento_token_expira_em > now()
   // indicado: promocao_indicacoes where comprovante_token_hash=hashToken(t) and campanha_id and status='valida' and comprovante_expira_em > now() → join inscrição (telefone/nome/cpf/codigo) + indicador (nome, cpf, telefone_verificado)
 export async function novoTokenAtendimento(admin, inscricaoId): Promise<string>
-export async function pedidoExistente(admin, campanhaId, tipo, cpfAlvo, telefoneAlvo): Promise<{ id, status } | null>
+export async function pedidoExistente(admin, campanhaId, cpfAlvo, telefoneAlvo): Promise<{ id, status, tipo } | null>   // sem filtro por tipo (1.3): .or(`cpf_alvo.eq.${cpf},telefone_alvo.eq.${tel}`)
 export async function contarPedidos(admin, filtro: { campanhaId; indicadorId?: string; instanciaId?: string; desdeMs: number }): Promise<number>
 export async function escolherInstancia(admin, camp): Promise<{ id: string } | 'nenhuma_conectada' | 'todas_cheias'>   // §1.6 + §1.5, ordem principal→reserva
 export async function criarPedido(admin, camp, alvo, extra: { consentimentoTexto?: string; consentimentoVersao?: string; ip; userAgent; instanciaId }): Promise<{ id } | 'duplicado'>

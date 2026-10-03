@@ -87,8 +87,10 @@ create table if not exists public.promocao_pedidos_atendimento (
     tipo = 'indicado' or (indicacao_id is null and indicador_id is null)
   )
 );
--- 1 envio da empresa por CPF (por tipo) e o telefone nunca recebe 2 mensagens de "chamar"
-create unique index if not exists promocao_pedidos_atend_cpf_uq on public.promocao_pedidos_atendimento (campanha_id, tipo, cpf_alvo);
+-- 1 envio da empresa por CPF (independente do tipo: indicado que depois se cadastra como servidor NÃO recebe 2ª mensagem)
+-- e o telefone nunca recebe 2 mensagens de "chamar"
+drop index if exists public.promocao_pedidos_atend_cpf_uq;
+create unique index if not exists promocao_pedidos_atend_cpf_uq on public.promocao_pedidos_atendimento (campanha_id, cpf_alvo);
 create unique index if not exists promocao_pedidos_atend_tel_uq on public.promocao_pedidos_atendimento (campanha_id, telefone_alvo);
 -- contagens das janelas deslizantes (indicador/hora; instância/hora e /24 h)
 create index if not exists promocao_pedidos_atend_indicador_idx on public.promocao_pedidos_atendimento (campanha_id, indicador_id, created_at desc) where indicador_id is not null;
@@ -157,7 +159,7 @@ begin
     from pg_constraint con
     where con.conrelid = 'public.promocao_envios'::regclass
       and con.contype = 'c'
-      and pg_get_constraintdef(con.oid) ~* '\(tipo\s*=\s*any|\btipo\s+in\s*\('
+      and pg_get_constraintdef(con.oid) ~* '\(tipo\s*=\s*any'
   loop
     execute format('alter table public.promocao_envios drop constraint %I', r.conname);
   end loop;
