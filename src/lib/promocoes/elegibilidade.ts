@@ -42,13 +42,30 @@ export function calcularElegibilidade(ops: OperacaoConfirmada[], numerosEmitidos
 }
 
 /**
- * Operações que contam para o INDICADOR, segundo a regra parametrizada de data.
- * "Posterior" lido como data civil (SP) >= dia da inscrição (a financeira não registra hora).
+ * Regulamento §9: a indicação só vale se registrada ANTES da PRIMEIRA proposta do CPF
+ * (menor data de digitação entre TODAS as operações, inclusive canceladas/invalidadas — §9.6).
+ * A financeira só informa data (sem hora): no mesmo dia civil (SP) a indicação ainda vale.
  */
-export function operacoesConsideradasParaIndicador(ops: OperacaoConfirmada[], inscritaEmIso: string, regra: RegraDataIndicacao): OperacaoConfirmada[] {
+export function indicacaoVale(registradaEmIso: string, primeiraDigitacao: string | null): boolean {
+  return primeiraDigitacao === null || dataCivilSp(registradaEmIso) <= primeiraDigitacao
+}
+
+/** §9.4: inscrição direta (ou criada antes da indicação) nunca é vinculada a indicador. */
+export function inscricaoPodeSerIndicada(origem: 'direta' | 'indicacao', inscricaoCriadaEmIso: string, indicacaoRegistradaEmIso: string): boolean {
+  return origem !== 'direta' && new Date(inscricaoCriadaEmIso) >= new Date(indicacaoRegistradaEmIso)
+}
+
+export const AVISO_INDICACAO_POSTERIOR = 'Indicação posterior à primeira proposta — não gera R$ 50 nem número da sorte (regulamento §9).'
+
+/**
+ * Operações que contam para o INDICADOR. No modo padrão (digitacao_apos_inscricao = regra do §9)
+ * é tudo-ou-nada: indicação posterior à 1ª proposta zera os direitos do indicador.
+ * `primeiraDigitacao`: menor data_digitacao de todas as operações do CPF (qualquer status).
+ */
+export function operacoesConsideradasParaIndicador(ops: OperacaoConfirmada[], inscritaEmIso: string, regra: RegraDataIndicacao, primeiraDigitacao: string | null = null): OperacaoConfirmada[] {
   if (regra === 'sem_restricao') return ops
+  if (regra === 'digitacao_apos_inscricao') return indicacaoVale(inscritaEmIso, primeiraDigitacao) ? ops : []
   const corte = dataCivilSp(inscritaEmIso)
-  if (regra === 'digitacao_apos_inscricao') return ops.filter((o) => o.dataDigitacao >= corte)
   return ops.filter((o) => o.dataPagamento !== null && o.dataPagamento >= corte)
 }
 

@@ -1,7 +1,7 @@
 /** Frente A — lógica pura da promoção NuAzul Valparaíso. Roda com: npm test */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { calcularElegibilidade, direitosDoIndicador, montarSnapshotGeracao, operacoesConsideradasParaIndicador, pctCartaoDaFaixa } from '../elegibilidade.ts'
+import { calcularElegibilidade, direitosDoIndicador, montarSnapshotGeracao, indicacaoVale, inscricaoPodeSerIndicada, operacoesConsideradasParaIndicador, pctCartaoDaFaixa } from '../elegibilidade.ts'
 import { PARAMETROS_PADRAO, type OperacaoConfirmada } from '../tipos.ts'
 import { apurarContemplado, parseNumeroLoteria } from '../sorteio.ts'
 import { ehDiaUtil, prazoLink, prazoPix, somarDiasUteis, dataCivilSp } from '../dias-uteis.ts'
@@ -68,17 +68,44 @@ test('nunca revoga: proporção quebra depois de emitir → devidos = emitidos, 
   assert.equal(e.saldoCentavos, 100000)
 })
 
-test('regra de data da indicação: 3 modos', () => {
+test('regra de data da indicação (§9): modos', () => {
   const ops = [
     op('antes', 'novo', 3000, '2026-10-02', '2026-10-09'),
     op('depois', 'saque_cartao_consignado', 3000, '2026-10-10', '2026-10-12'),
   ]
   const inscrita = '2026-10-08T22:30:00Z' // 19:30 em SP de 08/10
   assert.deepEqual(operacoesConsideradasParaIndicador(ops, inscrita, 'sem_restricao').map((o) => o.id), ['antes', 'depois'])
-  assert.deepEqual(operacoesConsideradasParaIndicador(ops, inscrita, 'digitacao_apos_inscricao').map((o) => o.id), ['depois'])
+  // 1ª proposta em 02/10 < indicação 08/10 → indicação não vale: nada conta
+  assert.deepEqual(operacoesConsideradasParaIndicador(ops, inscrita, 'digitacao_apos_inscricao', '2026-10-02').map((o) => o.id), [])
   assert.deepEqual(operacoesConsideradasParaIndicador(ops, inscrita, 'pagamento_apos_inscricao').map((o) => o.id), ['antes', 'depois'])
-  // inscrição às 02:30 UTC de 09/10 = 23:30 SP de 08/10 → corte continua 08/10
   assert.equal(dataCivilSp('2026-10-09T02:30:00Z'), '2026-10-08')
+})
+
+test('§9.1/9.3: indicação antes da 1ª proposta vale; depois não vale', () => {
+  const ops = [op('a', 'novo', 6000, '2026-10-10', '2026-10-15')]
+  assert.equal(indicacaoVale('2026-10-08T15:00:00Z', '2026-10-10'), true)
+  assert.equal(operacoesConsideradasParaIndicador(ops, '2026-10-08T15:00:00Z', 'digitacao_apos_inscricao', '2026-10-10').length, 1)
+  assert.equal(indicacaoVale('2026-10-12T15:00:00Z', '2026-10-10'), false)
+  assert.equal(operacoesConsideradasParaIndicador(ops, '2026-10-12T15:00:00Z', 'digitacao_apos_inscricao', '2026-10-10').length, 0)
+  assert.equal(direitosDoIndicador(operacoesConsideradasParaIndicador(ops, '2026-10-12T15:00:00Z', 'digitacao_apos_inscricao', '2026-10-10')).pixDevido, false)
+})
+
+test('§9.6: proposta cancelada e substituída — vale pela PRIMEIRA (a cancelada entra no mínimo)', () => {
+  // cancelada digitada 10/10, substituta 14/10; indicação 09/10 antes da primeira → vale
+  const confirmadas = [op('nova', 'novo', 6000, '2026-10-14', '2026-10-16')]
+  assert.equal(operacoesConsideradasParaIndicador(confirmadas, '2026-10-09T15:00:00Z', 'digitacao_apos_inscricao', '2026-10-10').length, 1)
+  // indicação 12/10: depois da cancelada (1ª), ainda que antes da substituta → não vale
+  assert.equal(operacoesConsideradasParaIndicador(confirmadas, '2026-10-12T15:00:00Z', 'digitacao_apos_inscricao', '2026-10-10').length, 0)
+})
+
+test('§9.4: inscrição direta não vincula; indicação anterior + inscrição posterior vincula', () => {
+  assert.equal(inscricaoPodeSerIndicada('direta', '2026-10-09T10:00:00Z', '2026-10-08T10:00:00Z'), false)
+  assert.equal(inscricaoPodeSerIndicada('indicacao', '2026-10-07T10:00:00Z', '2026-10-08T10:00:00Z'), false)
+  assert.equal(inscricaoPodeSerIndicada('indicacao', '2026-10-09T10:00:00Z', '2026-10-08T10:00:00Z'), true)
+})
+
+test('§9: sem nenhuma proposta ainda (servidor indicado que se inscreve depois) → vale', () => {
+  assert.equal(indicacaoVale('2026-10-08T15:00:00Z', null), true)
 })
 
 test('direitos do indicador: pix só exige mínimo; número exige proporção; máx 1', () => {

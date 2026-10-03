@@ -268,6 +268,7 @@ export default function OperacoesPage() {
                   {elig.r.indicador && (
                     <div style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
                       Indicador: <b>{elig.r.indicador.nome}</b> — R$ 50: {elig.r.indicador.atual.pixDevido ? <b style={{ color: '#047857' }}>elegível</b> : 'não elegível'} · número do indicador: {elig.r.indicador.atual.numeroDevido ? <b style={{ color: '#047857' }}>elegível</b> : 'não elegível'}
+                      {elig.r.indicador.aviso && <div style={{ color: '#b45309', marginTop: 4 }}>{elig.r.indicador.aviso}</div>}
                     </div>
                   )}
                 </>
@@ -362,6 +363,7 @@ export default function OperacoesPage() {
                           <div style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
                             Indicador: <b>{calc.indicador.nome}</b> — R$ 50: {(calc.indicador.comRascunho || calc.indicador.atual).pixDevido ? <b style={{ color: '#047857' }}>elegível</b> : 'não elegível'} · número do indicador:{' '}
                             {(calc.indicador.comRascunho || calc.indicador.atual).numeroDevido ? <b style={{ color: '#047857' }}>elegível</b> : 'não elegível'}
+                            {(calc.indicador.comRascunho ? calc.indicador.avisoComRascunho : calc.indicador.aviso) && <div style={{ color: '#b45309', marginTop: 4 }}>{calc.indicador.comRascunho ? calc.indicador.avisoComRascunho : calc.indicador.aviso}</div>}
                           </div>
                         )}
                       </>

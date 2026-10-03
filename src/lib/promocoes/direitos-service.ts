@@ -41,6 +41,14 @@ export async function opsValidasDaInscricao(inscricaoId: string, c: any): Promis
   return { ops: rows.map(linhaParaOperacao), rows }
 }
 
+/** Menor data de digitação de TODAS as operações da inscrição (qualquer status) — base do §9. */
+export async function primeiraDigitacaoDaInscricao(inscricaoId: string): Promise<string | null> {
+  const db: any = await createAdminClient()
+  const { data, error } = await db.from('promocao_operacoes').select('data_digitacao').eq('inscricao_id', inscricaoId).order('data_digitacao', { ascending: true }).limit(1)
+  if (error) throw error
+  return data?.[0]?.data_digitacao ?? null
+}
+
 type DireitoRef = { id: string; qtd_emitida: number; status: string }
 
 async function upsertDireito(db: any, base: Record<string, any>): Promise<DireitoRef> {
@@ -156,7 +164,7 @@ export async function recalcularDireitos(inscricaoId: string): Promise<void> {
   if (!insc.indicacao_id) return
   const { data: ind } = await db.from('promocao_indicacoes').select('*, indicador:promocao_indicadores(*)').eq('id', insc.indicacao_id).single()
   if (!ind || ind.status !== 'valida') return
-  const considerados = operacoesConsideradasParaIndicador(ops, ind.inscrita_em, c.regra_data_indicacao)
+  const considerados = operacoesConsideradasParaIndicador(ops, ind.inscrita_em, c.regra_data_indicacao, await primeiraDigitacaoDaInscricao(inscricaoId))
   const dir = direitosDoIndicador(considerados, p)
   const e = dir.elegibilidade
   const comum = {

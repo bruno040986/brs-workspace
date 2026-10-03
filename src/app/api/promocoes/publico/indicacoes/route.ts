@@ -29,6 +29,7 @@ export const maxDuration = 30
 const TIPOS_PIX: PixTipo[] = ['cpf', 'telefone', 'email', 'aleatoria', 'dados_bancarios']
 const MSG_JA_INDICADO = 'Este servidor já foi indicado. Não é possível nova indicação e não será gerado número de indicação.'
 const JA_INDICADO = () => erro('CPF_JA_INDICADO', MSG_JA_INDICADO, 409)
+const MSG_JA_PARTICIPA = 'Este servidor já participa da promoção por inscrição direta (ou já iniciou uma proposta), por isso uma indicação agora não gera bonificação nem número da sorte.'
 const VALIDADE_COMPROVANTE_MS = 24 * 3600_000
 
 async function novoComprovante(admin: any, indicacaoId: string) {
@@ -133,7 +134,9 @@ export async function POST(request: NextRequest) {
     return erro('CPF_NAO_ELEGIVEL', 'Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul.', 422)
   }
 
-  const { data: jaInscrito } = await admin.from('promocao_inscricoes').select('id').eq('campanha_id', camp.id).eq('cpf', indicado.cpf).maybeSingle()
+  const { data: jaInscrito } = await admin.from('promocao_inscricoes').select('id, origem').eq('campanha_id', camp.id).eq('cpf', indicado.cpf).maybeSingle()
+  // §9.4: inscrição direta (ou com proposta) anterior à indicação nunca é vinculada a indicador
+  if (jaInscrito?.origem === 'direta') return erro('SERVIDOR_JA_PARTICIPA', MSG_JA_PARTICIPA, 409)
   if (jaInscrito) return JA_INDICADO()
 
   const otpExigido = camp.otp_obrigatorio && (await instanciaPromocaoDisponivel(camp.id).catch(() => false))

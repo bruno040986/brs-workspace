@@ -14,8 +14,8 @@ import type { PermissionAction } from '@/lib/auth/permissions'
 import { somenteDigitos, cpfValido } from './validacao'
 import { mascararCpf, mascararPix, mascararTelefone } from './mascara'
 import { prazoLink } from './dias-uteis'
-import { calcularElegibilidade, direitosDoIndicador, operacoesConsideradasParaIndicador } from './elegibilidade'
-import { dentroDoPeriodo, opsValidasDaInscricao, parametrosDaCampanha, recalcularDireitos, titularesDosNumeros } from './direitos-service'
+import { AVISO_INDICACAO_POSTERIOR, calcularElegibilidade, direitosDoIndicador, indicacaoVale, inscricaoPodeSerIndicada, operacoesConsideradasParaIndicador } from './elegibilidade'
+import { dentroDoPeriodo, opsValidasDaInscricao, parametrosDaCampanha, primeiraDigitacaoDaInscricao, recalcularDireitos, titularesDosNumeros } from './direitos-service'
 import type { OperacaoConfirmada, TipoOperacao } from './tipos'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -195,8 +195,13 @@ export async function vincularManual(slug: string, inscricaoId: string, indicaca
     if (insc.indicacao_id) throw new Error('Esta inscrição já tem indicação vinculada.')
     if (ind.status !== 'valida') throw new Error('A indicação não está válida.')
     if (insc.cpf !== ind.cpf_indicado) throw new Error('O CPF da inscrição não confere com o CPF indicado.')
-    if (camp.regra_data_indicacao !== 'sem_restricao' && new Date(insc.created_at) < new Date(ind.inscrita_em)) {
-      throw new Error('Inscrição anterior à indicação: não pode ser vinculada retroativamente.')
+    if (camp.regra_data_indicacao !== 'sem_restricao') {
+      if (!inscricaoPodeSerIndicada(insc.origem, insc.created_at, ind.inscrita_em)) {
+        throw new Error('Inscrição direta/anterior à indicação: não pode ser vinculada retroativamente (regulamento §9.4).')
+      }
+      if (!indicacaoVale(ind.inscrita_em, await primeiraDigitacaoDaInscricao(insc.id))) {
+        throw new Error('Já existe proposta cadastrada antes da indicação: não pode ser vinculada (regulamento §9.4).')
+      }
     }
     const { error } = await db.from('promocao_inscricoes').update({ indicacao_id: ind.id, updated_at: new Date().toISOString() }).eq('id', insc.id)
     if (error) throw error
@@ -407,11 +412,20 @@ export async function calcularCpf(slug: string, cpf: string, draft?: DraftOp | n
     if (insc.indicacao_id) {
       const { data: ind } = await db.from('promocao_indicacoes').select('inscrita_em, indicador:promocao_indicadores(nome)').eq('id', insc.indicacao_id).maybeSingle()
       if (ind) {
-        const calc = (o: OperacaoConfirmada[]) => {
-          const r = direitosDoIndicador(operacoesConsideradasParaIndicador(o, ind.inscrita_em, camp.regra_data_indicacao), p)
+        const primeira = await primeiraDigitacaoDaInscricao(insc.id)
+        const primeiraRasc = rasc && draft && (!primeira || draft.dataDigitacao < primeira) ? draft.dataDigitacao : primeira
+        const calc = (o: OperacaoConfirmada[], prim: string | null) => {
+          const r = direitosDoIndicador(operacoesConsideradasParaIndicador(o, ind.inscrita_em, camp.regra_data_indicacao, prim), p)
           return { pixDevido: r.pixDevido, numeroDevido: r.numeroDevido, totalCentavos: r.elegibilidade.totalCentavos }
         }
-        indicador = { nome: ind.indicador?.nome, atual: calc(ops), comRascunho: rasc ? calc(rasc) : null }
+        const vale = (prim: string | null) => camp.regra_data_indicacao !== 'digitacao_apos_inscricao' || indicacaoVale(ind.inscrita_em, prim)
+        indicador = {
+          nome: ind.indicador?.nome,
+          atual: calc(ops, primeira),
+          comRascunho: rasc ? calc(rasc, primeiraRasc) : null,
+          aviso: vale(primeira) ? null : AVISO_INDICACAO_POSTERIOR,
+          avisoComRascunho: rasc && !vale(primeiraRasc) ? AVISO_INDICACAO_POSTERIOR : null,
+        }
       }
     }
     return { ok: true, encontrado: true, inscricao: { id: insc.id, nome: insc.nome, codigo: insc.codigo, status: insc.status, emitidos }, atual, comRascunho, indicador }
