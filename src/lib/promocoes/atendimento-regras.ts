@@ -124,9 +124,28 @@ export function motivoReavaliacao(
 }
 
 /** Última tentativa do job (M2). */
-export const ehUltimaTentativa = (job: { attempts?: number; max_attempts?: number }): boolean => (job.attempts ?? 0) + 1 >= (job.max_attempts ?? 5)
+/** claimDueJobs já incrementou `attempts` antes de executar. */
+export const ehUltimaTentativa = (job: { attempts?: number; max_attempts?: number }): boolean => (job.attempts ?? 0) >= (job.max_attempts ?? 5)
 
 /** Lease (B2): só executa `fn` quem adquire; os demais recebem `senao`. */
 export async function comLease<T>(adquirir: () => Promise<boolean>, fn: () => Promise<T>, senao: T): Promise<T> {
   return (await adquirir()) ? fn() : senao
+}
+
+export const MSG_INCERTO_TERMINAL = 'ENVIO_INCERTO'
+export const MSG_FORA_HORARIO = 'ATENDIMENTO_REAVALIACAO: FORA_HORARIO'
+
+/** Lease: só `pendente`, ou `enviando` vencido (executor morto). `incerto` do engine é TERMINAL (pode ter saído 1, nunca 2). */
+export function leaseRetomavel(p: { status: string; erro: string | null; updatedAt: string }, agora: Date): boolean {
+  if (p.status === 'pendente') return true
+  return p.status === 'incerto' && p.erro === 'enviando' && new Date(p.updatedAt).getTime() < agora.getTime() - LEASE_VENCE_MS
+}
+
+/** Próximo instante (minuto cheio) em que a janela 7h–21h SP está aberta; `agora` (truncado) se já aberta. */
+export function proximoInicioDeJanela(agora: Date, fuso = 'America/Sao_Paulo'): Date {
+  let t = new Date(Math.floor(agora.getTime() / 60_000) * 60_000)
+  if (dentroDoHorario(t, fuso)) return t
+  for (let i = 0; i < 48 && !dentroDoHorario(t, fuso); i++) t = new Date(t.getTime() + 3600_000)
+  for (let i = 0; i < 60 && dentroDoHorario(new Date(t.getTime() - 60_000), fuso); i++) t = new Date(t.getTime() - 60_000)
+  return t
 }

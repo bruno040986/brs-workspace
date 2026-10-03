@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { atingiuLimite, botaoDoEstado, comLease, dentroDoHorario, ehUltimaTentativa, escolherCandidata, gatesGlobais, instanciaAindaPermitida, mapearResultadoParaStatus, motivoReavaliacao, reservarSlots, slotsDoPedido, TETO_CAMPANHA_DIA, type GateCampanha } from '../atendimento-regras.ts'
+import { atingiuLimite, botaoDoEstado, comLease, dentroDoHorario, ehUltimaTentativa, escolherCandidata, leaseRetomavel, proximoInicioDeJanela, gatesGlobais, instanciaAindaPermitida, mapearResultadoParaStatus, motivoReavaliacao, reservarSlots, slotsDoPedido, TETO_CAMPANHA_DIA, type GateCampanha } from '../atendimento-regras.ts'
 import {
   CONSENTIMENTO_INDICADO_GRAVADO,
   CONSENTIMENTO_INDICADO_TEXTO,
@@ -139,7 +139,25 @@ test('reavaliação na hora do envio', () => {
 })
 
 test('última tentativa do job (ESGOTADO)', () => {
-  assert.equal(ehUltimaTentativa({ attempts: 3, max_attempts: 5 }), false)
-  assert.equal(ehUltimaTentativa({ attempts: 4, max_attempts: 5 }), true)
+  assert.equal(ehUltimaTentativa({ attempts: 4, max_attempts: 5 }), false)
+  assert.equal(ehUltimaTentativa({ attempts: 5, max_attempts: 5 }), true)
   assert.equal(ehUltimaTentativa({}), false)
+})
+
+test('lease: incerto terminal não é retomado; enviando vencido é', () => {
+  const agora2 = new Date('2026-10-10T12:00:00Z')
+  const antigo = '2026-10-10T11:00:00Z'
+  const recente = '2026-10-10T11:58:00Z'
+  assert.equal(leaseRetomavel({ status: 'pendente', erro: null, updatedAt: recente }, agora2), true)
+  assert.equal(leaseRetomavel({ status: 'incerto', erro: 'ENVIO_INCERTO: timeout', updatedAt: antigo }, agora2), false)
+  assert.equal(leaseRetomavel({ status: 'incerto', erro: null, updatedAt: antigo }, agora2), false)
+  assert.equal(leaseRetomavel({ status: 'incerto', erro: 'enviando', updatedAt: recente }, agora2), false)
+  assert.equal(leaseRetomavel({ status: 'incerto', erro: 'enviando', updatedAt: antigo }, agora2), true)
+  assert.equal(leaseRetomavel({ status: 'enviado', erro: null, updatedAt: antigo }, agora2), false)
+})
+
+test('proximoInicioDeJanela: 07:00 SP seguinte', () => {
+  assert.equal(proximoInicioDeJanela(new Date('2026-10-11T02:13:45Z')).toISOString(), '2026-10-11T10:00:00.000Z') // 23:13 -> 07:00 do dia seguinte
+  assert.equal(proximoInicioDeJanela(new Date('2026-10-10T08:30:00Z')).toISOString(), '2026-10-10T10:00:00.000Z') // 05:30 -> 07:00
+  assert.equal(proximoInicioDeJanela(new Date('2026-10-10T12:00:30Z')).toISOString(), '2026-10-10T12:00:00.000Z') // já aberta
 })

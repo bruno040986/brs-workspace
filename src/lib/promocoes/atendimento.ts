@@ -2,7 +2,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { gerarToken, hashToken } from './codigos'
 import { registrarEvento, type Campanha } from './http'
-import { comLease, escolherCandidata, LEASE_VENCE_MS, mapearResultadoParaStatus, motivoReavaliacao, type Candidata } from './atendimento-regras'
+import { comLease, MSG_FORA_HORARIO, MSG_INCERTO_TERMINAL, escolherCandidata, LEASE_VENCE_MS, mapearResultadoParaStatus, motivoReavaliacao, type Candidata } from './atendimento-regras'
 import { textoAtendimentoIndicado, textoAtendimentoServidor } from './atendimento-textos'
 import { enviarWhatsappPorInstancia, type ResultadoEnvio } from './whatsapp'
 
@@ -171,19 +171,11 @@ export async function criarPedido(
   return { id: String(data.id) }
 }
 
-/** Lease atômico: pendente → incerto/'enviando' (1 linha) ou retomada de um 'enviando' vencido / 'incerto' sem executor. */
+/** Lease atômico: pendente → incerto/'enviando' (1 linha) ou retomada de um 'enviando' vencido. `incerto` do engine é terminal. */
 async function adquirirLease(admin: any, pedidoId: string): Promise<boolean> {
   const marca = { status: 'incerto', erro: 'enviando' }
   const { data } = await admin.from('promocao_pedidos_atendimento').update(marca).eq('id', pedidoId).eq('status', 'pendente').select('id')
   if (data?.length === 1) return true
-  const { data: r1 } = await admin
-    .from('promocao_pedidos_atendimento')
-    .update(marca)
-    .eq('id', pedidoId)
-    .eq('status', 'incerto')
-    .or('erro.is.null,erro.neq.enviando')
-    .select('id')
-  if (r1?.length === 1) return true
   const vencido = new Date(Date.now() - LEASE_VENCE_MS).toISOString()
   const { data: r2 } = await admin
     .from('promocao_pedidos_atendimento')
@@ -203,8 +195,8 @@ async function adquirirLease(admin: any, pedidoId: string): Promise<boolean> {
 export async function enviarPedidoAtendimento(pedidoId: string, opts: { ultimaTentativa?: boolean } = {}): Promise<ResultadoEnvio> {
   const admin: any = await createAdminClient()
   const esgotar = async (r: ResultadoEnvio): Promise<ResultadoEnvio> => {
-    if (opts.ultimaTentativa && r.resultado !== 'confirmado') {
-      await admin.from('promocao_pedidos_atendimento').update({ status: 'rejeitado', erro: 'ESGOTADO' }).eq('id', pedidoId).in('status', ['pendente', 'incerto'])
+    if (opts.ultimaTentativa && r.resultado !== 'confirmado' && r.mensagem !== MSG_FORA_HORARIO && !r.mensagem.startsWith(MSG_INCERTO_TERMINAL)) {
+      await admin.from('promocao_pedidos_atendimento').update({ status: 'rejeitado', erro: 'ESGOTADO' }).eq('id', pedidoId).eq('status', 'pendente')
     }
     return r
   }
@@ -212,6 +204,8 @@ export async function enviarPedidoAtendimento(pedidoId: string, opts: { ultimaTe
   if (!p) return { resultado: 'rejeitado', mensagem: 'PEDIDO_INEXISTENTE_sem_whatsapp' } // descarta o job: nada a retentar
   if (p.status === 'enviado') return { resultado: 'confirmado', conversationId: null }
   if (p.status === 'rejeitado') return { resultado: 'rejeitado', mensagem: 'numero_sem_whatsapp' }
+  // incerto do engine é terminal: pode ter saído 1 mensagem, nunca reenviar (conta não durável)
+  if (p.status === 'incerto' && p.erro !== 'enviando') return { resultado: 'incerto', mensagem: MSG_INCERTO_TERMINAL }
   if (!p.instancia_usada_id) return esgotar({ resultado: 'incerto', mensagem: 'INSTANCIA_NAO_FIXADA' })
 
   // A1: reavaliar campanha/instância na hora do envio
@@ -226,7 +220,7 @@ export async function enviarPedidoAtendimento(pedidoId: string, opts: { ultimaTe
         new Date(),
       )
     : 'CAMPANHA_INEXISTENTE'
-  if (motivo) return esgotar({ resultado: 'incerto', mensagem: `ATENDIMENTO_REAVALIACAO: ${motivo}` })
+  if (motivo) return esgotar({ resultado: 'incerto', mensagem: motivo === 'FORA_HORARIO' ? MSG_FORA_HORARIO : `ATENDIMENTO_REAVALIACAO: ${motivo}` })
 
   const r = await comLease<ResultadoEnvio>(() => adquirirLease(admin, pedidoId), () => enviarComLease(admin, p), { resultado: 'incerto', mensagem: 'em andamento' })
   return esgotar(r)
@@ -255,13 +249,14 @@ async function enviarComLease(admin: any, p: any): Promise<ResultadoEnvio> {
   )
   const { data: envio } = await admin.from('promocao_envios').select('id').eq('chave', chave).maybeSingle()
   const status = mapearResultadoParaStatus(r)
+  const retorno: ResultadoEnvio = r.resultado === 'incerto' ? { resultado: 'incerto', mensagem: `${MSG_INCERTO_TERMINAL}: ${r.mensagem}` } : r
   const patch: Record<string, unknown> = { status, envio_id: envio?.id ?? null }
   if (status === 'enviado') Object.assign(patch, { enviado_em: new Date().toISOString(), erro: null })
-  else if (r.resultado !== 'confirmado') patch.erro = String(r.mensagem).slice(0, 200)
+  else if (retorno.resultado !== 'confirmado') patch.erro = String(retorno.mensagem).slice(0, 200)
   await admin.from('promocao_pedidos_atendimento').update(patch).eq('id', pedidoId)
   if (status === 'enviado') await registrarEvento(admin, p.campanha_id, 'pedido_atendimento', pedidoId, 'atendimento.enviado', {})
   if (status === 'rejeitado') await registrarEvento(admin, p.campanha_id, 'pedido_atendimento', pedidoId, 'atendimento.rejeitado', { erro: String(patch.erro) })
-  return r
+  return retorno
 }
 
 async function voltarPendente(admin: any, pedidoId: string, erro: string): Promise<ResultadoEnvio> {

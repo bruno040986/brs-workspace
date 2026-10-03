@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextRequest } from 'next/server'
+import { NextRequest, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { cpfBloqueado } from '@/lib/promocoes/cadastro-publico'
 import { atingiuLimite, FALLBACK_JOB_MS, gatesGlobais, reservarSlots, slotsDoPedido } from '@/lib/promocoes/atendimento-regras'
@@ -91,14 +91,20 @@ export async function POST(request: NextRequest) {
   await registrarEvento(admin, camp.id, 'pedido_atendimento', pedido.id, 'atendimento.pedido_criado', {
     tipo, inscricaoId: alvo.inscricaoId, indicacaoId: alvo.indicacaoId, instanciaUsadaId: inst.id,
   })
-  await enqueueJob({ kind: 'promocoes.atendimento_enviar', payload: { pedidoId: pedido.id }, dedupeKey: `promo-atend:${pedido.id}`, maxAttempts: 5, runAfterIso: new Date(Date.now() + FALLBACK_JOB_MS).toISOString() })
+  const fila = await enqueueJob({ kind: 'promocoes.atendimento_enviar', payload: { pedidoId: pedido.id }, dedupeKey: `promo-atend:${pedido.id}`, maxAttempts: 5, runAfterIso: new Date(Date.now() + FALLBACK_JOB_MS).toISOString() })
+  const semFallback = !fila.enqueued && !fila.deduped
+  if (semFallback) logSeguro('atendimento enqueue', fila.error || 'job não enfileirado')
 
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([enviarPedidoAtendimento(pedido.id), new Promise((res) => { timer = setTimeout(res, 20_000) })])
-  } catch (e) {
-    logSeguro('atendimento envio inline', e)
-  } finally {
+  // envio inline continua vivo após a resposta (after) — a Vercel não congela a continuação
+  const envio = enviarPedidoAtendimento(pedido.id).catch((e) => logSeguro('atendimento envio inline', e))
+  after(() => envio)
+  if (semFallback) {
+    // sem job de fallback: espera o envio terminar; se seguir pendente, encerra (ESGOTADO) em vez de ficar pendente para sempre — o lead usa o botão receptivo
+    await envio
+    await admin.from('promocao_pedidos_atendimento').update({ status: 'rejeitado', erro: 'ESGOTADO' }).eq('id', pedido.id).eq('status', 'pendente')
+  } else {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([envio, new Promise((res) => { timer = setTimeout(res, 20_000) })])
     if (timer) clearTimeout(timer)
   }
   const { data: p } = await admin.from('promocao_pedidos_atendimento').select('status').eq('id', pedido.id).maybeSingle()
