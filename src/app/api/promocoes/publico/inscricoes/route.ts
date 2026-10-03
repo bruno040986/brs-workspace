@@ -16,7 +16,7 @@ import {
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
 import { MSG_NASCIMENTO, validarNascimento } from '@/lib/promocoes/validacao'
-import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE, type Campanha } from '@/lib/promocoes/http'
+import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, UUID_RE, type Campanha } from '@/lib/promocoes/http'
 import { consumirOtpToken, liberarOtpToken } from '@/lib/promocoes/otp'
 import { instanciaPromocaoDisponivel } from '@/lib/promocoes/whatsapp'
 
@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
   const userAgent = request.headers.get('user-agent') || ''
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
+  const fechado = cadastroFechado(camp)
+  if (fechado) return fechado
   const limiteIp = await aplicarLimites([[`rl:insc:ip:${ip}`, 200, 3600]])
   if (limiteIp) return limiteIp
 
@@ -72,10 +74,6 @@ export async function POST(request: NextRequest) {
   const { data: repetida } = await admin.from('promocao_inscricoes').select('*').eq('submission_id', submissionId).eq('campanha_id', camp.id).maybeSingle()
   if (repetida) return resposta(admin, camp, repetida)
 
-  if (await cpfBloqueado(admin, camp.id, [cpf])) {
-    return erro('CPF_NAO_ELEGIVEL', 'Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul.', 422)
-  }
-
   const otpExigido = camp.otp_obrigatorio && (await instanciaPromocaoDisponivel(camp.id).catch(() => false))
   const tokenInformado = typeof body.otpToken === 'string' && body.otpToken ? body.otpToken : null
   let verificado = false
@@ -86,6 +84,12 @@ export async function POST(request: NextRequest) {
   }
   if (otpExigido && !verificado) return erro('OTP_OBRIGATORIO', 'Confirme seu WhatsApp com o código enviado.', 401)
 
+  // consultas de CPF só DEPOIS do OTP (sem oráculo de CPF para quem não provou o telefone)
+  if (await cpfBloqueado(admin, camp.id, [cpf])) {
+    if (tokenInformado && verificado) await liberarOtpToken(admin, tokenInformado).catch(() => undefined)
+    return erro('CPF_NAO_ELEGIVEL', 'Não foi possível concluir o cadastro com este CPF. Fale com a NuAzul.', 422)
+  }
+
   // CPF já inscrito: só revela/assume com posse comprovada do telefone (OTP verificado); nunca confirma vínculo CPF↔telefone sem isso
   const JA_INSCRITO = () => erro('CPF_JA_INSCRITO', 'Este CPF já possui inscrição. Fale com a NuAzul se precisar de ajuda.', 409)
   const tratarCpfExistente = async (): Promise<{ resp: Response | null; assumida: any | null }> => {
@@ -94,6 +98,12 @@ export async function POST(request: NextRequest) {
     if (otpExigido && !verificado) return { resp: JA_INSCRITO(), assumida: null }
     if (existente.telefone === telefone) return { resp: await resposta(admin, camp, existente), assumida: null }
     if (existente.origem === 'indicacao' && verificado) {
+      // 2º fator: o OTP só prova o telefone do chamador; o nascimento tem de bater com o informado pelo indicador
+      if (existente.data_nascimento && nascimento !== existente.data_nascimento) {
+        await liberarOtpToken(admin, tokenInformado!).catch(() => undefined)
+        await registrarEvento(admin, camp.id, 'inscricao', existente.id, 'inscricao.assuncao_recusada', { inscricaoId: existente.id })
+        return { resp: JA_INSCRITO(), assumida: null }
+      }
       // indicado confirmou o próprio WhatsApp: o servidor assume o cadastro (vínculo e código mantidos)
       if (!nascimento && !existente.data_nascimento) {
         await liberarOtpToken(admin, tokenInformado!).catch(() => undefined)

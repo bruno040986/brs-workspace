@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { gerarCodigoOtp, hashOtp } from '@/lib/promocoes/codigos'
 import { lerTelefone } from '@/lib/promocoes/cadastro-publico'
-import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok } from '@/lib/promocoes/http'
+import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok } from '@/lib/promocoes/http'
 import { textoOtp } from '@/lib/promocoes/mensagens'
 import { enviarWhatsappPromocao, instanciaPromocaoDisponivel } from '@/lib/promocoes/whatsapp'
 
@@ -22,6 +22,8 @@ export async function POST(request: NextRequest) {
   const ip = ipDoRequest(request)
   const camp = await buscarCampanha(body.campanha)
   if (!camp) return CAMPANHA_INDISPONIVEL()
+  const fechado = cadastroFechado(camp)
+  if (fechado) return fechado
   const finalidade = body.finalidade === 'indicador' ? 'indicador' : body.finalidade === 'servidor' ? 'servidor' : null
   const erros: Array<{ campo: string; msg: string }> = []
   const telefone = lerTelefone(body.telefone, 'telefone', erros)
@@ -31,6 +33,7 @@ export async function POST(request: NextRequest) {
     [`rl:otp:ip:${ip}`, 100, 3600],
     [`rl:otp:ip-dia:${ip}`, 30, 86400],
     [`rl:otp:global:${camp.id}`, 300, 3600],
+    [`rl:otp:global-dia:${camp.id}`, 600, 86400],
     [`rl:otp:tel:${telefone}`, 3, 3600],
   ])
   if (limite) return limite
