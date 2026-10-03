@@ -57,10 +57,16 @@ async function handleAvisoPagamento(job: EngineJob): Promise<void> {
   await h(job)
 }
 
+async function handleAtendimentoEnviar(job: EngineJob): Promise<void> {
+  const { handleAtendimentoEnviar: h } = await import('./jobs-atendimento')
+  await h(job)
+}
+
 export function registrarHandlersPromocao(deps: { registerHandler: (kind: string, fn: (job: EngineJob) => Promise<void>) => void }): void {
   deps.registerHandler('promocoes.wesales_sync', handleWesalesSync)
   deps.registerHandler('promocoes.enviar_link_numeros', handleEnviarLinkNumeros)
   deps.registerHandler('promocoes.enviar_comprovante', handleEnviarComprovante)
   deps.registerHandler('promocoes.aviso_pagamento', handleAvisoPagamento)
   deps.registerHandler('promocoes.recalcular_direitos', handleRecalcularDireitos)
+  deps.registerHandler('promocoes.atendimento_enviar', handleAtendimentoEnviar)
 }

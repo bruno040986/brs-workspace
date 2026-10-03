@@ -11,6 +11,8 @@ export type TipoEnvioPromocao =
   | 'link_numeros_indicador'
   | 'comprovante_numeros'
   | 'aviso_pagamento'
+  | 'atendimento_servidor'
+  | 'atendimento_indicado'
 
 export type EnvioPromocao = {
   campanhaId: string
@@ -30,6 +32,11 @@ async function instanciaDaCampanha(admin: any, campanhaId: string): Promise<{ id
   return inst ? { id: String(inst.id), status: String(inst.status) } : null
 }
 
+async function instanciaPorId(admin: any, id: string): Promise<{ id: string; status: string } | null> {
+  const { data: inst } = await admin.from('chat_instancias').select('id, status').eq('id', id).is('deleted_at', null).maybeSingle()
+  return inst ? { id: String(inst.id), status: String(inst.status) } : null
+}
+
 export async function instanciaPromocaoDisponivel(campanhaId: string): Promise<boolean> {
   const admin: any = await createAdminClient()
   return (await instanciaDaCampanha(admin, campanhaId))?.status === 'conectada'
@@ -41,6 +48,15 @@ export async function instanciaPromocaoDisponivel(campanhaId: string): Promise<b
  * promocao_envios e é reaproveitado em qualquer retentativa (nunca gerar outro).
  */
 export async function enviarWhatsappPromocao(e: EnvioPromocao): Promise<ResultadoEnvio> {
+  return enviarPor(e, null)
+}
+
+/** Igual a enviarWhatsappPromocao, mas pela instância PASSADA (já validada pela allowlist). Nunca lê campanha.instancia_id. */
+export async function enviarWhatsappPorInstancia(e: EnvioPromocao, instanciaId: string): Promise<ResultadoEnvio> {
+  return enviarPor(e, instanciaId)
+}
+
+async function enviarPor(e: EnvioPromocao, instanciaId: string | null): Promise<ResultadoEnvio> {
   const admin: any = await createAdminClient()
 
   await admin
@@ -53,7 +69,7 @@ export async function enviarWhatsappPromocao(e: EnvioPromocao): Promise<Resultad
   if (error || !envio) return { resultado: 'incerto', mensagem: 'Não foi possível registrar o envio (promocao_envios).' }
   if (envio.status === 'enviado') return { resultado: 'confirmado', conversationId: null }
 
-  const inst = await instanciaDaCampanha(admin, e.campanhaId)
+  const inst = instanciaId ? await instanciaPorId(admin, instanciaId) : await instanciaDaCampanha(admin, e.campanhaId)
   if (!inst || inst.status !== 'conectada') return { resultado: 'rejeitado', mensagem: 'INSTANCIA_OFFLINE' }
 
   const marcar = (patch: Record<string, unknown>) =>
