@@ -52,6 +52,7 @@ export const M_FALHOU = {
   servidor: 'Não conseguimos entregar a mensagem neste número. Use o botão "Falar no WhatsApp".',
   indicado: 'Não conseguimos entregar a mensagem ao seu indicado. Use o botão "Enviar pelo meu WhatsApp".',
 } as const
+export const M_HORARIO = 'A NuAzul chama das 7h às 21h. Use o botão do WhatsApp ou volte mais tarde.'
 export const M_ENFASE_B = 'Sem a autorização do indicado, envie pelo seu WhatsApp.'
 
 /** Mensagens de erro da API (CONTRATO §3.2). */

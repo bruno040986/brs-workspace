@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { atingiuLimite, botaoDoEstado, escolherCandidata, gatesGlobais, mapearResultadoParaStatus, type GateCampanha } from '../atendimento-regras.ts'
+import { atingiuLimite, botaoDoEstado, comLease, dentroDoHorario, ehUltimaTentativa, escolherCandidata, gatesGlobais, instanciaAindaPermitida, mapearResultadoParaStatus, motivoReavaliacao, reservarSlots, slotsDoPedido, TETO_CAMPANHA_DIA, type GateCampanha } from '../atendimento-regras.ts'
 import {
   CONSENTIMENTO_INDICADO_GRAVADO,
   CONSENTIMENTO_INDICADO_TEXTO,
@@ -60,6 +60,8 @@ test('botaoDoEstado', () => {
   assert.equal(botaoDoEstado({ ...ok, pedidoStatus: 'incerto' }), 'ja_enviado')
   assert.equal(botaoDoEstado({ ...ok, pedidoStatus: 'rejeitado' }), 'falhou')
   assert.equal(botaoDoEstado({ ...ok, gate: 'pausado' }), 'indisponivel')
+  assert.equal(botaoDoEstado({ ...ok, gate: 'fora_horario' }), 'fora_horario')
+  assert.equal(botaoDoEstado({ ...ok, gate: 'fora_horario', telefoneVerificado: false }), 'indisponivel')
   assert.equal(botaoDoEstado({ ...ok, telefoneVerificado: false }), 'indisponivel')
   assert.equal(botaoDoEstado({ ...ok, bloqueado: true }), 'indisponivel')
   assert.equal(botaoDoEstado({ ...ok, algumaConectada: false }), 'indisponivel')
@@ -85,4 +87,59 @@ test('botão B: wa.me do indicado com link interno', () => {
   const url = urlWhatsappIndicado('5561999990000', t)
   assert.ok(url.startsWith('https://wa.me/5561999990000?text='))
   assert.equal(decodeURIComponent(url.split('?text=')[1]), t)
+})
+
+test('horário 7h-21h em São Paulo e gate fora_horario', () => {
+  assert.equal(dentroDoHorario(new Date('2026-10-10T09:59:00Z')), false) // 06:59
+  assert.equal(dentroDoHorario(new Date('2026-10-10T10:00:00Z')), true) // 07:00
+  assert.equal(dentroDoHorario(new Date('2026-10-10T23:59:00Z')), true) // 20:59
+  assert.equal(dentroDoHorario(new Date('2026-10-11T00:00:00Z')), false) // 21:00
+  assert.equal(gatesGlobais(base, new Date('2026-10-11T02:00:00Z')), 'fora_horario')
+  assert.equal(gatesGlobais({ ...base, atendimento_pausado: true }, new Date('2026-10-11T02:00:00Z')), 'pausado')
+})
+
+test('limite atômico: slot ocupado nega e para na ordem', async () => {
+  const camp = { limite_atendimento_indicador_hora: 30, limite_atendimento_instancia_hora: 40, limite_atendimento_instancia_dia: 200 }
+  const slots = slotsDoPedido(camp, { tipo: 'indicado', indicadorId: 'd1', instanciaId: 'i1' })
+  assert.deepEqual(slots.map((x) => x.chave), ['rl:atend:indicador:d1', 'rl:atend:camp:d', 'rl:atend:inst:i1:h', 'rl:atend:inst:i1:d'])
+  assert.equal(slots[1].limite, TETO_CAMPANHA_DIA)
+  assert.equal(slotsDoPedido(camp, { tipo: 'servidor', indicadorId: null, instanciaId: 'i1' }).length, 3)
+  const usados = new Map<string, number>()
+  const tentar = async (k: string, lim: number) => { const n = (usados.get(k) ?? 0) + 1; usados.set(k, n); return n <= lim }
+  const pequeno = { ...camp, limite_atendimento_indicador_hora: 1 }
+  assert.equal(await reservarSlots(slotsDoPedido(pequeno, { tipo: 'indicado', indicadorId: 'd1', instanciaId: 'i1' }), tentar), null)
+  assert.equal(await reservarSlots(slotsDoPedido(pequeno, { tipo: 'indicado', indicadorId: 'd1', instanciaId: 'i1' }), tentar), 'LIMITE_INDICADOR')
+  assert.equal(usados.get('rl:atend:camp:d'), 1) // parou no indicador
+  const cheia = { ...camp, limite_atendimento_instancia_hora: 0 }
+  assert.equal(await reservarSlots(slotsDoPedido(cheia, { tipo: 'servidor', indicadorId: null, instanciaId: 'i2' }), tentar), 'LIMITE_INSTANCIA')
+})
+
+test('lease: só um executor envia', async () => {
+  let livre = true
+  let envios = 0
+  const adquirir = async () => { if (!livre) return false; livre = false; return true }
+  const enviar = async () => { envios++; return 'enviou' }
+  const r = await Promise.all([comLease(adquirir, enviar, 'em andamento'), comLease(adquirir, enviar, 'em andamento')])
+  assert.equal(envios, 1)
+  assert.deepEqual(r.sort(), ['em andamento', 'enviou'])
+})
+
+test('reavaliação na hora do envio', () => {
+  const camp = { ...base, instancia_atendimento_reserva_id: 'r' }
+  const inst = { status: 'conectada', deletedAt: null, agenteParceiroId: 'p' }
+  assert.equal(motivoReavaliacao(camp, 'i', inst, agora), null)
+  assert.equal(motivoReavaliacao(camp, 'r', inst, agora), null)
+  assert.equal(motivoReavaliacao({ ...camp, atendimento_pausado: true }, 'i', inst, agora), 'PAUSADO')
+  assert.equal(motivoReavaliacao(camp, 'x', inst, agora), 'INSTANCIA_TROCADA')
+  assert.equal(motivoReavaliacao(camp, 'i', { ...inst, status: 'desconectada' }, agora), 'INSTANCIA_OFFLINE')
+  assert.equal(motivoReavaliacao(camp, 'i', { ...inst, agenteParceiroId: 'z' }, agora), 'PARCEIRO_DIFERENTE')
+  assert.equal(motivoReavaliacao(camp, 'i', inst, new Date('2026-10-11T02:00:00Z')), 'FORA_HORARIO')
+  assert.equal(instanciaAindaPermitida(camp, 'r'), true)
+  assert.equal(instanciaAindaPermitida(camp, 'otp'), false)
+})
+
+test('última tentativa do job (ESGOTADO)', () => {
+  assert.equal(ehUltimaTentativa({ attempts: 3, max_attempts: 5 }), false)
+  assert.equal(ehUltimaTentativa({ attempts: 4, max_attempts: 5 }), true)
+  assert.equal(ehUltimaTentativa({}), false)
 })

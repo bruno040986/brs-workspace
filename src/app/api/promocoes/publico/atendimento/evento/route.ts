@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { indicacaoPorComprovante } from '@/lib/promocoes/atendimento'
+import { indicacaoPorAtendimentoToken } from '@/lib/promocoes/atendimento'
 import { MSG_ERRO } from '@/lib/promocoes/atendimento-textos'
 import { hashToken } from '@/lib/promocoes/codigos'
 import { aplicarLimites, buscarCampanha, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, ok, registrarEvento } from '@/lib/promocoes/http'
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   ])
   if (limite) return limite
   const admin: any = await createAdminClient()
-  const indicacaoId = await indicacaoPorComprovante(admin, camp.id, t)
+  const indicacaoId = await indicacaoPorAtendimentoToken(admin, camp.id, t)
   if (!indicacaoId) return erro('LINK_INVALIDO', MSG_ERRO.LINK_INVALIDO, 404)
   // tipo fora da allowlist: 200 sem gravar (sem oráculo)
   if (TIPOS.includes(body.tipo)) await registrarEvento(admin, camp.id, 'indicacao', indicacaoId, `atendimento.${body.tipo}`, {})

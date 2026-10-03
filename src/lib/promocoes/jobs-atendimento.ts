@@ -1,5 +1,6 @@
 import type { EngineJob } from '@/lib/scp-engine/decisions'
 import { enviarPedidoAtendimento } from './atendimento'
+import { ehUltimaTentativa } from './atendimento-regras'
 
 const SEM_WHATSAPP = /sem_whatsapp|not.?on.?whatsapp/i
 
@@ -7,7 +8,7 @@ const SEM_WHATSAPP = /sem_whatsapp|not.?on.?whatsapp/i
 export async function handleAtendimentoEnviar(job: EngineJob): Promise<void> {
   const pedidoId = String(job.payload?.pedidoId || '')
   if (!pedidoId) throw new Error('promocoes.atendimento_enviar sem pedidoId')
-  const r = await enviarPedidoAtendimento(pedidoId)
+  const r = await enviarPedidoAtendimento(pedidoId, { ultimaTentativa: ehUltimaTentativa(job) })
   if (r.resultado === 'confirmado') return
   if (r.resultado === 'rejeitado' && SEM_WHATSAPP.test(r.mensagem)) return
   throw new Error(`envio ${r.resultado}: ${r.mensagem}`.slice(0, 200))

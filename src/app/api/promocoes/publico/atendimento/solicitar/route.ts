@@ -2,11 +2,12 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { cpfBloqueado } from '@/lib/promocoes/cadastro-publico'
-import { atingiuLimite, gatesGlobais } from '@/lib/promocoes/atendimento-regras'
+import { atingiuLimite, FALLBACK_JOB_MS, gatesGlobais, reservarSlots, slotsDoPedido } from '@/lib/promocoes/atendimento-regras'
 import {
   CONSENTIMENTO_INDICADO_GRAVADO,
   CONSENTIMENTO_INDICADO_VERSAO,
   M_FALHOU,
+  M_HORARIO,
   M_JA_ENVIADO,
   M_OK,
   MSG_ERRO,
@@ -14,6 +15,7 @@ import {
 import { contarPedidos, criarPedido, enviarPedidoAtendimento, escolherInstancia, pedidoExistente, resolverAlvo } from '@/lib/promocoes/atendimento'
 import { hashToken } from '@/lib/promocoes/codigos'
 import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento } from '@/lib/promocoes/http'
+import { limiteTentar } from '@/lib/promocoes/rate-limit'
 import { enqueueJob } from '@/lib/scp-engine/queue'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +40,9 @@ export async function POST(request: NextRequest) {
   const tipo = body.tipo
   const t = typeof body.t === 'string' ? body.t : ''
   if ((tipo !== 'servidor' && tipo !== 'indicado') || t.length < 20 || t.length > 100) return JSON_INVALIDO()
-  if (gatesGlobais(camp, new Date()) !== 'ok') return INDISPONIVEL()
+  const gate = gatesGlobais(camp, new Date())
+  if (gate === 'fora_horario') return erro('FORA_HORARIO', M_HORARIO, 409)
+  if (gate !== 'ok') return INDISPONIVEL()
   const limiteTok = await aplicarLimites([[`rl:atend:tok:${hashToken(t)}`, 10, 3600]])
   if (limiteTok) return limiteTok
 
@@ -63,6 +67,11 @@ export async function POST(request: NextRequest) {
   if (inst === 'nenhuma_conectada') return INDISPONIVEL()
   if (inst === 'todas_cheias') return erro('LIMITE_INSTANCIA', MSG_ERRO.LIMITE_INSTANCIA, 429)
 
+  // B1: reserva atômica (2ª barreira, fail-closed) imediatamente antes do insert
+  const negado = await reservarSlots(slotsDoPedido(camp, { tipo, indicadorId: alvo.indicadorId, instanciaId: inst.id }), limiteTentar)
+  if (negado === 'LIMITE_INDICADOR') return erro('LIMITE_INDICADOR', MSG_ERRO.LIMITE_INDICADOR, 429)
+  if (negado) return erro('LIMITE_INSTANCIA', MSG_ERRO.LIMITE_INSTANCIA, 429)
+
   const pedido = await criarPedido(admin, camp, alvo, {
     consentimentoTexto: tipo === 'indicado' ? CONSENTIMENTO_INDICADO_GRAVADO : undefined,
     consentimentoVersao: tipo === 'indicado' ? CONSENTIMENTO_INDICADO_VERSAO : undefined,
@@ -82,7 +91,7 @@ export async function POST(request: NextRequest) {
   await registrarEvento(admin, camp.id, 'pedido_atendimento', pedido.id, 'atendimento.pedido_criado', {
     tipo, inscricaoId: alvo.inscricaoId, indicacaoId: alvo.indicacaoId, instanciaUsadaId: inst.id,
   })
-  await enqueueJob({ kind: 'promocoes.atendimento_enviar', payload: { pedidoId: pedido.id }, dedupeKey: `promo-atend:${pedido.id}`, maxAttempts: 5 })
+  await enqueueJob({ kind: 'promocoes.atendimento_enviar', payload: { pedidoId: pedido.id }, dedupeKey: `promo-atend:${pedido.id}`, maxAttempts: 5, runAfterIso: new Date(Date.now() + FALLBACK_JOB_MS).toISOString() })
 
   let timer: ReturnType<typeof setTimeout> | undefined
   try {

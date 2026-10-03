@@ -2,7 +2,7 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { gerarToken, hashToken } from './codigos'
 import { registrarEvento, type Campanha } from './http'
-import { escolherCandidata, mapearResultadoParaStatus, type Candidata } from './atendimento-regras'
+import { comLease, escolherCandidata, LEASE_VENCE_MS, mapearResultadoParaStatus, motivoReavaliacao, type Candidata } from './atendimento-regras'
 import { textoAtendimentoIndicado, textoAtendimentoServidor } from './atendimento-textos'
 import { enviarWhatsappPorInstancia, type ResultadoEnvio } from './whatsapp'
 
@@ -34,6 +34,15 @@ export async function novoTokenAtendimento(admin: any, inscricaoId: string): Pro
   return token
 }
 
+export async function novoTokenAtendimentoIndicacao(admin: any, indicacaoId: string): Promise<string> {
+  const { token, hash } = gerarToken()
+  await admin
+    .from('promocao_indicacoes')
+    .update({ atendimento_token_hash: hash, atendimento_token_expira_em: new Date(Date.now() + VALIDADE_TOKEN_MS).toISOString() })
+    .eq('id', indicacaoId)
+  return token
+}
+
 export async function resolverAlvo(admin: any, campanhaId: string, tipo: TipoAtendimento, t: string): Promise<Alvo | null> {
   const hash = hashToken(t)
   const agora = Date.now()
@@ -57,11 +66,11 @@ export async function resolverAlvo(admin: any, campanhaId: string, tipo: TipoAte
 async function resolverIndicacao(admin: any, campanhaId: string, hash: string, agora: number): Promise<Alvo | null> {
   const { data: ind } = await admin
     .from('promocao_indicacoes')
-    .select('id, numero, status, inscricao_id, indicador_id, comprovante_expira_em')
-    .eq('comprovante_token_hash', hash)
+    .select('id, numero, status, inscricao_id, indicador_id, atendimento_token_expira_em')
+    .eq('atendimento_token_hash', hash)
     .eq('campanha_id', campanhaId)
     .maybeSingle()
-  if (!ind || ind.status !== 'valida' || !ind.comprovante_expira_em || new Date(ind.comprovante_expira_em).getTime() < agora) return null
+  if (!ind || ind.status !== 'valida' || !ind.atendimento_token_expira_em || new Date(ind.atendimento_token_expira_em).getTime() < agora) return null
   const [{ data: i }, { data: dor }] = await Promise.all([
     admin.from('promocao_inscricoes').select('id, codigo, cpf, nome, telefone, status').eq('id', ind.inscricao_id).maybeSingle(),
     admin.from('promocao_indicadores').select('id, cpf, nome, telefone_verificado').eq('id', ind.indicador_id).maybeSingle(),
@@ -74,15 +83,15 @@ async function resolverIndicacao(admin: any, campanhaId: string, hash: string, a
   }
 }
 
-/** Token do indicador → id da indicação (botão B: só auditoria). */
-export async function indicacaoPorComprovante(admin: any, campanhaId: string, t: string): Promise<string | null> {
+/** Token de atendimento do indicador → id da indicação (botão B: só auditoria). */
+export async function indicacaoPorAtendimentoToken(admin: any, campanhaId: string, t: string): Promise<string | null> {
   const { data: ind } = await admin
     .from('promocao_indicacoes')
-    .select('id, status, comprovante_expira_em')
-    .eq('comprovante_token_hash', hashToken(t))
+    .select('id, status, atendimento_token_expira_em')
+    .eq('atendimento_token_hash', hashToken(t))
     .eq('campanha_id', campanhaId)
     .maybeSingle()
-  if (!ind || ind.status !== 'valida' || !ind.comprovante_expira_em || new Date(ind.comprovante_expira_em).getTime() < Date.now()) return null
+  if (!ind || ind.status !== 'valida' || !ind.atendimento_token_expira_em || new Date(ind.atendimento_token_expira_em).getTime() < Date.now()) return null
   return String(ind.id)
 }
 
@@ -162,17 +171,71 @@ export async function criarPedido(
   return { id: String(data.id) }
 }
 
-/** Envia (ou retenta, com o MESMO operation_id) o pedido, pela instância fixada nele. */
-export async function enviarPedidoAtendimento(pedidoId: string): Promise<ResultadoEnvio> {
+/** Lease atômico: pendente → incerto/'enviando' (1 linha) ou retomada de um 'enviando' vencido / 'incerto' sem executor. */
+async function adquirirLease(admin: any, pedidoId: string): Promise<boolean> {
+  const marca = { status: 'incerto', erro: 'enviando' }
+  const { data } = await admin.from('promocao_pedidos_atendimento').update(marca).eq('id', pedidoId).eq('status', 'pendente').select('id')
+  if (data?.length === 1) return true
+  const { data: r1 } = await admin
+    .from('promocao_pedidos_atendimento')
+    .update(marca)
+    .eq('id', pedidoId)
+    .eq('status', 'incerto')
+    .or('erro.is.null,erro.neq.enviando')
+    .select('id')
+  if (r1?.length === 1) return true
+  const vencido = new Date(Date.now() - LEASE_VENCE_MS).toISOString()
+  const { data: r2 } = await admin
+    .from('promocao_pedidos_atendimento')
+    .update(marca)
+    .eq('id', pedidoId)
+    .eq('status', 'incerto')
+    .eq('erro', 'enviando')
+    .lt('updated_at', vencido)
+    .select('id')
+  return r2?.length === 1
+}
+
+/**
+ * Envia (ou retenta, com o MESMO operation_id) o pedido, pela instância fixada nele.
+ * Ordem: reavaliação (A1) → lease (B2) → engine. `ultimaTentativa`: sem confirmação vira rejeitado/ESGOTADO (M2).
+ */
+export async function enviarPedidoAtendimento(pedidoId: string, opts: { ultimaTentativa?: boolean } = {}): Promise<ResultadoEnvio> {
   const admin: any = await createAdminClient()
+  const esgotar = async (r: ResultadoEnvio): Promise<ResultadoEnvio> => {
+    if (opts.ultimaTentativa && r.resultado !== 'confirmado') {
+      await admin.from('promocao_pedidos_atendimento').update({ status: 'rejeitado', erro: 'ESGOTADO' }).eq('id', pedidoId).in('status', ['pendente', 'incerto'])
+    }
+    return r
+  }
   const { data: p } = await admin.from('promocao_pedidos_atendimento').select('*').eq('id', pedidoId).maybeSingle()
   if (!p) return { resultado: 'rejeitado', mensagem: 'PEDIDO_INEXISTENTE_sem_whatsapp' } // descarta o job: nada a retentar
   if (p.status === 'enviado') return { resultado: 'confirmado', conversationId: null }
   if (p.status === 'rejeitado') return { resultado: 'rejeitado', mensagem: 'numero_sem_whatsapp' }
-  if (!p.instancia_usada_id) return { resultado: 'rejeitado', mensagem: 'INSTANCIA_NAO_FIXADA' }
+  if (!p.instancia_usada_id) return esgotar({ resultado: 'incerto', mensagem: 'INSTANCIA_NAO_FIXADA' })
 
+  // A1: reavaliar campanha/instância na hora do envio
+  const { data: camp } = await admin.from('promocao_campanhas').select('*').eq('id', p.campanha_id).maybeSingle()
+  const { data: inst } = await admin.from('chat_instancias').select('status, deleted_at, conta_id').eq('id', p.instancia_usada_id).maybeSingle()
+  const { data: conta } = inst?.conta_id ? await admin.from('chat_contas').select('agente_parceiro_id').eq('id', inst.conta_id).maybeSingle() : { data: null }
+  const motivo = camp
+    ? motivoReavaliacao(
+        camp,
+        p.instancia_usada_id,
+        inst ? { status: String(inst.status), deletedAt: inst.deleted_at ?? null, agenteParceiroId: conta?.agente_parceiro_id ? String(conta.agente_parceiro_id) : null } : null,
+        new Date(),
+      )
+    : 'CAMPANHA_INEXISTENTE'
+  if (motivo) return esgotar({ resultado: 'incerto', mensagem: `ATENDIMENTO_REAVALIACAO: ${motivo}` })
+
+  const r = await comLease<ResultadoEnvio>(() => adquirirLease(admin, pedidoId), () => enviarComLease(admin, p), { resultado: 'incerto', mensagem: 'em andamento' })
+  return esgotar(r)
+}
+
+async function enviarComLease(admin: any, p: any): Promise<ResultadoEnvio> {
+  const pedidoId = String(p.id)
   const { data: insc } = await admin.from('promocao_inscricoes').select('nome, codigo').eq('id', p.inscricao_id).maybeSingle()
-  if (!insc) return { resultado: 'rejeitado', mensagem: 'INSCRICAO_INEXISTENTE' }
+  if (!insc) return voltarPendente(admin, pedidoId, 'INSCRICAO_INEXISTENTE')
   let texto: string
   if (p.tipo === 'servidor') {
     texto = textoAtendimentoServidor({ nome: insc.nome, codigo: insc.codigo })
@@ -181,7 +244,7 @@ export async function enviarPedidoAtendimento(pedidoId: string): Promise<Resulta
       admin.from('promocao_indicacoes').select('numero').eq('id', p.indicacao_id).maybeSingle(),
       admin.from('promocao_indicadores').select('nome').eq('id', p.indicador_id).maybeSingle(),
     ])
-    if (!ind || !dor) return { resultado: 'rejeitado', mensagem: 'INDICACAO_INEXISTENTE' }
+    if (!ind || !dor) return voltarPendente(admin, pedidoId, 'INDICACAO_INEXISTENTE')
     texto = textoAtendimentoIndicado({ nome: insc.nome, nomeIndicador: dor.nome, numeroIndicacao: ind.numero })
   }
 
@@ -199,4 +262,9 @@ export async function enviarPedidoAtendimento(pedidoId: string): Promise<Resulta
   if (status === 'enviado') await registrarEvento(admin, p.campanha_id, 'pedido_atendimento', pedidoId, 'atendimento.enviado', {})
   if (status === 'rejeitado') await registrarEvento(admin, p.campanha_id, 'pedido_atendimento', pedidoId, 'atendimento.rejeitado', { erro: String(patch.erro) })
   return r
+}
+
+async function voltarPendente(admin: any, pedidoId: string, erro: string): Promise<ResultadoEnvio> {
+  await admin.from('promocao_pedidos_atendimento').update({ status: 'pendente', erro }).eq('id', pedidoId)
+  return { resultado: 'incerto', mensagem: erro }
 }

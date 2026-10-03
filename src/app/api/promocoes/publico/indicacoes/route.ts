@@ -16,6 +16,7 @@ import {
   str,
   type CampoInvalido,
 } from '@/lib/promocoes/cadastro-publico'
+import { novoTokenAtendimentoIndicacao } from '@/lib/promocoes/atendimento'
 import { textoIndicadorParaIndicado, urlWhatsappIndicado } from '@/lib/promocoes/atendimento-textos'
 import { gerarToken } from '@/lib/promocoes/codigos'
 import { aplicarLimites, buscarCampanha, cadastroFechado, CAMPANHA_INDISPONIVEL, erro, ipDoRequest, JSON_INVALIDO, lerJson, logSeguro, ok, registrarEvento, telefoneContatoDigitos, UUID_RE, type Campanha } from '@/lib/promocoes/http'
@@ -58,6 +59,7 @@ async function respostaExistente(admin: any, camp: Campanha, ind: any) {
     codigoInscricaoIndicado: insc?.codigo,
     comprovanteToken: token,
     comprovanteUrl: `/api/promo/comprovante?t=${token}`,
+    atendimentoToken: await novoTokenAtendimentoIndicacao(admin, ind.id),
     telefoneVerificado: Boolean(indicador?.telefone_verificado),
     wesales: insc?.wesales_status === 'ok' ? 'ok' : 'pendente',
     whatsappIndicadoUrl: insc && indicador
@@ -289,6 +291,7 @@ export async function POST(request: NextRequest) {
     codigoInscricaoIndicado: codigoInscricao,
     comprovanteToken: token,
     comprovanteUrl: `/api/promo/comprovante?t=${token}`,
+    atendimentoToken: await novoTokenAtendimentoIndicacao(admin, indicacao.id),
     telefoneVerificado: verificado,
     wesales,
     whatsappIndicadoUrl: await urlIndicador(admin, camp, { nomeIndicado: indicado.nome, telefoneIndicado: indicado.telefone, nomeIndicador: indicador.nome, numeroIndicacao, codigoInscricao }),
