@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { limiteTentar } from './rate-limit'
+import { escolherIp, estadoCadastro } from './seguranca.ts'
 import { telefoneParaE164Digitos } from './validacao'
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -17,8 +18,7 @@ export function ok(body: Record<string, unknown>) {
 
 // Limites por IP são SOFT (rewrite externo da Vercel pode colapsar/forjar o XFF); proteção real = telefone/CPF/global.
 export function ipDoRequest(request: NextRequest): string {
-  const xff = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return (xff || request.headers.get('x-real-ip') || 'desconhecido').slice(0, 64)
+  return escolherIp(request.headers)
 }
 
 export function hashIp(ip: string): string {
@@ -82,6 +82,14 @@ export async function buscarCampanha(slug: unknown, statusPermitidos: string[] =
   const { data } = await admin.from('promocao_campanhas').select('*').eq('slug', s).maybeSingle()
   if (!data || !statusPermitidos.includes(String(data.status))) return null
   return data as Campanha
+}
+
+/** Só para rotas de CADASTRO (inscrição, indicação, OTP): fora do período devolve 410/409. */
+export function cadastroFechado(c: Campanha, agora = new Date()): Response | null {
+  const e = estadoCadastro(c, agora)
+  if (e === 'encerrada') return erro('CAMPANHA_ENCERRADA', 'O período de inscrição terminou.', 410)
+  if (e === 'nao_iniciada') return erro('CAMPANHA_NAO_INICIADA', 'O período de inscrição ainda não começou.', 409)
+  return null
 }
 
 export const CAMPANHA_INDISPONIVEL = () => erro('CAMPANHA_INDISPONIVEL', 'Campanha indisponível.', 404)
