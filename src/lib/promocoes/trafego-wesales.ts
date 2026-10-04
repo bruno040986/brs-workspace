@@ -29,6 +29,24 @@ export function slugTag(valor: unknown): string {
     .slice(0, 40)
 }
 
+const HOSTS_LANDING = ['https://www.nuazul.com.br/', 'https://nuazul.com.br/']
+
+/** Valor vindo da URL (digitável por qualquer um): sem controle/quebra de linha; utm_* só [a-z0-9_-]; landing só dos hosts da NuAzul. */
+export function limparValorTrafego(coluna: string, valor: unknown): string {
+  const bruto = String(valor ?? '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim()
+  if (coluna === 'landing_url') {
+    const u = bruto.replace(/ /g, '')
+    return HOSTS_LANDING.some((h) => u.startsWith(h)) ? u.slice(0, 255) : ''
+  }
+  if (coluna === 'fbclid') return bruto.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 255)
+  return bruto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/ /g, '-').replace(/[^a-z0-9_-]/g, '').slice(0, 120)
+}
+
+/** Atribuição é first-touch: só grava se o contato ainda não tem valor. */
+export function decidirCampoTrafego(existente: unknown, _novo: string): 'gravar' | 'manter' {
+  return String(existente ?? '').trim() ? 'manter' : 'gravar'
+}
+
 export function tagsTrafego(t: Tracking | null | undefined): string[] {
   if (!t) return []
   const pares: Array<[string, unknown]> = [
@@ -57,18 +75,20 @@ export async function camposTrafego<D>(
   t: Tracking | null | undefined,
   resolver: (key: string) => Promise<D | null>,
   entrada: (def: D, valor: string) => { id: string; fieldValue: string | number } | null,
+  valorExistente?: (def: D) => unknown,
 ): Promise<{ entradas: Array<{ id: string; fieldValue: string | number }>; ausentes: string[] }> {
   const entradas: Array<{ id: string; fieldValue: string | number }> = []
   const ausentes: string[] = []
   if (!t) return { entradas, ausentes }
   for (const [coluna, key] of Object.entries(CAMPOS_TRAFEGO)) {
-    const valor = String(t[coluna] ?? '').trim().slice(0, 255)
+    const valor = limparValorTrafego(coluna, t[coluna])
     if (!valor) continue
     const def = await resolver(key)
     if (!def) {
       ausentes.push(key)
       continue
     }
+    if (valorExistente && decidirCampoTrafego(valorExistente(def), valor) === 'manter') continue
     const e = entrada(def, valor)
     if (e) entradas.push(e)
   }

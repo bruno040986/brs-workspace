@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { camposTrafego, slugTag, sourceTrafego, tagsTrafego, CAMPOS_TRAFEGO } from '../trafego-wesales.ts'
+import { decidirCampoTrafego, limparValorTrafego, camposTrafego, slugTag, sourceTrafego, tagsTrafego, CAMPOS_TRAFEGO } from '../trafego-wesales.ts'
 
-const T = { utm_source: 'meta', utm_medium: 'paid', utm_campaign: 'valparaiso_promo', utm_content: 'margem_20', fbclid: 'AbC123', landing_url: 'https://x.com/p?a=1' }
+const T = { utm_source: 'meta', utm_medium: 'paid', utm_campaign: 'valparaiso_promo', utm_content: 'margem_20', fbclid: 'AbC123', landing_url: 'https://nuazul.com.br/p?a=1' }
 
 test('slugTag: acento, espaço, maiúscula, vazio, tamanho', () => {
   assert.equal(slugTag('Promoção Ótima Já'), 'promocao-otima-ja')
@@ -42,8 +42,33 @@ test('camposTrafego: existentes entram, ausentes são pulados e listados', async
   assert.deepEqual(r.ausentes, ['trafego__utm_medium', 'trafego__utm_content', 'trafego__click_id_meta', 'trafego__pagina_de_entrada'])
 })
 
-test('camposTrafego: valor vazio não consulta nem grava; trunca em 255', async () => {
+test('camposTrafego: valor vazio não consulta nem grava; trunca em 120', async () => {
   const r = await camposTrafego({ utm_source: '', utm_medium: 'y'.repeat(400) }, async (k) => ({ id: k }), (d, v) => ({ id: d.id, fieldValue: v }))
   assert.equal(r.entradas.length, 1)
-  assert.equal(String(r.entradas[0].fieldValue).length, 255)
+  assert.equal(String(r.entradas[0].fieldValue).length, 120)
+})
+
+test('decidirCampoTrafego: vazio grava, preenchido mantém', () => {
+  assert.equal(decidirCampoTrafego('', 'x'), 'gravar')
+  assert.equal(decidirCampoTrafego(null, 'x'), 'gravar')
+  assert.equal(decidirCampoTrafego('meta', 'x'), 'manter')
+})
+
+test('camposTrafego com contato existente: só campos vazios', async () => {
+  const r = await camposTrafego(
+    T,
+    async (k) => ({ id: k }),
+    (d, v) => ({ id: d.id, fieldValue: v }),
+    (d) => (d.id === 'trafego__utm_source' ? 'google' : ''),
+  )
+  assert.ok(!r.entradas.some((e) => e.id === 'trafego__utm_source'))
+  assert.equal(r.entradas.length, 5)
+})
+
+test('limparValorTrafego: landing de host estranho descarta; quebra de linha limpa', () => {
+  assert.equal(limparValorTrafego('landing_url', 'https://evil.com/https://nuazul.com.br/'), '')
+  assert.equal(limparValorTrafego('landing_url', 'http://nuazul.com.br/x'), '')
+  assert.equal(limparValorTrafego('landing_url', 'https://nuazul.com.br/p?a=1'), 'https://nuazul.com.br/p?a=1')
+  assert.equal(limparValorTrafego('utm_campaign', 'meta\r\nX: y'), 'meta-x-y')
+  assert.equal(limparValorTrafego('utm_source', 'https://a.com/x'), 'httpsacomx')
 })

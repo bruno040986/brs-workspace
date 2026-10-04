@@ -4,6 +4,7 @@ import {
   createContact,
   createOpportunity,
   customFieldEntry,
+  customFieldValue,
   findContactByCpf,
   findOpportunitiesByContact,
   getContact,
@@ -74,7 +75,15 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
       .maybeSingle()
     const tagsAtrib = tagsTrafego(trk)
     const sourceAtrib = sourceTrafego(trk)
-    const trafego = await camposTrafego(trk, (k) => resolveCustomField(k), (def, v) => customFieldEntry(def, v))
+    // contato achado por CPF: atribuição é first-touch (só preenche o que está vazio)
+    const existente = await findContactByCpf(insc.cpf)
+    const contatoCpf = existente ? await getContact(existente.id) : null
+    const trafego = await camposTrafego(
+      trk,
+      (k) => resolveCustomField(k),
+      (def, v) => customFieldEntry(def, v),
+      existente ? (def) => (contatoCpf ? customFieldValue(contatoCpf, def.id) : null) : undefined,
+    )
     if (trafego.ausentes.length) await registrarEvento(admin, insc.campanha_id, 'inscricao', inscricaoId, 'wesales.campos_trafego_ausentes', { chaves: trafego.ausentes })
 
     const entradas: Array<{ id: string; fieldValue: string | number }> = []
@@ -101,11 +110,10 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
 
     const nascimento = insc.data_nascimento ? String(insc.data_nascimento).slice(0, 10) : undefined
     let contactId: string
-    const existente = await findContactByCpf(insc.cpf)
     if (existente) {
       contactId = existente.id
       tagsFinais = [...tags, ...tagsAtrib]
-      await updateContact(contactId, { customFields: entradasCpf, ...(trk ? { source: sourceAtrib } : {}), ...(nascimento ? { dateOfBirth: nascimento } : {}) })
+      await updateContact(contactId, { customFields: entradasCpf, ...(trk && !String(contatoCpf?.source ?? '').trim() ? { source: sourceAtrib } : {}), ...(nascimento ? { dateOfBirth: nascimento } : {}) })
     } else {
       const { firstName, lastName } = separarNome(String(insc.nome))
       const { contact, duplicateOfId } = await createContact({
