@@ -10,8 +10,10 @@ export const CAMPOS_TRAFEGO: Record<string, string> = {
   utm_source: 'trafego__utm_source',
   utm_medium: 'trafego__utm_medium',
   utm_campaign: 'trafego__utm_campaign',
+  utm_term: 'trafego__utm_term',
   utm_content: 'trafego__utm_content',
   fbclid: 'trafego__click_id_meta',
+  gclid: 'trafego__click_id_google',
   landing_url: 'trafego__pagina_de_entrada',
 }
 
@@ -38,7 +40,7 @@ export function limparValorTrafego(coluna: string, valor: unknown): string {
     const u = bruto.replace(/ /g, '')
     return HOSTS_LANDING.some((h) => u.startsWith(h)) ? u.slice(0, 255) : ''
   }
-  if (coluna === 'fbclid') return bruto.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 255)
+  if (coluna === 'fbclid' || coluna === 'gclid') return bruto.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 255)
   return bruto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/ /g, '-').replace(/[^a-z0-9_-]/g, '').slice(0, 120)
 }
 
