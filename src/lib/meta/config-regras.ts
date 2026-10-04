@@ -13,6 +13,11 @@ export function validarMetaCapi(i: MetaCapiInput): { ok: true; valor: Required<M
   return { ok: true, valor: { token, testEventCode, datasetId, datasetNome } }
 }
 
+import { createHash } from 'node:crypto'
+
+// Telefone fictício (sem '+'), em hash: a Meta exige algum dado do cliente (erro 2804050).
+const PH_TESTE = createHash('sha256').update('5561900000000').digest('hex')
+
 type CfgTeste = { token: string; testEventCode: string | null; datasetId: string }
 
 /** Teste da API de Conversões: envia 1 PageView com test_event_code (nunca polui produção). */
@@ -24,7 +29,7 @@ export async function executarTesteMeta(cfg: CfgTeste, fetchImpl: typeof fetch =
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        data: [{ event_name: 'PageView', event_time: Math.floor(Date.now() / 1000), action_source: 'website', event_source_url: 'https://nuazul.com.br', user_data: { client_user_agent: 'brs-workspace-teste' } }],
+        data: [{ event_name: 'PageView', event_time: Math.floor(Date.now() / 1000), action_source: 'website', event_source_url: 'https://nuazul.com.br', user_data: { client_user_agent: 'brs-workspace-teste', ph: [PH_TESTE] } }],
         test_event_code: cfg.testEventCode,
       }),
       signal: AbortSignal.timeout(15000),
