@@ -16,6 +16,7 @@ import { WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { createAdminClient } from '@/lib/supabase/server'
 import { registrarEvento } from './http'
 import { decidirNascimentoNoContato } from './validacao'
+import { camposTrafego, sourceTrafego, tagsTrafego } from './trafego-wesales'
 
 export type ResultadoSync = { status: 'ok' | 'erro'; erro?: string }
 
@@ -62,6 +63,20 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
 
     const tags = [...new Set([...(camp.wesales_tags || ['promo-valparaiso']), insc.origem === 'direta' ? 'promo-direto' : 'promo-indicado'])]
 
+    // Atribuição: lida NO MOMENTO do sync (as rotas gravam o tracking antes de enfileirar; o retry do job também a encontra).
+    const { data: trk } = await admin
+      .from('promocao_tracking')
+      .select('*')
+      .eq('inscricao_id', inscricaoId)
+      .eq('evento', 'lead_conclusao')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const tagsAtrib = tagsTrafego(trk)
+    const sourceAtrib = sourceTrafego(trk)
+    const trafego = await camposTrafego(trk, (k) => resolveCustomField(k), (def, v) => customFieldEntry(def, v))
+    if (trafego.ausentes.length) await registrarEvento(admin, insc.campanha_id, 'inscricao', inscricaoId, 'wesales.campos_trafego_ausentes', { chaves: trafego.ausentes })
+
     const entradas: Array<{ id: string; fieldValue: string | number }> = []
     const add = (def: CustomFieldDef, valor: unknown) => {
       const e = customFieldEntry(def, valor)
@@ -72,6 +87,9 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
     if (nomeIndicador) add(await campo(CHAVE_INDICADOR), nomeIndicador)
     const cpfDef = await campo(WESALES_FIELD_KEYS.cpf)
     const cpfEntrada = customFieldEntry(cpfDef, insc.cpf)
+    // só valores não vazios entram (nunca apaga atribuição já preenchida no contato)
+    const entradasCpf = [...entradas, ...trafego.entradas, ...(cpfEntrada ? [cpfEntrada] : [])]
+    let tagsFinais = tags
 
     if (camp.convenio_id) {
       const { data: conv } = await admin.from('convenios').select('codigo_sistema, nome_reduzido').eq('id', camp.convenio_id).maybeSingle()
@@ -86,7 +104,8 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
     const existente = await findContactByCpf(insc.cpf)
     if (existente) {
       contactId = existente.id
-      await updateContact(contactId, { customFields: cpfEntrada ? [...entradas, cpfEntrada] : entradas, ...(nascimento ? { dateOfBirth: nascimento } : {}) })
+      tagsFinais = [...tags, ...tagsAtrib]
+      await updateContact(contactId, { customFields: entradasCpf, ...(trk ? { source: sourceAtrib } : {}), ...(nascimento ? { dateOfBirth: nascimento } : {}) })
     } else {
       const { firstName, lastName } = separarNome(String(insc.nome))
       const { contact, duplicateOfId } = await createContact({
@@ -95,12 +114,13 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
         phone: `+${insc.telefone}`,
         ...(insc.email ? { email: insc.email } : {}),
         ...(nascimento ? { dateOfBirth: nascimento } : {}),
-        tags,
-        source: 'Promoção NuAzul Valparaíso',
-        customFields: cpfEntrada ? [...entradas, cpfEntrada] : entradas,
+        tags: [...tags, ...tagsAtrib],
+        source: sourceAtrib,
+        customFields: entradasCpf,
       })
       if (contact) {
         contactId = contact.id
+        tagsFinais = [...tags, ...tagsAtrib]
       } else if (duplicateOfId) {
         contactId = duplicateOfId
         // achado por telefone, não por CPF: pode ser outra pessoa; nunca troca nascimento existente
@@ -112,7 +132,7 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
         throw new Error('WeSales não devolveu o contato')
       }
     }
-    await addContactTags(contactId, tags)
+    await addContactTags(contactId, tagsFinais)
 
     let opportunityId: string | null = insc.wesales_opportunity_id || null
     if (camp.wesales_funil_nome && camp.wesales_etapa_nome && !opportunityId) {
