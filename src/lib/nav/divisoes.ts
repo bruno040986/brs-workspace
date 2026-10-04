@@ -363,6 +363,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'APIs de Instituições Financeiras de Crédito', href: '/rh/parceiros/config/provedores/if-credito', perms: [view('sistema-config-if-credito')] },
           { label: 'API Kaizom', href: '/rh/parceiros/config/provedores/motor-credito', perms: [view('sistema-config-motor-credito')] },
           { label: 'Figurinhas/GIFs (GIPHY)', href: '/rh/parceiros/config/provedores/figurinhas-gifs', perms: [view('sistema-config-figurinhas-gifs')] },
+          { label: 'API Meta', href: '/rh/parceiros/config/provedores/api-meta', perms: [view('sistema-config-api-meta')] },
           { label: 'Gateways de Pagamento', href: '/rh/parceiros/config/provedores/gateways', perms: [view('sistema-config-gateways')] },
           { label: 'CNAE', href: '/rh/parceiros/config/provedores/cnae', perms: [view('sistema-config-cnae')] },
           { label: 'CTN', href: '/rh/parceiros/config/provedores/ctn', perms: [view('sistema-config-ctn')] },
