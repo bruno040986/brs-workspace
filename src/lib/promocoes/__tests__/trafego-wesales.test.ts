@@ -72,3 +72,22 @@ test('limparValorTrafego: landing de host estranho descarta; quebra de linha lim
   assert.equal(limparValorTrafego('utm_campaign', 'meta\r\nX: y'), 'meta-x-y')
   assert.equal(limparValorTrafego('utm_source', 'https://a.com/x'), 'httpsacomx')
 })
+
+test('utm_term e gclid: limpeza, ausente pulado e set-if-empty', async () => {
+  assert.equal(limparValorTrafego('utm_term', 'Margem 20\r\nX'), 'margem-20-x')
+  assert.equal(limparValorTrafego('utm_term', 'a'.repeat(300)).length, 120)
+  assert.equal(limparValorTrafego('gclid', 'Cj0K_AbC-1\n<x>'), 'Cj0K_AbC-1x')
+  assert.equal(limparValorTrafego('gclid', 'A'.repeat(300)).length, 255)
+  const t = { utm_term: 'Margem 20', gclid: 'AbC_1' }
+  const ent = (d: { id: string }, v: string) => ({ id: d.id, fieldValue: v })
+  const r = await camposTrafego(t, async (k) => ({ id: k }), ent)
+  assert.deepEqual(r.entradas, [
+    { id: 'trafego__utm_term', fieldValue: 'margem-20' },
+    { id: 'trafego__click_id_google', fieldValue: 'AbC_1' },
+  ])
+  const aus = await camposTrafego(t, async () => null, ent)
+  assert.deepEqual(aus.ausentes, ['trafego__utm_term', 'trafego__click_id_google'])
+  const keep = await camposTrafego(t, async (k) => ({ id: k }), ent, (d) => (d.id === 'trafego__utm_term' ? 'x' : ''))
+  assert.deepEqual(keep.entradas.map((e) => e.id), ['trafego__click_id_google'])
+  assert.deepEqual(tagsTrafego(t), [])
+})
