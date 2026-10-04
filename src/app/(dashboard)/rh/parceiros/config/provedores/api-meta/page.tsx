@@ -88,7 +88,7 @@ export default function ApiMetaProvedorPage() {
           <button className="btn btn-outline btn-sm" onClick={testar} disabled={testando || !temToken} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {testando ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />} Testar conexão
           </button>
-          <span style={{ color: 'var(--brs-gray-400)', fontSize: '0.74rem', marginLeft: 10 }}>Usa a configuração salva; salve antes de testar.</span>
+          <span style={{ color: 'var(--brs-gray-400)', fontSize: '0.74rem', marginLeft: 10 }}>Envia um evento de teste (PageView) usando a configuração salva; exige o Código de Evento de Teste salvo. Salve antes de testar.</span>
         </div>
       </div>
 

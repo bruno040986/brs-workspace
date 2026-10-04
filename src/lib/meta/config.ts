@@ -5,7 +5,7 @@
  */
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarTexto, decifrarTexto } from '@/lib/central-conversas/cofre'
-import { validarMetaCapi, type MetaCapiInput } from './config-regras'
+import { executarTesteMeta, validarMetaCapi, type MetaCapiInput } from './config-regras'
 
 type Row = { token_enc: string | null; test_event_code: string | null; dataset_id: string | null; dataset_nome: string | null; updated_at: string | null }
 
@@ -60,16 +60,5 @@ export async function salvarMetaCapi(input: MetaCapiInput, updatedBy: string): P
 export async function testarConexaoMeta(): Promise<{ ok: boolean; detalhe: string }> {
   const cfg = await lerConfigMetaCapi()
   if (!cfg) return { ok: false, detalhe: 'Configure o token e o ID do conjunto de dados antes de testar.' }
-  try {
-    // Token no header (não na URL) para não vazar em log de proxy; resposta nunca é ecoada.
-    const res = await fetch(`https://graph.facebook.com/v21.0/${cfg.datasetId}?fields=name`, {
-      headers: { Authorization: `Bearer ${cfg.token}` },
-      signal: AbortSignal.timeout(15000),
-      cache: 'no-store',
-    })
-    if (res.ok) return { ok: true, detalhe: 'Conexão aceita pela Meta.' }
-    return { ok: false, detalhe: `A Meta recusou a consulta (${res.status}). Confira token e ID do conjunto.` }
-  } catch {
-    return { ok: false, detalhe: 'Sem resposta da Meta.' }
-  }
+  return executarTesteMeta(cfg)
 }
