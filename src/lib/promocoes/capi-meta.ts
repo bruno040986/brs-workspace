@@ -1,11 +1,13 @@
 // API de Conversões da Meta — evento Lead server-side. Funções puras + envio com fetch injetável.
 // Sem PII além de telefone com hash; sem custom_data; token nunca sai daqui para log/evento.
 import { createHash } from 'node:crypto'
+import { isIP } from 'node:net'
 import { telefoneParaE164Digitos } from './validacao.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FBP = /^fb\.\d\.\d+\.\d+$/
-const FBC = /^fb\.\d\.\d+\..{1,200}$/
+const FBC = /^fb\.\d\.\d+\.[A-Za-z0-9_-]{1,200}$/
+const PRIVADO = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd|fe80)/i
 const SITE = 'https://nuazul.com.br'
 
 export const validarFbp = (v: unknown): v is string => typeof v === 'string' && FBP.test(v)
@@ -32,8 +34,8 @@ export function montarEventoLead(e: EntradaLead): Record<string, unknown> | null
   if (t.consentimento_cookies !== true) return null
   if (typeof t.eventId !== 'string' || !UUID.test(t.eventId)) return null
   const user_data: Record<string, unknown> = {}
-  if (e.ip) user_data.client_ip_address = e.ip
-  if (e.userAgent) user_data.client_user_agent = e.userAgent
+  if (isIP(e.ip) && !PRIVADO.test(e.ip)) user_data.client_ip_address = e.ip
+  if (e.userAgent) user_data.client_user_agent = e.userAgent.slice(0, 512)
   if (validarFbp(t.fbp)) user_data.fbp = t.fbp
   if (validarFbc(t.fbc)) user_data.fbc = t.fbc
   const ph = hashTelefone(e.telefone)
@@ -60,6 +62,7 @@ export async function enviarEventoCapi(
   cfg: { token: string; datasetId: string },
   fetchFn: typeof fetch = fetch,
 ): Promise<ResultadoCapi> {
+  if (!/^\d{10,20}$/.test(cfg.datasetId)) return { ok: false, status: 0 }
   let status = 0
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     const ac = new AbortController()

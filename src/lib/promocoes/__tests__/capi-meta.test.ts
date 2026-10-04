@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { enviarEventoCapi, hashTelefone, montarEventoLead, validarFbc, validarFbp } from '../capi-meta.ts'
 
 const EID = '3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b'
-const base = { telefone: '(61) 98765-4321', ip: '1.2.3.4', userAgent: 'UA' }
+const base = { telefone: '(61) 98765-4321', ip: '8.8.4.4', userAgent: 'UA' }
 const trk = { eventId: EID, consentimento_cookies: true, fbp: 'fb.1.1700000000.123456', fbc: 'fb.1.1700000000.AbCd' }
 
 test('sem consentimento (false ou ausente) não monta', () => {
@@ -58,14 +58,28 @@ test('envio: token no header, não na URL; retry em 5xx; sem retry em 4xx', asyn
     chamadas.push({ url, init })
     return { ok: chamadas.length > 1, status: chamadas.length > 1 ? 200 : 503 }
   }) as any
-  const r = await enviarEventoCapi({ data: [] }, { token: 'SEGREDO', datasetId: '99' }, f)
+  const r = await enviarEventoCapi({ data: [] }, { token: 'SEGREDO', datasetId: '1234567890' }, f)
   assert.deepEqual(r, { ok: true, status: 200 })
   assert.equal(chamadas.length, 2)
   assert.ok(!chamadas[0].url.includes('SEGREDO'))
-  assert.equal(chamadas[0].url, 'https://graph.facebook.com/v21.0/99/events')
+  assert.equal(chamadas[0].url, 'https://graph.facebook.com/v21.0/1234567890/events')
   assert.equal(chamadas[0].init.headers.Authorization, 'Bearer SEGREDO')
   let n = 0
-  const r2 = await enviarEventoCapi({}, { token: 't', datasetId: '1' }, (async () => { n++; return { ok: false, status: 400 } }) as any)
+  const r2 = await enviarEventoCapi({}, { token: 't', datasetId: '1234567890' }, (async () => { n++; return { ok: false, status: 400 } }) as any)
   assert.deepEqual(r2, { ok: false, status: 400 })
   assert.equal(n, 1)
+})
+
+test('ip: só público válido; consentimento só boolean true; datasetId não numérico não envia', async () => {
+  const ud = (ip: string) => (montarEventoLead({ ...base, ip, tracking: trk })!.data as any[])[0].user_data
+  assert.equal(ud('desconhecido').client_ip_address, undefined)
+  assert.equal(ud('192.168.0.5').client_ip_address, undefined)
+  assert.equal(ud('::1').client_ip_address, undefined)
+  assert.equal(ud('8.8.4.4').client_ip_address, '8.8.4.4')
+  assert.equal(montarEventoLead({ ...base, tracking: { ...trk, consentimento_cookies: 'true' } }), null)
+  assert.equal(montarEventoLead({ ...base, tracking: { ...trk, consentimento_cookies: 1 } }), null)
+  let n = 0
+  const r = await enviarEventoCapi({}, { token: 't', datasetId: '1/../x' }, (async () => { n++; return { ok: true, status: 200 } }) as any)
+  assert.deepEqual(r, { ok: false, status: 0 })
+  assert.equal(n, 0)
 })
