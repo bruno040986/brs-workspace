@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextRequest } from 'next/server'
+import { after, NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import {
   cpfBloqueado,
+  enviarLeadCapi,
   gravarAceites,
   gravarTracking,
   lerCpf,
@@ -195,6 +196,7 @@ export async function POST(request: NextRequest) {
   await gravarTracking(admin, { campanhaId: camp.id, inscricaoId: inscricao.id, ip, userAgent }, body.tracking)
   await registrarEvento(admin, camp.id, 'inscricao', inscricao.id, 'inscricao.criada', { origem: ex.assumida ? 'indicacao_assumida' : 'direta', telefoneVerificado: verificado })
 
+  after(() => enviarLeadCapi(admin, { campanhaId: camp.id, entidade: 'inscricao', entidadeId: inscricao.id, telefone, ip, userAgent }, body.tracking))
   const wesales = await sincronizarComTimeout(inscricao.id)
   return ok({
     inscricaoId: inscricao.id,
