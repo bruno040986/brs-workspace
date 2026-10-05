@@ -51,3 +51,6 @@ ruvector.db
 
 # scripts locais de manutenção (podem conter credenciais em process.env)
 /scratch/
+
+# snapshots do navegador (podem conter PII)
+.playwright-mcp/
