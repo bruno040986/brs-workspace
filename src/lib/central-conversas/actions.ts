@@ -663,8 +663,9 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
   // da conta é um só, então "me" era sempre o dono do token, pra todo mundo.
   const status = params.aba === 'geral' ? 'all' : 'open'
   let data: { meta: Record<string, number>; payload: ChatwootConversa[] }
+  let agenteId: number | null = null
   if (params.aba === 'meus') {
-    const agenteId = await meuAgenteId(cli, user.id)
+    agenteId = await meuAgenteId(cli, user.id)
     if (agenteId === null) data = { meta: {}, payload: [] }
     else if (params.q) {
       // Busca textual só existe no GET /conversations — filtra o agente aqui.
@@ -677,6 +678,29 @@ export async function getConversas(params: { aba: 'meus' | 'fila' | 'geral'; q?:
 
   const conta = await contaBrs()
   let payload = data.payload || []
+
+  // O `?q=` nativo do Chatwoot não cobre `contact.name` (grupos só têm nome no
+  // contato): na 1ª página, soma as conversas dos contatos cujo nome casa.
+  if (params.q && !(params.page && params.page > 1) && !(params.aba === 'meus' && agenteId === null)) {
+    try {
+      const contatos = (await cli.listarContatos({ q: params.q })).slice(0, 15) // ponytail: 15 contatos, 1 request cada
+      const extras = (await Promise.all(contatos.map((ct) => cli.conversasDoContato(ct.id).catch(() => [] as ChatwootConversa[])))).flat()
+      const vistos = new Set(payload.map((c) => c.id))
+      const novos = extras.filter((c) => {
+        if (vistos.has(c.id)) return false
+        if (params.inboxId && c.inbox_id !== params.inboxId) return false
+        if (params.teamId && c.meta?.team?.id !== params.teamId) return false
+        if (status === 'open' && c.status !== 'open') return false
+        const ag = c.meta?.assignee?.id
+        if (params.aba === 'meus') return ag === agenteId
+        if (params.aba === 'fila') return !ag
+        return true
+      })
+      if (novos.length) payload = [...payload, ...novos].sort((a, b) => (b.last_activity_at || 0) - (a.last_activity_at || 0))
+    } catch {
+      // best-effort: mantém o resultado nativo
+    }
+  }
 
   // Permissão por departamento: filiação ao Team = permissão (spec §6). Quem
   // não tem `central-conversas` (supervisor) só vê conversas dos SEUS

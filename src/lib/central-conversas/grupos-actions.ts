@@ -239,6 +239,18 @@ export async function buscarContatosConexao(instanciaId: string, q?: string, pag
   }
 }
 
+export async function importarGrupos(instanciaId: string): Promise<{ ok: true; total: number; importados: number; erros: number } | { ok: false; error: string }> {
+  try {
+    await requirePermission('conversas', 'can_view')
+    const inst = await instanciaDaConta(instanciaId)
+    if (!capacidadesDe(inst.provedor).grupos) throw new Error('Gestão de grupo só em conexões Baileys.')
+    const r = await engineGrupos.importarGrupos(inst.id)
+    return { ok: true, total: r.total, importados: r.importados, erros: r.erros }
+  } catch (err) {
+    return { ok: false, error: mensagemErroEngine(err) }
+  }
+}
+
 export async function criarGrupo(input: { instanciaId: string; nome: string; participantes: string[]; mensagemInicial?: string }): Promise<{ ok: true; jid: string; nome: string; conversationId: number | null } | { ok: false; error: string }> {
   try {
     await requirePermission('conversas', 'can_view')

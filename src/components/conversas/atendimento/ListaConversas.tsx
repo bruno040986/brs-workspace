@@ -9,7 +9,7 @@ import { VINCULO_COR, VINCULO_LABEL, ehGrupo, horaCurta, previaConversa, type Co
 import type { ContatoBusca, DepartamentoResumo, ResultadoNovaConversa } from '@/lib/central-conversas/actions'
 import { estadoInicialEnvio, novoOperationId, reduzirEnvio, type AcaoEnvio, type EstadoEnvio } from '@/lib/central-conversas/envio-intencao'
 import NumerosInput from './NumerosInput'
-import { buscarContatosConexao, criarGrupo } from '@/lib/central-conversas/grupos-actions'
+import { buscarContatosConexao, criarGrupo, importarGrupos } from '@/lib/central-conversas/grupos-actions'
 import type { ContatoConexao } from '@/lib/central-conversas/engine'
 import EnviarTemplateYcloud from './EnviarTemplateYcloud'
 import AgendaWorkspaceModal from './AgendaWorkspaceModal'
@@ -768,6 +768,23 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [criado, setCriado] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [resultadoImport, setResultadoImport] = useState<string | null>(null)
+
+  async function importar() {
+    setErro(null)
+    setResultadoImport(null)
+    setImportando(true)
+    try {
+      const r = await importarGrupos(instanciaId)
+      if (!r.ok) setErro(r.error)
+      else setResultadoImport(`${r.importados} ${r.importados === 1 ? 'grupo importado' : 'grupos importados'} (de ${r.total})${r.erros ? `, ${r.erros} com erro` : ''}.`)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Falha ao importar os grupos.')
+    } finally {
+      setImportando(false)
+    }
+  }
 
   useEffect(() => {
     if (!instanciaId) return
@@ -870,7 +887,11 @@ function NovoGrupoModal({ instancias, onFechar, onGrupoCriado }: { instancias: I
                 <textarea className="brs-messenger-composer-input" style={{ width: '100%', marginTop: 4, minHeight: 60 }} value={mensagemInicial} onChange={(e) => setMensagemInicial(e.target.value)} />
               </label>
               {erro && <div style={{ fontSize: 12, color: '#b91c1c' }}>{erro}</div>}
+              {resultadoImport && <div style={{ fontSize: 12, color: 'var(--msn-text)' }}>{resultadoImport}</div>}
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => void importar()} disabled={salvando || importando || !instanciaId} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px', marginRight: 'auto' }}>
+                  {importando ? 'Importando…' : 'Importar grupos do aparelho'}
+                </button>
                 <button type="button" onClick={onFechar} disabled={salvando} className="brs-messenger-pill-btn" style={{ height: 28, padding: '0 12px' }}>
                   Cancelar
                 </button>

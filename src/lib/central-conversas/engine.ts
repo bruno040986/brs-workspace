@@ -136,6 +136,8 @@ export const engineGrupos = {
     chamar<{ ok: boolean; alterados: string[] }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/atualizar`, { method: 'POST', body }),
   revogarConvite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite/revogar`, { method: 'POST', body: {} }),
   convite: (instanciaId: string, jid: string) => chamar<{ link: string }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/convite`),
+  importarGrupos: (instanciaId: string) =>
+    chamar<{ total: number; importados: number; erros: number }>(`/instancias/${instanciaId}/grupos/importar`, { method: 'POST', body: {} }),
   sairGrupo: (instanciaId: string, jid: string) => chamar<{ ok: boolean }>(`/instancias/${instanciaId}/grupos/${encodeURIComponent(jid)}/sair`, { method: 'POST', body: {} }),
 }
 
