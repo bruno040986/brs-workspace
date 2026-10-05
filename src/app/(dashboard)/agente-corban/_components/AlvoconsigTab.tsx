@@ -27,7 +27,23 @@ type ConfigCrm = {
   disparo_min_instancias: number
   disparo_min_templates_por_instancia: number
   habilitado_em: string | null
+  ia_agente_status: string | null
+  ia_agente_ate: string | null
+  site_os_consig_status: string | null
+  site_os_consig_ate: string | null
 } | null
+
+const FUNCIONALIDADES = [
+  { key: 'ia', nome: 'Agente de IA de qualificação e roteamento' },
+  { key: 'site', nome: 'Site OS-Consig' },
+] as const
+
+// timestamptz -> AAAA-MM-DD no fuso de Brasília (valor do input date)
+function dataBrasilia(iso: string | null | undefined) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
+}
 
 type Message = { type: 'success' | 'error'; text: string } | null
 
@@ -45,6 +61,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
   const [maxDisparo, setMaxDisparo] = useState('10')
   const [minInstancias, setMinInstancias] = useState('3')
   const [minTemplates, setMinTemplates] = useState('3')
+  const [func, setFunc] = useState({
+    ia: { status: 'desligado', ate: '' },
+    site: { status: 'desligado', ate: '' },
+  })
   const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [busyUsuarioId, setBusyUsuarioId] = useState<string | null>(null)
 
@@ -62,6 +82,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         setMaxDisparo(String(res.config?.max_instancias_disparo ?? 10))
         setMinInstancias(String(res.config?.disparo_min_instancias ?? 3))
         setMinTemplates(String(res.config?.disparo_min_templates_por_instancia ?? 3))
+        setFunc({
+          ia: { status: res.config?.ia_agente_status || 'desligado', ate: dataBrasilia(res.config?.ia_agente_ate) },
+          site: { status: res.config?.site_os_consig_status || 'desligado', ate: dataBrasilia(res.config?.site_os_consig_ate) },
+        })
       } else {
         setMessage({ type: 'error', text: res.error || 'Erro ao carregar a configuração.' })
       }
@@ -86,6 +110,10 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         maxInstanciasDisparo: Number.parseInt(maxDisparo, 10),
         disparoMinInstancias: Number.parseInt(minInstancias, 10),
         disparoMinTemplatesPorInstancia: Number.parseInt(minTemplates, 10),
+        iaAgenteStatus: func.ia.status,
+        iaAgenteAte: func.ia.ate || null,
+        siteOsConsigStatus: func.site.status,
+        siteOsConsigAte: func.site.ate || null,
       })
       if (res.success) {
         setMessage({
@@ -201,6 +229,41 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         <p style={{ width: '100%', margin: '0.2rem 0 0', fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
           Mín. números e mín. templates definem quando o parceiro pode criar campanha de Disparo de WhatsApp Não Oficial.
           Ex.: 3 e 3 = precisa de 3 números conectados e 9 templates.
+        </p>
+      </div>
+
+      <div style={{ padding: '1rem', border: '1px solid var(--brs-gray-200)', borderRadius: 12, display: 'grid', gap: '0.75rem' }}>
+        <div style={{ fontWeight: 700, color: 'var(--brs-gray-800)' }}>Funcionalidades</div>
+        {FUNCIONALIDADES.map(({ key, nome }) => (
+          <div key={key} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <span style={{ minWidth: 280, fontWeight: 600, color: 'var(--brs-gray-800)' }}>{nome}</span>
+            <div className="form-group" style={{ width: 160, margin: 0 }}>
+              <label className="form-label">Status</label>
+              <select
+                className="form-control"
+                value={func[key].status}
+                onChange={(e) => setFunc((f) => ({ ...f, [key]: { ...f[key], status: e.target.value } }))}
+              >
+                <option value="desligado">Desligado</option>
+                <option value="teste">Teste</option>
+                <option value="pago">Pago</option>
+              </select>
+            </div>
+            {func[key].status !== 'desligado' && (
+              <div className="form-group" style={{ width: 180, margin: 0 }}>
+                <label className="form-label">Válido até{func[key].status === 'teste' ? ' (obrigatório)' : ''}</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={func[key].ate}
+                  onChange={(e) => setFunc((f) => ({ ...f, [key]: { ...f[key], ate: e.target.value } }))}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
+          Vale até o fim do dia escolhido (Brasília). Vencido = desligado. Gravado em &ldquo;Salvar configuração&rdquo; acima.
         </p>
       </div>
 

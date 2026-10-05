@@ -284,6 +284,7 @@ const prefixRouteRules: Array<[string, RouteAccessRule]> = [
   ])],
   ['/crm-alvoconsig', any([view('alvoconsig-gestao'), view('alvoconsig-certificacao')])],
   ['/crm-vende-ai-clt', any([view('central-integracoes')])],
+  ['/agentes-ia', any([view('comercial-agentes-ia')])],
   ['/promocoes', any([view('comercial-promocoes'), view('comercial-promocoes-remessa'), view('comercial-promocoes-bloqueados'), view('comercial-promocoes-config')])],
   ['/api/promocoes/interno', any([view('comercial-promocoes'), view('comercial-promocoes-remessa'), view('comercial-promocoes-bloqueados'), view('comercial-promocoes-config')])],
   ['/ia-workspace', any([view('sistema-config-ia')])],

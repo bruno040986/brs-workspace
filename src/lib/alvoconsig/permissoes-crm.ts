@@ -40,6 +40,7 @@ export const PERMISSOES_CRM = [
   { chave: 'config.usuarios_criar_editar', grupo: 'Configurações', rotulo: 'Criar e editar usuários' },
   { chave: 'config.usuarios_criar_master', grupo: 'Configurações', rotulo: 'Criar usuários com perfil Master' },
   { chave: 'config.scripts', grupo: 'Configurações', rotulo: 'Editar scripts de ligação' },
+  { chave: 'config.agente_ia', grupo: 'Configurações', rotulo: 'Agentes de IA' },
   { chave: 'config.esteira', grupo: 'Configurações', rotulo: 'Editar SLA, trava e dias sem atualização da esteira' },
   // Esteira de propostas (digitações)
   { chave: 'propostas.solicitar_digitacao', grupo: 'Esteira de Propostas', rotulo: 'Solicitar digitação a partir de simulação respondida' },
