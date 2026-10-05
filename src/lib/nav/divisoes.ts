@@ -9,6 +9,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
+  Bot,
   BriefcaseBusiness,
   Clock,
   Cpu,
@@ -264,6 +265,15 @@ export const NAV_DIVISOES: NavDivisao[] = [
         children: [
           { label: 'Ações Manuais', href: '/central-integracoes/acoes', perms: [view('central-integracoes')], desc: 'Wizard de disparos: público por filtro, preview e job (CallFace, template WhatsApp).', icon: Rocket },
           { label: 'Importação de Bases (CLT)', href: '/central-integracoes/bases', perms: [view('central-integracoes')], desc: 'Upload de base do motor de crédito — vira tag e público de disparo.', icon: Database },
+        ],
+      },
+      {
+        label: 'Agentes de IA',
+        href: '/agentes-ia',
+        perms: [view('comercial-agentes-ia')],
+        children: [
+          { label: 'Criar Agentes de IA', href: '/agentes-ia/perfis', perms: [view('comercial-agentes-ia')], desc: 'Perfil padrão de cada tipo de agente, com versões.', icon: Bot },
+          { label: 'Base de Conhecimento Geral', href: '/agentes-ia/conhecimento', perms: [view('comercial-agentes-ia')], desc: 'Seções de texto que todos os agentes usam para explicar o crédito.', icon: Database },
         ],
       },
       {

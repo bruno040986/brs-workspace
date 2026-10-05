@@ -97,6 +97,7 @@ const SYSTEM_MODULES = [
   { id: 'alvoconsig-higienizacao-amigoz', name: 'Consulta Amigoz', parentId: 'alvoconsig-gestao', level: 2 },
   { id: 'alvoconsig-motor-credito', name: 'Consulta Kaizom', parentId: 'alvoconsig-gestao', level: 2 },
   { id: 'alvoconsig-consulta-fydigital', name: 'Consulta Fy.Digital', parentId: 'alvoconsig-gestao', level: 2 },
+  { id: 'comercial-agentes-ia', name: 'Agentes de IA (perfis padrão e base de conhecimento)', parentId: 'cat-div-comercial', level: 1 },
   { id: 'comercial-promocoes', name: 'Promoções', parentId: 'cat-div-comercial', level: 1 },
   { id: 'comercial-promocoes-remessa', name: 'Promoções › Remessa de Pagamento (Pix)', parentId: 'comercial-promocoes', level: 2 },
   { id: 'comercial-promocoes-bloqueados', name: 'Promoções › CPFs Bloqueados', parentId: 'comercial-promocoes', level: 2 },
