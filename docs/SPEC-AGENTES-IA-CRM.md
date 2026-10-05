@@ -132,7 +132,7 @@ seed inicial do perfil `qualificacao` (§7) como versão 1.
 | `ia_agente_tipos` | `tipo` text pk ('qualificacao'; depois 'convenio', 'produto') | nome, descricao, `schema_campos` jsonb (quais blocos o tipo tem), ativo |
 | `ia_agente_perfis_padrao` | `tipo` pk | `perfil` jsonb (todos os blocos §7), `versao` int, `updated_by`, `updated_at` |
 | `ia_agente_perfis_padrao_versoes` | id | tipo, versao, perfil jsonb, updated_by, created_at (imutável, espelha `mensagem_templates_versoes` FATO `20260926015019:19`) |
-| `crm_agente_perfis` | (agente_parceiro_id, tipo) pk | `overrides` jsonb (SÓ os caminhos alterados, ex. `{"identidade.nome":"Lia","roteamento.modo":"rodizio"}`), `versao`, `atualizado_por` (crm_usuarios), `updated_at` |
+| `crm_agente_perfis` | (agente_parceiro_id, tipo) pk | `overrides` jsonb (SÓ os caminhos alterados, ex. `{"identidade.nome_assistente":"Lia","roteamento.modo":"rodizio"}`), `versao`, `atualizado_por` (crm_usuarios), `updated_at` |
 | `crm_agente_perfis_versoes` | id | agente_parceiro_id, tipo, versao, overrides, atualizado_por, created_at |
 
 Resolução (engine e CRM, mesma função pura, duplicada nos dois repos — ~40
@@ -402,8 +402,12 @@ separados, 150 linhas. Provedores iniciais: `openrouter` (base
 tier grátis; **DECIDIDO (Bruno, 05/10/2026): Groq é o 2º provedor, com modelos
 gratuitos, além do OpenRouter**). `crm_parceiro_credenciais.provedor`
 = `'llm_openrouter'` / `'llm_groq'`, segredo `{apiKey}`, campos públicos
-`{modelo_principal, modelos_fallback}` — o perfil referencia só o provedor
-ativo. Prompt caching: BC geral + perfil ficam no topo do system prompt
+`{modelo_principal, modelos_fallback}`, um registro por provedor, cada um com a
+sua credencial no cofre (`crm_parceiro_credenciais`). O `fallback_gratuito`
+pode usar a credencial de OUTRO provedor (ex.: principal = OpenRouter pago,
+fallback = Groq grátis): o perfil referencia `(provedor, modelo)` para o
+principal e para cada fallback, e o gate de habilitação do agente (§4.2 item 6)
+exige ao menos o principal decifrável. Prompt caching: BC geral + perfil ficam no topo do system prompt
 (estável), histórico no fim; OpenRouter repassa cache de Anthropic/OpenAI
 automaticamente.
 
@@ -734,7 +738,7 @@ dependência. **Fable** = schema/segurança/revisão final; **Sonnet** = resto.
 | 6 | Simulador no CRM | alvoconsig web | `agente-ia/simulador/**`, duplicata de prompt/validador em `lib/crm/agente-ia-prompt.ts` (mesmas fixtures da #5) | Sonnet | conversa de 5 turnos com perfil em edição; mostra JSON, intenção, custo; nada gravado em `chat_*`/`crm_contatos` |
 | 7 | Gate + estado + loop + política de canal + handoff | alvoconsig engine | `bridge.ts` (1 chamada), `agente-ia/gate.ts`, `agente-ia/worker.ts`, `agente-ia/canal.ts`, `chatwoot.ts` (labels, toggle pending), webhook `conversation_updated` | Sonnet, revisão **Fable** | com lead → não atua (teste); sem lead e caixa ativa → `pending` + resposta em ≤ 10 s; 3 mensagens em 3 s → 1 turno; restart no meio do turno não duplica (ledger); humano assume → cala; devolver → retoma |
 | 8 | Presença | alvoconsig web (+cron) | `lib/crm/presenca-actions.ts`, componente de heartbeat/modal/pausa no Atendimento, `app/api/cron/crm-presenca` | Sonnet | sem interação X min → ausente + modal; Y min → offline sem deslogar; pausa manual; Realtime mostra ao master |
-| 9 | Roteamento 4 modos + espera + "primeiro online" + notificações | alvoconsig web + engine | `agente-ia/roteamento.ts` (engine, puro + testes), `presenca-actions.ts` (entregar esperas), `crm_notificacoes` módulo `agente_ia` | Sonnet, revisão **Fable** | testes: rodízio pula offline e lotado, ponteiro avança 1 por entrega, 2 entregas concorrentes não repetem; ninguém online → espera; ficou online → recebe o mais antigo; X min → master avisado |
+| 9 | Roteamento 4 modos + espera + "primeiro online" + notificações | alvoconsig web + engine | `agente-ia/roteamento.ts` (engine, puro + testes), `presenca-actions.ts` (entregar esperas), `crm_notificacoes` módulo `agente_ia`; action que atribui a conversa (botão "Assumir"/atribuir do CRM e entrega da espera) também grava `crm_contatos.atendente_id` do pré-cadastro | Sonnet, revisão **Fable** | testes: rodízio pula offline e lotado, ponteiro avança 1 por entrega, 2 entregas concorrentes não repetem; ninguém online → espera; ficou online → recebe o mais antigo; X min → master avisado; assumir conversa de pré-lead sem dono grava atendente_id no contato (idem na entrega da espera/roteamento) |
 | 10 | Pré-cadastro + observação + nota + documentos + etiquetas + log | alvoconsig engine + web | `agente-ia/fim.ts`, modal Criar Lead pré-preenchido, filtro "Com a IA" | Sonnet | CPF+convênio → `crm_contatos` origem 'ia' sem WeSales, com `atendente_id` = atendente do roteamento (sem dono na espera, preenchido quando alguém assume); sem CPF → modal pré-preenchido; nota "Decisão:" presente; etiquetas visíveis no Chatwoot; log com tokens/custo |
 | 11 | Origem do anúncio + links | alvoconsig engine + web | `bridge.ts extrairContextInfo`, `ycloud.ts normalizarInboundYcloud`, `zapi.ts`, `MensagemInbound`, tela Links | Sonnet | fixture Baileys com `externalAdReply` grava `origem_anuncio`; 1ª mensagem com sufixo do link vincula `link_entrada_id`; testes dos 3 normalizadores |
 | 12 | Horário, opt-out, teto de gasto, fail-closed ponta a ponta | alvoconsig engine | `agente-ia/limites.ts` + testes | Sonnet | fora do expediente → mensagem fixa 1x e roteia na abertura; "parar" → optout e silêncio; teto/dia estourado → troca p/ modelo gratuito de fallback (evento `troca_modelo_teto` no log); sem fallback ou fallback falhando → Fila + nota, sem LLM |
