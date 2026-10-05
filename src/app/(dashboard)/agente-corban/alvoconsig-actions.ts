@@ -14,6 +14,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { requirePermission } from '@/lib/auth/server'
 import { provisionarContaChatDoParceiro } from '@/lib/central-conversas/provisionar-parceiro'
+import { STATUS_FUNCIONALIDADE } from '@/lib/alvoconsig/funcionalidades'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,7 +54,7 @@ export async function getAlvoconsigConfig(agenteParceiroId: string) {
     const [configRes, usuariosRes, agenteRes] = await Promise.all([
       supabaseAdmin
         .from('crm_parceiro_config')
-        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em')
+        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em, ia_agente_status, ia_agente_ate, site_os_consig_status, site_os_consig_ate')
         .eq('agente_parceiro_id', agenteParceiroId)
         .maybeSingle(),
       supabaseAdmin
@@ -99,6 +100,11 @@ export async function salvarAlvoconsigConfig(payload: {
   maxInstanciasDisparo?: number
   disparoMinInstancias?: number
   disparoMinTemplatesPorInstancia?: number
+  /** Funcionalidades (status desligado|teste|pago + data AAAA-MM-DD "válido até"). Omitido = não altera. */
+  iaAgenteStatus?: string
+  iaAgenteAte?: string | null
+  siteOsConsigStatus?: string
+  siteOsConsigAte?: string | null
 }) {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
@@ -114,6 +120,29 @@ export async function salvarAlvoconsigConfig(payload: {
     const disparoMinInstancias = clamp(payload.disparoMinInstancias, 1, 50, 3)
     const disparoMinTemplatesPorInstancia = clamp(payload.disparoMinTemplatesPorInstancia, 1, 20, 3)
     let avisoChat: string | null = null
+
+    // Funcionalidades: valida status e data; "até" vale até o fim do dia (Brasília).
+    const funcionalidade = (status: unknown, ate: unknown, nome: string) => {
+      if (status === undefined) return { ok: true as const, cols: null }
+      if (!(STATUS_FUNCIONALIDADE as readonly string[]).includes(String(status))) {
+        return { ok: false as const, error: `Status inválido em "${nome}".` }
+      }
+      if (status === 'desligado') return { ok: true as const, cols: { status, ate: null } }
+      const d = String(ate ?? '').trim()
+      if (!d) {
+        if (status === 'teste') return { ok: false as const, error: `Informe a data "válido até" do teste em "${nome}".` }
+        return { ok: true as const, cols: { status, ate: null } }
+      }
+      const iso = `${d}T23:59:59-03:00`
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(new Date(iso).getTime())) {
+        return { ok: false as const, error: `Data inválida em "${nome}".` }
+      }
+      return { ok: true as const, cols: { status, ate: iso } }
+    }
+    const fIa = funcionalidade(payload.iaAgenteStatus, payload.iaAgenteAte, 'Agente de IA')
+    if (!fIa.ok) return { success: false, error: fIa.error }
+    const fSite = funcionalidade(payload.siteOsConsigStatus, payload.siteOsConsigAte, 'Site OS-Consig')
+    if (!fSite.ok) return { success: false, error: fSite.error }
 
     if (payload.habilitado) {
       // Master = login único do parceiro (aba Acesso). Valida e vincula.
@@ -203,6 +232,14 @@ export async function salvarAlvoconsigConfig(payload: {
       max_instancias_disparo: maxInstanciasDisparo,
       disparo_min_instancias: disparoMinInstancias,
       disparo_min_templates_por_instancia: disparoMinTemplatesPorInstancia,
+    }
+    if (fIa.cols) {
+      row.ia_agente_status = fIa.cols.status
+      row.ia_agente_ate = fIa.cols.ate
+    }
+    if (fSite.cols) {
+      row.site_os_consig_status = fSite.cols.status
+      row.site_os_consig_ate = fSite.cols.ate
     }
     if (payload.habilitado && !atual?.habilitado) {
       row.habilitado_por = user.id
