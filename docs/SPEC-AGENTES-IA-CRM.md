@@ -25,6 +25,11 @@ fábrica versionado no Workspace, overrides campo a campo pelo parceiro no CRM.
 Fase 1 entrega o ciclo completo (entrada → qualificação → roteamento com
 presença de atendente); agentes por convênio e ferramentas de IF vêm depois.
 
+> **Decisão 06/10/2026:** liga/desliga do dia a dia = só a flag por parceiro no Workspace
+> (`ia_agente_status` teste|pago + `ia_agente_ate`; nasce `desligado`) + caixa ativa; nenhuma env para ligar.
+> A env `AGENTE_IA_DESLIGADO=true|1|sim` na Railway é o freio de emergência (entrega as vivas à Fila, `transbordo`).
+> Heartbeat de presença: 60 s.
+
 ```
  WhatsApp (baileys | zapi | ycloud)
    │ inbound

@@ -18,10 +18,10 @@
 | 4 | Tela CRM | CRM | `b47a5d7` | Configurações › Agentes de IA: Caixas, Perfil, Roteamento, Modelo (logos em pastilha clara, passo a passo, teto/dia, fallback gratuito + aviso LGPD), Links wa.me `[#COD]` |
 | 5 | Cliente LLM + prompt + validador | CRM engine | `f5fb83a` | `ia-cliente.ts` (OpenRouter/Groq, fallback 429/402/5xx/timeout, 401/403 para), `prompt.ts` (`<lead>`), `validador.ts` + fixtures compartilhadas |
 | 6 | Simulador | CRM web | `4fbe314` | Aba Simulador (perfil em edição, nada gravado), duplicata prompt/validador (mesmas fixtures), "Testar chave", guard `config.agente_ia` |
-| 7 | Gate + loop + canal + handoff | CRM engine | `befbd3e`, `babb089` | `agente-ia/*` (gate, worker com claim/lease, política por canal, handoff humano) ligado em `bridge.ts`/`server.ts`/`index.ts` atrás de `AGENTE_IA_ATIVO` |
+| 7 | Gate + loop + canal + handoff | CRM engine | `befbd3e`, `babb089` | `agente-ia/*` (gate, worker com claim/lease, política por canal, handoff humano) ligado em `bridge.ts`/`server.ts`/`index.ts` atrás da flag por parceiro (freio global `AGENTE_IA_DESLIGADO`) |
 | 8a | Migration presença/espera | WS | `47d9fec6` | `20261005023447_agentes_ia_presenca_espera.sql`: `crm_presenca` (+Realtime), X/Y em `crm_parceiro_config`, RPCs `crm_presenca_*`, `crm_agente_espera_entregar`, notificação módulo `agente_ia` |
 | 8a (teste) | Teste SQL | CRM | `3ee2957` | `tests/db/agentes-ia-presenca.sql` |
-| 8 | Presença | CRM web | `fea7217` | Heartbeat 30 s, modal "Ainda está em atendimento?", pausa, visão do master (Realtime), cron `/api/cron/crm-presenca` |
+| 8 | Presença | CRM web | `fea7217` | Heartbeat 60 s, modal "Ainda está em atendimento?", pausa, visão do master (Realtime), cron `/api/cron/crm-presenca` |
 | 9 | Roteamento | CRM | `79ca74e` | master / fixo / rodízio (pula offline e lotado) / espera; entrega ao 1º online; aviso ao master; dono do pré-lead |
 | 10a | Pré-cadastro + documentos + etiquetas | CRM engine | `c8cc940`, `0a9d696` | Teto de gasto ligado às deps reais (fail-closed); `crm_contatos` origem `ia` sem WeSales; observação; documentos (15 MB, só host do nosso Chatwoot); etiquetas; entrega periódica da espera |
 | 10b | Web | CRM web | `82df05d` | Modal Criar Lead pré-preenchido, aba "Com a IA", balão violeta, "Devolver ao agente de IA", "Completar e cadastrar no WeSales" |
@@ -49,7 +49,7 @@ parceiro). Os 3 avisos automáticos de segurança sem detalhe foram investigados
 | Baixo | `SimuladorAba.tsx` | Simulador ≠ engine (uma chave p/ todos os modelos, sem fallback gratuito, cidade "Brasil", sem horário/limites/roteamento) não estava dito na tela. | **Corrigido**: frase no aviso amarelo |
 
 Verificado e **sem correção necessária**:
-- Chave-mestra `AGENTE_IA_ATIVO`: getter lido na hora, padrão desligado; checada em `bridge.ts` (antes do import dinâmico), `gate.ts` (duas vezes), `worker.ts` (antes de iniciar e a cada turno via `autorizadoAgora`), `espera.ts`, `index.ts`. Desligada = nenhum módulo do agente é importado.
+- **Chave global invertida (decisão do Bruno, 06/10/2026)**: `AGENTE_IA_ATIVO` foi REMOVIDA. O liga/desliga do dia a dia é só a flag por parceiro (`ia_agente_status` teste|pago + `ia_agente_ate` vigente; nasce `desligado`) + caixa ativa. A env agora é o freio `AGENTE_IA_DESLIGADO=true|1|sim` (getter `agenteIaDesligadoGlobal`, ausente = segue as flags), checado em `gate.ts` (fail-closed, 1º item), `worker.ts` (`autorizadoAgora`, a cada turno) e `aoReceberMensagem`. Os ticks (agente, espera, entrega periódica) sobem SEMPRE; ocioso = 1 RPC de claim indexada a cada 2 s e, nos ganchos do bridge, `agenteEmUso` (cache 60 s: 2 consultas leves/min) corta tudo quando nenhum parceiro está habilitado e não há conversa viva.
 - `funcionalidadeAtiva` (WS e engine) e `funcionalidadeLiberada` (CRM web): mesma regra teste|pago e `ate` nulo/futuro (diferença `>=`×`>` no segundo exato é irrelevante).
 - Segredos: a apiKey é decifrada só em `dados.chaveLlm`, nunca gravada em `crm_agente_log` (`tirarChave` nos erros do cliente LLM; corpo de erro HTTP não entra em log); token do Chatwoot nunca sai de `ChatwootConta`; o corpo da resposta do `/enviar` não é logado.
 - Prompt injection: `<`/`>` do lead virados em `‹›`, marcador `[ATENDENTE HUMANO]` neutralizado, modelo sem ferramentas, enum fechado, `resposta` ≤ 900, CPF pedido no turno 1 removido, `concluido`/intenção terminal decididos pelo código.
@@ -57,6 +57,10 @@ Verificado e **sem correção necessária**:
 - Limites gravados: `campos_coletados` (≤120 chars por valor, nome ≤60), observação ≤2000, `json_devolvido` com resposta ≤900 e CPF mascarado, motivos `slice(200/300)`.
 - RLS: `crm_agente_*`/`chat_agente_conversas`/`crm_links_entrada`/`crm_agente_optout` só service role; `ia_*` por `app_private.has_permission('comercial-agentes-ia')`; `crm_presenca` leitura por tenant (`app_private.crm_agente_parceiro_do_usuario()`, função já existente desde 20260903020000).
 - `crm_agente_turno_claim` não recebe parceiro de propósito (claim global do engine, service role) — o tenant está na linha devolvida.
+
+> **Decisão 06/10/2026 (Bruno):** flag por parceiro no Workspace é o único liga/desliga do dia a dia (nasce `desligado`);
+> `AGENTE_IA_ATIVO` removida, `AGENTE_IA_DESLIGADO` é freio de emergência; heartbeat de presença 60 s (era 30 s; com X
+> de presença = 1 min o atendente ativo pode oscilar para "ausente" — usar X ≥ 2 min).
 
 ## 3. Pendências registradas (não implementadas — decisão/escopo)
 
@@ -128,8 +132,8 @@ git push                                        # Vercel (apps/web) + Railway (s
 git branch -d agentes-ia/fase-1 && git worktree remove ../brs-alvoconsig-agentes-ia
 ```
 Variáveis de ambiente:
-- **Railway (engine)**: `AGENTE_IA_ATIVO` — **NÃO criar ainda** (ausente = desligado). O deploy sobe com o agente
-  inerte: nenhum módulo é importado, `/enviar` ganha só a origem `agente_ia`.
+- **Railway (engine)**: nada a criar para ligar. `AGENTE_IA_DESLIGADO` é só o freio de emergência (ausente = segue as
+  flags). O deploy sobe inerte porque a flag nasce `desligado` para todos os parceiros; `/enviar` ganha a origem `agente_ia`.
 - **Vercel (CRM web)**: nada novo. `CRON_SECRET` já existe (mesmo padrão dos outros crons). O cron
   `/api/cron/crm-presenca` (`1-59/2 * * * *`, `maxDuration` 10 s, 1 RPC) entra pelo `vercel.json`; respeita o
   invariante intervalo ≥ maxDuration; os minutos ímpares desalinham dos crons `*/1`... — se preferir menos
@@ -148,19 +152,20 @@ Variáveis de ambiente:
    - **Simulador**: rodar as 10 conversas-roteiro (§9.2 da spec) ANTES de ligar a caixa.
    - **Links**: criar 1 link de entrada (`[#COD]`) para o teste.
    - **Caixas**: ligar `agente_ia_ativo` SÓ na caixa Baileys de teste da NuAzul.
-3. Railway › engine › Variables: `AGENTE_IA_ATIVO=true` → redeploy. Log esperado: `agente-ia: worker iniciado`.
+3. Nada na Railway: a flag `teste` do passo 1 + a caixa do passo 2 já liberam o agente (efeito em ≤ 60 s pelo cache).
 
 ### 4.6 Como DESLIGAR rápido (do mais rápido ao mais amplo)
-1. **Railway**: `AGENTE_IA_ATIVO=false` (ou remover) + redeploy → nada do agente roda; conversas `pending` em
-   andamento: devolver à Fila pelo Chatwoot (status open) ou pelo "Assumir" no CRM.
-2. **CRM › Caixas**: desligar a caixa (vale em ≤ 60 s pelo cache do engine; a conversa já em curso cai na Fila com
-   motivo `transbordo`, sem silêncio).
-3. **Workspace › aba AlvoConsig**: Agente de IA = desligado (mesmo efeito, para todas as caixas do parceiro).
+1. **Workspace › aba AlvoConsig**: Agente de IA = desligado (todas as caixas do parceiro; efeito em até ~60 s pelo cache).
+   A conversa já em curso cai na Fila com motivo `transbordo`, sem silêncio.
+2. **CRM › Caixas**: desligar a caixa (mesmo efeito, ≤ 60 s, só aquela caixa).
+3. **Railway (freio de emergência, todos os parceiros)**: `AGENTE_IA_DESLIGADO=true` + redeploy do engine. Com o freio o
+   engine não atende ninguém novo e entrega as conversas vivas à Fila (`transbordo`, sem LLM), inclusive as que
+   esperavam o lead; a entrega de `aguardando_atendente` a atendentes online continua.
 4. Rollback de código: `git revert` do merge; as migrations são aditivas (colunas/tabelas novas) e podem ficar.
 
 ## 5. Checklist de homologação (NuAzul, número pareado do Bruno — §9.3 da spec, atualizado)
 
-Pré: flag `teste`, caixa Baileys da NuAzul com `agente_ia_ativo`, chave OpenRouter válida, `AGENTE_IA_ATIVO=true`,
+Pré: flag `teste`, caixa Baileys da NuAzul com `agente_ia_ativo`, chave OpenRouter válida,
 auto-assignment OFF, o número do Bruno SEM lead na NuAzul (ou apagar/soft-delete o contato de teste antes).
 
 1. [ ] Abrir o link de entrada (`wa.me/...?text=... [#COD]`) e mandar a 1ª mensagem → resposta em ≤ 10 s com
