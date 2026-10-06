@@ -42,6 +42,7 @@ export const PERMISSOES_CRM = [
   { chave: 'config.scripts', grupo: 'Configurações', rotulo: 'Editar scripts de ligação' },
   { chave: 'config.agente_ia', grupo: 'Configurações', rotulo: 'Agentes de IA' },
   { chave: 'config.esteira', grupo: 'Configurações', rotulo: 'Editar SLA, trava e dias sem atualização da esteira' },
+  { chave: 'config.liberar_disparo', grupo: 'Configurações', rotulo: 'Liberar disparo antes do fim da quarentena do número' },
   // Esteira de propostas (digitações)
   { chave: 'propostas.solicitar_digitacao', grupo: 'Esteira de Propostas', rotulo: 'Solicitar digitação a partir de simulação respondida' },
   { chave: 'propostas.ver_minhas', grupo: 'Esteira de Propostas', rotulo: 'Ver as propostas que eu pedi ou opero' },

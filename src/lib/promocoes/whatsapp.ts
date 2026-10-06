@@ -90,7 +90,9 @@ async function enviarPor(e: EnvioPromocao, instanciaId: string | null): Promise<
     }
     if (err instanceof EngineErro) {
       await marcar({ status: 'rejeitado', erro: `${err.codigo}: ${err.message}` })
-      return { resultado: 'rejeitado', mensagem: err.codigo }
+      // Código na frente (os SEM_WHATSAPP casam por ele) + texto do engine para a tela
+      // (ex.: INSTANCIA_INELEGIVEL: "Número em quarentena…").
+      return { resultado: 'rejeitado', mensagem: err.message && err.message !== err.codigo ? `${err.codigo}: ${err.message}` : err.codigo }
     }
     const msg = err instanceof Error ? err.message : 'Falha de validação do envio.'
     await marcar({ status: 'rejeitado', erro: msg })
