@@ -25,6 +25,7 @@ import {
   type Resolucoes,
 } from '@/lib/comissionamento-import'
 import {
+  buscarTodas,
   carregarCatalogo,
   lerPlanilha,
   relacaoSubZero,
@@ -141,12 +142,13 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   }
 
   const catalogo: Catalogo = await carregarCatalogo(admin)
-  const { data: existentesData } = await admin
+  const existentesData = await buscarTodas(() => admin
     .from('tabelas_comissao')
     .select('id, codigo_tabela_banco, codigo_tabela_promotora, nome, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, observacao, id_arw, is_active')
     .is('deleted_at', null)
     .eq('is_active', true)
-  const existentes = (existentesData || []) as TabelaExistente[]
+    .order('id'))
+  const existentes = existentesData as TabelaExistente[]
 
   const linhas: LinhaAnalisada[] = []
   const identidadesVistas = new Set<string>()

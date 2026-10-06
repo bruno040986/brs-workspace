@@ -13,6 +13,18 @@ export type AdminClient = {
   from: (table: string) => any
 }
 
+/** PostgREST corta em 1000 linhas por padrão: pagina com .range() até esgotar. A query precisa ter ordem estável. */
+export async function buscarTodas<T = any>(consulta: () => any): Promise<T[]> {
+  const POR_PAGINA = 1000
+  const todas: T[] = []
+  for (let de = 0; ; de += POR_PAGINA) {
+    const { data, error } = await consulta().range(de, de + POR_PAGINA - 1)
+    if (error) throw new Error(error.message)
+    todas.push(...(data || []))
+    if (!data || data.length < POR_PAGINA) return todas
+  }
+}
+
 export function lerPlanilha(buffer: Buffer): { headers: string[]; rows: unknown[][] } {
   const workbook = XLSX.read(buffer, { type: 'buffer', raw: true })
   const sheetName = workbook.SheetNames[0]
@@ -35,14 +47,14 @@ export type Catalogo = {
 }
 
 export async function carregarCatalogo(admin: AdminClient): Promise<Catalogo> {
-  const [financeiras, promotoras, convenios, formas, formalizacoes, aliases] = await Promise.all([
-    admin.from('financial_institutions').select('id, name, linked_bank_code, fiscal_data, financial_data').is('deleted_at', null),
-    admin.from('promotoras').select('id, razao_social, nome_fantasia'),
-    admin.from('convenios').select('id, nome, codigo').is('deleted_at', null),
-    admin.from('formas_contrato').select('id, nome, codigo_arw'),
-    admin.from('tipos_formalizacao').select('id, nome, codigo_arw'),
-    admin.from('comissionamento_import_aliases').select('tipo, texto_normalizado, alvo_id'),
-  ])
+  const [financeiras, promotoras, convenios, formas, formalizacoes, aliases] = (await Promise.all([
+    buscarTodas(() => admin.from('financial_institutions').select('id, name, linked_bank_code, fiscal_data, financial_data').is('deleted_at', null).order('id')),
+    buscarTodas(() => admin.from('promotoras').select('id, razao_social, nome_fantasia').order('id')),
+    buscarTodas(() => admin.from('convenios').select('id, nome, codigo').is('deleted_at', null).order('id')),
+    buscarTodas(() => admin.from('formas_contrato').select('id, nome, codigo_arw').order('id')),
+    buscarTodas(() => admin.from('tipos_formalizacao').select('id, nome, codigo_arw').order('id')),
+    buscarTodas(() => admin.from('comissionamento_import_aliases').select('tipo, texto_normalizado, alvo_id').order('id')),
+  ])).map((data) => ({ data }))
 
   const aliasesMap = new Map<string, string>()
   for (const alias of aliases.data || []) {

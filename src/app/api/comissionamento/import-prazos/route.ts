@@ -41,6 +41,7 @@ import {
 } from '@/lib/comissionamento-import'
 import { formaPagamentoLabel, formaPagamentoUsaFaixa } from '@/lib/comissionamento'
 import {
+  buscarTodas,
   carregarCatalogo,
   lerPlanilha,
   relacaoSubZero,
@@ -179,20 +180,26 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
   }
 
   const catalogo: Catalogo = await carregarCatalogo(admin)
-  const [{ data: tabelasData }, { data: prazosData }] = await Promise.all([
-    admin
-      .from('tabelas_comissao')
-      .select('id, codigo, nome, codigo_tabela_banco, codigo_tabela_promotora, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, id_arw')
-      .is('deleted_at', null)
-      .eq('is_active', true)
-      .order('codigo', { ascending: true }),
-    admin
-      .from('prazos_comissao')
-      .select('id, tabela_comissao_id, codigo_prazo_promotora, forma_pagamento, valor_inicial, valor_final, prazo_inicial, prazo_final, data_base, data_bloqueio, manter_enquadramento, comissao, emissao, seguro, forma_pagamento_seguro, id_arw, is_active')
-      .eq('is_active', true),
+  const [tabelasData, prazosData] = await Promise.all([
+    buscarTodas(() =>
+      admin
+        .from('tabelas_comissao')
+        .select('id, codigo, nome, codigo_tabela_banco, codigo_tabela_promotora, institution_id, promotora_id, forma_contrato_id, convenio_id, tipo_formalizacao_id, com_seguro, taxa_juros_tipo, taxa_juros, taxa_juros_min, taxa_juros_max, id_arw')
+        .is('deleted_at', null)
+        .eq('is_active', true)
+        .order('codigo', { ascending: true })
+        .order('id'),
+    ),
+    buscarTodas(() =>
+      admin
+        .from('prazos_comissao')
+        .select('id, tabela_comissao_id, codigo_prazo_promotora, forma_pagamento, valor_inicial, valor_final, prazo_inicial, prazo_final, data_base, data_bloqueio, manter_enquadramento, comissao, emissao, seguro, forma_pagamento_seguro, id_arw, is_active')
+        .eq('is_active', true)
+        .order('id'),
+    ),
   ])
-  const indiceTabelas = indexarTabelas((tabelasData || []) as TabelaRef[])
-  const prazosExistentes = (prazosData || []) as PrazoExistente[]
+  const indiceTabelas = indexarTabelas(tabelasData as TabelaRef[])
+  const prazosExistentes = prazosData as PrazoExistente[]
 
   const linhas: LinhaPrazo[] = []
   const identidadesVistas = new Set<string>()
