@@ -11,6 +11,8 @@ comment on column public.chat_instancias.proxy_url_cifrada is
 -- Eventos de auditoria do proxy (sem credencial; só protocolo, host, porta e resultado).
 -- Mesmo padrão da 20260926150100: a tabela já restringe `tipo` por CHECK, então os
 -- novos tipos precisam entrar na lista (senão o insert best-effort do engine falha mudo).
+-- Não espera lock indefinidamente (a tabela recebe INSERT de eventos o tempo todo): falha rápido e dá para repetir.
+set local lock_timeout = '5s';
 alter table public.chat_instancia_eventos drop constraint if exists chat_instancia_eventos_tipo_check;
 alter table public.chat_instancia_eventos
   add constraint chat_instancia_eventos_tipo_check
