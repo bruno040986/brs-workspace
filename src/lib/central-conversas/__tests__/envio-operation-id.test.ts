@@ -7,7 +7,7 @@
  */
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { engine, EngineEnvioIncertoError, EngineErro } from '../engine.ts'
+import { engine, EngineEnvioIncertoError, EngineErro, mensagemErroEngine } from '../engine.ts'
 import { ehOperationId, estadoInicialEnvio, normalizarTelefoneDestino, novoOperationId, reduzirEnvio, resolverIntencao, type EstadoEnvio } from '../envio-intencao.ts'
 
 type Chamada = { url: string; init: RequestInit; body: Record<string, unknown> }
@@ -193,6 +193,19 @@ describe('engine.enviar — operationId no corpo', () => {
       chamadas = []
       simularEngine(() => new Response(JSON.stringify(corpo), { status }))
       await assert.rejects(() => envio(), ehRejeicao(codigo))
+      assert.equal(chamadas.length, 1)
+    }
+  })
+
+  test('barreira de saúde do número (409 INSTANCIA_INELEGIVEL / 503 ELEGIBILIDADE_INDISPONIVEL) é rejeição pré-envio, com a mensagem do engine', async () => {
+    const casos: Array<[number, Record<string, unknown>, string]> = [
+      [409, { code: 'INSTANCIA_INELEGIVEL', error: 'Número banido pelo WhatsApp.' }, 'INSTANCIA_INELEGIVEL'],
+      [503, { code: 'ELEGIBILIDADE_INDISPONIVEL', error: 'Não foi possível confirmar o estado do número; tente de novo.' }, 'ELEGIBILIDADE_INDISPONIVEL'],
+    ]
+    for (const [status, corpo, codigo] of casos) {
+      chamadas = []
+      simularEngine(() => new Response(JSON.stringify(corpo), { status }))
+      await assert.rejects(() => envio(), (err: unknown) => ehRejeicao(codigo)(err) && mensagemErroEngine(err) === corpo.error)
       assert.equal(chamadas.length, 1)
     }
   })
