@@ -354,10 +354,18 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      const r = await gravarFotoMargemWesales({ admin, convenio: { ...convenioSelecionado, codigo_sistema: codigoConvenioPadrao }, linhas: linhasMargem, baseTagSlug })
-      importadas = r.importadas
-      erros.push(...r.erros)
-      contactIdsTocados.push(...r.contactIds)
+      // Falha ao preparar campos no WeSales (ex.: campo de margem inexistente)
+      // lançava e virava o genérico "Erro inesperado" — agora devolve o motivo
+      // real (mesmo tratamento do REFIN/elegibilidade) e marca a importação.
+      try {
+        const r = await gravarFotoMargemWesales({ admin, convenio: { ...convenioSelecionado, codigo_sistema: codigoConvenioPadrao }, linhas: linhasMargem, baseTagSlug })
+        importadas = r.importadas
+        erros.push(...r.erros)
+        contactIdsTocados.push(...r.contactIds)
+      } catch (error: any) {
+        await admin.from('crm_imports').update({ status: 'erro', erro: `Falha ao gravar margem no WeSales: ${error?.message || error}`, concluido_em: new Date().toISOString() }).eq('id', importRow.id)
+        return NextResponse.json({ error: `Não foi possível gravar no WeSales: ${error?.message || error}` }, { status: 502 })
+      }
     } else if (tipo === 'refin') {
       // REFIN: agrupa por CPF (cada linha = uma oferta = uma Oportunidade).
       // Reimportar a MESMA oferta (mesma instituição+tabela) atualiza a
@@ -569,6 +577,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Erro no upload de mailing AlvoConsig:', error)
-    return NextResponse.json({ error: 'Erro inesperado ao importar o mailing.' }, { status: 500 })
+    const detalhe = error instanceof Error && error.message ? ` (${error.message})` : ''
+    return NextResponse.json({ error: `Erro inesperado ao importar o mailing.${detalhe}` }, { status: 500 })
   }
 }
