@@ -92,6 +92,8 @@ create temp table t_passos as select jsonb_build_array(
 ) as j;
 select pg_temp.assert_true(public.crm_maturacao_criar_execucao(pg_temp.i('f1'), pg_temp.hoje(), now() - interval '1 hour', now() + interval '6 hours', 42, '{}', (select j from t_passos)) is null, 'plano em rascunho não cria execução');
 update crm_maturacao_planos set status = 'ativo' where id = pg_temp.i('f1');
+select pg_temp.assert_true(public.crm_maturacao_criar_execucao(pg_temp.i('f1'), pg_temp.hoje(), now() - interval '1 hour', now() + interval '6 hours', 42, '{}', (select j from t_passos)) is null, 'flag desligada não cria execução');
+update crm_parceiro_config set maturacao_status = 'teste', maturacao_ate = now() + interval '1 day' where agente_parceiro_id = '00000000-0000-0000-0007-000000000001';
 create temp table t_ex as select public.crm_maturacao_criar_execucao(pg_temp.i('f1'), pg_temp.hoje(), now() - interval '1 hour', now() + interval '6 hours', 42, '{"v":1}', (select j from t_passos)) as id;
 select pg_temp.assert_true((select id is not null from t_ex), 'execução criada');
 select pg_temp.assert_true(public.crm_maturacao_criar_execucao(pg_temp.i('f1'), pg_temp.hoje(), now(), now() + interval '1 hour', 1, '{}', (select j from t_passos)) is null, 'segunda execução do dia devolve null');
@@ -104,7 +106,9 @@ select pg_temp.assert_sqlstate(format($c$insert into crm_maturacao_passos (execu
 -- ---------------------------------------------------------------------------
 -- 6. Claim: flag, sessão local, teto
 -- ---------------------------------------------------------------------------
-select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim(array['b1', 'b2', 'b3', 'b4'])), 'flag desligada: claim vazio');
+update crm_parceiro_config set habilitado = false where agente_parceiro_id = '00000000-0000-0000-0007-000000000001';
+select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim(array['b1', 'b2', 'b3', 'b4'])), 'parceiro desabilitado (habilitado=false): claim vazio');
+update crm_parceiro_config set habilitado = true where agente_parceiro_id = '00000000-0000-0000-0007-000000000001';
 update crm_parceiro_config set maturacao_status = 'teste', maturacao_ate = now() - interval '1 minute' where agente_parceiro_id = '00000000-0000-0000-0007-000000000001';
 select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim(array['b1', 'b2', 'b3', 'b4'])), 'flag vencida: claim vazio');
 update crm_parceiro_config set maturacao_ate = now() + interval '1 day' where agente_parceiro_id = '00000000-0000-0000-0007-000000000001';
@@ -203,6 +207,7 @@ insert into crm_maturacao_execucoes (id, plano_id, dia, inicio_em, fim_em, seed)
 insert into crm_maturacao_passos (execucao_id, plano_id, sessao_id, ordem, remetente_instancia_id, destinatario_instancia_id, texto, agendado_para, status)
 values (pg_temp.i('e1'), pg_temp.i('f1'), pg_temp.s('c008'), 1, pg_temp.i('b1'), pg_temp.i('b3'), 'e aí', now() - interval '1 second', 'pendente');
 select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim(array['b1'])), 'kill switch global: claim vazio');
+select pg_temp.assert_true(public.crm_maturacao_criar_execucao(pg_temp.i('f1'), pg_temp.hoje(5), now(), now() + interval '1 hour', 1, '{}', '[]') is null, 'kill switch ligado não cria execução');
 update crm_maturacao_parametros set desligado_em = null where agente_parceiro_id is null;
 select pg_temp.assert_true((select count(*) = 1 from crm_maturacao_eventos where tipo = 'kill_switch_desligado'), 'evento kill_switch_desligado');
 insert into crm_maturacao_parametros (agente_parceiro_id, desligado_em) values ('00000000-0000-0000-0007-000000000001', now());
@@ -248,3 +253,53 @@ select pg_temp.assert_sqlstate(format($c$insert into crm_maturacao_trechos (font
 select pg_temp.assert_sqlstate($c$insert into crm_maturacao_eventos (tipo, origem, observacao) values ('alerta', 'engine', 'número 5561999998888')$c$, '23514', 'observação com telefone recusada');
 select pg_temp.assert_sqlstate($c$insert into crm_maturacao_eventos (tipo, origem, motivo) values ('alerta', 'engine', 'Texto Livre')$c$, '23514', 'motivo livre recusado');
 select pg_temp.assert_sqlstate($c$insert into crm_maturacao_eventos (tipo, origem) values ('inventado', 'engine')$c$, '23514', 'tipo de evento inválido recusado');
+
+select pg_temp.assert_sqlstate(format($c$insert into crm_maturacao_passos (execucao_id, plano_id, sessao_id, ordem, remetente_instancia_id, destinatario_instancia_id, texto) values (%L, %L, gen_random_uuid(), 1, %L, %L, 'me liga 61999999')$c$, (select id from t_ex), pg_temp.i('f1'), pg_temp.i('b1'), pg_temp.i('b3')), '23514', 'passo com 6+ dígitos recusado');
+select pg_temp.assert_sqlstate($c$update crm_maturacao_parametros set desligado_motivo = 'ligar 61999999' where agente_parceiro_id is null$c$, '23514', 'desligado_motivo com 6+ dígitos recusado');
+
+-- ---------------------------------------------------------------------------
+-- 13. Plano: número central membro do plano; parceiro fixo com membros; auditoria
+-- ---------------------------------------------------------------------------
+select pg_temp.assert_sqlstate($c$insert into crm_maturacao_planos (id, agente_parceiro_id, nome, preset, alvo_instancia_id) values ('00000000-0000-0000-0007-0000000000f4', '00000000-0000-0000-0007-000000000001', 'alvo', 'alvo', '00000000-0000-0000-0007-0000000000b1')$c$, null, 'rascunho com alvo fora do plano aceito (membros vêm depois)');
+select pg_temp.assert_sqlstate($c$update crm_maturacao_planos set status = 'ativo' where id = '00000000-0000-0000-0007-0000000000f4'$c$, '23514', 'ativar com alvo que não é membro recusado');
+select pg_temp.assert_sqlstate(format($c$update crm_maturacao_planos set preset = 'alvo', alvo_instancia_id = %L where id = %L$c$, pg_temp.i('b1'), pg_temp.i('f1')), null, 'alvo membro do plano aceito');
+update crm_maturacao_planos set preset = 'circulos', alvo_instancia_id = null where id = pg_temp.i('f1');
+select pg_temp.assert_sqlstate(format($c$update crm_maturacao_planos set agente_parceiro_id = '00000000-0000-0000-0008-000000000001' where id = %L$c$, pg_temp.i('f1')), '23514', 'trocar parceiro de plano com membros recusado');
+select pg_temp.assert_sqlstate(format($c$update crm_maturacao_planos set agente_parceiro_id = '00000000-0000-0000-0008-000000000001' where id = %L$c$, pg_temp.i('f4')), null, 'trocar parceiro de plano sem membros aceito');
+select pg_temp.assert_sqlstate(format($c$delete from crm_maturacao_membros where plano_id = %L and instancia_id = %L$c$, pg_temp.i('f1'), pg_temp.i('b1')), '23503', 'apagar membro com passos recusado (auditoria)');
+
+-- ---------------------------------------------------------------------------
+-- 14. Claim: proxy aplicado, destinatário conectado, teto com enviando/incerto
+-- ---------------------------------------------------------------------------
+update crm_maturacao_parametros set teto_diario_max = 500 where agente_parceiro_id is null;
+create temp table t_ex6 as select public.crm_maturacao_criar_execucao(pg_temp.i('f1'), pg_temp.hoje(6), now() - interval '1 hour', now() + interval '6 hours', 6, '{}',
+  (select jsonb_agg(jsonb_build_object('sessao_id', gen_random_uuid(), 'ordem', 1, 'remetente_instancia_id', pg_temp.i('b1'), 'destinatario_instancia_id', pg_temp.i('b3'),
+     'texto', 'oi ' || g, 'agendado_para', now() - interval '1 minute')) from generate_series(1, 5) g)) as id;
+select pg_temp.assert_true((select id is not null from t_ex6), 'execução do teto criada');
+create function pg_temp.claim_b1() returns setof public.crm_maturacao_passos language sql as $$
+  select * from public.crm_maturacao_claim(array[pg_temp.i('b1')], 5, 120) $$;
+
+update chat_instancias set proxy_ip_em = null where id = pg_temp.i('b3');
+select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim_b1()), 'destinatário com proxy cadastrado mas não aplicado (proxy_ip_em nulo): não entrega');
+update chat_instancias set proxy_ip_em = now() where id = pg_temp.i('b3');
+update chat_instancias set proxy_ip_em = null where id = pg_temp.i('b1');
+select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim_b1()), 'remetente com proxy não aplicado: não entrega');
+update chat_instancias set proxy_ip_em = now() where id = pg_temp.i('b1');
+update chat_instancias set status = 'desconectada' where id = pg_temp.i('b3');
+select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim_b1()), 'destinatário desconectado: não entrega');
+update chat_instancias set status = 'conectada', reconexao_falhou_em = now() where id = pg_temp.i('b3');
+select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim_b1()), 'destinatário com reconexão falhou: não entrega');
+update chat_instancias set reconexao_falhou_em = null where id = pg_temp.i('b3');
+select pg_temp.assert_true((select count(*) = 5 and bool_and(status = 'pendente' and tentativas = 0) from crm_maturacao_passos where execucao_id = (select id from t_ex6)), 'barreiras não gastam tentativa (passos seguem pendentes)');
+
+-- teto = o que b1 já tem hoje (enviado|enviando|incerto) + 2; p_limit 5
+update crm_maturacao_planos set teto_diario_por_numero = 2 + (select count(*) from crm_maturacao_passos
+  where remetente_instancia_id = pg_temp.i('b1') and acao = 'mensagem' and status in ('enviado', 'enviando', 'incerto')) where id = pg_temp.i('f1');
+select pg_temp.assert_true((select count(*) >= 2 from crm_maturacao_passos where remetente_instancia_id = pg_temp.i('b1') and acao = 'mensagem' and status in ('enviando', 'incerto')), 'b1 já tem enviando/incerto contando no teto');
+create temp table t_teto1 as select * from pg_temp.claim_b1();
+select pg_temp.assert_true((select count(*) = 1 from t_teto1), 'teto: uma chamada com p_limit 5 entrega só 1 mensagem por remetente');
+create temp table t_teto2 as select * from pg_temp.claim_b1();
+create temp table t_teto3 as select * from pg_temp.claim_b1();
+select pg_temp.assert_true((select count(*) from t_teto2) = 1 and (select count(*) from t_teto3) = 0, 'teto: chamadas seguidas param no teto (enviando conta)');
+select pg_temp.assert_true(public.crm_maturacao_concluir(id, lease_token, 'incerto', null, 'sem_ack'), 'concluir incerto') from t_teto2;
+select pg_temp.assert_true((select count(*) = 0 from pg_temp.claim_b1()), 'teto: incerto continua contando');

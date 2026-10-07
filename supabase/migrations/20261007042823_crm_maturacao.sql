@@ -11,12 +11,19 @@
 --    Garantido no banco pelo gatilho de `crm_maturacao_membros` (check_violation
 --    'MATURACAO_INSTANCIA_INELEGIVEL'). Não existe pool "sem proxy".
 --  * Passo só entre dois MEMBROS do MESMO plano (FKs compostas): não existe
---    campo de destino livre, nunca contato real.
+--    campo de destino livre, nunca contato real. Número central (preset alvo)
+--    tem de ser membro do plano fora do rascunho; parceiro do plano não muda
+--    com membros (gatilho 'MATURACAO_ALVO_FORA_DO_PLANO' / '..._PARCEIRO_COM_MEMBROS').
+--  * O claim só entrega com proxy APLICADO (proxy_ip_em não nulo) nos dois
+--    números, sem reconexao_falhou_em, destinatário com status 'conectada' e
+--    crm_parceiro_config.habilitado; senão o passo fica pendente (sem gastar
+--    tentativa) até a execução acabar.
 --  * Todas as tabelas: RLS ligado, SEM policy, só service_role (engine e server
 --    actions com cliente admin + permissão `config.maturacao`). Fora do Realtime.
 --  * Liberação por parceiro: `crm_parceiro_config.maturacao_status` (desligado|
 --    teste|pago) + `maturacao_ate` (fim do dia, Brasília; nulo = sem prazo).
---    O claim só entrega passo com flag vigente.
+--    O claim só entrega passo com flag vigente; criar_execucao devolve null
+--    com flag desligada/vencida ou kill switch ligado.
 --  * Kill switch: `crm_maturacao_parametros.desligado_em` (linha global com
 --    agente_parceiro_id nulo, ou por parceiro). Ligar cancela as execuções em
 --    andamento do escopo; o claim não entrega nada enquanto estiver ligado.
@@ -28,13 +35,18 @@
 --    `pausa_automatica_min` (padrão 60) e volta sozinho SEM o número; passos
 --    pendentes do número cancelados; evento com origem 'gatilho'.
 --    Flag desligada ou plano parado/excluído → cancela execuções do escopo.
---  * Teto diário por número (dia de Brasília) = mensagens de maturação + envios
---    de disparo do dia; o claim não entrega acima de
+--  * Teto diário por número (dia de Brasília) = mensagens de maturação
+--    enviado|enviando|incerto + disparos enviado|enviando|incerto do dia; o claim
+--    entrega no máximo 1 mensagem por remetente por chamada e nunca acima de
 --    least(plano.teto_diario_por_numero, parametros.teto_diario_max).
 --  * RPCs (service_role): crm_maturacao_claim, _concluir, _adiar,
 --    _criar_execucao, _parar_instancia.
 --  * Sem PII: eventos só com códigos (motivo ^[a-z0-9_]+$) e observação sem
---    sequência de 8+ dígitos; trechos sem 6+ dígitos seguidos.
+--    sequência de 8+ dígitos; trechos, passos.texto e desligado_motivo sem 6+
+--    dígitos seguidos.
+--  * Locks: claim e crm_maturacao_cancelar travam execuções (por id) e depois
+--    passos (por id); o claim usa SKIP LOCKED. Gatilhos de parada repetem até 3x
+--    em deadlock antes do WARNING.
 --
 -- TAMBÉM APAGA o esquema antigo e nunca usado de "tráfego técnico"
 -- (crm_disparo_trafego_tecnico, crm_parceiro_config.trafego_tecnico_*,
@@ -62,7 +74,8 @@
 --     public.crm_maturacao_criar_execucao(uuid, date, timestamptz, timestamptz, bigint, jsonb, jsonb),
 --     public.crm_maturacao_parar_instancia(uuid, text, text, text),
 --     public.crm_maturacao_cancelar(uuid, uuid, text),
---     app_private.crm_maturacao_validar_membro(), app_private.crm_maturacao_ao_evento_instancia(),
+--     app_private.crm_maturacao_validar_membro(), app_private.crm_maturacao_validar_plano(),
+--     app_private.crm_maturacao_ao_evento_instancia(),
 --     app_private.crm_maturacao_ao_mudar_instancia(), app_private.crm_maturacao_ao_mudar_flag(),
 --     app_private.crm_maturacao_ao_mudar_plano(), app_private.crm_maturacao_ao_kill_switch();
 --   alter table public.crm_parceiro_config drop column if exists maturacao_status, drop column if exists maturacao_ate;
@@ -103,8 +116,9 @@ alter table public.crm_parceiro_config
   drop column if exists trafego_tecnico_destinatarios_por_ciclo,
   drop column if exists trafego_tecnico_max_ciclos_dia_por_numero;
 
--- Só reescreve o CHECK se ainda aceita 'tecnico' (NOT VALID + VALIDATE: o scan
--- não segura o lock exclusivo).
+-- Só reescreve o CHECK se ainda aceita 'tecnico'. O DROP CONSTRAINT já pega
+-- ACCESS EXCLUSIVE e segura até o fim da transação, então NOT VALID + VALIDATE
+-- não encurta o lock aqui; irrelevante com ~825 linhas e lock_timeout 5s.
 do $$
 begin
   if exists (select 1 from pg_constraint where conrelid = 'public.chat_conversas'::regclass
@@ -144,7 +158,7 @@ create table if not exists public.crm_maturacao_parametros (
   teto_diario_max integer not null default 60 check (teto_diario_max between 1 and 500),
   pausa_automatica_min integer not null default 60 check (pausa_automatica_min between 15 and 1440),
   desligado_em timestamptz null,
-  desligado_motivo text null check (desligado_motivo is null or char_length(desligado_motivo) <= 300),
+  desligado_motivo text null check (desligado_motivo is null or (char_length(desligado_motivo) <= 300 and desligado_motivo !~ '[0-9]{6,}')),
   desligado_por uuid null,
   updated_at timestamptz not null default now(),
   constraint crm_maturacao_parametros_parceiro_key unique nulls not distinct (agente_parceiro_id)
@@ -264,7 +278,7 @@ create table if not exists public.crm_maturacao_passos (
   remetente_instancia_id uuid not null,
   destinatario_instancia_id uuid not null,
   papel text null check (papel in ('abertura', 'resposta', 'fechamento')),
-  texto text null check (texto is null or char_length(texto) between 1 and 1000),
+  texto text null check (texto is null or (char_length(texto) between 1 and 1000 and texto !~ '[0-9]{6,}')),
   trecho_id uuid null references public.crm_maturacao_trechos (id) on delete set null,
   digitar_ms integer not null default 0 check (digitar_ms >= 0),
   atraso_ms integer null check (atraso_ms >= 0),
@@ -277,14 +291,19 @@ create table if not exists public.crm_maturacao_passos (
   lease_token uuid null,
   lease_until timestamptz null,
   wa_id text null,
+  reivindicado_em timestamptz null,
   enviado_em timestamptz null,
   created_at timestamptz not null default now(),
   constraint crm_maturacao_passos_execucao_fk foreign key (execucao_id, plano_id)
     references public.crm_maturacao_execucoes (id, plano_id) on delete cascade,
+  -- NO ACTION (não cascade): apagar membro com passos falha, preservando a
+  -- auditoria. Membro sai por status 'removido'; apagar o plano/parceiro ainda
+  -- leva tudo junto (passos caem pela execução no mesmo comando). Apagar de vez
+  -- uma chat_instancias que já maturou falha (como crm_disparo_fila, restrict).
   constraint crm_maturacao_passos_remetente_fk foreign key (plano_id, remetente_instancia_id)
-    references public.crm_maturacao_membros (plano_id, instancia_id) on delete cascade,
+    references public.crm_maturacao_membros (plano_id, instancia_id),
   constraint crm_maturacao_passos_destinatario_fk foreign key (plano_id, destinatario_instancia_id)
-    references public.crm_maturacao_membros (plano_id, instancia_id) on delete cascade,
+    references public.crm_maturacao_membros (plano_id, instancia_id),
   check (remetente_instancia_id <> destinatario_instancia_id),
   check ((acao = 'mensagem' and texto is not null and ref_passo_id is null)
       or (acao = 'leitura' and texto is null and ref_passo_id is not null)),
@@ -293,7 +312,8 @@ create table if not exists public.crm_maturacao_passos (
 create index if not exists crm_maturacao_passos_pendentes_idx on public.crm_maturacao_passos (agendado_para) where status = 'pendente';
 create index if not exists crm_maturacao_passos_enviando_idx on public.crm_maturacao_passos (lease_until) where status = 'enviando';
 create index if not exists crm_maturacao_passos_sessao_idx on public.crm_maturacao_passos (execucao_id, sessao_id, ordem);
-create index if not exists crm_maturacao_passos_enviados_dia_idx on public.crm_maturacao_passos (remetente_instancia_id, enviado_em) where status = 'enviado';
+create index if not exists crm_maturacao_passos_teto_idx on public.crm_maturacao_passos (remetente_instancia_id, (coalesce(enviado_em, reivindicado_em)))
+  where acao = 'mensagem' and status in ('enviado', 'enviando', 'incerto');
 create index if not exists crm_maturacao_passos_monitor_idx on public.crm_maturacao_passos (plano_id, created_at desc);
 create index if not exists crm_maturacao_passos_wa_id_idx on public.crm_maturacao_passos (wa_id) where wa_id is not null;
 create index if not exists crm_maturacao_passos_destinatario_idx on public.crm_maturacao_passos (destinatario_instancia_id) where status in ('pendente', 'aguardando');
@@ -359,6 +379,29 @@ create trigger crm_maturacao_membros_validar_trg
   before insert or update of status, instancia_id, plano_id on public.crm_maturacao_membros
   for each row execute function app_private.crm_maturacao_validar_membro();
 
+-- Plano: número central (alvo) tem de ser membro do plano fora do rascunho
+-- (no rascunho o plano nasce antes dos membros); parceiro não muda com membros.
+create or replace function app_private.crm_maturacao_validar_plano()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'UPDATE' and new.agente_parceiro_id is distinct from old.agente_parceiro_id
+     and exists (select 1 from public.crm_maturacao_membros m where m.plano_id = new.id and m.status <> 'removido') then
+    raise exception using errcode = 'check_violation',
+      message = 'MATURACAO_PLANO_PARCEIRO_COM_MEMBROS: remova os membros antes de trocar o parceiro do plano';
+  end if;
+  if new.alvo_instancia_id is not null and new.status <> 'rascunho'
+     and not exists (select 1 from public.crm_maturacao_membros m
+                     where m.plano_id = new.id and m.instancia_id = new.alvo_instancia_id and m.status <> 'removido') then
+    raise exception using errcode = 'check_violation',
+      message = 'MATURACAO_ALVO_FORA_DO_PLANO: o número central precisa ser membro do plano';
+  end if;
+  return new;
+end $$;
+drop trigger if exists crm_maturacao_planos_validar_trg on public.crm_maturacao_planos;
+create trigger crm_maturacao_planos_validar_trg
+  before insert or update of agente_parceiro_id, alvo_instancia_id, status on public.crm_maturacao_planos
+  for each row execute function app_private.crm_maturacao_validar_plano();
+
 -- ---------------------------------------------------------------------------
 -- 5. Paradas automáticas
 -- ---------------------------------------------------------------------------
@@ -386,6 +429,10 @@ begin
         pausa_motivo = p_motivo, updated_at = now()
     where id = r.plano_id;
 
+    perform 1 from public.crm_maturacao_passos
+    where plano_id = r.plano_id and status in ('pendente', 'aguardando')
+      and (remetente_instancia_id = p_instancia or destinatario_instancia_id = p_instancia)
+    order by id for update;
     update public.crm_maturacao_passos
     set status = 'cancelado', motivo = 'instancia_parada', lease_token = null, lease_until = null
     where plano_id = r.plano_id and status in ('pendente', 'aguardando')
@@ -402,22 +449,33 @@ begin
 end $$;
 
 -- Cancela execuções ativas do escopo (parceiro e/ou plano; ambos nulos = tudo).
+-- ORDEM DE LOCK (igual ao claim): execuções por id, depois passos por id.
 create or replace function public.crm_maturacao_cancelar(p_parceiro uuid, p_plano uuid, p_motivo text)
 returns integer language plpgsql security definer set search_path = '' as $$
-declare n integer;
+declare v_ex uuid[]; n integer;
 begin
+  select array_agg(x.id) into v_ex from (
+    select e.id from public.crm_maturacao_execucoes e
+    join public.crm_maturacao_planos p on p.id = e.plano_id
+    where e.status = 'ativa'
+      and (p_parceiro is null or p.agente_parceiro_id = p_parceiro)
+      and (p_plano is null or p.id = p_plano)
+    order by e.id for update of e) x;
+  if v_ex is null then return 0; end if;
+  perform 1 from public.crm_maturacao_passos s
+  where s.execucao_id = any (v_ex) and s.status in ('pendente', 'aguardando')
+  order by s.id for update;
+
+  update public.crm_maturacao_passos s
+  set status = 'cancelado', motivo = p_motivo, lease_token = null, lease_until = null
+  where s.execucao_id = any (v_ex) and s.status in ('pendente', 'aguardando');
+
   with ex as (
     update public.crm_maturacao_execucoes e
     set status = 'cancelada', motivo_fim = p_motivo
     from public.crm_maturacao_planos p
-    where p.id = e.plano_id and e.status = 'ativa'
-      and (p_parceiro is null or p.agente_parceiro_id = p_parceiro)
-      and (p_plano is null or p.id = p_plano)
-    returning e.id, e.plano_id, p.agente_parceiro_id
-  ), ps as (
-    update public.crm_maturacao_passos s
-    set status = 'cancelado', motivo = p_motivo, lease_token = null, lease_until = null
-    from ex where s.execucao_id = ex.id and s.status in ('pendente', 'aguardando')
+    where e.id = any (v_ex) and e.status = 'ativa' and p.id = e.plano_id
+    returning e.plano_id, p.agente_parceiro_id
   )
   insert into public.crm_maturacao_eventos (agente_parceiro_id, plano_id, tipo, motivo, origem)
   select agente_parceiro_id, plano_id, 'execucao_cancelada', p_motivo, 'gatilho' from ex;
@@ -431,16 +489,24 @@ returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   -- 440 "sessão substituída" é deploy/troca de container, não sinal de saúde (P2).
   if coalesce(new.observacao, '') like '%sessao_substituida%' then return null; end if;
-  begin
-    perform public.crm_maturacao_parar_instancia(
-      new.instancia_id,
-      'evento_' || new.tipo || coalesce('_' || new.motivo, ''),
-      'gatilho',
-      (select 'código ' || m[1] from regexp_match(coalesce(new.observacao, ''), 'código ([0-9]{3})') m));
-  exception when others then
-    -- Nunca perder o evento de saúde por causa da maturação.
-    raise warning 'crm_maturacao: falha ao parar instância %: %', new.instancia_id, sqlerrm;
-  end;
+  -- Deadlock: o subbloco desfaz e libera os locks dele; tenta de novo (3x).
+  for t in 1..3 loop
+    begin
+      perform public.crm_maturacao_parar_instancia(
+        new.instancia_id,
+        'evento_' || new.tipo || coalesce('_' || new.motivo, ''),
+        'gatilho',
+        (select 'código ' || m[1] from regexp_match(coalesce(new.observacao, ''), 'código ([0-9]{3})') m));
+      exit;
+    exception
+      when deadlock_detected then
+        if t = 3 then raise warning 'crm_maturacao: deadlock 3x ao parar instância %', new.instancia_id; end if;
+      when others then
+        -- Nunca perder o evento de saúde por causa da maturação.
+        raise warning 'crm_maturacao: falha ao parar instância %: %', new.instancia_id, sqlerrm;
+        exit;
+    end;
+  end loop;
   return null;
 end $$;
 drop trigger if exists crm_maturacao_evento_instancia_trg on public.chat_instancia_eventos;
@@ -465,11 +531,18 @@ begin
     when new.agente_parceiro_id is distinct from old.agente_parceiro_id then 'parceiro_alterado'
   end;
   if v_motivo is null then return null; end if;
-  begin
-    perform public.crm_maturacao_parar_instancia(new.id, v_motivo, 'gatilho', null);
-  exception when others then
-    raise warning 'crm_maturacao: falha ao parar instância %: %', new.id, sqlerrm;
-  end;
+  for t in 1..3 loop
+    begin
+      perform public.crm_maturacao_parar_instancia(new.id, v_motivo, 'gatilho', null);
+      exit;
+    exception
+      when deadlock_detected then
+        if t = 3 then raise warning 'crm_maturacao: deadlock 3x ao parar instância %', new.id; end if;
+      when others then
+        raise warning 'crm_maturacao: falha ao parar instância %: %', new.id, sqlerrm;
+        exit;
+    end;
+  end loop;
   return null;
 end $$;
 drop trigger if exists crm_maturacao_instancia_trg on public.chat_instancias;
@@ -525,47 +598,67 @@ create trigger crm_maturacao_kill_switch_trg
 -- ---------------------------------------------------------------------------
 -- 6. RPCs do engine
 -- ---------------------------------------------------------------------------
--- Claim: varre leases vencidos ('enviando' → incerto, sem reenvio, e cancela o
--- resto da sessão) e execuções vencidas; depois reivindica passos pendentes de
--- remetentes com sessão LOCAL (p_instancias), com todas as barreiras do banco.
+-- Claim: (1) encerra execuções vencidas, (2) varre leases vencidos ('enviando'
+-- → incerto, sem reenvio, e cancela o resto da sessão), (3) reivindica passos
+-- pendentes de remetentes com sessão LOCAL (p_instancias), com todas as barreiras.
+-- ORDEM DE LOCK (igual ao crm_maturacao_cancelar): execuções por id, depois
+-- passos por id, sempre SKIP LOCKED: o claim nunca espera lock de linha, logo
+-- não entra em ciclo de deadlock; o que estava travado fica para a próxima chamada.
+-- Teto: conta mensagens enviado|enviando|incerto do remetente no dia (Brasília) +
+-- disparos enviado|enviando|incerto; no máximo 1 mensagem por remetente por
+-- chamada, então uma chamada nunca passa do teto.
+-- ponytail: duas chamadas SIMULTÂNEAS para o mesmo remetente (duas réplicas com
+-- a mesma sessão) ainda poderiam passar 1 do teto; a sessão Baileys é única por
+-- número, então não acontece. Se acontecer, trocar por advisory lock por remetente.
 create or replace function public.crm_maturacao_claim(
   p_instancias uuid[], p_limit integer default 5, p_lease_s integer default 120
 ) returns setof public.crm_maturacao_passos language plpgsql security definer set search_path = '' as $$
 declare v_dia timestamptz := (date_trunc('day', now() at time zone 'America/Sao_Paulo')) at time zone 'America/Sao_Paulo';
 begin
-  with venc as (
-    update public.crm_maturacao_passos
-    set status = 'incerto', motivo = 'lease_vencido', lease_token = null, lease_until = null
-    where status = 'enviando' and lease_until < clock_timestamp()
-    returning execucao_id, sessao_id
-  )
-  update public.crm_maturacao_passos s
-  set status = 'cancelado', motivo = 'sessao_incerta'
-  from venc v
-  where s.execucao_id = v.execucao_id and s.sessao_id = v.sessao_id and s.status in ('pendente', 'aguardando');
-
-  with ex as (
+  with alvo as (
+    select e.id from public.crm_maturacao_execucoes e
+    where e.status = 'ativa' and e.fim_em <= now()
+    order by e.id for update skip locked
+  ), ex as (
     update public.crm_maturacao_execucoes e
     set status = 'encerrada', motivo_fim = 'fim_da_janela'
-    where e.status = 'ativa' and e.fim_em <= now()
+    from alvo where e.id = alvo.id
     returning e.id, e.plano_id
   ), ps as (
     update public.crm_maturacao_passos s
     set status = 'cancelado', motivo = 'execucao_encerrada'
-    from ex where s.execucao_id = ex.id and s.status in ('pendente', 'aguardando')
+    where s.id in (select x.id from public.crm_maturacao_passos x
+                   where x.execucao_id in (select a.id from alvo a) and x.status in ('pendente', 'aguardando')
+                   order by x.id for update skip locked)
   )
   insert into public.crm_maturacao_eventos (agente_parceiro_id, plano_id, tipo, motivo, origem)
   select p.agente_parceiro_id, ex.plano_id, 'execucao_encerrada', 'fim_da_janela', 'engine'
   from ex join public.crm_maturacao_planos p on p.id = ex.plano_id;
 
+  with venc as (
+    update public.crm_maturacao_passos s
+    set status = 'incerto', motivo = 'lease_vencido', lease_token = null, lease_until = null
+    where s.id in (select x.id from public.crm_maturacao_passos x
+                   where x.status = 'enviando' and x.lease_until < clock_timestamp()
+                   order by x.id for update skip locked)
+    returning s.execucao_id, s.sessao_id
+  )
+  update public.crm_maturacao_passos s
+  set status = 'cancelado', motivo = 'sessao_incerta'
+  where s.id in (select x.id from public.crm_maturacao_passos x
+                 join venc v on v.execucao_id = x.execucao_id and v.sessao_id = x.sessao_id
+                 where x.status in ('pendente', 'aguardando')
+                 order by x.id for update skip locked);
+
   return query
-  with cand as (
-    select s.id
+  with elig as (
+    select s.id, s.acao,
+           row_number() over (partition by s.remetente_instancia_id, s.acao order by s.agendado_para, s.id) as rn
     from public.crm_maturacao_passos s
     join public.crm_maturacao_execucoes e on e.id = s.execucao_id and e.status = 'ativa' and e.fim_em > now()
     join public.crm_maturacao_planos p on p.id = s.plano_id and p.status = 'ativo' and p.deleted_at is null
       and (p.pausado_ate is null or p.pausado_ate <= now())
-    join public.crm_parceiro_config c on c.agente_parceiro_id = p.agente_parceiro_id
+    join public.crm_parceiro_config c on c.agente_parceiro_id = p.agente_parceiro_id and c.habilitado
       and c.maturacao_status in ('teste', 'pago') and (c.maturacao_ate is null or c.maturacao_ate >= now())
     join public.crm_maturacao_membros mr on mr.plano_id = s.plano_id and mr.instancia_id = s.remetente_instancia_id and mr.status = 'ativo'
     join public.crm_maturacao_membros md on md.plano_id = s.plano_id and md.instancia_id = s.destinatario_instancia_id and md.status = 'ativo'
@@ -577,7 +670,11 @@ begin
       and ir.agente_parceiro_id = p.agente_parceiro_id and ide.agente_parceiro_id = p.agente_parceiro_id
       and ir.deleted_at is null and ide.deleted_at is null
       and ir.provedor = 'baileys' and ide.provedor = 'baileys'
+      -- "com proxy" = proxy APLICADO na sessão atual, não só cadastrado
       and ir.proxy_configurado and ide.proxy_configurado
+      and ir.proxy_ip_em is not null and ide.proxy_ip_em is not null
+      and ir.reconexao_falhou_em is null and ide.reconexao_falhou_em is null
+      and ide.status = 'conectada'
       and ir.banida_em is null and ide.banida_em is null
       and (ir.restrito_ate is null or ir.restrito_ate <= now())
       and (ide.restrito_ate is null or ide.restrito_ate <= now())
@@ -586,20 +683,26 @@ begin
         where k.desligado_em is not null and (k.agente_parceiro_id is null or k.agente_parceiro_id = p.agente_parceiro_id))
       and (s.acao = 'leitura' or (
         (select count(*) from public.crm_maturacao_passos x
-          where x.remetente_instancia_id = s.remetente_instancia_id and x.status = 'enviado'
-            and x.acao = 'mensagem' and x.enviado_em >= v_dia)
+          where x.remetente_instancia_id = s.remetente_instancia_id and x.acao = 'mensagem'
+            and x.status in ('enviado', 'enviando', 'incerto') and coalesce(x.enviado_em, x.reivindicado_em) >= v_dia)
         + (select count(*) from public.crm_disparo_fila f
-          where f.instancia_id = s.remetente_instancia_id and f.status = 'enviado' and f.enviado_em >= v_dia)
+          where f.instancia_id = s.remetente_instancia_id
+            and f.status in ('enviado', 'enviando', 'incerto') and coalesce(f.enviado_em, f.updated_at) >= v_dia)
         < least(p.teto_diario_por_numero, coalesce(
           (select min(t.teto_diario_max) from public.crm_maturacao_parametros t
             where t.agente_parceiro_id is null or t.agente_parceiro_id = p.agente_parceiro_id), 500))))
-    order by s.agendado_para
+  ), cand as (
+    select s.id from public.crm_maturacao_passos s
+    where s.id in (select el.id from elig el where el.acao = 'leitura' or el.rn = 1)
+      and s.status = 'pendente'
+    order by s.agendado_para, s.id
     limit greatest(p_limit, 0)
     for update of s skip locked
   )
   update public.crm_maturacao_passos s
   set status = 'enviando', lease_token = gen_random_uuid(),
       lease_until = clock_timestamp() + make_interval(secs => p_lease_s),
+      reivindicado_em = clock_timestamp(),
       tentativas = s.tentativas + 1
   from cand
   where s.id = cand.id
@@ -663,8 +766,8 @@ returns boolean language sql security definer set search_path = '' as $$
   ) select exists (select 1 from u);
 $$;
 
--- Criar execução + passos de uma vez; null se o plano não está ativo ou já há
--- execução do dia (idempotente entre réplicas pelo unique (plano_id, dia)).
+-- Criar execução + passos de uma vez; null se o plano não está ativo, a flag do
+-- parceiro não está vigente, o kill switch está ligado ou já há execução do dia (idempotente entre réplicas pelo unique (plano_id, dia)).
 -- p_passos: [{sessao_id, ordem, remetente_instancia_id, destinatario_instancia_id,
 --   papel, texto, trecho_id, digitar_ms, atraso_ms, agendado_para}] (agendado nulo = aguardando).
 create or replace function public.crm_maturacao_criar_execucao(
@@ -672,7 +775,15 @@ create or replace function public.crm_maturacao_criar_execucao(
 ) returns uuid language plpgsql security definer set search_path = '' as $$
 declare v_id uuid;
 begin
-  if not exists (select 1 from public.crm_maturacao_planos where id = p_plano and status = 'ativo' and deleted_at is null) then
+  -- Plano ativo, flag do parceiro vigente e kill switch desligado (global e parceiro).
+  if not exists (
+    select 1 from public.crm_maturacao_planos p
+    join public.crm_parceiro_config c on c.agente_parceiro_id = p.agente_parceiro_id and c.habilitado
+      and c.maturacao_status in ('teste', 'pago') and (c.maturacao_ate is null or c.maturacao_ate >= now())
+    where p.id = p_plano and p.status = 'ativo' and p.deleted_at is null
+      and not exists (select 1 from public.crm_maturacao_parametros k
+        where k.desligado_em is not null and (k.agente_parceiro_id is null or k.agente_parceiro_id = p.agente_parceiro_id))
+  ) then
     return null;
   end if;
   insert into public.crm_maturacao_execucoes (plano_id, dia, inicio_em, fim_em, seed, snapshot)
@@ -724,7 +835,8 @@ grant execute on function
   public.crm_maturacao_cancelar(uuid, uuid, text)
 to service_role;
 revoke all on function
-  app_private.crm_maturacao_validar_membro(), app_private.crm_maturacao_ao_evento_instancia(),
+  app_private.crm_maturacao_validar_membro(), app_private.crm_maturacao_validar_plano(),
+  app_private.crm_maturacao_ao_evento_instancia(),
   app_private.crm_maturacao_ao_mudar_instancia(), app_private.crm_maturacao_ao_mudar_flag(),
   app_private.crm_maturacao_ao_mudar_plano(), app_private.crm_maturacao_ao_kill_switch()
 from public, anon, authenticated;

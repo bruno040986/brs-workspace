@@ -11,7 +11,9 @@ alter table public.chat_instancias
   add column if not exists status text not null default 'conectada',
   add column if not exists proxy_url_cifrada text,
   add column if not exists banida_em timestamptz,
-  add column if not exists restrito_ate timestamptz;
+  add column if not exists restrito_ate timestamptz,
+  add column if not exists proxy_ip_em timestamptz,
+  add column if not exists reconexao_falhou_em timestamptz;
 alter table public.chat_instancias
   add column if not exists proxy_configurado boolean generated always as (proxy_url_cifrada is not null) stored;
 
@@ -58,6 +60,8 @@ insert into public.chat_instancias (id, agente_parceiro_id, deleted_at, provedor
   ('00000000-0000-0000-0007-0000000000b8', '00000000-0000-0000-0007-000000000001', null, 'baileys', 'disparo', 'x', null, now() + interval '1 day'),
   ('00000000-0000-0000-0008-0000000000b9', '00000000-0000-0000-0008-000000000001', null, 'baileys', 'disparo', 'x', null, null),
   ('00000000-0000-0000-0007-0000000000ba', '00000000-0000-0000-0007-000000000001', now() - interval '1 hour', 'baileys', 'disparo', 'x', null, null);
+-- proxy aplicado na sessão atual (o engine carimba proxy_ip_em ao conectar)
+update public.chat_instancias set proxy_ip_em = now() where proxy_url_cifrada is not null;
 
 -- b4 já enviou 5 disparos hoje (teto) e 3 ontem (não contam).
 insert into public.crm_disparo_fila (campanha_id, agente_parceiro_id, telefone_e164, instancia_id, template_id, status, enviado_em)
