@@ -54,7 +54,7 @@ export async function getAlvoconsigConfig(agenteParceiroId: string) {
     const [configRes, usuariosRes, agenteRes] = await Promise.all([
       supabaseAdmin
         .from('crm_parceiro_config')
-        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em, ia_agente_status, ia_agente_ate, site_os_consig_status, site_os_consig_ate')
+        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em, ia_agente_status, ia_agente_ate, site_os_consig_status, site_os_consig_ate, maturacao_status, maturacao_ate')
         .eq('agente_parceiro_id', agenteParceiroId)
         .maybeSingle(),
       supabaseAdmin
@@ -105,6 +105,9 @@ export async function salvarAlvoconsigConfig(payload: {
   iaAgenteAte?: string | null
   siteOsConsigStatus?: string
   siteOsConsigAte?: string | null
+  /** Aquecimento de Números (nome interno maturação; tabelas crm_maturacao_*). */
+  maturacaoStatus?: string
+  maturacaoAte?: string | null
 }) {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
@@ -143,6 +146,8 @@ export async function salvarAlvoconsigConfig(payload: {
     if (!fIa.ok) return { success: false, error: fIa.error }
     const fSite = funcionalidade(payload.siteOsConsigStatus, payload.siteOsConsigAte, 'Site OS-Consig')
     if (!fSite.ok) return { success: false, error: fSite.error }
+    const fMat = funcionalidade(payload.maturacaoStatus, payload.maturacaoAte, 'Aquecimento de Números')
+    if (!fMat.ok) return { success: false, error: fMat.error }
 
     if (payload.habilitado) {
       // Master = login único do parceiro (aba Acesso). Valida e vincula.
@@ -240,6 +245,10 @@ export async function salvarAlvoconsigConfig(payload: {
     if (fSite.cols) {
       row.site_os_consig_status = fSite.cols.status
       row.site_os_consig_ate = fSite.cols.ate
+    }
+    if (fMat.cols) {
+      row.maturacao_status = fMat.cols.status
+      row.maturacao_ate = fMat.cols.ate
     }
     if (payload.habilitado && !atual?.habilitado) {
       row.habilitado_por = user.id
