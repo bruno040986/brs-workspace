@@ -62,6 +62,8 @@ insert into public.chat_instancias (id, agente_parceiro_id, deleted_at, provedor
   ('00000000-0000-0000-0007-0000000000ba', '00000000-0000-0000-0007-000000000001', now() - interval '1 hour', 'baileys', 'disparo', 'x', null, null);
 -- proxy aplicado na sessão atual (o engine carimba proxy_ip_em ao conectar)
 update public.chat_instancias set proxy_ip_em = now() where proxy_url_cifrada is not null;
+-- Integração: com a migration de saúde (chat_instancias.status default 'desconectada') o ADD COLUMN acima é no-op; a maturação exige destino 'conectada'.
+update public.chat_instancias set status = 'conectada' where agente_parceiro_id in ('00000000-0000-0000-0007-000000000001', '00000000-0000-0000-0008-000000000001');
 
 -- b4 já enviou 5 disparos hoje (teto) e 3 ontem (não contam).
 insert into public.crm_disparo_fila (campanha_id, agente_parceiro_id, telefone_e164, instancia_id, template_id, status, enviado_em)
