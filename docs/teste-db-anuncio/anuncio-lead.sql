@@ -171,6 +171,50 @@ select pg_temp.assert_true((select conversas = 1 and conversas_novas = 1 and lea
 update chat_conversas set crm_contato_id = '00000000-0000-0000-0006-0000000001c2' where id = '00000000-0000-0000-0006-0000000002a5';
 select pg_temp.assert_true((select count(*) = 2 from crm_contato_anuncios where crm_contato_id = '00000000-0000-0000-0006-0000000001c2'), 'vínculo novo aparece na view');
 
+-- ---------------------------------------------------------------------------
+-- Lead criado depois da janela, empate de recebido_em e backfill idempotente
+-- ---------------------------------------------------------------------------
+-- L5 criado 3 dias depois do clique (janela de 1 dia): tocado, mas nem novo nem existente.
+-- L6 antigo, duas ocorrências com o MESMO recebido_em: o desempate é por id (a menor tem janela vazia).
+insert into crm_contatos (id, agente_parceiro_id, wesales_contact_id, nome, created_at) values
+  ('00000000-0000-0000-0006-0000000001c5', '00000000-0000-0000-0006-000000000001', 'ws-6-5', 'Sintético 5', timestamptz '2026-12-04 12:00+00'),
+  ('00000000-0000-0000-0006-0000000001c6', '00000000-0000-0000-0006-000000000001', 'ws-6-6', 'Sintético 6', timestamptz '2026-01-01 12:00+00');
+insert into chat_conversas (id, instancia_id, crm_contato_id, created_at) values
+  ('00000000-0000-0000-0006-0000000002a6', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000001c5', timestamptz '2026-12-01 12:00+00'),
+  ('00000000-0000-0000-0006-0000000002a7', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000001c6', timestamptz '2026-12-10 12:00+00');
+insert into chat_anuncio_ocorrencias (agente_parceiro_id, instancia_id, chat_conversa_id, wa_id, provedor, recebido_em, conversa_nova, source_type, source_id) values
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000002a6', 'late1', 'baileys', timestamptz '2026-12-01 12:00+00', true, 'ad', 'AD_LATE'),
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000002a7', 'tie1', 'baileys', timestamptz '2026-12-10 12:00+00', false, 'ad', 'AD_TIE1'),
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000002a7', 'tie2', 'baileys', timestamptz '2026-12-10 12:00+00', false, 'ad', 'AD_TIE2');
+insert into propostas_credito (agente_parceiro_id, contato_id, status, grupo, valor_liquido, created_at) values
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000001c6', 'criada', 'em_andamento', 100, timestamptz '2026-12-10 13:00+00');
+create temp table rel_x as select * from crm_relatorio_anuncios('00000000-0000-0000-0006-000000000001', timestamptz '2026-12-01 00:00+00', timestamptz '2026-12-20 00:00+00', null, 1);
+select pg_temp.assert_true((select leads = 1 and leads_novos = 0 and leads_existentes = 0 from rel_x where source_id = 'AD_LATE'), 'lead criado depois da janela não conta como novo nem existente');
+select pg_temp.assert_true((select propostas = 0 from rel_x where source_id = 'AD_TIE1'), 'empate de recebido_em: a ocorrência de menor id tem janela vazia');
+select pg_temp.assert_true((select propostas = 1 from rel_x where source_id = 'AD_TIE2'), 'empate de recebido_em: a de maior id leva o funil (desempate por id)');
+
+-- Backfill idempotente: conversa com origem_anuncio E ocorrência real (wa_id próprio) não ganha linha 'backfill'.
+-- Repete o insert da seção 8 da migration (tem de ficar igual a ele).
+insert into chat_conversas (id, instancia_id, origem_anuncio, created_at) values
+  ('00000000-0000-0000-0006-0000000002a8', '00000000-0000-0000-0006-0000000000a1', '{"fonte":"ctwa","source_id":"AD_REAL"}', now());
+insert into chat_anuncio_ocorrencias (agente_parceiro_id, instancia_id, chat_conversa_id, wa_id, provedor, recebido_em, conversa_nova, source_id)
+values ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000002a8', 'real1', 'baileys', now(), true, 'AD_REAL');
+do $$ begin
+  for n in 1..2 loop
+    insert into public.chat_anuncio_ocorrencias (
+      agente_parceiro_id, instancia_id, chat_conversa_id, wa_id, provedor, fonte, recebido_em, conversa_nova, source_type, source_id)
+    select i.agente_parceiro_id, c.instancia_id, c.id, 'backfill:' || c.id, 'backfill', 'ctwa', c.created_at, true,
+           c.origem_anuncio->>'source_type', c.origem_anuncio->>'source_id'
+    from public.chat_conversas c
+    join public.chat_instancias i on i.id = c.instancia_id
+    where c.origem_anuncio is not null and jsonb_typeof(c.origem_anuncio) = 'object' and i.agente_parceiro_id is not null
+      and not exists (select 1 from public.chat_anuncio_ocorrencias x where x.chat_conversa_id = c.id)
+    on conflict (instancia_id, wa_id) do nothing;
+  end loop;
+end $$;
+select pg_temp.assert_true((select count(*) = 1 and min(provedor) = 'baileys' from chat_anuncio_ocorrencias where chat_conversa_id = '00000000-0000-0000-0006-0000000002a8'), 'backfill rodado de novo não duplica conversa que já tem ocorrência');
+select pg_temp.assert_true((select count(*) = 1 from chat_anuncio_ocorrencias where chat_conversa_id = '00000000-0000-0000-0006-0000000002a9'), 'backfill rodado de novo não duplica a conversa já migrada');
+
 -- Apagar a conversa apaga as ocorrências
 delete from chat_conversas where id = '00000000-0000-0000-0006-0000000002a9';
 select pg_temp.assert_true((select count(*) = 0 from chat_anuncio_ocorrencias where chat_conversa_id = '00000000-0000-0000-0006-0000000002a9'), 'apagar a conversa apaga as ocorrências');

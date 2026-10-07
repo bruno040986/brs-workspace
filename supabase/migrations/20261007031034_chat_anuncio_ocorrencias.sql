@@ -13,7 +13,7 @@
 -- (view, RPC e permissão).
 -- Idempotente: pode rodar duas vezes sem efeito na segunda.
 
--- `supabase db push` não roda a migration em transação: `set local` não vale.
+-- Sem create index concurrently, pois o db push envia o arquivo em lote.
 set lock_timeout = '5s';
 
 -- ---------------------------------------------------------------------------
@@ -130,6 +130,8 @@ grant select on public.crm_contato_anuncios to service_role;
 --   vendas / valor_vendas        propostas da janela com grupo='pago' ou status='paga' (soma de valor_liquido)
 --   mediana_min_ate_*            mediana em minutos da ocorrência até o evento (venda: finalizada_em,
 --                                senão data_pagamento_cliente às 00:00 de Brasília; nunca negativa)
+-- !!! NUNCA conceder EXECUTE a authenticated/anon: p_parceiro vem do chamador !!!
+-- (security definer sem checagem de tenant: só o service role, que já resolveu o parceiro.)
 create or replace function public.crm_relatorio_anuncios(
   p_parceiro uuid,
   p_de timestamptz,
@@ -259,6 +261,9 @@ left join props p on p.source_id is not distinct from b.source_id
 order by b.conversas desc, b.source_id nulls last;
 $$;
 
+comment on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int) is
+  'Relatório por anúncio (último clique). security definer: NUNCA conceder EXECUTE a authenticated/anon, pois p_parceiro vem do chamador; só service_role.';
+
 revoke all on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int) from public, anon, authenticated;
 grant execute on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int) to service_role;
 
@@ -290,6 +295,7 @@ join public.chat_instancias i on i.id = c.instancia_id
 where c.origem_anuncio is not null
   and jsonb_typeof(c.origem_anuncio) = 'object'
   and i.agente_parceiro_id is not null
+  and not exists (select 1 from public.chat_anuncio_ocorrencias x where x.chat_conversa_id = c.id)
 on conflict (instancia_id, wa_id) do nothing;
 
 reset lock_timeout;
