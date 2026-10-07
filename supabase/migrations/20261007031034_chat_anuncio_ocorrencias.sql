@@ -130,14 +130,20 @@ grant select on public.crm_contato_anuncios to service_role;
 --   vendas / valor_vendas        propostas da janela com grupo='pago' ou status='paga' (soma de valor_liquido)
 --   mediana_min_ate_*            mediana em minutos da ocorrência até o evento (venda: finalizada_em,
 --                                senão data_pagamento_cliente às 00:00 de Brasília; nunca negativa)
+-- Leads, simulações e propostas só contam lead não apagado (crm_contatos.deleted_at is null).
+-- p_incluir_ia (opcional, padrão true): false tira das contagens por lead os leads com
+-- origem = 'ia' (conversas continuam contando). Incluir ou separar a IA é decisão do Bruno.
 -- !!! NUNCA conceder EXECUTE a authenticated/anon: p_parceiro vem do chamador !!!
 -- (security definer sem checagem de tenant: só o service role, que já resolveu o parceiro.)
+-- Assinatura antiga (5 parâmetros) sai antes: com as duas, a chamada por nome do PostgREST fica ambígua.
+drop function if exists public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int);
 create or replace function public.crm_relatorio_anuncios(
   p_parceiro uuid,
   p_de timestamptz,
   p_ate timestamptz,
   p_instancia uuid default null,
-  p_janela_dias int default 30)
+  p_janela_dias int default 30,
+  p_incluir_ia boolean default true)
 returns table (
   source_id text,
   conversas bigint,
@@ -183,6 +189,8 @@ with oc as (
   select j.source_id, j.recebido_em, j.fim, k.id as contato_id, k.created_at, p.em as prim_em
   from jan j
   join public.crm_contatos k on k.id = j.crm_contato_id and k.agente_parceiro_id = p_parceiro
+   and k.deleted_at is null
+   and (coalesce(p_incluir_ia, true) or k.origem is distinct from 'ia')
   join prim p on p.crm_contato_id = k.id
 ), base as (
   select j.source_id,
@@ -261,11 +269,11 @@ left join props p on p.source_id is not distinct from b.source_id
 order by b.conversas desc, b.source_id nulls last;
 $$;
 
-comment on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int) is
+comment on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int, boolean) is
   'Relatório por anúncio (último clique). security definer: NUNCA conceder EXECUTE a authenticated/anon, pois p_parceiro vem do chamador; só service_role.';
 
-revoke all on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int) from public, anon, authenticated;
-grant execute on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int) to service_role;
+revoke all on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int, boolean) from public, anon, authenticated;
+grant execute on function public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int, boolean) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 7. Permissão nova do CRM: relatorios.anuncios (master e operacional globais)

@@ -16,9 +16,9 @@ select pg_temp.assert_true(not has_table_privilege('authenticated', 'public.chat
 select pg_temp.assert_true(not has_table_privilege('anon', 'public.chat_anuncio_ocorrencias', 'select'), 'anon sem select na tabela');
 select pg_temp.assert_true(not has_table_privilege('authenticated', 'public.crm_meta_anuncios', 'select'), 'authenticated sem select no cache Meta');
 select pg_temp.assert_true(not has_table_privilege('authenticated', 'public.crm_contato_anuncios', 'select'), 'authenticated sem select na view');
-select pg_temp.assert_true(not has_function_privilege('authenticated', 'public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int)', 'execute'), 'authenticated sem execute na RPC');
-select pg_temp.assert_true(not has_function_privilege('anon', 'public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int)', 'execute'), 'anon sem execute na RPC');
-select pg_temp.assert_true(has_table_privilege('service_role', 'public.chat_anuncio_ocorrencias', 'insert') and has_function_privilege('service_role', 'public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int)', 'execute'), 'service_role grava e executa');
+select pg_temp.assert_true(not has_function_privilege('authenticated', 'public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int, boolean)', 'execute'), 'authenticated sem execute na RPC');
+select pg_temp.assert_true(not has_function_privilege('anon', 'public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int, boolean)', 'execute'), 'anon sem execute na RPC');
+select pg_temp.assert_true(has_table_privilege('service_role', 'public.chat_anuncio_ocorrencias', 'insert') and has_function_privilege('service_role', 'public.crm_relatorio_anuncios(uuid, timestamptz, timestamptz, uuid, int, boolean)', 'execute'), 'service_role grava e executa');
 select pg_temp.assert_true((select count(*) = 2 from pg_indexes where indexname in ('propostas_credito_contato_idx', 'crm_solicitacoes_op_contato_idx')), 'índices de contato_id criados');
 
 -- authenticated de fato barrado (não só pelo catálogo)
@@ -214,6 +214,34 @@ do $$ begin
 end $$;
 select pg_temp.assert_true((select count(*) = 1 and min(provedor) = 'baileys' from chat_anuncio_ocorrencias where chat_conversa_id = '00000000-0000-0000-0006-0000000002a8'), 'backfill rodado de novo não duplica conversa que já tem ocorrência');
 select pg_temp.assert_true((select count(*) = 1 from chat_anuncio_ocorrencias where chat_conversa_id = '00000000-0000-0000-0006-0000000002a9'), 'backfill rodado de novo não duplica a conversa já migrada');
+
+-- ---------------------------------------------------------------------------
+-- Lead apagado (deleted_at) não conta; p_incluir_ia opcional (padrão inclui)
+-- ---------------------------------------------------------------------------
+select pg_temp.assert_true((select count(*) = 1 from pg_proc where proname = 'crm_relatorio_anuncios'), 'RPC sem sobrecarga (assinatura antiga removida)');
+-- L7 apagado com proposta paga na janela; L8 criado pela IA (novo) com simulação na janela
+insert into crm_contatos (id, agente_parceiro_id, wesales_contact_id, nome, created_at, deleted_at, origem) values
+  ('00000000-0000-0000-0006-0000000001c7', '00000000-0000-0000-0006-000000000001', 'ws-6-7', 'Sintético 7', timestamptz '2026-01-01 12:00+00', now(), 'manual'),
+  ('00000000-0000-0000-0006-0000000001c8', '00000000-0000-0000-0006-000000000001', 'ws-6-8', 'Sintético 8', timestamptz '2027-01-05 12:30+00', null, 'ia');
+insert into chat_conversas (id, instancia_id, crm_contato_id, created_at) values
+  ('00000000-0000-0000-0006-0000000002c7', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000001c7', timestamptz '2027-01-05 12:00+00'),
+  ('00000000-0000-0000-0006-0000000002c8', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000001c8', timestamptz '2027-01-05 12:00+00');
+insert into chat_anuncio_ocorrencias (agente_parceiro_id, instancia_id, chat_conversa_id, wa_id, provedor, recebido_em, conversa_nova, source_type, source_id) values
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000002c7', 'del1', 'baileys', timestamptz '2027-01-05 12:00+00', true, 'ad', 'AD_DEL'),
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000000a1', '00000000-0000-0000-0006-0000000002c8', 'ia1', 'baileys', timestamptz '2027-01-05 12:00+00', true, 'ad', 'AD_IA');
+insert into propostas_credito (agente_parceiro_id, contato_id, status, grupo, valor_liquido, created_at) values
+  ('00000000-0000-0000-0006-000000000001', '00000000-0000-0000-0006-0000000001c7', 'paga', 'pago', 4321, timestamptz '2027-01-05 13:00+00');
+insert into crm_solicitacoes_operacionais (agente_parceiro_id, tipo, contato_id, solicitado_por, criado_em) values
+  ('00000000-0000-0000-0006-000000000001', 'simulacao', '00000000-0000-0000-0006-0000000001c8', '00000000-0000-0000-0006-0000000003a1', timestamptz '2027-01-05 13:00+00');
+-- Chamada com os nomes que o web envia (sem p_incluir_ia)
+create temp table rel_d as select * from crm_relatorio_anuncios(p_parceiro => '00000000-0000-0000-0006-000000000001',
+  p_de => timestamptz '2027-01-01 00:00+00', p_ate => timestamptz '2027-02-01 00:00+00', p_instancia => null, p_janela_dias => 30);
+select pg_temp.assert_true((select conversas = 1 and leads = 0 and leads_novos = 0 and leads_existentes = 0 and simulacoes = 0
+  and propostas = 0 and vendas = 0 and valor_vendas = 0 from rel_d where source_id = 'AD_DEL'), 'lead apagado: conversa conta, lead/proposta/venda não');
+select pg_temp.assert_true((select leads = 1 and leads_novos = 1 and simulacoes = 1 from rel_d where source_id = 'AD_IA'), 'padrão (sem p_incluir_ia): lead da IA conta');
+select pg_temp.assert_true((select conversas = 1 and leads = 0 and leads_novos = 0 and simulacoes = 0
+  from crm_relatorio_anuncios(p_parceiro => '00000000-0000-0000-0006-000000000001', p_de => timestamptz '2027-01-01 00:00+00',
+    p_ate => timestamptz '2027-02-01 00:00+00', p_incluir_ia => false) where source_id = 'AD_IA'), 'p_incluir_ia = false: lead da IA fora das contagens por lead');
 
 -- Apagar a conversa apaga as ocorrências
 delete from chat_conversas where id = '00000000-0000-0000-0006-0000000002a9';

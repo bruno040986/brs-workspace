@@ -25,9 +25,10 @@
  * Agendado pelo Vercel Cron (ver vercel.json). Protegido por CRON_SECRET.
  */
 
+import { timingSafeEqual } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { codigoErroWesales, customFieldValue, getContact, findOpportunitiesByContactDetalhadas, opportunityFieldValue, resolveCustomField, WesalesHttpError } from '@/lib/wesales/client'
+import { codigoErroWesales, customFieldValue, getContact, findOpportunitiesByContactDetalhadas, mensagemErroWesales, opportunityFieldValue, resolveCustomField, WesalesHttpError } from '@/lib/wesales/client'
 import { deveInterromperLote } from '@/lib/alvoconsig/conferencia-lote'
 import { codigoConvenioChave, indexarConveniosPorCodigo, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
@@ -41,7 +42,9 @@ const LOTE = 150
 function isAuthorized(req: NextRequest): boolean {
   const secret = String(process.env.CRON_SECRET || '')
   if (!secret) return false
-  return (req.headers.get('authorization') || '') === `Bearer ${secret}`
+  const a = Buffer.from(req.headers.get('authorization') || '')
+  const b = Buffer.from(`Bearer ${secret}`)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 function digits(value: unknown) {
@@ -100,7 +103,7 @@ export async function GET(request: NextRequest) {
   try {
     pipelineOfertasId = (await resolverPipelineOfertas()).pipeline.id
   } catch (err: any) {
-    console.error('Pipeline de Ofertas não encontrado — conferência de REFIN pulada:', err?.message || err)
+    console.error('Pipeline de Ofertas não encontrado — conferência de REFIN pulada:', mensagemErroWesales(err))
   }
 
   // "Convênio (Código Workspace)" é NUMERICAL no WeSales ("00001" volta "1").

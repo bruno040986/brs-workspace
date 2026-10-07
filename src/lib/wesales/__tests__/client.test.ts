@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { codigoErroWesales, getContact, WesalesHttpError } from '../client.ts'
+import { codigoErroWesales, getContact, mensagemErroWesales, WesalesHttpError } from '../client.ts'
 
 // WeSales falso: fetch simulado, nenhuma chamada de rede real.
 const fetchOriginal = globalThis.fetch
@@ -71,6 +71,11 @@ test('getContact relança falha de rede como WesalesHttpError status 0', async (
 
 test('codigoErroWesales não vaza mensagem de erro desconhecido', () => {
   assert.equal(codigoErroWesales(new Error('CPF 123 na mensagem')), 'wesales_erro')
+})
+
+test('mensagemErroWesales esconde corpo/URL do WeSales e mantém erro próprio', () => {
+  assert.equal(mensagemErroWesales(new WesalesHttpError(500, 'CPF 123 no corpo', 'https://x/contacts/c1')), 'wesales_500')
+  assert.equal(mensagemErroWesales(new Error('Contato c1 não encontrado no WeSales.')), 'Contato c1 não encontrado no WeSales.')
 })
 
 test('getContact relança erro que não é de transporte sem converter', async () => {

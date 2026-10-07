@@ -50,6 +50,12 @@ export function codigoErroWesales(err: unknown): string {
   return err.status ? `wesales_${err.status}` : 'wesales_sem_resposta'
 }
 
+/** Mensagem para log/retorno: WesalesHttpError vira só o código (a message dela leva corpo e URL). */
+export function mensagemErroWesales(err: unknown): string {
+  if (err instanceof WesalesHttpError) return codigoErroWesales(err)
+  return err instanceof Error ? err.message : String(err)
+}
+
 const MAX_TENTATIVAS_429 = 5
 
 function sleep(ms: number) {
