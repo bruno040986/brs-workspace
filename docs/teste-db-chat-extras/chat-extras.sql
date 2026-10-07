@@ -22,7 +22,11 @@ select pg_temp.assert_true(not has_table_privilege('anon', 'public.chat_mensagen
   and not has_table_privilege('anon', 'public.chat_mensagens_favoritas', 'insert'), 'anon sem acesso');
 select pg_temp.assert_true(has_table_privilege('service_role', 'public.chat_mensagens_fixadas', 'insert')
   and has_table_privilege('service_role', 'public.chat_mensagens_favoritas', 'delete'), 'service_role grava e apaga');
-select pg_temp.assert_true(not exists (select 1 from information_schema.columns where table_name = 'crm_contatos' and column_name = 'nascimento'), 'migration não mexe em crm_contatos.nascimento');
+select pg_temp.assert_true((select s.coluna = (select format_type(atttypid, atttypmod) || ':' || attnotnull from pg_attribute
+    where attrelid = 'public.crm_contatos'::regclass and attname = 'nascimento')
+  and s.constraints = (select count(*) from pg_constraint where conrelid = 'public.crm_contatos'::regclass)
+  and s.defaults = (select count(*) from pg_attrdef where adrelid = 'public.crm_contatos'::regclass)
+  from snap_nascimento s), 'migration não cria nem altera crm_contatos.nascimento');
 
 set role authenticated;
 do $$ begin

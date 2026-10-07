@@ -75,7 +75,9 @@ grant select, insert, update, delete on public.chat_mensagens_fixadas, public.ch
 -- ---------------------------------------------------------------------------
 alter table public.chat_conversas add column if not exists trafego_manual jsonb null;
 
--- NOT VALID + VALIDATE: a checagem das linhas existentes não segura o lock exclusivo.
+-- NOT VALID + VALIDATE separados só para o DO block ser idempotente. Como o db push roda
+-- o arquivo numa transação, o ACCESS EXCLUSIVE do ADD COLUMN/ADD CONSTRAINT fica até o
+-- commit; com ~860 conversas e lock_timeout 5s o efeito é desprezível.
 do $$
 begin
   if not exists (select 1 from pg_constraint
