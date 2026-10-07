@@ -12,12 +12,21 @@
  * estourar o maxDuration mesmo com muitas campanhas ativas simultâneas.
  * Reaplica `calcularOfertas` quando margem ou convênio mudou.
  *
+ * Escopo: leads de campanha E leads manuais/receptivos/IA (lead provisório,
+ * 07/10/2026) que já têm `wesales_contact_id` — provisório ainda sem id fica de
+ * fora até o worker da fila sincronizar. Só LEITURA do WeSales: nunca toca em
+ * `wesales_sync_status`/`wesales_sync_erro` (quem decide é o worker), nem em
+ * etapa, tabulações ou observações (o CRM vence nesses campos).
+ *
+ * WeSales fora do ar (401/403/5xx/timeout): interrompe o lote e responde 502
+ * com um código curto — antes `getContact` devolvia null e o lote "passava".
+ *
  * Agendado pelo Vercel Cron (ver vercel.json). Protegido por CRON_SECRET.
  */
 
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { customFieldValue, getContact, findOpportunitiesByContactDetalhadas, opportunityFieldValue, resolveCustomField } from '@/lib/wesales/client'
+import { codigoErroWesales, customFieldValue, getContact, findOpportunitiesByContactDetalhadas, opportunityFieldValue, resolveCustomField, WesalesHttpError } from '@/lib/wesales/client'
 import { codigoConvenioChave, indexarConveniosPorCodigo, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
 import { calcularOfertas, resolverOfertasRefin, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
@@ -59,7 +68,7 @@ export async function GET(request: NextRequest) {
     .from('crm_contatos')
     .select('id, wesales_contact_id, cpf, nome, telefone, convenio_id, matricula, margem_novo, margem_cartao_rmc, margem_cartao_rcc, refin_troco, ofertas')
     .is('deleted_at', null)
-    .not('campanha_id', 'is', null)
+    .or('campanha_id.not.is.null,origem.in.(manual,receptivo,ia)')
     .not('wesales_contact_id', 'is', null)
     .order('sincronizado_em', { ascending: true, nullsFirst: true })
     .limit(LOTE)
@@ -101,7 +110,16 @@ export async function GET(request: NextRequest) {
 
   for (const local of contatos) {
     conferidos += 1
-    const remoto = await getContact(String(local.wesales_contact_id))
+    let remoto: Awaited<ReturnType<typeof getContact>>
+    try {
+      remoto = await getContact(String(local.wesales_contact_id))
+    } catch (err) {
+      if (!(err instanceof WesalesHttpError)) throw err
+      // Sem dados pessoais no log: só o código e o id interno.
+      const codigo = codigoErroWesales(err)
+      console.error(`Conferência AlvoConsig interrompida: ${codigo} (contato ${local.id}).`)
+      return Response.json({ ok: false, error: codigo, conferidos: conferidos - 1, corrigidos }, { status: 502 })
+    }
     if (!remoto) continue // contato apagado no WeSales — não mexe (decisão manual)
 
     const cpfRemoto = cpfField ? digits(customFieldValue(remoto, cpfField.id)) || null : local.cpf
