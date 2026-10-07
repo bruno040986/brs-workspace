@@ -49,6 +49,8 @@ export const PERMISSOES_CRM = [
   { chave: 'propostas.ver_todas', grupo: 'Esteira de Propostas', rotulo: 'Ver todas as propostas do parceiro' },
   { chave: 'propostas.digitar', grupo: 'Esteira de Propostas', rotulo: 'Assumir, digitar, alterar status/situação e pendenciar' },
   { chave: 'propostas.gerir', grupo: 'Esteira de Propostas', rotulo: 'Reabrir final, editar após pago e reatribuir' },
+  // Relatórios
+  { chave: 'relatorios.anuncios', grupo: 'Relatórios', rotulo: 'Ver o relatório de anúncios (campanhas, conjuntos e resultados)' },
   // Personalização
   { chave: 'personalizacao.tema', grupo: 'Personalização', rotulo: 'Escolher tema' },
   { chave: 'personalizacao.logo_parceiro', grupo: 'Personalização', rotulo: 'Alterar o logotipo do parceiro' },
