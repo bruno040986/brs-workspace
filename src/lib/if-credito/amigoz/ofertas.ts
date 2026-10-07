@@ -25,7 +25,7 @@
  * um CPF com cartão já ativo, ou da Fase 4 — digitar contrato — pra abrir um).
  * NÃO habilitar `buscar_ofertas` em produção antes de validar isso.
  */
-import { getContact, findContactByCpf } from '@/lib/wesales/client'
+import { codigoErroWesales, getContact, findContactByCpf, WesalesHttpError } from '@/lib/wesales/client'
 import { chamarAmigozAutenticado, mensagemErroAmigoz, obterInstituicaoAmigoz, type ConfigAmigoz } from './client'
 import { normalizarOfertaAmigoz } from './normalizar-oferta'
 import type { OfertaNormalizada, ProdutoOferta } from '../ofertas'
@@ -140,7 +140,15 @@ export type ResultadoGarantirCliente = { ok: true; clienteExternoId: string } | 
 export async function garantirClienteAmigoz(cfg: ConfigAmigoz, item: ItemParaOferta, criadoPor?: string | null): Promise<ResultadoGarantirCliente> {
   if (item.clienteExternoId) return { ok: true, clienteExternoId: item.clienteExternoId }
 
-  const { telefone, nascimento } = await resolverDadosClienteAmigoz(item)
+  let resolvido: DadosClienteResolvidos
+  try {
+    resolvido = await resolverDadosClienteAmigoz(item)
+  } catch (err) {
+    // WeSales fora do ar vira erro DO ITEM (o lote segue), não "sem telefone".
+    if (!(err instanceof WesalesHttpError)) throw err
+    return { ok: false, mensagem: `WeSales indisponível (${codigoErroWesales(err)}) ao buscar telefone/nascimento — tente de novo.` }
+  }
+  const { telefone, nascimento } = resolvido
   if (!telefone) return { ok: false, mensagem: 'Sem telefone (nem na entrada, nem no contato do WeSales) — obrigatório pra criar o cliente no Amigoz.' }
   if (!nascimento) return { ok: false, mensagem: 'Sem data de nascimento (a IF não devolveu na consulta de margem, nem o WeSales tem cadastrada).' }
   if (!item.convenioExternoUsado) return { ok: false, mensagem: 'Sem convênio do Amigoz resolvido para este item (rode a consulta de margem primeiro).' }
