@@ -72,3 +72,8 @@ test('getContact relança falha de rede como WesalesHttpError status 0', async (
 test('codigoErroWesales não vaza mensagem de erro desconhecido', () => {
   assert.equal(codigoErroWesales(new Error('CPF 123 na mensagem')), 'wesales_erro')
 })
+
+test('getContact relança erro que não é de transporte sem converter', async () => {
+  wesalesFalso(() => new Response('<html>', { status: 200 }))
+  await assert.rejects(getContact('c1'), (err: unknown) => err instanceof SyntaxError)
+})

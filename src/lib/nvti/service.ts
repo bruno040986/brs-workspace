@@ -15,6 +15,7 @@ import { cleanCpf, isValidCpf } from './normalize'
 import { costForCount, currentMonthRange, unitCostForPosition } from './pricing'
 import type { HigienizacaoOutcome, NvtiOrigin, NvtiResultado } from './types'
 import { syncNvtiResultadoParaWesales } from './nvti-wesales'
+import { codigoErroWesales } from '@/lib/wesales/client'
 
 const TOKEN_MAX_AGE_MS = 20 * 60 * 60 * 1000 // renova antes das 24h de validade
 
@@ -68,7 +69,7 @@ async function sincronizarComWesales(resultado: NvtiResultado): Promise<void> {
   try {
     await syncNvtiResultadoParaWesales(resultado)
   } catch (error) {
-    console.error('[nvti->wesales] falha ao gravar resultado no WeSales:', error)
+    console.error(`[nvti->wesales] falha ao gravar resultado no WeSales: ${codigoErroWesales(error)}`)
   }
 }
 

@@ -363,8 +363,12 @@ export async function getContact(contactId: string): Promise<WesalesContact | nu
       if (err.status === 404 || err.status === 400) return null
       throw err
     }
-    const timeout = (err as { name?: string })?.name === 'TimeoutError'
-    throw new WesalesHttpError(0, timeout ? 'timeout' : 'falha de rede', path)
+    // Só falha de transporte vira status 0; bug de programação (JSON, etc.) relança.
+    const nome = (err as { name?: string })?.name
+    if (err instanceof TypeError || nome === 'AbortError' || nome === 'TimeoutError') {
+      throw new WesalesHttpError(0, nome === 'TimeoutError' || nome === 'AbortError' ? 'timeout' : 'falha de rede', `${BASE_URL}${path}`)
+    }
+    throw err
   }
 }
 

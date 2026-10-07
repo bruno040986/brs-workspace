@@ -28,7 +28,7 @@
 --
 -- Idempotente: pode rodar duas vezes sem efeito na segunda.
 
--- `supabase db push` não roda a migration em transação: `set local` não vale.
+-- `set` (sessão), não `set local`: vale para toda a migration, com ou sem transação.
 -- crm_contatos recebe escrita o tempo todo; falha rápido e dá para repetir.
 set lock_timeout = '5s';
 
