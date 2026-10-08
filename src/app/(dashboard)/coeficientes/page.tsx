@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CalendarOff, Calculator, CheckCircle, FileUp, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { createCoeficientes, encerrarCoeficiente, excluirCoeficiente, getCoeficientes, getCoeficientesLookups, getInstituicoesFinanceiras } from './actions'
 import { hojeSaoPaulo } from '@/lib/comissionamento-filtros'
+import { rotuloTabelaCoeficiente } from '@/lib/coeficientes-label'
 
 type Tabela = {
   id: string
@@ -131,7 +132,7 @@ export default function CoeficientesPage() {
   const selectedTabela = useMemo(() => tabelas.find((item) => item.id === tabelaId) || null, [tabelaId, tabelas])
 
   function tabelaLabel(item: Tabela) {
-    return `${item.financial_institutions?.name || 'Instituição'} - ${item.nome} (${item.formas_contrato?.nome || 'forma n/i'}, ${seguroText(item.com_seguro)})`
+    return rotuloTabelaCoeficiente(item.codigo_tabela_banco, `${item.financial_institutions?.name || 'Instituição'} - ${item.nome} (${item.formas_contrato?.nome || 'forma n/i'}, ${seguroText(item.com_seguro)})`)
   }
 
   function openNew() {
