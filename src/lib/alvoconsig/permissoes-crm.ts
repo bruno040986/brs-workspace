@@ -44,12 +44,15 @@ export const PERMISSOES_CRM = [
   { chave: 'config.agente_ia', grupo: 'Configurações', rotulo: 'Agentes de IA' },
   { chave: 'config.esteira', grupo: 'Configurações', rotulo: 'Editar SLA, trava e dias sem atualização da esteira' },
   { chave: 'config.liberar_disparo', grupo: 'Configurações', rotulo: 'Liberar disparo antes do fim da quarentena do número' },
+  { chave: 'config.maturacao', grupo: 'Configurações', rotulo: 'Aquecimento de Números (planos, monitor e parada)' },
   // Esteira de propostas (digitações)
   { chave: 'propostas.solicitar_digitacao', grupo: 'Esteira de Propostas', rotulo: 'Solicitar digitação a partir de simulação respondida' },
   { chave: 'propostas.ver_minhas', grupo: 'Esteira de Propostas', rotulo: 'Ver as propostas que eu pedi ou opero' },
   { chave: 'propostas.ver_todas', grupo: 'Esteira de Propostas', rotulo: 'Ver todas as propostas do parceiro' },
   { chave: 'propostas.digitar', grupo: 'Esteira de Propostas', rotulo: 'Assumir, digitar, alterar status/situação e pendenciar' },
   { chave: 'propostas.gerir', grupo: 'Esteira de Propostas', rotulo: 'Reabrir final, editar após pago e reatribuir' },
+  // Relatórios
+  { chave: 'relatorios.anuncios', grupo: 'Relatórios', rotulo: 'Ver o relatório de anúncios (campanhas, conjuntos e resultados)' },
   // Personalização
   { chave: 'personalizacao.tema', grupo: 'Personalização', rotulo: 'Escolher tema' },
   { chave: 'personalizacao.logo_parceiro', grupo: 'Personalização', rotulo: 'Alterar o logotipo do parceiro' },

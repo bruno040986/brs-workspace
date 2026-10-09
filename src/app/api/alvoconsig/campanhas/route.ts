@@ -429,12 +429,29 @@ export async function POST(request: NextRequest) {
     let copiados = 0
     for (let i = 0; i < linhas.length; i += 300) {
       const chunk = linhas.slice(i, i + 300)
-      const { data: inseridos, error: insertError } = await admin
+      let { data: inseridos, error: insertError } = await admin
         .from('crm_contatos')
         .upsert(chunk, { onConflict: 'wesales_contact_id' })
         .select('id, wesales_contact_id')
+      if (insertError?.code === '23505') {
+        // Uma linha em conflito (ex.: CPF duplicado) não pode derrubar as outras 299.
+        const aceitas: any[] = []
+        for (const linha of chunk) {
+          const { data: um, error: umErro } = await admin
+            .from('crm_contatos')
+            .upsert([linha], { onConflict: 'wesales_contact_id' })
+            .select('id, wesales_contact_id')
+          if (umErro) {
+            console.error(`Linha da campanha não gravada: ${umErro.code} ${(umErro as any).constraint ?? ''}`.trim())
+            continue
+          }
+          aceitas.push(...(um || []))
+        }
+        inseridos = aceitas
+        insertError = null
+      }
       if (insertError) {
-        console.error('Falha ao gravar cópia de trabalho da campanha:', insertError)
+        console.error(`Falha ao gravar cópia de trabalho da campanha: ${insertError.code} ${(insertError as any).constraint ?? ''}`.trim())
         continue
       }
       copiados += inseridos?.length || 0

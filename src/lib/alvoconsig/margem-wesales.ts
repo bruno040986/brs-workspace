@@ -21,6 +21,7 @@ import {
   ensureCustomField,
   findContactByCpf,
   getContact,
+  mensagemErroWesales,
   normalizeCpfDigits,
   setContactsBusiness,
   updateContact,
@@ -224,7 +225,7 @@ export async function gravarFotoMargemWesales(p: {
   try {
     consignanteBusinessId = await resolverOuCriarConsignante(p.admin, convenio)
   } catch (error: any) {
-    console.error('Falha ao resolver Consignante/Empregador no WeSales:', error?.message || error)
+    console.error('Falha ao resolver Consignante/Empregador no WeSales:', mensagemErroWesales(error))
   }
 
   const tags = [tagBase(p.baseTagSlug), TAG_DISPONIVEL]
@@ -247,7 +248,7 @@ export async function gravarFotoMargemWesales(p: {
         const contactId = await gravarContatoWesales({ ...linha, convenio: convenioCampos, customFields, existente, fieldDefs, tags, source: p.source })
         return { cpf: linha.cpf, contactId }
       } catch (error: any) {
-        return { cpf: linha.cpf, erro: error?.message || String(error) }
+        return { cpf: linha.cpf, erro: mensagemErroWesales(error) }
       }
     }),
     CONCORRENCIA_WESALES,
@@ -259,7 +260,7 @@ export async function gravarFotoMargemWesales(p: {
     try {
       await setContactsBusiness(contactIds, consignanteBusinessId)
     } catch (error: any) {
-      console.error('Falha ao vincular contatos ao Consignante/Empregador no WeSales:', error?.message || error)
+      console.error('Falha ao vincular contatos ao Consignante/Empregador no WeSales:', mensagemErroWesales(error))
     }
   }
   return {

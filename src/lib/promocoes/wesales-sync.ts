@@ -8,6 +8,7 @@ import {
   findContactByCpf,
   findOpportunitiesByContact,
   getContact,
+  mensagemErroWesales,
   resolveCustomField,
   resolvePipelineStage,
   updateContact,
@@ -157,7 +158,7 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
     await marcar({ wesales_contact_id: contactId, wesales_opportunity_id: opportunityId, wesales_status: 'ok', wesales_erro: null, wesales_sync_em: new Date().toISOString() })
     return { status: 'ok' }
   } catch (e) {
-    const msg = (e instanceof Error ? e.message : 'erro desconhecido').slice(0, 300)
+    const msg = mensagemErroWesales(e).slice(0, 300)
     await marcar({ wesales_status: 'erro', wesales_erro: msg })
     return { status: 'erro', erro: msg }
   }

@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { hojeSaoPaulo } from '@/lib/comissionamento-filtros'
+import { vinculoTabelaValido } from '@/lib/coeficientes-cascata'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -100,6 +101,9 @@ export async function getCoeficientes(filtros?: {
 
 export type NovoCoeficientePayload = {
   tabela_comissao_id: string
+  /** Opcionais: se enviados, o servidor confere que a tabela pertence a eles. */
+  instituicao_id?: string
+  convenio_id?: string
   vigencia_inicio: string
   itens: Array<{ prazo: number; coeficiente: number }>
 }
@@ -109,6 +113,18 @@ export async function createCoeficientes(payload: NovoCoeficientePayload) {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_include')
 
     if (!payload.tabela_comissao_id) return { success: false, error: 'Selecione a Tabela de Comissão.' }
+
+    const { data: tabela, error: tabelaError } = await supabaseAdmin
+      .from('tabelas_comissao')
+      .select('id, institution_id, convenio_id')
+      .eq('id', payload.tabela_comissao_id)
+      .is('deleted_at', null)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (tabelaError) throw tabelaError
+    if (!vinculoTabelaValido(tabela, { instituicaoId: payload.instituicao_id, convenioId: payload.convenio_id })) {
+      return { success: false, error: 'Tabela de Comissão inválida para a instituição e o convênio informados.' }
+    }
 
     const vigenciaInicio = String(payload.vigencia_inicio || '').slice(0, 10)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(vigenciaInicio)) {
