@@ -4,7 +4,7 @@
 -- (só o perfil global master). Idempotente.
 
 alter table public.chat_conversa_checkpoints
-  add column if not exists autor_crm_usuario_id uuid null references public.crm_usuarios (id);
+  add column if not exists autor_crm_usuario_id uuid null references public.crm_usuarios (id) on delete set null;
 
 -- check inline da criação da tabela: nome padrão do Postgres
 alter table public.chat_conversa_checkpoints
