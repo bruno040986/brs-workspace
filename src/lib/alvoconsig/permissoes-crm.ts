@@ -29,6 +29,7 @@ export const PERMISSOES_CRM = [
   { chave: 'atendimento.transferir_operacional_master', grupo: 'Atendimento', rotulo: 'Transferir conversa só para Operacional e Master' },
   { chave: 'atendimento.ver_sem_lead', grupo: 'Atendimento', rotulo: 'Ver conversas sem lead' },
   { chave: 'atendimento.enviar_oferta', grupo: 'Atendimento', rotulo: 'Enviar oferta e simulação ao lead' },
+  { chave: 'atendimento.trocar_instancia', grupo: 'Atendimento', rotulo: 'Trocar a instância (número) da conversa' },
   { chave: 'atendimento.salvar_arquivos', grupo: 'Atendimento', rotulo: 'Salvar arquivos do lead' },
   // Chat interno
   { chave: 'chat_interno.usar', grupo: 'Chat interno', rotulo: 'Usar o chat interno' },
