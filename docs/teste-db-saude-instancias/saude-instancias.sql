@@ -58,3 +58,9 @@ select pg_temp.assert_true((select count(*) >= 1 from crm_perfis_permissoes pp j
   where pp.permissao = 'config.liberar_disparo' and p.chave = 'master' and p.agente_parceiro_id is null), 'master recebe config.liberar_disparo');
 select pg_temp.assert_true((select count(*) = 0 from crm_perfis_permissoes pp join crm_perfis p on p.id = pp.perfil_id
   where pp.permissao = 'config.liberar_disparo' and p.chave <> 'master'), 'só master recebe config.liberar_disparo');
+
+-- Permissão nova (20261009140733_chat_conversa_troca_instancia_manual.sql): só o master global
+select pg_temp.assert_true((select count(*) >= 1 from crm_perfis_permissoes pp join crm_perfis p on p.id = pp.perfil_id
+  where pp.permissao = 'atendimento.trocar_instancia' and p.chave = 'master' and p.agente_parceiro_id is null), 'master recebe atendimento.trocar_instancia');
+select pg_temp.assert_true((select count(*) = 0 from crm_perfis_permissoes pp join crm_perfis p on p.id = pp.perfil_id
+  where pp.permissao = 'atendimento.trocar_instancia' and p.chave <> 'master'), 'só master recebe atendimento.trocar_instancia');
