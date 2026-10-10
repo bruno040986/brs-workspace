@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import { SLUG_PUBLICO_RE, codigoDoNome, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
-
 const UUID = '3f2b8c1e-1111-4222-8333-444455556666'
 
 function entrada(over: Partial<EntradaSnapshot> = {}, conteudo: Record<string, unknown> = {}): EntradaSnapshot {
@@ -112,6 +111,18 @@ describe('montarSnapshotPublico', () => {
     assert.strictEqual(texto.vantagens[0].fonte, 'Resolução: 123/2026')
     const r = montarSnapshotPublico(entrada({}, { cta_tipo_destino: 'url_customizada', cta_link_destino: 'http://a.com' }))
     assert.strictEqual(r.ok, false)
+  })
+
+  it('fonte com esquema perigoso (javascript:, data:, etc.) descarta o item', () => {
+    for (const fonte of ['javascript:alert(1)', ' DATA:text/html,x', 'vbscript:x', 'file:///etc/passwd', 'Blob:abc']) {
+      const s = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte }] }))
+      assert.deepStrictEqual(s.vantagens, [], fonte)
+    }
+  })
+
+  it('fonte textual que não é URL nem esquema perigoso fica', () => {
+    const s = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte: 'Resolução: 123/2026' }] }))
+    assert.strictEqual(s.vantagens[0].fonte, 'Resolução: 123/2026')
   })
 
   it('recusa texto com {{variavel}}', () => {

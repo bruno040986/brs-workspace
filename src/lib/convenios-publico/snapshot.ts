@@ -78,6 +78,9 @@ function pareceUrl(v: string): boolean {
   return /^https?:\/\//i.test(v) || /^www\./i.test(v)
 }
 
+/** Esquemas perigosos em `fonte` (após trim, sem diferenciar maiúsculas): o item é descartado. */
+export const FONTE_ESQUEMA_PROIBIDO_RE = /^(javascript|data|vbscript|file|blob):/i
+
 /** Código público derivado do nome: minúsculas, sem acento, '-' como separador. */
 export function codigoDoNome(nome: string): string {
   return nome
@@ -91,6 +94,7 @@ export function codigoDoNome(nome: string): string {
 /** Evidência de vantagens/faqs; null = item fora do snapshot (pendente, ausente ou fonte-URL inválida). */
 function evidencia(item: Record<string, unknown>): Evidencia | null {
   if (item.situacao !== 'confirmado') return null
+  if (typeof item.fonte === 'string' && FONTE_ESQUEMA_PROIBIDO_RE.test(item.fonte.trim())) return null
   let fonte = texto(item.fonte, 2048, 'Fonte')
   if (fonte && pareceUrl(fonte)) {
     fonte = urlHttps(fonte)
