@@ -57,14 +57,32 @@ export const ehPrioridade = (s: unknown): s is TarefaPrioridade => typeof s === 
 
 /**
  * Regra de transição de status do projeto. O fluxo é livre (Bruno pode voltar
- * etapas); só barra repetir o mesmo status e entrar em escrita técnica sem
- * redator. Devolve a mensagem de erro ou null.
+ * etapas); só barra repetir o mesmo status, entrar em escrita técnica sem
+ * redator e entrar em planejamento sem escrita técnica. Devolve o erro ou null.
  */
-export function erroTransicaoProjeto(de: ProjetoStatus, para: ProjetoStatus, opts: { temRedator: boolean }): string | null {
+export function erroTransicaoProjeto(
+  de: ProjetoStatus,
+  para: ProjetoStatus,
+  opts: { temRedator: boolean; temEscrita: boolean },
+): string | null {
   if (!ehProjetoStatus(para)) return 'Status inválido.'
   if (de === para) return `O projeto já está em "${PROJETO_STATUS_LABEL[para]}".`
   if (para === 'escrita_tecnica' && !opts.temRedator) return 'Escolha a IA redatora antes de iniciar a escrita técnica.'
+  if (para === 'planejamento' && !opts.temEscrita) return 'Registre a escrita técnica antes de avançar para Planejamento.'
   return null
+}
+
+export const temEscritaTecnica = (escrita: string | null | undefined) => Boolean(escrita?.trim())
+
+/** Patch de `projetos` ao gravar a escrita técnica: texto novo e versão +1. */
+export function patchEscritaTecnica(escrita: string, versaoAtual: number) {
+  return { escrita_tecnica: escrita, escrita_versao: (Number(versaoAtual) || 0) + 1 }
+}
+
+/** Aviso quando a escrita técnica mudou depois da aprovação; null se não mudou ou não há aprovação. */
+export function avisoEscritaAlterada(p: { escritaVersao: number; versaoEscritaAprovada: number | null }): string | null {
+  if (p.versaoEscritaAprovada == null || p.escritaVersao <= p.versaoEscritaAprovada) return null
+  return `Escrita técnica alterada após a aprovação (v${p.versaoEscritaAprovada} → v${p.escritaVersao}).`
 }
 
 /** concluida_em ao mudar o status da tarefa: entra ao concluir, sai ao reabrir. */

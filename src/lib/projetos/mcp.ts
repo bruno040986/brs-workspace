@@ -9,7 +9,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as svc from './service'
-import { ehPrioridade, ehTarefaStatus } from './puro'
+import { avisoEscritaAlterada, ehPrioridade, ehTarefaStatus } from './puro'
 import {
   MENSAGEM_TIPO_LABEL,
   PROJETO_STATUS_LABEL,
@@ -139,6 +139,12 @@ function linhaMensagem(m: Mensagem): string {
   return `- ${m.createdAt} · ${m.autorNome} (${MENSAGEM_TIPO_LABEL[m.tipo]})${onde}: ${m.conteudo}`
 }
 
+function textoAprovacao(p: ProjetoDetalhe): string {
+  if (!p.aprovadoEm) return 'Aprovação: escrita técnica ainda não aprovada.'
+  const aviso = avisoEscritaAlterada(p)
+  return `Aprovação: por ${p.aprovadoPorNome || '—'} em ${p.aprovadoEm} (v${p.versaoEscritaAprovada ?? '?'}).${aviso ? ` Atenção: ${aviso}` : ''}`
+}
+
 function textoProjeto(p: ProjetoDetalhe): string {
   const tarefas = p.tarefas.map(
     (t) =>
@@ -148,9 +154,10 @@ function textoProjeto(p: ProjetoDetalhe): string {
   return [
     `# ${p.codigo} — ${p.titulo}`,
     `Status: ${PROJETO_STATUS_LABEL[p.status]} · Redator: ${p.redator ? `${p.redator.nome} (${p.redator.slug})` : '—'} · Participantes: ${nomes(p.participantes)}`,
+    textoAprovacao(p),
     `## Objetivo\n${p.objetivo}`,
     `## Ideia principal\n${p.ideiaPrincipal}`,
-    `## Escrita técnica\n${p.escritaTecnica || '(ainda não registrada)'}`,
+    `## Escrita técnica (v${p.escritaVersao})\n${p.escritaTecnica || '(ainda não registrada)'}`,
     `## Tarefas\n${tarefas.join('\n') || '(nenhuma)'}`,
     `## Últimas mensagens\n${p.mensagens.map(linhaMensagem).join('\n') || '(nenhuma)'}`,
     `## Commits\n${commits.join('\n') || '(nenhum)'}`,
@@ -221,7 +228,11 @@ async function executarTool(admin: SupabaseClient, agente: Agente, nome: string,
     }
     case 'registrar_escrita_tecnica': {
       const r = await svc.registrarEscritaTecnica(admin, arg(a, 'codigo', true)!, arg(a, 'conteudo', true)!, autor)
-      return ok(`Escrita técnica registrada em ${r.codigo}. Status atual: ${PROJETO_STATUS_LABEL[r.status]}.`)
+      return ok(`Escrita técnica v${r.versao} registrada em ${r.codigo}. Status atual: ${PROJETO_STATUS_LABEL[r.status]}.`, {
+        codigo: r.codigo,
+        status: r.status,
+        versao: r.versao,
+      })
     }
     case 'contribuir':
     case 'registrar_conversa_direta': {

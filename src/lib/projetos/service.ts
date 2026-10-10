@@ -19,7 +19,9 @@ import {
   mensagemDeLinha,
   normalizarPrazo,
   parseCodigoProjeto,
+  patchEscritaTecnica,
   tarefaDeLinha,
+  temEscritaTecnica,
 } from './puro'
 import {
   PROJETO_STATUS_LABEL,
@@ -46,12 +48,17 @@ type ProjetoRow = {
   status: ProjetoStatus
   redator_agente_id: string | null
   escrita_tecnica: string | null
+  escrita_versao: number
+  aprovado_por: string | null
+  aprovado_em: string | null
+  versao_escrita_aprovada: number | null
   criado_por: string
   created_at: string
   updated_at: string
 }
 
-const PROJETO_COLS = 'id, numero, titulo, objetivo, ideia_principal, status, redator_agente_id, escrita_tecnica, criado_por, created_at, updated_at'
+const PROJETO_COLS =
+  'id, numero, titulo, objetivo, ideia_principal, status, redator_agente_id, escrita_tecnica, escrita_versao, aprovado_por, aprovado_em, versao_escrita_aprovada, criado_por, created_at, updated_at'
 const MAX_TITULO = 200
 const MAX_TEXTO = 50_000
 const MAX_ESCRITA = 200_000
@@ -152,6 +159,10 @@ function montarResumo(
     updatedAt: p.updated_at,
     totalTarefas,
     tarefasConcluidas,
+    escritaVersao: Number(p.escrita_versao || 0),
+    aprovadoPorNome: p.aprovado_por ? nomes.get(p.aprovado_por) || '—' : null,
+    aprovadoEm: p.aprovado_em,
+    versaoEscritaAprovada: p.versao_escrita_aprovada,
   }
 }
 
@@ -214,22 +225,35 @@ async function inserirMensagem(
 }
 
 async function aplicarStatusProjeto(admin: Admin, p: ProjetoRow, para: ProjetoStatus, autor: Autor) {
-  const erro = erroTransicaoProjeto(p.status, para, { temRedator: Boolean(p.redator_agente_id) })
+  const erro = erroTransicaoProjeto(p.status, para, { temRedator: Boolean(p.redator_agente_id), temEscrita: temEscritaTecnica(p.escrita_tecnica) })
   if (erro) throw new Error(erro)
-  const { data, error } = await admin.from('projetos').update({ status: para }).eq('id', p.id).eq('status', p.status).select('id')
+  // Usuário levando para planejamento = aprova a versão atual da escrita técnica.
+  const aprovacao =
+    para === 'planejamento' && 'usuarioId' in autor
+      ? { aprovado_por: autor.usuarioId, aprovado_em: new Date().toISOString(), versao_escrita_aprovada: p.escrita_versao }
+      : null
+  // Trava em status E versão da escrita: a versão aprovada é exatamente a que foi lida.
+  const { data, error } = await admin
+    .from('projetos')
+    .update({ status: para, ...aprovacao })
+    .eq('id', p.id)
+    .eq('status', p.status)
+    .eq('escrita_versao', p.escrita_versao)
+    .select('id')
   if (error) throw error
-  if (!data?.length) throw new Error('O status do projeto mudou enquanto isso; recarregue e tente de novo.')
+  if (!data?.length) throw new Error('O projeto mudou enquanto isso; recarregue e tente de novo.')
   await inserirMensagem(
     admin,
     p,
     {
       tipo: 'status',
       conteudo: `Status do projeto: ${PROJETO_STATUS_LABEL[p.status]} → ${PROJETO_STATUS_LABEL[para]}`,
-      meta: { entidade: 'projeto', de: p.status, para },
+      meta: { entidade: 'projeto', de: p.status, para, ...(aprovacao ? { aprovacao: { versao: p.escrita_versao } } : {}) },
     },
     autor,
   )
   p.status = para
+  if (aprovacao) Object.assign(p, aprovacao)
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +271,7 @@ export async function listarProjetos(admin: Admin): Promise<ProjetoResumo[]> {
     carregarAgentes(admin),
     participantesPorProjeto(admin, ids),
     admin.from('projeto_tarefas').select('projeto_id, status').in('projeto_id', ids),
-    nomesUsuarios(admin, rows.map((r) => r.criado_por)),
+    nomesUsuarios(admin, rows.flatMap((r) => [r.criado_por, r.aprovado_por || ''])),
   ])
   if (tarefasR.error) throw tarefasR.error
   const contagem = new Map<string, { total: number; feitas: number }>()
@@ -279,7 +303,7 @@ export async function lerProjeto(admin: Admin, codigo: string, opts: { limiteMen
   const tarefas = (tarefasR.data || []).map((r) => tarefaDeLinha(r, agentes))
   const tarefaNumeroPorId = new Map(tarefas.map((t) => [t.id, t.numero]))
   const msgs = (msgsR.data || []).reverse()
-  const nomes = await nomesUsuarios(admin, [p.criado_por, ...msgs.map((m) => String(m.autor_usuario_id || ''))])
+  const nomes = await nomesUsuarios(admin, [p.criado_por, p.aprovado_por || '', ...msgs.map((m) => String(m.autor_usuario_id || ''))])
 
   return {
     ...montarResumo(p, agentes, participantes.get(p.id) || [], nomes, tarefas.length, tarefas.filter((t) => t.status === 'concluido').length),
@@ -421,7 +445,7 @@ export async function registrarMensagem(
   return { codigo: codigoProjeto(p.numero) }
 }
 
-/** Escrita técnica: só a IA redatora. Em 'escrita_tecnica' o projeto avança para 'brainstorm'. */
+/** Escrita técnica: só a IA redatora; cada registro sobe `escrita_versao`. Em 'escrita_tecnica' o projeto avança para 'brainstorm'. */
 export async function registrarEscritaTecnica(admin: Admin, codigo: string, conteudo: string, autor: Autor) {
   const p = await buscarProjeto(admin, codigo)
   const agenteId = agenteDoAutor(autor)
@@ -429,11 +453,15 @@ export async function registrarEscritaTecnica(admin: Admin, codigo: string, cont
     throw new Error(`Só a IA redatora de ${codigoProjeto(p.numero)} registra a escrita técnica. Use "contribuir" para sugerir.`)
   }
   const escrita = texto(conteudo, 'a escrita técnica', MAX_ESCRITA)
-  const { error } = await admin.from('projetos').update({ escrita_tecnica: escrita }).eq('id', p.id)
+  const patch = patchEscritaTecnica(escrita, p.escrita_versao)
+  // Trava na versão lida: dois registros simultâneos não podem gerar a mesma versão.
+  const { data, error } = await admin.from('projetos').update(patch).eq('id', p.id).eq('escrita_versao', p.escrita_versao).select('id')
   if (error) throw error
-  await inserirMensagem(admin, p, { tipo: 'escrita_tecnica', conteudo: escrita }, autor)
+  if (!data?.length) throw new Error('A escrita técnica mudou enquanto isso; leia o projeto de novo e tente outra vez.')
+  Object.assign(p, patch)
+  await inserirMensagem(admin, p, { tipo: 'escrita_tecnica', conteudo: escrita, meta: { versao: patch.escrita_versao } }, autor)
   if (p.status === 'escrita_tecnica') await aplicarStatusProjeto(admin, p, 'brainstorm', autor)
-  return { codigo: codigoProjeto(p.numero), status: p.status }
+  return { codigo: codigoProjeto(p.numero), status: p.status, versao: patch.escrita_versao }
 }
 
 // ---------------------------------------------------------------------------

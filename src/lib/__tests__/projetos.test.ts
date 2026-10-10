@@ -1,11 +1,14 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
+  avisoEscritaAlterada,
   concluidaEmPara,
   erroTransicaoProjeto,
   extrairRefsCommit,
   normalizarPrazo,
   parseCodigoProjeto,
+  patchEscritaTecnica,
+  temEscritaTecnica,
 } from '../projetos/puro.ts'
 
 describe('parseCodigoProjeto', () => {
@@ -45,11 +48,29 @@ describe('extrairRefsCommit', () => {
 
 describe('transição de status', () => {
   it('projeto: bloqueia repetir status e escrita técnica sem redator', () => {
-    assert.match(erroTransicaoProjeto('brainstorm', 'brainstorm', { temRedator: true }) || '', /já está/)
-    assert.match(erroTransicaoProjeto('rascunho', 'escrita_tecnica', { temRedator: false }) || '', /redatora/)
-    assert.equal(erroTransicaoProjeto('rascunho', 'escrita_tecnica', { temRedator: true }), null)
-    assert.equal(erroTransicaoProjeto('execucao', 'planejamento', { temRedator: false }), null)
-    assert.equal(erroTransicaoProjeto('rascunho', 'toString' as never, { temRedator: true }), 'Status inválido.')
+    assert.match(erroTransicaoProjeto('brainstorm', 'brainstorm', { temRedator: true, temEscrita: true }) || '', /já está/)
+    assert.match(erroTransicaoProjeto('rascunho', 'escrita_tecnica', { temRedator: false, temEscrita: true }) || '', /redatora/)
+    assert.equal(erroTransicaoProjeto('rascunho', 'escrita_tecnica', { temRedator: true, temEscrita: true }), null)
+    assert.equal(erroTransicaoProjeto('execucao', 'planejamento', { temRedator: false, temEscrita: true }), null)
+    assert.equal(erroTransicaoProjeto('rascunho', 'toString' as never, { temRedator: true, temEscrita: true }), 'Status inválido.')
+  })
+  it('projeto: planejamento exige escrita técnica (vindo de qualquer status)', () => {
+    for (const de of ['rascunho', 'escrita_tecnica', 'brainstorm', 'execucao', 'arquivado'] as const) {
+      assert.match(erroTransicaoProjeto(de, 'planejamento', { temRedator: true, temEscrita: false }) || '', /escrita técnica/)
+      assert.equal(erroTransicaoProjeto(de, 'planejamento', { temRedator: true, temEscrita: true }), null)
+    }
+    assert.equal(temEscritaTecnica('  \n '), false)
+    assert.equal(temEscritaTecnica(null), false)
+    assert.equal(temEscritaTecnica('# Doc'), true)
+  })
+  it('escrita técnica: cada registro sobe a versão', () => {
+    assert.deepEqual(patchEscritaTecnica('v1', 0), { escrita_tecnica: 'v1', escrita_versao: 1 })
+    assert.equal(patchEscritaTecnica('v4', 3).escrita_versao, 4)
+  })
+  it('aviso de escrita alterada só quando a versão atual passa da aprovada', () => {
+    assert.equal(avisoEscritaAlterada({ escritaVersao: 2, versaoEscritaAprovada: null }), null)
+    assert.equal(avisoEscritaAlterada({ escritaVersao: 2, versaoEscritaAprovada: 2 }), null)
+    assert.match(avisoEscritaAlterada({ escritaVersao: 3, versaoEscritaAprovada: 2 }) || '', /v2 → v3/)
   })
   it('tarefa: concluida_em entra ao concluir e sai ao reabrir', () => {
     const agora = '2026-10-09T12:00:00.000Z'

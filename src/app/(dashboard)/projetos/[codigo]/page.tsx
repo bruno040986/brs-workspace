@@ -18,6 +18,7 @@ import {
   lerProjeto,
   listarAgentes,
 } from '@/lib/projetos/actions'
+import { avisoEscritaAlterada, temEscritaTecnica } from '@/lib/projetos/puro'
 import {
   PROJETO_STATUS_LABEL,
   PROJETO_STATUS_ORDEM,
@@ -135,6 +136,8 @@ export default function ProjetoDetalhePage() {
   const idx = FLUXO.indexOf(p.status)
   const proximo = idx >= 0 && idx < FLUXO.length - 1 ? FLUXO[idx + 1] : null
   const tarefa = p.tarefas.find((t) => t.numero === tarefaAberta) ?? null
+  const bloqueioAvanco = proximo === 'planejamento' && !temEscritaTecnica(p.escritaTecnica) ? 'Registre a escrita técnica antes de avançar para Planejamento.' : ''
+  const escritaAlterada = avisoEscritaAlterada(p)
 
   function avancar() {
     if (!proximo || !window.confirm(`Avançar ${p.codigo} para "${PROJETO_STATUS_LABEL[proximo]}"?`)) return
@@ -221,7 +224,17 @@ export default function ProjetoDetalhePage() {
         <span>Redator: <strong>{p.redator?.nome ?? '—'}</strong></span>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>Participantes: <AgenteChips agentes={p.participantes} /></span>
         <span>Criado por {p.criadoPorNome} em {dataFmt(p.createdAt)}</span>
+        {p.aprovadoEm && (
+          <span className="badge badge-success">
+            Aprovado por {p.aprovadoPorNome ?? '—'} em {new Date(p.aprovadoEm).toLocaleDateString('pt-BR')} (v{p.versaoEscritaAprovada ?? '?'})
+          </span>
+        )}
       </div>
+      {escritaAlterada && (
+        <div className="alert alert-warning" style={{ marginBottom: '0.9rem' }}>
+          {escritaAlterada}
+        </div>
+      )}
 
       {/* barra de fluxo */}
       <div className="card" style={{ padding: '0.7rem 0.9rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -246,9 +259,12 @@ export default function ProjetoDetalhePage() {
           {p.status === 'arquivado' && <span className="badge badge-gray" style={{ marginLeft: 8 }}>Arquivado</span>}
         </div>
         {proximo && (
-          <button className="btn btn-primary btn-sm" onClick={avancar} disabled={ocupado}>
-            Avançar para {PROJETO_STATUS_LABEL[proximo]} <ChevronRight size={14} />
-          </button>
+          // title no span: botão desabilitado não mostra tooltip em todo navegador
+          <span title={bloqueioAvanco || undefined}>
+            <button className="btn btn-primary btn-sm" onClick={avancar} disabled={ocupado || Boolean(bloqueioAvanco)}>
+              Avançar para {PROJETO_STATUS_LABEL[proximo]} <ChevronRight size={14} />
+            </button>
+          </span>
         )}
         {p.status === 'arquivado' && (
           <button className="btn btn-outline btn-sm" onClick={reabrir} disabled={ocupado}>

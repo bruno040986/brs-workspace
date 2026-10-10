@@ -67,6 +67,12 @@ export type ProjetoResumo = {
   updatedAt: string
   totalTarefas: number
   tarefasConcluidas: number
+  /** Sobe 1 a cada registro da escrita técnica (0 = nunca registrada). */
+  escritaVersao: number
+  /** Aprovação gravada quando um usuário leva o projeto para planejamento. */
+  aprovadoPorNome: string | null
+  aprovadoEm: string | null
+  versaoEscritaAprovada: number | null
 }
 
 export type Tarefa = {

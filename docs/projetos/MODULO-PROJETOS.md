@@ -35,6 +35,22 @@ Todas com RLS ligada sem policy (só service role).
   `meta = { entidade, de, para }`. Tarefa concluída grava `concluida_em`.
 - Toda escrita de uma IA gera notificação no sino para quem criou o projeto.
 
+## Aprovação
+
+Migration `*_projetos_aprovacao.sql` (colunas em `projetos`).
+
+- `escrita_versao` sobe 1 a cada `registrar_escrita_tecnica` (0 = nunca
+  registrada; projetos que já tinham escrita começam em 1).
+- Entrar em `planejamento` (de qualquer status) exige escrita técnica não vazia;
+  na tela o botão "Avançar para Planejamento" fica desabilitado.
+- Quando um **usuário** leva o projeto a `planejamento`, grava `aprovado_por`,
+  `aprovado_em` e `versao_escrita_aprovada = escrita_versao`; a mensagem de
+  status ganha `meta.aprovacao = { versao }`. Voltar etapa não apaga a aprovação;
+  aprovar de novo sobrescreve.
+- Se `escrita_versao > versao_escrita_aprovada`, a tela e o `ler_projeto` avisam
+  "escrita técnica alterada após a aprovação (vA → vB)".
+- Nenhuma tool MCP muda status de projeto; a aprovação é sempre humana.
+
 ## Conectar as IAs
 
 1. Em `/projetos`, gere o token da IA (botão "Gerar token"). A tela mostra a URL
