@@ -20,7 +20,6 @@ export type ConvenioPublicoV1 = {
   convenio: { nome: string; esfera: (typeof ESFERAS)[number]; uf: string | null }
   versao: number
   publicado_em: string
-  aprovado_por: string
   titulo_destaque: string | null
   subtitulo: string | null
   resumo_publico: string | null
@@ -29,22 +28,30 @@ export type ConvenioPublicoV1 = {
   faqs: (ItemEvidenciado & { pergunta: string; resposta: string })[]
   publicos: { codigo: string; nome: string }[]
   formas_contratacao: { codigo: string; nome: string }[]
-  instituicoes: { nome: string; produtos: string[]; publicos: string[]; formas: string[]; evidencia: Evidencia }[]
+  instituicoes: InstituicaoPublica[]
   cta: { texto: string; tipo_destino: (typeof CTA_TIPOS)[number]; link: string | null } | null
   seo: { meta_title: string | null; meta_description: string | null; keywords: string[] }
 }
+
+/** Cada oferta = uma forma operada pela instituição, com os públicos elegíveis JÁ resolvidos (nunca vazio). */
+export type OfertaPublica = { forma: string; codigo_forma: string; publicos: string[] }
+export type InstituicaoPublica = { nome: string; publicos_base: string[]; ofertas: OfertaPublica[]; evidencia: Evidencia }
 
 export type EntradaSnapshot = {
   slug: string
   convenio: { nome: string; esfera: string; uf: string | null }
   versao: number
   publicado_em: string
-  aprovado_por: string
   /** Linha de convenio_conteudo_site (só os campos da lista de permissão são lidos). */
   conteudo: Record<string, unknown>
   publicos: { nome: string }[]
   formas: { nome: string }[]
-  instituicoes: { nome: string; publicos: string[]; formas: { nome: string; origem_margem?: string | null }[] }[]
+  /**
+   * publicos: nomes ativos de convenio_instituicao_publicos; null = vínculo sem público no cadastro
+   * (= todos os públicos do convênio). ofertas[].publicos_restritos: nomes ativos de publicos_restritos;
+   * null = forma sem restrição (= publicos_base).
+   */
+  instituicoes: { nome: string; publicos: string[] | null; ofertas: { forma: string; publicos_restritos: string[] | null }[] }[]
 }
 
 export type ResultadoSnapshot = { ok: true; snapshot: ConvenioPublicoV1 } | { ok: false; erro: string }
@@ -126,12 +133,6 @@ function limite<T>(lista: T[], max: number, campo: string): T[] {
 
 const unicos = (l: string[]) => Array.from(new Set(l))
 
-const PRODUTO_POR_ORIGEM: Record<string, string> = {
-  novo: 'Empréstimo consignado',
-  cartao_rmc: 'Cartão consignado',
-  cartao_rcc: 'Cartão benefício',
-}
-
 const VARIAVEL_RE = /\{\{\s*[a-zA-Z0-9_]+\s*\}\}/
 
 export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
@@ -145,8 +146,6 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
     if (!nome) throw new ErroSnapshot('Convênio sem nome.')
     if (!(ESFERAS as readonly string[]).includes(e.convenio.esfera)) throw new ErroSnapshot('Esfera do convênio inválida.')
     const uf = typeof e.convenio.uf === 'string' && /^[A-Z]{2}$/.test(e.convenio.uf) ? e.convenio.uf : null
-    const aprovadoPor = texto(e.aprovado_por, 200, 'Aprovado por')
-    if (!aprovadoPor) throw new ErroSnapshot('Responsável pela publicação sem nome.')
 
     const vantagens: ItemEvidenciado[] = []
     if (visivel('vantagens')) {
@@ -187,6 +186,33 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
     const resumo = visivel('resumo')
     const seo = visivel('seo')
     const nomes = (l: { nome: string }[]) => l.map((x) => texto(x.nome, 200, 'Nome do cadastro')).filter((x): x is string => !!x)
+    const publicosConvenio = limite(unicos(nomes(e.publicos)), 50, 'Públicos')
+
+    // Semântica do cadastro resolvida aqui (o consumidor nunca deduz "todos"):
+    // vínculo sem público = públicos do convênio; forma sem restrição = publicos_base.
+    // Oferta que fica sem público sai; instituição sem oferta sai.
+    const instituicoes: InstituicaoPublica[] = []
+    for (const i of e.instituicoes) {
+      const nomeIf = texto(i.nome, 200, 'Nome da instituição')
+      if (!nomeIf) continue
+      const base = i.publicos === null ? publicosConvenio : unicos(nomes(i.publicos.map((n) => ({ nome: n }))))
+      const ofertas: OfertaPublica[] = []
+      for (const o of i.ofertas) {
+        const forma = texto(o.forma, 200, 'Nome da forma')
+        if (!forma) continue
+        const publicos =
+          o.publicos_restritos === null ? base : unicos(nomes(o.publicos_restritos.map((n) => ({ nome: n })))).filter((p) => base.includes(p))
+        if (publicos.length) ofertas.push({ forma, codigo_forma: codigoDoNome(forma), publicos })
+      }
+      if (ofertas.length) {
+        instituicoes.push({
+          nome: nomeIf,
+          publicos_base: base,
+          ofertas: limite(ofertas, 30, `Formas de ${nomeIf}`),
+          evidencia: { fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null },
+        })
+      }
+    }
 
     const snapshot: ConvenioPublicoV1 = {
       contrato: 'v1',
@@ -194,7 +220,6 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       convenio: { nome, esfera: e.convenio.esfera as ConvenioPublicoV1['convenio']['esfera'], uf },
       versao: e.versao,
       publicado_em: e.publicado_em,
-      aprovado_por: aprovadoPor,
       titulo_destaque: resumo ? texto(c.titulo_destaque, 200, 'Título destaque') : null,
       subtitulo: resumo ? texto(c.subtitulo, 300, 'Subtítulo') : null,
       resumo_publico: resumo ? texto(c.resumo_publico, 2000, 'Resumo público') : null,
@@ -207,22 +232,9 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       vantagens: limite(vantagens, 12, 'Vantagens'),
       faqs: limite(faqs, 20, 'FAQs'),
       // Cadastro conta como confirmado pelo ato de publicar (decisão Bruno 10/10). Lista vazia = nenhum, nunca "todos".
-      publicos: limite(unicos(nomes(e.publicos)), 50, 'Públicos').map((n) => ({ codigo: codigoDoNome(n), nome: n })),
+      publicos: publicosConvenio.map((n) => ({ codigo: codigoDoNome(n), nome: n })),
       formas_contratacao: limite(unicos(nomes(e.formas)), 30, 'Formas de contratação').map((n) => ({ codigo: codigoDoNome(n), nome: n })),
-      instituicoes: limite(
-        e.instituicoes
-          .map((i) => ({ nomeIf: texto(i.nome, 200, 'Nome da instituição'), i }))
-          .filter((x): x is { nomeIf: string; i: EntradaSnapshot['instituicoes'][number] } => !!x.nomeIf)
-          .map(({ nomeIf, i }) => ({
-            nome: nomeIf,
-            produtos: unicos(i.formas.map((f) => PRODUTO_POR_ORIGEM[f.origem_margem ?? '']).filter(Boolean)),
-            publicos: unicos(nomes(i.publicos.map((n) => ({ nome: n })))),
-            formas: unicos(nomes(i.formas)),
-            evidencia: { fonte: null, consultado_em: null, situacao: 'confirmado' as const, natureza: null },
-          })),
-        30,
-        'Instituições',
-      ),
+      instituicoes: limite(instituicoes, 30, 'Instituições'),
       cta,
       seo: {
         meta_title: seo ? texto(c.meta_title, 70, 'Meta title') : null,

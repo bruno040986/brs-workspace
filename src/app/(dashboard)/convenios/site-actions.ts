@@ -426,14 +426,14 @@ export async function publishConvenioConteudoSite(
     const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, aprovadoPor] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
       supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at').eq('id', convenioId).maybeSingle(),
-      supabase.from('convenio_publicos').select('publicos_atendidos(nome, is_active, deleted_at)').eq('convenio_id', convenioId),
+      supabase.from('convenio_publicos').select('publicos_atendidos(id, nome, is_active, deleted_at)').eq('convenio_id', convenioId),
       supabase.from('convenio_formas_contrato').select('formas_contrato(nome, is_active)').eq('convenio_id', convenioId),
       supabase
         .from('convenio_instituicoes')
         .select(
           'financial_institutions(name, is_active, deleted_at), ' +
-            'convenio_instituicao_publicos(publicos_atendidos(nome, is_active, deleted_at)), ' +
-            'convenio_instituicao_formas(formas_contrato(nome, origem_margem, is_active))',
+            'convenio_instituicao_publicos(publicos_atendidos(id, nome, is_active, deleted_at)), ' +
+            'convenio_instituicao_formas(publicos_restritos, formas_contrato(nome, is_active))',
         )
         .eq('convenio_id', convenioId)
         .eq('is_active', true),
@@ -453,25 +453,46 @@ export async function publishConvenioConteudoSite(
     }
     if (!convenio.slug_publico) return { success: false, error: 'Defina o slug público do convênio antes de publicar.' }
 
+    // id → nome dos públicos ativos (convênio + vínculos), para resolver publicos_restritos (uuid[]).
+    const publicosConvenio = (publicosRes.data || []).map((r: any) => r.publicos_atendidos).filter(ativo).sort(porNome)
+    const nomePublico = new Map<string, string>()
+    for (const p of publicosConvenio) nomePublico.set(p.id, p.nome)
+    for (const i of (instRes.data || []) as any[]) {
+      for (const r of i.convenio_instituicao_publicos || []) if (ativo(r.publicos_atendidos)) nomePublico.set(r.publicos_atendidos.id, r.publicos_atendidos.nome)
+    }
+    const nomesOrdenados = (l: string[]) => l.sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
     const montado = montarSnapshotPublico({
       slug: convenio.slug_publico,
       convenio: { nome: convenio.nome, esfera: convenio.esfera, uf: convenio.uf },
       versao: conteudo.versao,
       publicado_em: new Date().toISOString(),
-      aprovado_por: aprovadoPor || '',
       conteudo,
-      publicos: (publicosRes.data || []).map((r: any) => r.publicos_atendidos).filter(ativo).sort(porNome),
+      publicos: publicosConvenio,
       formas: (formasRes.data || []).map((r: any) => r.formas_contrato).filter(ativo).sort(porNome),
       instituicoes: ((instRes.data || []) as any[])
         .filter((i) => ativo(i.financial_institutions))
         .map((i) => ({
           nome: i.financial_institutions.name as string,
-          publicos: (i.convenio_instituicao_publicos || [])
-            .map((p: any) => p.publicos_atendidos)
-            .filter(ativo)
-            .sort(porNome)
-            .map((p: any) => p.nome as string),
-          formas: (i.convenio_instituicao_formas || []).map((f: any) => f.formas_contrato).filter(ativo).sort(porNome),
+          // Vínculo sem público no cadastro = todos do convênio (null); a resolução é no snapshot.
+          publicos: (i.convenio_instituicao_publicos || []).length
+            ? (i.convenio_instituicao_publicos as any[])
+                .map((p) => p.publicos_atendidos)
+                .filter(ativo)
+                .sort(porNome)
+                .map((p) => p.nome as string)
+            : null,
+          ofertas: ((i.convenio_instituicao_formas || []) as any[])
+            .filter((f) => ativo(f.formas_contrato))
+            .map((f) => ({
+              forma: f.formas_contrato.nome as string,
+              // Restrito a público inativo/excluído some; se sobrar nenhum, a oferta sai (nunca alarga para a base).
+              publicos_restritos:
+                Array.isArray(f.publicos_restritos) && f.publicos_restritos.length
+                  ? nomesOrdenados((f.publicos_restritos as string[]).map((id) => nomePublico.get(id)).filter((n): n is string => !!n))
+                  : null,
+            }))
+            .sort((a, b) => a.forma.localeCompare(b.forma, 'pt-BR')),
         }))
         .sort(porNome),
     })

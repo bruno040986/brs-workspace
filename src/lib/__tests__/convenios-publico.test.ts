@@ -9,7 +9,6 @@ function entrada(over: Partial<EntradaSnapshot> = {}, conteudo: Record<string, u
     convenio: { nome: 'Governo de Goiás', esfera: 'estadual', uf: 'GO' },
     versao: 3,
     publicado_em: '2026-10-10T14:00:00.000Z',
-    aprovado_por: 'Fulano',
     conteudo: {
       id: UUID,
       convenio_id: UUID,
@@ -41,7 +40,7 @@ function entrada(over: Partial<EntradaSnapshot> = {}, conteudo: Record<string, u
     },
     publicos: [{ nome: 'Efetivo' }, { nome: 'Temporário' }],
     formas: [{ nome: 'Cartão Benefício' }],
-    instituicoes: [{ nome: 'StarBank', publicos: ['Temporário'], formas: [{ nome: 'Cartão Benefício', origem_margem: 'cartao_rcc' }] }],
+    instituicoes: [{ nome: 'StarBank', publicos: ['Temporário'], ofertas: [{ forma: 'Cartão Benefício', publicos_restritos: null }] }],
     ...over,
   }
 }
@@ -56,20 +55,19 @@ describe('montarSnapshotPublico', () => {
   it('só tem as chaves do contrato e nenhum campo interno/uuid', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
-      'aprovado_por', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'instituicoes', 'publicado_em',
+      'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'instituicoes', 'publicado_em',
       'publicos', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
     assert.ok(!json.includes(UUID))
-    for (const k of ['pendente_revisao_humana', 'variaveis_permitidas', 'secoes_ordem', 'published_by', 'origem_margem', 'is_draft']) {
+    for (const k of ['pendente_revisao_humana', 'variaveis_permitidas', 'secoes_ordem', 'published_by', 'origem_margem', 'is_draft', 'aprovado_por', 'publicos_restritos']) {
       assert.ok(!json.includes(k), k)
     }
     assert.strictEqual(s.contrato, 'v1')
     assert.deepStrictEqual(s.instituicoes[0], {
       nome: 'StarBank',
-      produtos: ['Cartão benefício'],
-      publicos: ['Temporário'],
-      formas: ['Cartão Benefício'],
+      publicos_base: ['Temporário'],
+      ofertas: [{ forma: 'Cartão Benefício', codigo_forma: 'cartao-beneficio', publicos: ['Temporário'] }],
       evidencia: { fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null },
     })
     assert.deepStrictEqual(s.publicos[1], { codigo: 'temporario', nome: 'Temporário' })
@@ -89,9 +87,63 @@ describe('montarSnapshotPublico', () => {
   })
 
   it('público vazio continua vazio (nunca vira "todos")', () => {
-    const s = snap(entrada({ publicos: [], instituicoes: [{ nome: 'X', publicos: [], formas: [] }] }))
+    const s = snap(entrada({ publicos: [], instituicoes: [{ nome: 'X', publicos: [], ofertas: [{ forma: 'Novo', publicos_restritos: null }] }] }))
     assert.deepStrictEqual(s.publicos, [])
-    assert.deepStrictEqual(s.instituicoes[0].publicos, [])
+    assert.deepStrictEqual(s.instituicoes, [])
+  })
+
+  describe('instituicoes[].ofertas', () => {
+    const go = entrada({
+      publicos: [{ nome: 'Comissionado' }, { nome: 'Efetivo' }, { nome: 'Temporário' }],
+      instituicoes: [
+        {
+          nome: 'Banco X',
+          publicos: ['Comissionado', 'Efetivo', 'Temporário'],
+          ofertas: [
+            { forma: 'Cartão consignado', publicos_restritos: ['Efetivo', 'Temporário'] },
+            { forma: 'Empréstimo consignado', publicos_restritos: ['Efetivo'] },
+            { forma: 'Portabilidade', publicos_restritos: null },
+          ],
+        },
+        { nome: 'Banco Sem Oferta', publicos: ['Efetivo'], ofertas: [] },
+        { nome: 'Banco Restrito a Inativo', publicos: ['Efetivo'], ofertas: [{ forma: 'Novo', publicos_restritos: [] }] },
+        { nome: 'Banco Vínculo Vazio', publicos: null, ofertas: [{ forma: 'Novo', publicos_restritos: null }] },
+      ],
+    })
+
+    it('restrição mantém só os públicos restritos; dois produtos do mesmo banco preservam a diferença', () => {
+      const [x] = snap(go).instituicoes
+      assert.deepStrictEqual(x.publicos_base, ['Comissionado', 'Efetivo', 'Temporário'])
+      assert.deepStrictEqual(x.ofertas.slice(0, 2), [
+        { forma: 'Cartão consignado', codigo_forma: 'cartao-consignado', publicos: ['Efetivo', 'Temporário'] },
+        { forma: 'Empréstimo consignado', codigo_forma: 'emprestimo-consignado', publicos: ['Efetivo'] },
+      ])
+    })
+
+    it('oferta sem restrição herda publicos_base', () => {
+      assert.deepStrictEqual(snap(go).instituicoes[0].ofertas[2].publicos, ['Comissionado', 'Efetivo', 'Temporário'])
+    })
+
+    it('instituição sem oferta (ou só com oferta sem público) é omitida', () => {
+      const nomes = snap(go).instituicoes.map((i) => i.nome)
+      assert.ok(!nomes.includes('Banco Sem Oferta'))
+      assert.ok(!nomes.includes('Banco Restrito a Inativo'))
+    })
+
+    it('vínculo sem público no cadastro herda os públicos do convênio', () => {
+      const v = snap(go).instituicoes.find((i) => i.nome === 'Banco Vínculo Vazio')
+      assert.deepStrictEqual(v?.publicos_base, ['Comissionado', 'Efetivo', 'Temporário'])
+      assert.deepStrictEqual(v?.ofertas[0].publicos, ['Comissionado', 'Efetivo', 'Temporário'])
+    })
+
+    it('restrito fora da base não entra', () => {
+      const s = snap(entrada({ instituicoes: [{ nome: 'Y', publicos: ['Efetivo'], ofertas: [{ forma: 'Novo', publicos_restritos: ['Efetivo', 'Temporário'] }] }] }))
+      assert.deepStrictEqual(s.instituicoes[0].ofertas[0].publicos, ['Efetivo'])
+    })
+
+    it('aprovado_por não está no payload', () => {
+      assert.ok(!('aprovado_por' in snap(go)))
+    })
   })
 
   it('URL não-https vira null e item com fonte-URL anulada sai', () => {
@@ -166,7 +218,7 @@ describe('montarSnapshotPublico', () => {
 
   it('passa de 256 KB → falha', () => {
     const publicos = Array.from({ length: 60 }, (_, i) => `Público ${i} ${'x'.repeat(180)}`)
-    const insts = Array.from({ length: 30 }, (_, i) => ({ nome: `Banco ${i}`, publicos, formas: [] }))
+    const insts = Array.from({ length: 30 }, (_, i) => ({ nome: `Banco ${i}`, publicos, ofertas: [{ forma: 'Novo', publicos_restritos: null }] }))
     const r = montarSnapshotPublico(entrada({ instituicoes: insts }))
     assert.strictEqual(r.ok, false)
     assert.match(r.ok ? '' : r.erro, /256 KB/)
