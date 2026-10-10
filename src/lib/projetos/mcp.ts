@@ -9,7 +9,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as svc from './service'
-import { avisoEscritaAlterada, ehPrioridade, ehTarefaStatus } from './puro'
+import { MAX_CHAT, avisoEscritaAlterada, ehPrioridade, ehTarefaStatus } from './puro'
 import {
   MENSAGEM_TIPO_LABEL,
   PROJETO_STATUS_LABEL,
@@ -35,6 +35,7 @@ const INSTRUCOES = [
   'Se você for a IA redatora do projeto, registre a escrita técnica com registrar_escrita_tecnica.',
   'Ideias e análises: contribuir. Tarefas: criar_tarefa / atualizar_tarefa.',
   'Antes de encerrar uma conversa com o Bruno sobre um projeto, registre o que foi conversado e decidido com registrar_conversa_direta.',
+  'Para conversar em tempo real no chat do projeto: chat_ouvir (passando o cursor da resposta anterior) e chat_enviar, em laço.',
 ].join(' ')
 
 const codigo = { type: 'string', description: 'Código do projeto, ex.: "PRJ-3".' }
@@ -120,9 +121,29 @@ export const MCP_TOOLS = [
     description: 'Lista as IAs cadastradas (slug e nome), para preencher responsavelSlug.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'chat_ouvir',
+    description:
+      'Lê o chat do projeto (conversa curta em tempo real com o Bruno e as outras IAs; não é o fórum). Sem "desde", traz as últimas mensagens; com "desde", só as mais novas que ele. Devolve "cursor". Uso em laço: chame chat_ouvir com o cursor da última resposta; responda com chat_enviar; repita (a cada 30–60 s).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        codigo,
+        desde: { type: 'string', description: 'Cursor devolvido pela chamada anterior de chat_ouvir (ISO 8601). Omita na primeira leitura.' },
+        limite: { type: 'integer', minimum: 1, maximum: 200, description: 'Máximo de mensagens (padrão 50).' },
+      },
+      required: ['codigo'],
+    },
+  },
+  {
+    name: 'chat_enviar',
+    description: `Envia uma mensagem curta no chat do projeto (até ${MAX_CHAT} caracteres, markdown simples). Só IAs participantes. Para ideias longas use contribuir. Em laço: chame chat_ouvir com o cursor da última resposta; responda com chat_enviar; repita.`,
+    inputSchema: { type: 'object', properties: { codigo, conteudo: { type: 'string', description: `Mensagem (até ${MAX_CHAT} caracteres).` } }, required: ['codigo', 'conteudo'] },
+  },
 ]
 
-export const MCP_TOOLS_LEITURA = new Set(['listar_projetos', 'ler_projeto', 'listar_mensagens', 'listar_agentes'])
+/** Tools que não mudam a tela renderizada no servidor: a rota não revalida o cache (o chat a tela busca por polling). */
+export const MCP_TOOLS_SEM_REVALIDAR = new Set(['listar_projetos', 'ler_projeto', 'listar_mensagens', 'listar_agentes', 'chat_ouvir', 'chat_enviar'])
 
 // ---------------------------------------------------------------------------
 // Formatação (markdown curto para a IA)
@@ -137,6 +158,13 @@ function linhaResumo(p: ProjetoResumo): string {
 function linhaMensagem(m: Mensagem): string {
   const onde = m.tarefaNumero ? ` [T-${m.tarefaNumero}]` : ''
   return `- ${m.createdAt} · ${m.autorNome} (${MENSAGEM_TIPO_LABEL[m.tipo]})${onde}: ${m.conteudo}`
+}
+
+const horaBr = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+
+function textoChat(ms: Mensagem[], cursor: string | null): string {
+  const linhas = ms.map((m) => `[${horaBr(m.createdAt)}] ${m.autorNome}: ${m.conteudo}`)
+  return `${linhas.join('\n') || 'Nenhuma mensagem nova.'}\n\ncursor: ${cursor ?? '(vazio)'}`
 }
 
 function textoAprovacao(p: ProjetoDetalhe): string {
@@ -284,6 +312,14 @@ async function executarTool(admin: SupabaseClient, agente: Agente, nome: string,
         autor,
       )
       return ok(`Tarefa T-${numero} de ${r.codigo} atualizada.`)
+    }
+    case 'chat_ouvir': {
+      const r = await svc.ouvirChat(admin, { codigo: arg(a, 'codigo', true)!, desde: arg(a, 'desde'), limite: numArg(a, 'limite') })
+      return ok(textoChat(r.mensagens, r.cursor), { mensagens: r.mensagens, cursor: r.cursor })
+    }
+    case 'chat_enviar': {
+      const r = await svc.enviarChat(admin, autor, { codigo: arg(a, 'codigo', true)!, conteudo: arg(a, 'conteudo', true)! })
+      return ok(`Mensagem enviada no chat de ${r.codigo}.`)
     }
     case 'listar_agentes': {
       const ags = (await svc.listarAgentes(admin)).filter((x) => x.ativo).map((x) => ({ slug: x.slug, nome: x.nome }))

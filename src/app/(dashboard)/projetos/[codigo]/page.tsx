@@ -2,7 +2,7 @@
 
 /**
  * Detalhe do projeto: cabeçalho com fluxo de status, e abas Visão geral,
- * Fórum, Tarefas, Commits e Decisões. As IAs escrevem via MCP; aqui Bruno
+ * Chat, Fórum, Tarefas, Commits e Decisões. As IAs escrevem via MCP; aqui Bruno
  * acompanha, conversa, cria/edita tarefas e avança o fluxo.
  */
 import { useEffect, useMemo, useState } from 'react'
@@ -18,7 +18,7 @@ import {
   lerProjeto,
   listarAgentes,
 } from '@/lib/projetos/actions'
-import { avisoEscritaAlterada, temEscritaTecnica } from '@/lib/projetos/puro'
+import { avisoEscritaAlterada, ehChat, temEscritaTecnica } from '@/lib/projetos/puro'
 import {
   PROJETO_STATUS_LABEL,
   PROJETO_STATUS_ORDEM,
@@ -48,10 +48,12 @@ import {
   prazoFmt,
   type FormProjeto,
 } from '../_components/ui'
+import { ChatPainel, useChat } from '../_components/chat'
 
-type Aba = 'geral' | 'forum' | 'tarefas' | 'commits' | 'decisoes'
+type Aba = 'geral' | 'chat' | 'forum' | 'tarefas' | 'commits' | 'decisoes'
 const ABAS: Array<{ id: Aba; label: string }> = [
   { id: 'geral', label: 'Visão geral' },
+  { id: 'chat', label: 'Chat' },
   { id: 'forum', label: 'Fórum' },
   { id: 'tarefas', label: 'Tarefas' },
   { id: 'commits', label: 'Commits' },
@@ -80,6 +82,7 @@ export default function ProjetoDetalhePage() {
   const [agentes, setAgentes] = useState<Agente[]>([])
   const [novaTarefa, setNovaTarefa] = useState<FormTarefa | null>(null)
   const [tarefaAberta, setTarefaAberta] = useState<number | null>(null)
+  const chat = useChat(codigo, aba === 'chat')
 
   async function carregar() {
     try {
@@ -117,7 +120,7 @@ export default function ProjetoDetalhePage() {
     }
   }
 
-  const mensagensForum = useMemo(() => (projeto ? projeto.mensagens.filter((m) => incluirTarefas || m.tarefaId == null) : []), [projeto, incluirTarefas])
+  const mensagensForum = useMemo(() => (projeto ? projeto.mensagens.filter((m) => !ehChat(m) && (incluirTarefas || m.tarefaId == null)) : []), [projeto, incluirTarefas])
   const decisoes = useMemo(
     () => (projeto ? projeto.mensagens.filter((m) => m.tipo === 'decisao' || m.tipo === 'registro_direto').sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : []),
     [projeto],
@@ -282,8 +285,18 @@ export default function ProjetoDetalhePage() {
 
       <div className="tabs-list" style={{ overflowX: 'auto' }}>
         {ABAS.map((a) => (
-          <button key={a.id} className={`tab-btn${aba === a.id ? ' active' : ''}`} onClick={() => setAba(a.id)}>
+          <button
+            key={a.id}
+            className={`tab-btn${aba === a.id ? ' active' : ''}`}
+            onClick={() => {
+              setAba(a.id)
+              if (a.id === 'chat') chat.zerarNaoLidas()
+            }}
+          >
             {a.label}
+            {a.id === 'chat' && aba !== 'chat' && chat.naoLidas > 0 && (
+              <span className="badge badge-danger" style={{ marginLeft: 6 }}>{chat.naoLidas > 99 ? '99+' : chat.naoLidas}</span>
+            )}
             {a.id === 'tarefas' && ` (${p.tarefasConcluidas}/${p.totalTarefas})`}
             {a.id === 'commits' && ` (${p.commits.length})`}
           </button>
@@ -319,6 +332,8 @@ export default function ProjetoDetalhePage() {
           </div>
         </div>
       )}
+
+      {aba === 'chat' && <ChatPainel mensagens={chat.mensagens} erro={chat.erro} enviar={chat.enviar} />}
 
       {aba === 'forum' && (
         <div>

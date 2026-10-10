@@ -8,7 +8,7 @@ import { revalidatePath } from 'next/cache'
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { agentePorToken } from '@/lib/projetos/service'
-import { MCP_TOOLS_LEITURA, responderMcp } from '@/lib/projetos/mcp'
+import { MCP_TOOLS_SEM_REVALIDAR, responderMcp } from '@/lib/projetos/mcp'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   for (const m of msgs) {
     const r = await responderMcp(admin, agente, m)
     if (r) respostas.push(r)
-    if (m?.method === 'tools/call' && !MCP_TOOLS_LEITURA.has(String(m.params?.name || ''))) escreveu = true
+    if (m?.method === 'tools/call' && !MCP_TOOLS_SEM_REVALIDAR.has(String(m.params?.name || ''))) escreveu = true
   }
   if (escreveu) revalidatePath('/projetos', 'layout')
 

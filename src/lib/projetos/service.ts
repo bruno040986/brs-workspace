@@ -22,6 +22,7 @@ import {
   patchEscritaTecnica,
   tarefaDeLinha,
   temEscritaTecnica,
+  textoChat,
 } from './puro'
 import {
   PROJETO_STATUS_LABEL,
@@ -221,7 +222,8 @@ async function inserirMensagem(
   })
   if (error) throw error
   const agenteId = agenteDoAutor(autor)
-  if (agenteId) await notificarCriador(admin, p, agenteId, m.conteudo)
+  // Chat não vai para o sino (viraria spam); as demais escritas de IA vão.
+  if (agenteId && m.meta?.chat !== true) await notificarCriador(admin, p, agenteId, m.conteudo)
 }
 
 async function aplicarStatusProjeto(admin: Admin, p: ProjetoRow, para: ProjetoStatus, autor: Autor) {
@@ -293,7 +295,8 @@ export async function lerProjeto(admin: Admin, codigo: string, opts: { limiteMen
     carregarAgentes(admin),
     participantesPorProjeto(admin, [p.id]),
     admin.from('projeto_tarefas').select('*').eq('projeto_id', p.id).order('ordem').order('numero'),
-    admin.from('projeto_mensagens').select('*').eq('projeto_id', p.id).order('created_at', { ascending: false }).limit(limite),
+    // Linha do tempo sem o chat (o chat tem tela/tool próprias e não pode empurrar o fórum para fora do limite).
+    admin.from('projeto_mensagens').select('*').eq('projeto_id', p.id).is('meta->>chat', null).order('created_at', { ascending: false }).limit(limite),
     admin.from('projeto_commits').select('*').eq('projeto_id', p.id).order('commit_em', { ascending: false }).limit(200),
   ])
   if (tarefasR.error) throw tarefasR.error
@@ -323,7 +326,7 @@ export async function listarMensagens(
 ): Promise<Mensagem[]> {
   const p = await buscarProjeto(admin, codigo)
   const limite = Math.min(Math.max(Number(filtro.limite) || 100, 1), 500)
-  let q = admin.from('projeto_mensagens').select('*').eq('projeto_id', p.id)
+  let q = admin.from('projeto_mensagens').select('*').eq('projeto_id', p.id).is('meta->>chat', null)
   if (filtro.tarefaNumero) q = q.eq('tarefa_id', (await buscarTarefa(admin, p, filtro.tarefaNumero)).id)
   if (filtro.desde) {
     const d = new Date(filtro.desde)
@@ -341,6 +344,44 @@ export async function listarMensagens(
   if (tarefasR.error) throw tarefasR.error
   const tarefaNumeroPorId = new Map((tarefasR.data || []).map((t) => [String(t.id), Number(t.numero)]))
   return msgs.map((m) => mensagemDeLinha(m, { agentes, usuarios: nomes, tarefaNumeroPorId }))
+}
+
+// ---------------------------------------------------------------------------
+// Chat do projeto (projeto_mensagens com meta.chat = true)
+// ---------------------------------------------------------------------------
+
+export async function enviarChat(admin: Admin, autor: Autor, input: { codigo: string; conteudo: string }) {
+  const p = await buscarProjeto(admin, input.codigo)
+  await exigirEscrita(admin, p, autor)
+  await inserirMensagem(admin, p, { tipo: 'mensagem', conteudo: textoChat(input.conteudo), meta: { chat: true } }, autor)
+  return { codigo: codigoProjeto(p.numero) }
+}
+
+/**
+ * Mensagens de chat em ordem cronológica: as com created_at > `desde`, ou as
+ * últimas `limite` sem `desde`. `cursor` = maior createdAt devolvido (ou o
+ * próprio `desde` quando nada novo) — passe-o como `desde` na próxima chamada.
+ */
+export async function ouvirChat(
+  admin: Admin,
+  input: { codigo: string; desde?: string | null; limite?: number | null },
+): Promise<{ mensagens: Mensagem[]; cursor: string | null }> {
+  const p = await buscarProjeto(admin, input.codigo)
+  const limite = Math.min(Math.max(Number(input.limite) || 50, 1), 200)
+  const desde = input.desde ? String(input.desde) : null
+  if (desde && Number.isNaN(Date.parse(desde))) throw new Error('Cursor "desde" inválido: use o cursor devolvido pela última leitura (ISO 8601).')
+  const q = admin.from('projeto_mensagens').select('*').eq('projeto_id', p.id).eq('meta->>chat', 'true')
+  // `desde` vai cru (sem passar por Date): o created_at tem microssegundos e truncar para ms repetiria a última mensagem.
+  // ponytail: cursor por created_at pode perder mensagem gravada no mesmo microssegundo; trocar por (created_at, id) se aparecer.
+  const { data, error } = desde
+    ? await q.gt('created_at', desde).order('created_at', { ascending: true }).limit(limite)
+    : await q.order('created_at', { ascending: false }).limit(limite)
+  if (error) throw error
+  const linhas = desde ? data || [] : (data || []).reverse()
+  if (!linhas.length) return { mensagens: [], cursor: desde }
+  const [agentes, nomes] = await Promise.all([carregarAgentes(admin), nomesUsuarios(admin, linhas.map((m) => String(m.autor_usuario_id || '')))])
+  const mensagens = linhas.map((m) => mensagemDeLinha(m, { agentes, usuarios: nomes, tarefaNumeroPorId: new Map() }))
+  return { mensagens, cursor: mensagens[mensagens.length - 1].createdAt }
 }
 
 /** Grava o conjunto de participantes (sempre inclui o redator). */

@@ -1,14 +1,17 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
+  MAX_CHAT,
   avisoEscritaAlterada,
   concluidaEmPara,
+  ehChat,
   erroTransicaoProjeto,
   extrairRefsCommit,
   normalizarPrazo,
   parseCodigoProjeto,
   patchEscritaTecnica,
   temEscritaTecnica,
+  textoChat,
 } from '../projetos/puro.ts'
 
 describe('parseCodigoProjeto', () => {
@@ -87,5 +90,20 @@ describe('normalizarPrazo', () => {
     assert.equal(normalizarPrazo('2026-02-28'), '2026-02-28')
     assert.throws(() => normalizarPrazo('2026-02-30'))
     assert.throws(() => normalizarPrazo('28/02/2026'))
+  })
+})
+
+describe('chat do projeto', () => {
+  it('separa chat (meta.chat === true) do fórum', () => {
+    const msgs = [{ meta: { chat: true } }, { meta: null }, { meta: { entidade: 'projeto' } }, { meta: { chat: 'true' } }]
+    assert.deepEqual(msgs.map(ehChat), [true, false, false, false])
+  })
+  it('texto: obrigatório, apara e respeita 4.000 caracteres', () => {
+    assert.equal(MAX_CHAT, 4000)
+    assert.equal(textoChat('  oi  '), 'oi')
+    assert.equal(textoChat('a'.repeat(4000)).length, 4000)
+    assert.throws(() => textoChat('a'.repeat(4001)), /4000/)
+    assert.throws(() => textoChat('   '))
+    assert.throws(() => textoChat(null))
   })
 })

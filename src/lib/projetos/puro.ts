@@ -102,6 +102,23 @@ export function normalizarPrazo(prazo: unknown): string | null {
   return s
 }
 
+// ---------------------------------------------------------------------------
+// Chat do projeto: linhas de projeto_mensagens com tipo 'mensagem', sem tarefa
+// e meta = { chat: true }. O Fórum não mostra o chat e o Chat só mostra ele.
+// ---------------------------------------------------------------------------
+
+export const MAX_CHAT = 4000
+
+export const ehChat = (m: Pick<Mensagem, 'meta'>) => m.meta?.chat === true
+
+/** Texto de uma mensagem de chat: obrigatório, até MAX_CHAT caracteres. */
+export function textoChat(v: unknown): string {
+  const s = String(v ?? '').trim()
+  if (!s) throw new Error('Escreva a mensagem.')
+  if (s.length > MAX_CHAT) throw new Error(`Mensagem de chat passa do limite de ${MAX_CHAT} caracteres (${s.length}).`)
+  return s
+}
+
 /** 'refs/heads/main' → 'main'. */
 export function branchDoRef(ref: unknown): string {
   return String(ref || '').replace(/^refs\/heads\//, '')

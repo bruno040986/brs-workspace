@@ -14,6 +14,7 @@ import { codigoProjeto, parseCodigoProjeto } from './puro'
 import type {
   ActionResult,
   Agente,
+  Mensagem,
   ProjetoDetalhe,
   ProjetoResumo,
   ProjetoStatus,
@@ -117,6 +118,30 @@ export async function enviarMensagem(input: {
     return { success: true, data: undefined }
   } catch (err) {
     return falha(err, 'Erro ao enviar mensagem.')
+  }
+}
+
+/** Chat do projeto. Sem revalidatePath: a tela busca o chat por polling. */
+export async function enviarChat(input: { codigo: string; conteudo: string }): Promise<ActionResult> {
+  try {
+    const { user } = await requirePermission('projetos', 'can_include')
+    await svc.enviarChat(await createAdminClient(), { usuarioId: user.id }, input)
+    return { success: true, data: undefined }
+  } catch (err) {
+    return falha(err, 'Erro ao enviar mensagem no chat.')
+  }
+}
+
+export async function ouvirChat(input: {
+  codigo: string
+  desde?: string | null
+  limite?: number
+}): Promise<ActionResult<{ mensagens: Mensagem[]; cursor: string | null }>> {
+  try {
+    await requirePermission('projetos', 'can_view')
+    return { success: true, data: await svc.ouvirChat(await createAdminClient(), input) }
+  } catch (err) {
+    return falha(err, 'Erro ao carregar o chat.')
   }
 }
 

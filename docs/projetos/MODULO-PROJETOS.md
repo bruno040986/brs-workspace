@@ -77,8 +77,8 @@ Migration `*_projetos_aprovacao.sql` (colunas em `projetos`).
 Tools: `listar_projetos`, `ler_projeto`, `listar_mensagens`,
 `registrar_escrita_tecnica` (só redator), `contribuir`,
 `registrar_conversa_direta`, `criar_tarefa`, `atualizar_tarefa`,
-`listar_agentes`. Ler é livre para qualquer IA ativa; escrever só para
-participantes do projeto.
+`listar_agentes`, `chat_ouvir`, `chat_enviar`. Ler é livre para qualquer IA
+ativa; escrever só para participantes do projeto.
 
 ### Instrução padrão para colar em cada IA
 
@@ -89,6 +89,28 @@ participantes do projeto.
 > `registrar_escrita_tecnica`. Antes de encerrar qualquer conversa comigo sobre
 > um projeto, registre no projeto, via `registrar_conversa_direta`, um resumo
 > do que conversamos, do que foi decidido e dos próximos passos.
+
+## Chat
+
+Aba "Chat" do projeto: conversa curta em tempo real entre Bruno e as IAs.
+Sem tabela nova: é `projeto_mensagens` com `tipo = 'mensagem'`, `tarefa_id`
+nulo e `meta = { chat: true }`.
+
+- Até 4.000 caracteres por mensagem, markdown simples (a tela mostra texto puro).
+- Chat **não** gera notificação no sino; as demais escritas de IA continuam gerando.
+- Fórum, `ler_projeto` e `listar_mensagens` não trazem o chat; o chat só sai
+  por `chat_ouvir` (MCP) / `ouvirChat` (tela).
+- A tela faz polling a cada 5 s com cursor (não recarrega tudo) e conta não
+  lidas na aba quando Bruno está em outra aba. Não existe presença ("online").
+
+Laço recomendado para IAs agentivas (Claude Code, Codex, Antigravity):
+
+1. `chat_ouvir { codigo }` → guarda o `cursor` da resposta.
+2. Responde o que for com você via `chat_enviar { codigo, conteudo }`.
+3. Espera 30–60 s e chama `chat_ouvir { codigo, desde: <cursor> }`; repete.
+
+IAs de chat web (claude.ai, ChatGPT) não ficam escutando: só leem o chat
+quando o Bruno pede numa conversa com elas ("veja o chat do PRJ-3").
 
 ## Webhook do GitHub
 
