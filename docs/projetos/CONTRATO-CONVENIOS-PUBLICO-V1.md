@@ -288,7 +288,7 @@ Aceite: os testes passam, `tsc` limpo, o teste de revogação (seção 7) foi re
 
 ## 12. Pendências de decisão (Bruno)
 
-Itens 1 a 7 decididos pelo Bruno em 2026-10-10 e implementados na branch `convenios/publico-v1` (PRJ-1/T-2). O item 8 continua aberto.
+Itens 1 a 8 decididos em 2026-10-10 e implementados na branch `convenios/publico-v1` (PRJ-1/T-2).
 
 1. **OK.** `convenios.slug_publico text null`, com check da regex e índice único parcial (`where slug_publico is not null and deleted_at is null`). Editável na aba Site do convênio (`can_edit`). Enquanto houver versão publicada com snapshot, a troca é recusada: o snapshot congela o slug, então é preciso retirar do ar, trocar e publicar de novo.
 2. **OK.** `convenio_conteudo_site.snapshot_publico jsonb null`, gravado por `convenio_conteudo_site_publicar(..., p_snapshot jsonb default null)` no mesmo `update` que liga `is_publicado`. `versao` e `publicado_em` do snapshot são sobrescritos pela RPC com os valores do banco (`versao` da linha e `now()` da transação).
@@ -297,15 +297,18 @@ Itens 1 a 7 decididos pelo Bruno em 2026-10-10 e implementados na branch `conven
 5. **Evidência:** públicos, formas e instituições do cadastro contam como confirmados pelo ato de publicar, sem campos de evidência no cadastro. Em `instituicoes[].evidencia` vai sempre `{ fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null }`. Só os itens de `vantagens` e `faqs` (jsonb de `convenio_conteudo_site`) carregam `fonte`, `consultado_em` (`AAAA-MM-DD`), `situacao` (`confirmado`|`pendente`) e `natureza` (`norma_oficial`|`regra_bancaria`), editáveis na UI. No jsonb, a vantagem guarda o texto em `descricao`, que vira `texto` no snapshot. Item com `situacao` ausente ou `pendente` fica fora.
 6. **`instituicoes[].produtos`:** derivado de `formas_contrato.origem_margem` das formas da instituição (`novo` → Empréstimo consignado, `cartao_rmc` → Cartão consignado, `cartao_rcc` → Cartão benefício; `nenhuma` não gera produto).
 7. **Variáveis:** a publicação é recusada se qualquer texto do snapshot tiver `{{variavel}}`. O rascunho continua aceitando as variáveis da whitelist (uso futuro do site-builder por parceiro), mas não publica com elas.
-8. **Aberto.** Valores de cache para garantir 5 min (seção 7, nota de consistência). Implementado com `s-maxage=300, stale-while-revalidate=60` e `revalidatePath` na publicação, na desativação e na troca de slug. Decidir depois do teste de revogação.
+8. **Decidido:** `Cache-Control: public, s-maxage=120, stale-while-revalidate=30` no 200 e no 404 (substitui os valores da seção 7). O `revalidatePath` (chamado na publicação, na desativação e na troca de slug) não purga o CDN da Vercel, então a janela de revogação passa a ser ~3 min (120 + 30 s, mais até 60 s de cache do consumidor), dentro dos 5 min. Todas as respostas levam `X-Content-Type-Options: nosniff`. O teste de revogação da seção 7 continua obrigatório.
 
 Notas de implementação:
 
 - Seção `cta` oculta em `secoes_visibilidade` → `cta: null` (regra 5). Fora isso, `cta` é sempre objeto.
+- Texto puro: as tags são removidas, mas entidades HTML (`&amp;`, `&lt;` etc.) **não** são decodificadas. O consumidor sempre escapa o texto ao renderizar.
+- `fonte` só é tratada como URL se começar com `http://`, `https://` ou `www.`. Fora isso é texto (ex.: "Resolução: ..."). URL aceita só `https://`, com hostname de domínio (sem IP) e sem usuário/senha.
+- A RPC de publicar recusa snapshot ausente ou que não seja objeto (`snapshot_obrigatorio`) e snapshot cujo `slug` difere de `convenios.slug_publico` (`slug_divergente`). Convênio inativo ou excluído não publica. `publicado_em` é gravado em ISO 8601 UTC com `Z` (`YYYY-MM-DDTHH:MM:SS.mmmZ`).
 - Limites de tamanho da seção 4 são validados na publicação: acima do limite, o publicar falha com a mensagem do campo (nada é truncado).
 - Instituição entra só com `convenio_instituicoes.is_active = true` e instituição ativa e não excluída. Públicos e formas inativos ou excluídos ficam fora.
 
 ## Changelog
 
 - 2026-10-10: proposta inicial da v1.
-- 2026-10-10: decisões do Bruno sobre os itens 1 a 7 da seção 12 registradas; implementação na branch `convenios/publico-v1` (PRJ-1/T-2). Item 8 (cache) segue aberto.
+- 2026-10-10: decisões do Bruno sobre os itens 1 a 7 da seção 12 registradas; implementação na branch `convenios/publico-v1` (PRJ-1/T-2). Item 8: cache 120/30, revogação em ~3 min.

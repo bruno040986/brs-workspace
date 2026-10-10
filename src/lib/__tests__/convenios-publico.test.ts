@@ -96,15 +96,20 @@ describe('montarSnapshotPublico', () => {
   })
 
   it('URL não-https vira null e item com fonte-URL anulada sai', () => {
-    for (const u of ['http://a.com/x.png', 'javascript:alert(1)', 'data:image/png;base64,AA', '/rel.png']) {
+    for (const u of [
+      'http://a.com/x.png', 'javascript:alert(1)', 'data:image/png;base64,AA', '/rel.png',
+      'https://user:senha@a.com/x', 'https://10.0.0.1/x', 'https://[::1]/x',
+    ]) {
       assert.strictEqual(urlHttps(u), null, u)
-      const s = snap(entrada({}, {
-        imagem_destaque_url: u,
-        vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte: u }],
-      }))
+      const s = snap(entrada({}, { imagem_destaque_url: u }))
       assert.strictEqual(s.hero.imagem_url, null)
-      assert.deepStrictEqual(s.vantagens, [])
     }
+    for (const fonte of ['http://a.com/decreto', 'www.a.com/decreto', 'https://1.2.3.4/x']) {
+      const s = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte }] }))
+      assert.deepStrictEqual(s.vantagens, [], fonte)
+    }
+    const texto = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte: 'Resolução: 123/2026' }] }))
+    assert.strictEqual(texto.vantagens[0].fonte, 'Resolução: 123/2026')
     const r = montarSnapshotPublico(entrada({}, { cta_tipo_destino: 'url_customizada', cta_link_destino: 'http://a.com' }))
     assert.strictEqual(r.ok, false)
   })

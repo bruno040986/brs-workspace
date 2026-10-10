@@ -60,19 +60,22 @@ function texto(v: unknown, max: number, campo: string): string | null {
   return t
 }
 
-/** Só https:// com host válido; qualquer outra coisa vira null. */
+/** Só https:// com hostname de domínio (sem IP) e sem usuário/senha; qualquer outra coisa vira null. */
 export function urlHttps(v: unknown): string | null {
   if (typeof v !== 'string' || !v.trim()) return null
   try {
     const u = new URL(v.trim())
-    return u.protocol === 'https:' && u.hostname.includes('.') ? u.toString() : null
+    if (u.protocol !== 'https:' || u.username || u.password) return null
+    if (u.hostname.startsWith('[') || /^[\d.]+$/.test(u.hostname) || !u.hostname.includes('.')) return null
+    return u.toString()
   } catch {
     return null
   }
 }
 
+/** `fonte` só é URL se começar com http(s):// ou www.; o resto (ex.: "Resolução: ...") é texto. */
 function pareceUrl(v: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(v) || v.startsWith('/') || /^www\./i.test(v)
+  return /^https?:\/\//i.test(v) || /^www\./i.test(v)
 }
 
 /** Código público derivado do nome: minúsculas, sem acento, '-' como separador. */

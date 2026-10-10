@@ -5,12 +5,19 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import { SLUG_PUBLICO_RE } from '@/lib/convenios-publico/snapshot'
 
-const CACHE_PUBLICO = 'public, s-maxage=300, stale-while-revalidate=60'
+// revalidatePath não purga o CDN da Vercel: a janela de revogação é s-maxage + swr (~3 min). Contrato §12 item 8.
+const CACHE_PUBLICO = 'public, s-maxage=120, stale-while-revalidate=30'
 
 function json(body: unknown, status: number, cache: string, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache, Vary: 'Accept-Encoding', ...extra },
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': cache,
+      'X-Content-Type-Options': 'nosniff',
+      Vary: 'Accept-Encoding',
+      ...extra,
+    },
   })
 }
 

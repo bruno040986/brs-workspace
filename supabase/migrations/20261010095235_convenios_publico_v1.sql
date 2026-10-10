@@ -46,9 +46,10 @@ set search_path = public
 as $$
 declare
   v_record public.convenio_conteudo_site;
+  v_slug text;
 begin
   -- Trava a linha do convênio pai para evitar concorrência entre publicações simultâneas
-  perform 1 from public.convenios where id = p_convenio_id for update;
+  select slug_publico into v_slug from public.convenios where id = p_convenio_id for update;
 
   select * into v_record from public.convenio_conteudo_site
   where id = p_conteudo_id and convenio_id = p_convenio_id for update;
@@ -73,6 +74,15 @@ begin
     raise exception 'conteudo_nao_revisado';
   end if;
 
+  if p_snapshot is null or jsonb_typeof(p_snapshot) <> 'object' then
+    raise exception 'snapshot_obrigatorio';
+  end if;
+
+  -- O snapshot congela o slug: tem que bater com o slug atual do convênio (já travado acima).
+  if (p_snapshot->>'slug') is distinct from v_slug then
+    raise exception 'slug_divergente';
+  end if;
+
   -- 1. Arquiva a versão publicada anterior deste convênio
   update public.convenio_conteudo_site
   set is_publicado = false,
@@ -86,10 +96,10 @@ begin
       is_draft = false,
       published_at = now(),
       published_by = p_user_id,
-      snapshot_publico = case
-        when p_snapshot is null then null
-        else p_snapshot || jsonb_build_object('versao', versao, 'publicado_em', to_jsonb(now()))
-      end,
+      snapshot_publico = p_snapshot || jsonb_build_object(
+        'versao', versao,
+        'publicado_em', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      ),
       updated_at = now()
   where id = p_conteudo_id and convenio_id = p_convenio_id
   returning * into v_record;

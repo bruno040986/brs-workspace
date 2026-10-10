@@ -143,13 +143,20 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
   }
 
   async function handleUnpublish() {
-    if (!dados || !confirm('Tem certeza que deseja retirar esta página do ar? Ela deixará de ser exibida nos sites públicos.')) return
+    if (
+      !dados ||
+      !confirm(
+        'Retirar esta página do ar? Ela deixa de ser exibida nos sites públicos. Para republicar, será preciso salvar uma versão nova, revisá-la e publicar.',
+      )
+    )
+      return
+    setMessage(null)
     setSaving(true)
     const res = await unpublishConvenioConteudoSite(convenioId)
     if (res.success) {
       setDados((prev) => (prev ? { ...prev, is_publicado: false } : prev))
       setInfo((prev) => (prev ? { ...prev, publicado: null } : prev))
-      setMessage({ type: 'success', text: 'Conteúdo do convênio retirado do ar com sucesso.' })
+      setMessage({ type: 'success', text: 'Retirado do ar. Para republicar, salve uma versão nova, revise e publique.' })
     } else {
       setMessage({ type: 'error', text: res.error || 'Erro ao retirar do ar.' })
     }
@@ -333,7 +340,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
           )}
           {info?.publicado && (
             <button type="button" className="btn btn-outline" style={{ color: '#dc2626', borderColor: '#fca5a5' }} onClick={handleUnpublish} disabled={saving}>
-              Retirar do Ar
+              Retirar do Ar (republicar exige nova versão)
             </button>
           )}
           <button

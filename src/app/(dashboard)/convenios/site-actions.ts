@@ -197,6 +197,7 @@ export async function saveConvenioConteudoSiteDraft(
   payload: Partial<ConvenioConteudoSiteRecord> & { convenio_id: string },
 ): Promise<{ success: boolean; item?: ConvenioConteudoSiteRecord; error?: string }> {
   try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_view')
     if (!payload.convenio_id) return { success: false, error: 'ID do convênio é obrigatório.' }
 
     // R2-4 / R3-3: Validação completa de runtime de tipos, shapes, enums, limites e URLs
@@ -358,7 +359,9 @@ export async function saveConvenioConteudoSiteDraft(
       }
     }
 
-    return { success: true, item: result.data as ConvenioConteudoSiteRecord }
+    const { snapshot_publico: _snapshot, ...item } = (result.data ?? {}) as any
+    void _snapshot
+    return { success: true, item: item as ConvenioConteudoSiteRecord }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Erro ao salvar rascunho.' }
   }
@@ -420,7 +423,7 @@ export async function publishConvenioConteudoSite(
 
     const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, aprovadoPor] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
-      supabase.from('convenios').select('nome, esfera, uf, slug_publico').eq('id', convenioId).maybeSingle(),
+      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at').eq('id', convenioId).maybeSingle(),
       supabase.from('convenio_publicos').select('publicos_atendidos(nome, is_active, deleted_at)').eq('convenio_id', convenioId),
       supabase.from('convenio_formas_contrato').select('formas_contrato(nome, is_active)').eq('convenio_id', convenioId),
       supabase
@@ -442,6 +445,9 @@ export async function publishConvenioConteudoSite(
     if (!conteudo.is_draft) return { success: false, error: 'Só um rascunho pode ser publicado. Salve uma nova versão antes.' }
     if (conteudo.pendente_revisao_humana) {
       return { success: false, error: 'O conteúdo ainda não foi revisado. Marque como revisado antes de publicar.' }
+    }
+    if (convenio.is_active === false || convenio.deleted_at) {
+      return { success: false, error: 'Convênio inativo ou excluído não pode ter conteúdo publicado.' }
     }
     if (!convenio.slug_publico) return { success: false, error: 'Defina o slug público do convênio antes de publicar.' }
 
@@ -479,6 +485,12 @@ export async function publishConvenioConteudoSite(
 
     if (rpcErr) {
       const errMsg = rpcErr.message || ''
+      if (errMsg.includes('slug_divergente')) {
+        return { success: false, error: 'O slug público mudou durante a publicação. Recarregue e publique de novo.' }
+      }
+      if (errMsg.includes('snapshot_obrigatorio')) {
+        return { success: false, error: 'Falha ao montar o conteúdo público. Recarregue e tente de novo.' }
+      }
       if (errMsg.includes('conteudo_nao_revisado')) {
         return { success: false, error: 'O conteúdo ainda não foi revisado. Marque como revisado antes de publicar.' }
       }
