@@ -175,6 +175,10 @@ export async function updateSession(request: NextRequest) {
     // Autentica por PORTAL_SERVICE_TOKEN no handler (chamada servidor-a-servidor do
     // Portal Parceiro, sem cookie de sessão — isPortalServiceAuthorized, fail-closed).
     '/api/agente-corban/meus-dados',
+    // Módulo Projetos: MCP autentica pelo token do agente (sha256 em projeto_agentes)
+    // e o webhook do GitHub pela assinatura HMAC (GITHUB_WEBHOOK_SECRET), no handler.
+    '/api/projetos/mcp',
+    '/api/projetos/github',
   ]
   const isPublicRoute = publicRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))
   if (isPublicAssetRequest(pathname)) {

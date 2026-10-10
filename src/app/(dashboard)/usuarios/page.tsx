@@ -109,6 +109,7 @@ const SYSTEM_MODULES = [
   { id: 'central-integracoes', name: 'Integrações', parentId: 'cat-div-tecnologia', level: 1 },
   { id: 'helpdesk-abrir', name: 'HelpDesk (abrir e acompanhar tickets)', parentId: 'cat-div-tecnologia', level: 1 },
   { id: 'helpdesk-aprovar', name: 'Aprovar/rejeitar planos', parentId: 'helpdesk-abrir', level: 2 },
+  { id: 'projetos', name: 'Projetos (projetos com IAs via MCP, tarefas e commits)', parentId: 'cat-div-tecnologia', level: 1 },
 
   // Divisão: Configurações
   { id: 'cat-div-configuracoes', name: 'Divisão: Configurações', isHeader: true, level: 0 },

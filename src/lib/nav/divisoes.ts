@@ -300,6 +300,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
     icon: Cpu,
     itens: [
       { label: 'HelpDesk', href: '/helpdesk', perms: [view('helpdesk-abrir')] },
+      { label: 'Projetos', href: '/projetos', perms: [view('projetos')] },
       {
         label: 'Integrações',
         href: '/central-integracoes',
