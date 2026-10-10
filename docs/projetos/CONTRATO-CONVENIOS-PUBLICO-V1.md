@@ -66,6 +66,7 @@ type ConvenioPublicoV1 = {
 }
 type Instituicao = {
   nome: string
+  logo_url?: string | null        // aditivo (T-19): URL absoluta https da logo (rota da seção 13) ou null; chave pode faltar em snapshot antigo
   publicos_base: string[]         // públicos que a instituição atende neste convênio (nomes)
   ofertas: Oferta[]               // nunca vazio: instituição sem oferta é omitida
   evidencia: Evidencia            // sempre { fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null }
@@ -95,6 +96,7 @@ Todas as chaves estão sempre presentes. "Opcional" quer dizer que o valor pode 
 | `publicos[]` | não | `publicos_atendidos.nome` | 50 itens |
 | `formas_contratacao[]` | não | `formas_contrato.nome` | 30 itens |
 | `instituicoes[]` | não | `financial_institutions.name` + `convenio_instituicao_publicos` + `convenio_instituicao_formas` | 30 itens; 30 ofertas por instituição |
+| `instituicoes[].logo_url` | não | `financial_institutions.logo_url` resolvido por `logoPublico` (seção 13) | URL absoluta ou null |
 | `cta.texto` / `tipo_destino` / `link` | sim / sim / não | `cta_texto_botao` / `cta_tipo_destino` / `cta_link_destino` | 60 / enum / 2048 |
 | `seo.meta_title` / `meta_description` | não | colunas homônimas | 70 / 170 |
 | `seo.keywords` | não | `keywords` (**text**; quebrado por vírgula, sem espaços nas pontas, vazios descartados) | 20 itens × 60 |
@@ -185,6 +187,7 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
       "properties": { "codigo": { "type": "string" }, "nome": { "type": "string", "maxLength": 200 } } },
     "instituicao": { "type": "object", "additionalProperties": false, "required": ["nome","publicos_base","ofertas","evidencia"],
       "properties": { "nome": { "type": "string", "maxLength": 200 },
+                      "logo_url": { "type": ["string","null"], "format": "uri", "pattern": "^https?://" },
                       "publicos_base": { "type": "array", "items": { "type": "string", "maxLength": 200 } },
                       "ofertas": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "#/$defs/oferta" } },
                       "evidencia": { "$ref": "#/$defs/evidencia" } } },
@@ -214,7 +217,8 @@ Regra geral: o snapshot é montado por **lista de permissão** (campos da seçã
 - **Ids e operadores:** todos os `id`/`*_id` (uuid), `created_by`, `updated_by`, `published_by`, `revisado_por`, `iniciado_por`, `confirmada_por`, `created_at`, `updated_at`, e o **nome** de quem revisou ou publicou.
 - **Campos de montagem do conteúdo central:** `is_draft`, `is_publicado`, `pendente_revisao_humana`, `secoes_ordem`, `secoes_visibilidade`, `variaveis_permitidas`.
 - **Site do parceiro:** tudo de `site_parceiro` e `site_landing_page` (overrides de WhatsApp e foto são do parceiro, não do convênio).
-- Credenciais, tokens, dados pessoais de qualquer pessoa, `financial_institutions.logo_url`.
+- Credenciais, tokens, dados pessoais de qualquer pessoa, o valor cru de `financial_institutions.logo_url` (data URL base64; só sai como binário pela rota de logo da seção 13).
+- Exceção aditiva (T-19): `financial_institutions.id` aparece só em `GET /api/convenios/publico/v1/instituicoes` e dentro da URL de `instituicoes[].logo_url`. Nenhum outro id.
 
 ## 6. Respostas
 
@@ -302,6 +306,7 @@ Para cada passo, medir três pontos: (a) rota direta, (b) a mesma URL via rewrit
   ],
   "instituicoes": [
     { "nome": "Santander",
+      "logo_url": "https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/00000000-0000-4000-8000-000000000001/logo",
       "publicos_base": ["Aposentado", "Efetivo", "Forças de segurança", "Pensionista"],
       "ofertas": [
         { "forma": "Empréstimo consignado", "codigo_forma": "emprestimo-consignado",
@@ -313,6 +318,7 @@ Para cada passo, medir três pontos: (a) rota direta, (b) a mesma URL via rewrit
       ],
       "evidencia": { "fonte": null, "consultado_em": null, "situacao": "confirmado", "natureza": null } },
     { "nome": "StarBank",
+      "logo_url": null,
       "publicos_base": ["Comissionado", "Temporário"],
       "ofertas": [
         { "forma": "Cartão benefício", "codigo_forma": "cartao-beneficio", "publicos": ["Comissionado", "Temporário"] },
@@ -392,8 +398,55 @@ Notas de implementação:
 - Limites de tamanho da seção 4 são validados na publicação: acima do limite, o publicar falha com a mensagem do campo (nada é truncado).
 - Instituição entra só com `convenio_instituicoes.is_active = true` e instituição ativa e não excluída. Públicos e formas inativos ou excluídos ficam fora.
 
+## 13. Rotas auxiliares: instituições e logo (aditivo, T-19)
+
+Mesmo prefixo público do middleware, mesmo padrão de erro (`405` com `Allow: GET` e `no-store`; `503 { "erro": "indisponivel" }` com `no-store`; `X-Content-Type-Options: nosniff` em tudo). Leitura ao vivo do cadastro (não é snapshot).
+
+### `GET /api/convenios/publico/v1/instituicoes`
+
+Rota estática (vence o irmão dinâmico `{slug}`; por isso `instituicoes` não pode ser usado como `slug_publico`).
+
+```
+200 { "instituicoes": [ { "id": "<uuid>", "nome": "Banco X", "logo_url": "https://…/instituicoes/<uuid>/logo" | null } ] }
+Cache-Control: public, s-maxage=600, stale-while-revalidate=60
+```
+
+- Só `financial_institutions` com `is_active = true` e `deleted_at is null`; ordem por nome (pt-BR); máx. 500.
+- Instituição sem logo válida entra com `logo_url: null`.
+
+### Regra de `logo_url` (lista e snapshot): `logoPublico(id, logo_url_banco, base)`
+
+- data URL `data:image/(png|jpeg|jpg|webp|svg+xml);base64,…`, base64 válido e ≤ 300 KB decodificado → `${base}/api/convenios/publico/v1/instituicoes/{id}/logo`, com `base = NEXT_PUBLIC_APP_URL || https://workspace.brspromotora.com.br`;
+- URL `https://` válida (mesma regra de `urlHttps`) → ela mesma;
+- qualquer outra coisa → `null`.
+
+No snapshot a URL fica congelada na publicação, mas aponta para a rota viva: trocar a logo no cadastro muda a imagem sem republicar (respeitando o cache abaixo).
+
+### `GET /api/convenios/publico/v1/instituicoes/{id}/logo`
+
+| Status | Corpo | Quando |
+|---|---|---|
+| 200 | binário da imagem, `Content-Type` do prefixo da data URL (`jpg` → `image/jpeg`) | instituição ativa com data URL válida |
+| 304 | vazio | `If-None-Match` bate com o `ETag` |
+| 400 | `{ "erro": "id_invalido" }` (`no-store`) | `id` não é uuid |
+| 404 | `{ "erro": "sem_logo" }` (`public, s-maxage=600, stale-while-revalidate=60`) | id desconhecido, inativo/excluído, sem logo, tipo não aceito ou > 300 KB |
+
+Cabeçalhos do 200/304:
+
+```
+Cache-Control: public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400
+ETag: "<md5 do base64>"
+X-Content-Type-Options: nosniff
+# só SVG:
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'
+Content-Disposition: inline
+```
+
+Troca de logo leva até 1 dia para aparecer no navegador e até 7 dias na CDN (ou purge manual).
+
 ## Changelog
 
 - 2026-10-10: proposta inicial da v1.
 - 2026-10-10: decisões do Bruno sobre os itens 1 a 7 da seção 12 registradas; implementação na branch `convenios/publico-v1` (PRJ-1/T-2). Item 8: cache 120/30, revogação em ~3 min.
 - 2026-10-10: correção T-1 do Codex, antes do aceite (v1 ainda não congelada): `instituicoes[]` passa a `{ nome, publicos_base, ofertas[{ forma, codigo_forma, publicos }], evidencia }`, com `publicos_restritos` resolvido no servidor; saem `produtos`, `publicos` e `formas` da instituição; sai `aprovado_por`; `cta` nullable no tipo; JSON Schema completo com `required` e `additionalProperties: false` em cada objeto; cache 120/30 em todas as menções.
+- 2026-10-10: T-19, mudança **aditiva**: `instituicoes[].logo_url` (string https absoluta ou null; opcional no JSON Schema, snapshots publicados antes não têm a chave) e as rotas `GET /api/convenios/publico/v1/instituicoes` e `GET /api/convenios/publico/v1/instituicoes/{id}/logo` (seção 13). `financial_institutions.id` passa a ser público só nessas duas superfícies (seção 5).

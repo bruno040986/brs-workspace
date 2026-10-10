@@ -431,7 +431,7 @@ export async function publishConvenioConteudoSite(
       supabase
         .from('convenio_instituicoes')
         .select(
-          'financial_institutions(name, is_active, deleted_at), ' +
+          'financial_institutions(id, name, logo_url, is_active, deleted_at), ' +
             'convenio_instituicao_publicos(publicos_atendidos(id, nome, is_active, deleted_at)), ' +
             'convenio_instituicao_formas(publicos_restritos, formas_contrato(nome, is_active))',
         )
@@ -470,10 +470,13 @@ export async function publishConvenioConteudoSite(
       conteudo,
       publicos: publicosConvenio,
       formas: (formasRes.data || []).map((r: any) => r.formas_contrato).filter(ativo).sort(porNome),
+      base_publica: process.env.NEXT_PUBLIC_APP_URL || undefined,
       instituicoes: ((instRes.data || []) as any[])
         .filter((i) => ativo(i.financial_institutions))
         .map((i) => ({
+          id: i.financial_institutions.id as string,
           nome: i.financial_institutions.name as string,
+          logo_url: (i.financial_institutions.logo_url as string | null) ?? null,
           // Vínculo sem público no cadastro = todos do convênio (null); a resolução é no snapshot.
           publicos: (i.convenio_instituicao_publicos || []).length
             ? (i.convenio_instituicao_publicos as any[])

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { SLUG_PUBLICO_RE, codigoDoNome, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
+import { SLUG_PUBLICO_RE, codigoDoNome, logoDataUrl, logoPublico, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
 const UUID = '3f2b8c1e-1111-4222-8333-444455556666'
 
 function entrada(over: Partial<EntradaSnapshot> = {}, conteudo: Record<string, unknown> = {}): EntradaSnapshot {
@@ -66,6 +66,7 @@ describe('montarSnapshotPublico', () => {
     assert.strictEqual(s.contrato, 'v1')
     assert.deepStrictEqual(s.instituicoes[0], {
       nome: 'StarBank',
+      logo_url: null,
       publicos_base: ['Temporário'],
       ofertas: [{ forma: 'Cartão Benefício', codigo_forma: 'cartao-beneficio', publicos: ['Temporário'] }],
       evidencia: { fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null },
@@ -223,6 +224,38 @@ describe('montarSnapshotPublico', () => {
     assert.strictEqual(r.ok, false)
     assert.match(r.ok ? '' : r.erro, /256 KB/)
     assert.strictEqual(montarSnapshotPublico(entrada({ instituicoes: [...insts, ...insts] })).ok, false)
+  })
+})
+
+describe('logo das instituições', () => {
+  const IF = '0a1b2c3d-1111-4222-8333-444455556666'
+  const PNG = 'data:image/png;base64,iVBORw0KGgo='
+  const ROTA = `https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/${IF}/logo`
+  const inst = (logo_url: string | null | undefined) =>
+    snap(entrada({ instituicoes: [{ id: IF, nome: 'StarBank', logo_url, publicos: null, ofertas: [{ forma: 'Novo', publicos_restritos: null }] }] })).instituicoes[0].logo_url
+
+  it('logoPublico: data URL válida → rota absoluta; https → ela mesma; resto → null', () => {
+    assert.strictEqual(logoPublico(IF, PNG), ROTA)
+    assert.strictEqual(logoPublico(IF, PNG, 'https://preview.vercel.app/'), `https://preview.vercel.app/api/convenios/publico/v1/instituicoes/${IF}/logo`)
+    assert.strictEqual(logoPublico(IF, 'https://cdn.exemplo.com/l.png'), 'https://cdn.exemplo.com/l.png')
+    for (const ruim of [null, '', 'http://cdn.exemplo.com/l.png', 'javascript:alert(1)', 'data:text/html;base64,PGI+', 'data:image/gif;base64,R0lGOA==', 'data:image/png;base64,@@@']) {
+      assert.strictEqual(logoPublico(IF, ruim), null, String(ruim))
+    }
+    assert.strictEqual(logoPublico('nao-e-uuid', PNG), null)
+  })
+
+  it('logoDataUrl: tipo, base64 e limite de 300 KB', () => {
+    assert.deepStrictEqual(logoDataUrl('data:image/jpg;base64,/9j/'), { mime: 'image/jpeg', base64: '/9j/' })
+    assert.strictEqual(logoDataUrl('data:image/svg+xml;base64,PHN2Zz4=')?.mime, 'image/svg+xml')
+    assert.ok(logoDataUrl(`data:image/png;base64,${'A'.repeat(400 * 1024)}`))
+    assert.strictEqual(logoDataUrl(`data:image/png;base64,${'A'.repeat(400 * 1024 + 4)}`), null)
+  })
+
+  it('snapshot: logo válido vira rota, inválido vira null, ausente vira null', () => {
+    assert.strictEqual(inst(PNG), ROTA)
+    assert.strictEqual(inst('data:image/png;base64,nao base64'), null)
+    assert.strictEqual(inst(undefined), null)
+    assert.strictEqual(inst(''), null)
   })
 })
 

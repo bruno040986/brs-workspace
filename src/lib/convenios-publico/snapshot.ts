@@ -35,7 +35,8 @@ export type ConvenioPublicoV1 = {
 
 /** Cada oferta = uma forma operada pela instituição, com os públicos elegíveis JÁ resolvidos (nunca vazio). */
 export type OfertaPublica = { forma: string; codigo_forma: string; publicos: string[] }
-export type InstituicaoPublica = { nome: string; publicos_base: string[]; ofertas: OfertaPublica[]; evidencia: Evidencia }
+/** logo_url: URL absoluta https da logo (rota pública de logo ou https real do cadastro) ou null. */
+export type InstituicaoPublica = { nome: string; logo_url: string | null; publicos_base: string[]; ofertas: OfertaPublica[]; evidencia: Evidencia }
 
 export type EntradaSnapshot = {
   slug: string
@@ -51,7 +52,17 @@ export type EntradaSnapshot = {
    * (= todos os públicos do convênio). ofertas[].publicos_restritos: nomes ativos de publicos_restritos;
    * null = forma sem restrição (= publicos_base).
    */
-  instituicoes: { nome: string; publicos: string[] | null; ofertas: { forma: string; publicos_restritos: string[] | null }[] }[]
+  instituicoes: {
+    /** financial_institutions.id: só aparece dentro da URL da rota de logo. */
+    id?: string
+    nome: string
+    /** financial_institutions.logo_url cru (data URL hoje); resolvido por logoPublico. */
+    logo_url?: string | null
+    publicos: string[] | null
+    ofertas: { forma: string; publicos_restritos: string[] | null }[]
+  }[]
+  /** Origem absoluta do Workspace para montar a URL da logo; padrão BASE_PUBLICA_PADRAO. */
+  base_publica?: string
 }
 
 export type ResultadoSnapshot = { ok: true; snapshot: ConvenioPublicoV1 } | { ok: false; erro: string }
@@ -79,6 +90,32 @@ export function urlHttps(v: unknown): string | null {
   } catch {
     return null
   }
+}
+
+export const BASE_PUBLICA_PADRAO = 'https://workspace.brspromotora.com.br'
+export const LOGO_MAX_BYTES = 300 * 1024
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const ehUuid = (v: string) => UUID_RE.test(v)
+const LOGO_DATA_URL_RE = /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,([A-Za-z0-9+/]+={0,2})$/
+const MIME_LOGO: Record<string, string> = { png: 'image/png', jpeg: 'image/jpeg', jpg: 'image/jpeg', webp: 'image/webp', 'svg+xml': 'image/svg+xml' }
+
+/** Data URL de logo aceita (tipo de imagem permitido, base64 válido, ≤ 300 KB decodificado) ou null. */
+export function logoDataUrl(v: unknown): { mime: string; base64: string } | null {
+  if (typeof v !== 'string') return null
+  const m = LOGO_DATA_URL_RE.exec(v)
+  if (!m || m[2].length % 4 !== 0) return null
+  const bytes = (m[2].length / 4) * 3 - (m[2].endsWith('==') ? 2 : m[2].endsWith('=') ? 1 : 0)
+  if (bytes > LOGO_MAX_BYTES) return null
+  return { mime: MIME_LOGO[m[1]], base64: m[2] }
+}
+
+/** URL pública da logo: data URL válida → rota de logo (absoluta); https real → ela mesma; resto → null. */
+export function logoPublico(id: string, logoUrlBanco: unknown, base: string = BASE_PUBLICA_PADRAO): string | null {
+  if (logoDataUrl(logoUrlBanco)) {
+    if (!ehUuid(id)) return null
+    return `${base.replace(/\/+$/, '')}/api/convenios/publico/v1/instituicoes/${id.toLowerCase()}/logo`
+  }
+  return urlHttps(logoUrlBanco)
 }
 
 /** Controles, espaços e invisíveis Unicode comuns: somem na comparação de esquema e tornam uma URL inválida. */
@@ -207,6 +244,7 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       if (ofertas.length) {
         instituicoes.push({
           nome: nomeIf,
+          logo_url: logoPublico(i.id ?? '', i.logo_url, e.base_publica),
           publicos_base: base,
           ofertas: limite(ofertas, 30, `Formas de ${nomeIf}`),
           evidencia: { fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null },
