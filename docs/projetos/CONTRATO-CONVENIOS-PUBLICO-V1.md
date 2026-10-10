@@ -179,6 +179,7 @@ ETag: "<convenio_conteudo_site.id>-<versao>"   (opcional; o id interno não apar
 Para 404, usar o mesmo `Cache-Control`. Assim a revogação também tem prazo limitado e um slug inexistente não sobrecarrega o banco. Para 400/405/503: `Cache-Control: no-store`.
 
 - `revalidatePath('/api/convenios/publico/v1/{slug}')` na action que publica e na que desativa (`convenio_conteudo_site_desativar`), depois do commit.
+- O site da NuAzul é estático e é reconstruído por Deploy Hook da Vercel (`NUAZUL_DEPLOY_HOOK_URL`) na publicação e na retirada; até o rebuild terminar (~1–2 min) a página mostra a versão anterior.
 - Consumidores (Astro SSR e `apps/sites`) não têm cache próprio. Se tiverem, o TTL máximo é 60 s.
 - **Prazo de revogação:** 5 min, verificável, em todas as camadas: rota → CDN Vercel → rewrite do site Astro → página renderizada.
 - **Nota de consistência:** sem `revalidatePath` funcionando, o pior caso é `s-maxage` 300 + SWR 60 + cache do consumidor 60 = 420 s, acima de 5 min. Então ou o `revalidatePath` precisa comprovadamente purgar o CDN (é o teste abaixo que mede), ou os valores caem para `s-maxage=180, stale-while-revalidate=60` com consumidor ≤ 60 s. Decisão na seção 12.

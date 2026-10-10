@@ -63,6 +63,7 @@ function texto(v: unknown, max: number, campo: string): string | null {
 /** Só https:// com hostname de domínio (sem IP) e sem usuário/senha; qualquer outra coisa vira null. */
 export function urlHttps(v: unknown): string | null {
   if (typeof v !== 'string' || !v.trim()) return null
+  if (CONTROLE_OU_INVISIVEL_RE.test(v.trim())) return null
   try {
     const u = new URL(v.trim())
     if (u.protocol !== 'https:' || u.username || u.password) return null
@@ -73,13 +74,26 @@ export function urlHttps(v: unknown): string | null {
   }
 }
 
-/** `fonte` só é URL se começar com http(s):// ou www.; o resto (ex.: "Resolução: ...") é texto. */
-function pareceUrl(v: string): boolean {
-  return /^https?:\/\//i.test(v) || /^www\./i.test(v)
+/** Controles, espaços e invisíveis Unicode comuns: somem na comparação de esquema e tornam uma URL inválida. */
+const CONTROLE_OU_INVISIVEL_RE = /[\u0000- \u007f-\u009f\s\u00a0\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2060\u2028\u2029\ufeff]/
+const CONTROLE_OU_INVISIVEL_G = new RegExp(CONTROLE_OU_INVISIVEL_RE.source, 'g')
+const ESQUEMA_PROIBIDO_RE = /^(javascript|data|vbscript|file|blob|about):/
+
+/** Forma comparável: sem controles/espaços/invisíveis, minúsculas. "java\tscript:" vira "javascript:". */
+function normalizado(s: string): string {
+  return s.replace(CONTROLE_OU_INVISIVEL_G, '').toLowerCase()
 }
 
-/** Esquemas perigosos em `fonte` (após trim, sem diferenciar maiúsculas): o item é descartado. */
-export const FONTE_ESQUEMA_PROIBIDO_RE = /^(javascript|data|vbscript|file|blob):/i
+/** Esquema perigoso em `fonte` (ignora controles, espaços e maiúsculas): o item é descartado. */
+export function esquemaProibido(s: string): boolean {
+  return ESQUEMA_PROIBIDO_RE.test(normalizado(s))
+}
+
+/** `fonte` só é URL se começar com http(s):// ou www.; o resto (ex.: "Resolução: ...") é texto. */
+function pareceUrl(v: string): boolean {
+  const n = normalizado(v)
+  return /^https?:\/\//.test(n) || /^www\./.test(n)
+}
 
 /** Código público derivado do nome: minúsculas, sem acento, '-' como separador. */
 export function codigoDoNome(nome: string): string {
@@ -94,7 +108,7 @@ export function codigoDoNome(nome: string): string {
 /** Evidência de vantagens/faqs; null = item fora do snapshot (pendente, ausente ou fonte-URL inválida). */
 function evidencia(item: Record<string, unknown>): Evidencia | null {
   if (item.situacao !== 'confirmado') return null
-  if (typeof item.fonte === 'string' && FONTE_ESQUEMA_PROIBIDO_RE.test(item.fonte.trim())) return null
+  if (typeof item.fonte === 'string' && esquemaProibido(item.fonte)) return null
   let fonte = texto(item.fonte, 2048, 'Fonte')
   if (fonte && pareceUrl(fonte)) {
     fonte = urlHttps(fonte)

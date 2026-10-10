@@ -2,6 +2,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { dispararRebuildNuAzul } from '@/lib/convenios-publico/deploy-hook'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { montarSnapshotPublico, SLUG_PUBLICO_RE } from '@/lib/convenios-publico/snapshot'
@@ -504,6 +506,7 @@ export async function publishConvenioConteudoSite(
     }
 
     revalidatePath(rotaPublica(convenio.slug_publico))
+    after(() => dispararRebuildNuAzul('publicar', convenio.slug_publico))
 
     const { snapshot_publico: _snapshot, ...item } = publishedRow as any
     void _snapshot
@@ -546,7 +549,11 @@ export async function unpublishConvenioConteudoSite(
     }
 
     const { data: convenio } = await supabase.from('convenios').select('slug_publico').eq('id', convenioId).maybeSingle()
-    if (convenio?.slug_publico) revalidatePath(rotaPublica(convenio.slug_publico))
+    if (convenio?.slug_publico) {
+      const slug = convenio.slug_publico
+      revalidatePath(rotaPublica(slug))
+      after(() => dispararRebuildNuAzul('retirar', slug))
+    }
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Erro ao retirar do ar.' }

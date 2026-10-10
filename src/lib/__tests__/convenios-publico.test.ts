@@ -114,10 +114,23 @@ describe('montarSnapshotPublico', () => {
   })
 
   it('fonte com esquema perigoso (javascript:, data:, etc.) descarta o item', () => {
-    for (const fonte of ['javascript:alert(1)', ' DATA:text/html,x', 'vbscript:x', 'file:///etc/passwd', 'Blob:abc']) {
+    for (const fonte of ['javascript:alert(1)', ' DATA:text/html,x', 'vbscript:x', 'file:///etc/passwd', 'Blob:abc', 'about:blank']) {
       const s = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte }] }))
       assert.deepStrictEqual(s.vantagens, [], fonte)
     }
+  })
+
+  it('esquema perigoso com controle/espaço/invisível dentro do esquema também descarta', () => {
+    for (const fonte of ['java\tscript:alert(1)', '\u0000javascript:x', ' JAVA\nSCRIPT:x', 'ja\u200bvascript:x', 'jav\u00a0ascript:x']) {
+      const s = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte }] }))
+      assert.deepStrictEqual(s.vantagens, [], JSON.stringify(fonte))
+    }
+  })
+
+  it('URL com controle dentro (ht\\ttps://) é inválida e o item sai', () => {
+    const s = snap(entrada({}, { vantagens: [{ titulo: 'T', descricao: 'd', situacao: 'confirmado', fonte: 'ht\ttps://exemplo.com' }] }))
+    assert.deepStrictEqual(s.vantagens, [])
+    assert.strictEqual(urlHttps('ht\ttps://exemplo.com'), null)
   })
 
   it('fonte textual que não é URL nem esquema perigoso fica', () => {
@@ -169,5 +182,23 @@ describe('slug público', () => {
 
   it('codigo derivado do nome', () => {
     assert.strictEqual(codigoDoNome('Forças de segurança'), 'forcas-de-seguranca')
+  })
+})
+
+import { dispararRebuildNuAzul } from '../convenios-publico/deploy-hook.ts'
+
+describe('dispararRebuildNuAzul', () => {
+  it('env vazia: não chama', async () => {
+    delete process.env.NUAZUL_DEPLOY_HOOK_URL
+    let n = 0
+    await dispararRebuildNuAzul('publicar', 'x', async () => { n++ })
+    assert.equal(n, 0)
+  })
+  it('env definida: chama com a URL; falha não lança', async () => {
+    process.env.NUAZUL_DEPLOY_HOOK_URL = 'https://hook.test/abc'
+    const urls: string[] = []
+    await dispararRebuildNuAzul('retirar', 'x', async (u) => { urls.push(u); throw new Error('boom https://hook.test/abc') })
+    assert.deepEqual(urls, ['https://hook.test/abc'])
+    delete process.env.NUAZUL_DEPLOY_HOOK_URL
   })
 })
