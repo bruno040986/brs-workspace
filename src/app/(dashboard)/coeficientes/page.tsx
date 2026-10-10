@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CalendarOff, Calculator, CheckCircle, FileUp, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { createCoeficientes, encerrarCoeficiente, excluirCoeficiente, getCoeficientes, getCoeficientesLookups, getInstituicoesFinanceiras } from './actions'
 import { hojeSaoPaulo } from '@/lib/comissionamento-filtros'
+import { rotuloTabelaCoeficiente } from '@/lib/coeficientes-label'
+import { aplicarSelecao, opcoesConvenio, opcoesInstituicao, opcoesTabela } from '@/lib/coeficientes-cascata'
 
 type Tabela = {
   id: string
@@ -66,6 +68,8 @@ export default function CoeficientesPage() {
   const [tabelaFilter, setTabelaFilter] = useState('')
   const [ocultarEncerrados, setOcultarEncerrados] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [instLanc, setInstLanc] = useState('')
+  const [convLanc, setConvLanc] = useState('')
   const [tabelaId, setTabelaId] = useState('')
   const [vigenciaInicio, setVigenciaInicio] = useState(today())
   const [linhas, setLinhas] = useState<Linha[]>([{ prazo: '', coeficiente: '' }])
@@ -131,10 +135,25 @@ export default function CoeficientesPage() {
   const selectedTabela = useMemo(() => tabelas.find((item) => item.id === tabelaId) || null, [tabelaId, tabelas])
 
   function tabelaLabel(item: Tabela) {
-    return `${item.financial_institutions?.name || 'Instituição'} - ${item.nome} (${item.formas_contrato?.nome || 'forma n/i'}, ${seguroText(item.com_seguro)})`
+    return rotuloTabelaCoeficiente(item.codigo_tabela_banco, `${item.financial_institutions?.name || 'Instituição'} - ${item.nome} (${item.formas_contrato?.nome || 'forma n/i'}, ${seguroText(item.com_seguro)})`)
+  }
+
+  const selLanc = { instituicaoId: instLanc, convenioId: convLanc, tabelaId }
+  const opcoesInst = useMemo(() => opcoesInstituicao(tabelas), [tabelas])
+  const opcoesConv = useMemo(() => opcoesConvenio(tabelas, instLanc), [tabelas, instLanc])
+  const opcoesTab = useMemo(() => opcoesTabela(tabelas, selLanc, tabelaLabel), [tabelas, instLanc, convLanc])
+
+  function onCascata(campo: 'instituicaoId' | 'convenioId' | 'tabelaId', valor: string) {
+    const sel = aplicarSelecao(tabelas, selLanc, campo, valor, tabelaLabel)
+    setInstLanc(sel.instituicaoId)
+    setConvLanc(sel.convenioId)
+    if (sel.tabelaId) suggestFromTabela(sel.tabelaId)
+    else setTabelaId('')
   }
 
   function openNew() {
+    setInstLanc('')
+    setConvLanc('')
     setTabelaId('')
     setVigenciaInicio(today())
     setLinhas([{ prazo: '', coeficiente: '' }])
@@ -158,7 +177,7 @@ export default function CoeficientesPage() {
     setMessage(null)
     try {
       const itens = linhas.map((linha) => ({ prazo: Number.parseInt(linha.prazo, 10), coeficiente: Number(String(linha.coeficiente).replace(',', '.')) }))
-      const res = await createCoeficientes({ tabela_comissao_id: tabelaId, vigencia_inicio: vigenciaInicio, itens })
+      const res = await createCoeficientes({ tabela_comissao_id: tabelaId, instituicao_id: instLanc, convenio_id: convLanc, vigencia_inicio: vigenciaInicio, itens })
       if (res.success) {
         setIsModalOpen(false)
         setMessage({ type: 'success', text: `${res.inseridos || itens.length} coeficiente(s) lançado(s).` })
@@ -270,7 +289,11 @@ export default function CoeficientesPage() {
       {isModalOpen && <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}><div className="modal" style={{ maxWidth: 680 }} onClick={(e) => e.stopPropagation()}><form onSubmit={handleSave}>
         <div className="modal-header"><h3 className="modal-title">Lançar Coeficientes</h3><button type="button" className="btn btn-ghost btn-icon" onClick={() => setIsModalOpen(false)}><X size={20} /></button></div>
         <div className="modal-body">
-          <div className="form-group"><label className="form-label">Tabela de Comissão <span className="required">*</span></label><select className="form-control" required value={tabelaId} onChange={(e) => suggestFromTabela(e.target.value)}><option value="">Selecione</option>{tabelas.map((item) => <option key={item.id} value={item.id}>{tabelaLabel(item)}</option>)}</select></div>
+          <div className="form-grid form-grid-2">
+            <div className="form-group"><label className="form-label" htmlFor="coef-inst">Instituição Financeira <span className="required">*</span></label><select id="coef-inst" className="form-control" required value={instLanc} onChange={(e) => onCascata('instituicaoId', e.target.value)}><option value="">Selecione</option>{opcoesInst.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select></div>
+            <div className="form-group"><label className="form-label" htmlFor="coef-conv">Convênio <span className="required">*</span></label><select id="coef-conv" className="form-control" required disabled={!instLanc} aria-describedby="coef-conv-ajuda" value={convLanc} onChange={(e) => onCascata('convenioId', e.target.value)}><option value="">{instLanc ? 'Selecione' : 'Selecione a instituição primeiro'}</option>{opcoesConv.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select><div id="coef-conv-ajuda" style={{ color: 'var(--brs-gray-500)', fontSize: '0.8rem', marginTop: '0.35rem' }}>{!instLanc ? 'Escolha a instituição para ver os convênios.' : opcoesConv.length === 0 ? 'Nenhum convênio com Tabela de Comissão para esta instituição.' : 'Só convênios com tabela cadastrada.'}</div></div>
+          </div>
+          <div className="form-group" style={{ marginTop: '1rem' }}><label className="form-label" htmlFor="coef-tabela">Tabela de Comissão <span className="required">*</span></label><select id="coef-tabela" className="form-control" required disabled={!convLanc} aria-describedby="coef-tabela-ajuda" value={tabelaId} onChange={(e) => onCascata('tabelaId', e.target.value)}><option value="">{convLanc ? 'Selecione' : 'Selecione o convênio primeiro'}</option>{opcoesTab.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select><div id="coef-tabela-ajuda" style={{ color: 'var(--brs-gray-500)', fontSize: '0.8rem', marginTop: '0.35rem' }}>{convLanc ? 'Só tabelas deste convênio e desta instituição.' : 'Escolha o convênio para ver as tabelas.'}</div></div>
           <div className="form-group" style={{ marginTop: '1rem' }}><label className="form-label">Vigência Início <span className="required">*</span></label><input type="date" className="form-control" required value={vigenciaInicio} onChange={(e) => setVigenciaInicio(e.target.value)} /><div style={{ color: 'var(--brs-gray-500)', fontSize: '0.85rem', marginTop: '0.35rem' }}>Vigências abertas anteriores (mesma tabela/prazo) são encerradas automaticamente no dia anterior</div></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginTop: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}><div style={{ fontWeight: 800 }}>Prazos e coeficientes</div><div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}><button type="button" className="btn btn-outline btn-sm" onClick={fillDefaultPrazos}>Preencher prazos padrão</button><button type="button" className="btn btn-primary btn-sm" onClick={() => setLinhas([...linhas, { prazo: '', coeficiente: '' }])}><Plus size={16} />Adicionar prazo</button></div></div>
           <div style={{ display: 'grid', gap: '0.75rem' }}>{linhas.map((linha, index) => <div key={index} className="form-grid form-grid-2" style={{ alignItems: 'end' }}>

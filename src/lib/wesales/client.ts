@@ -32,14 +32,28 @@ function locationId(): string {
   return requireEnv('WESALES_LOCATION_ID')
 }
 
+/** `status` 0 = sem resposta HTTP (timeout ou falha de rede). */
 export class WesalesHttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly body: string,
-    url: string,
-  ) {
+  // Sem "parameter properties": o runner de testes (node --experimental-strip-types) não as aceita.
+  readonly status: number
+  readonly body: string
+  constructor(status: number, body: string, url: string) {
     super(`WeSales HTTP ${status} em ${url}: ${body.slice(0, 300)}`)
+    this.status = status
+    this.body = body
   }
+}
+
+/** Código curto, sem dados pessoais, para logs/status (ex.: wesales_401, wesales_sem_resposta). */
+export function codigoErroWesales(err: unknown): string {
+  if (!(err instanceof WesalesHttpError)) return 'wesales_erro'
+  return err.status ? `wesales_${err.status}` : 'wesales_sem_resposta'
+}
+
+/** Mensagem para log/retorno: WesalesHttpError vira só o código (a message dela leva corpo e URL). */
+export function mensagemErroWesales(err: unknown): string {
+  if (err instanceof WesalesHttpError) return codigoErroWesales(err)
+  return err instanceof Error ? err.message : String(err)
 }
 
 const MAX_TENTATIVAS_429 = 5
@@ -55,7 +69,7 @@ function sleep(ms: number) {
  * ofertas/contatos silenciosamente (incidente 24/08/2026: 12 de 27 ofertas
  * REFIN descartadas por 429 numa importação só).
  */
-async function http<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+async function http<T>(path: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
   const url = `${BASE_URL}${path}`
   let tentativa = 0
   for (;;) {
@@ -63,6 +77,7 @@ async function http<T>(path: string, init?: { method?: string; body?: unknown })
       method: init?.method || 'GET',
       headers: authHeaders(),
       body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: init?.timeoutMs ? AbortSignal.timeout(init.timeoutMs) : undefined,
     })
     if (res.status === 429 && tentativa < MAX_TENTATIVAS_429) {
       tentativa += 1
@@ -339,12 +354,27 @@ export async function updateContact(contactId: string, payload: ContactPayload):
   await http(`/contacts/${contactId}`, { method: 'PUT', body: payload })
 }
 
+/**
+ * null SÓ quando o contato não existe (404/400). 401/403/5xx relançam
+ * (WesalesHttpError) e timeout/rede viram WesalesHttpError status 0: engolir
+ * tudo escondia o WeSales fora do ar (06/10/2026, 401 "Location is not active").
+ */
 export async function getContact(contactId: string): Promise<WesalesContact | null> {
+  const path = `/contacts/${contactId}`
   try {
-    const res = await http<{ contact: WesalesContact }>(`/contacts/${contactId}`)
+    const res = await http<{ contact: WesalesContact }>(path, { timeoutMs: 15_000 })
     return res.contact ?? null
-  } catch {
-    return null
+  } catch (err) {
+    if (err instanceof WesalesHttpError) {
+      if (err.status === 404 || err.status === 400) return null
+      throw err
+    }
+    // Só falha de transporte vira status 0; bug de programação (JSON, etc.) relança.
+    const nome = (err as { name?: string })?.name
+    if (err instanceof TypeError || nome === 'AbortError' || nome === 'TimeoutError') {
+      throw new WesalesHttpError(0, nome === 'TimeoutError' || nome === 'AbortError' ? 'timeout' : 'falha de rede', `${BASE_URL}${path}`)
+    }
+    throw err
   }
 }
 

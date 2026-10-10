@@ -27,6 +27,7 @@ import {
   findContactByCpf,
   findOpportunitiesByContactDetalhadas,
   getContact,
+  mensagemErroWesales,
   opportunityFieldValue,
   resolveCustomField,
   updateContact,
@@ -218,7 +219,7 @@ export async function atualizarWesalesLote(loteId: string): Promise<{ atualizado
         .eq('id', item.id)
       atualizados += 1
     } catch (err) {
-      console.warn(`[if-higienizacao] falha ao atualizar WeSales do item ${item.id}:`, err instanceof Error ? err.message : err)
+      console.warn(`[if-higienizacao] falha ao atualizar WeSales do item ${item.id}:`, mensagemErroWesales(err))
     }
   }
 
@@ -323,7 +324,7 @@ export async function enviarOfertasParaWesales(loteId: string): Promise<{ enviad
         .eq('id', item.id)
       enviados += 1
     } catch (err) {
-      console.warn(`[if-higienizacao] falha ao enviar ofertas ao WeSales do item ${item.id}:`, err instanceof Error ? err.message : err)
+      console.warn(`[if-higienizacao] falha ao enviar ofertas ao WeSales do item ${item.id}:`, mensagemErroWesales(err))
     }
   }
 

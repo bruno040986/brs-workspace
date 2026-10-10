@@ -31,11 +31,14 @@ type ConfigCrm = {
   ia_agente_ate: string | null
   site_os_consig_status: string | null
   site_os_consig_ate: string | null
+  maturacao_status: string | null
+  maturacao_ate: string | null
 } | null
 
 const FUNCIONALIDADES = [
   { key: 'ia', nome: 'Agente de IA de qualificação e roteamento' },
   { key: 'site', nome: 'Site OS-Consig' },
+  { key: 'maturacao', nome: 'Aquecimento de Números' },
 ] as const
 
 // timestamptz -> AAAA-MM-DD no fuso de Brasília (valor do input date)
@@ -64,6 +67,7 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
   const [func, setFunc] = useState({
     ia: { status: 'desligado', ate: '' },
     site: { status: 'desligado', ate: '' },
+    maturacao: { status: 'desligado', ate: '' },
   })
   const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [busyUsuarioId, setBusyUsuarioId] = useState<string | null>(null)
@@ -85,6 +89,7 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         setFunc({
           ia: { status: res.config?.ia_agente_status || 'desligado', ate: dataBrasilia(res.config?.ia_agente_ate) },
           site: { status: res.config?.site_os_consig_status || 'desligado', ate: dataBrasilia(res.config?.site_os_consig_ate) },
+          maturacao: { status: res.config?.maturacao_status || 'desligado', ate: dataBrasilia(res.config?.maturacao_ate) },
         })
       } else {
         setMessage({ type: 'error', text: res.error || 'Erro ao carregar a configuração.' })
@@ -114,6 +119,8 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         iaAgenteAte: func.ia.ate || null,
         siteOsConsigStatus: func.site.status,
         siteOsConsigAte: func.site.ate || null,
+        maturacaoStatus: func.maturacao.status,
+        maturacaoAte: func.maturacao.ate || null,
       })
       if (res.success) {
         setMessage({
@@ -264,6 +271,7 @@ export default function AlvoconsigTab({ agenteParceiroId }: { agenteParceiroId: 
         ))}
         <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>
           Vale até o fim do dia escolhido (Brasília). Vencido = desligado. Gravado em &ldquo;Salvar configuração&rdquo; acima.
+          Aquecimento de Números: só roda entre números Baileys do parceiro com proxy aplicado; desligar cancela as execuções em andamento.
         </p>
       </div>
 
