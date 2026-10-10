@@ -407,12 +407,22 @@ Mesmo prefixo público do middleware, mesmo padrão de erro (`405` com `Allow: G
 Rota estática (vence o irmão dinâmico `{slug}`; por isso `instituicoes` não pode ser usado como `slug_publico`).
 
 ```
-200 { "instituicoes": [ { "id": "<uuid>", "nome": "Banco X", "logo_url": "https://…/instituicoes/<uuid>/logo" | null } ] }
+200 { "instituicoes": [ { "id": "<uuid>", "nome": "Banco X", "logo_url": "https://…/instituicoes/<uuid>/logo" | null,
+                          "logo_wide_url"?: "https://…/instituicoes/<uuid>/logo?v=wide",
+                          "site"?: "https://www.bancox.com.br/", "sac"?: "08007627777",
+                          "horario"?: "Segunda-Feira a Sexta-Feira, 08:00–20:00; Sábado, 09:00–14:00" } ] }
 Cache-Control: public, s-maxage=600, stale-while-revalidate=60
 ```
 
 - Só `financial_institutions` com `is_active = true` e `deleted_at is null`; ordem por nome (pt-BR); máx. 500.
 - Instituição sem logo válida entra com `logo_url: null`.
+- `site`, `sac` e `horario` são **opcionais**: a chave é omitida quando não há valor confiável. Fonte (cadastro da IF):
+  - `site` = `general_data.site_institucional`, só `https://` válido (regra de `urlHttps`); valor que começa com `www.` ganha `https://` na frente; qualquer outro vira ausente.
+  - `sac` = `sac_ouvidoria.sac.telefone`, só dígitos (8 a 13), sem máscara: a formatação é do consumidor.
+  - `horario` = `sac_ouvidoria.sac.atendimento` em texto, dias seguidos com a mesma faixa agrupados (`Todos os dias, …` quando os 7 batem). Se alguma linha ativa estiver sem dia, com hora fora de `HH:MM` ou com dia repetido, o horário é omitido inteiro (dado incerto não vai ao público).
+  - `sac` e `horario` só saem com `sac_ouvidoria.sac.card_enabled = true` ("Exibir no card do site" no cadastro).
+  - `logo_wide_url` = `financial_institutions.logo_wide_url` (logo horizontal), mesma regra de `logoPublico`: data URL válida vira `…/logo?v=wide` (a rota de logo serve a coluna larga com esse parâmetro); https vale direto; senão a chave é omitida.
+  - Não existe fonte para `produtos` no cadastro da IF; o campo não é servido.
 
 ### Regra de `logo_url` (lista e snapshot): `logoPublico(id, logo_url_banco, base)`
 
@@ -430,6 +440,8 @@ No snapshot a URL fica congelada na publicação, mas aponta para a rota viva: t
 | 304 | vazio | `If-None-Match` bate com o `ETag` |
 | 400 | `{ "erro": "id_invalido" }` (`no-store`) | `id` não é uuid |
 | 404 | `{ "erro": "sem_logo" }` (`public, s-maxage=600, stale-while-revalidate=60`) | id desconhecido, inativo/excluído, sem logo, tipo não aceito ou > 300 KB |
+
+Com `?v=wide` a rota serve `financial_institutions.logo_wide_url` (logo horizontal, 500x200) com as mesmas regras, status e cabeçalhos; sem o parâmetro, ou com outro valor, serve `logo_url`. A variante larga só existe na lista (`logo_wide_url?`), não no snapshot.
 
 Cabeçalhos do 200/304:
 
@@ -450,3 +462,5 @@ Troca de logo leva até 1 dia para aparecer no navegador e até 7 dias na CDN (o
 - 2026-10-10: decisões do Bruno sobre os itens 1 a 7 da seção 12 registradas; implementação na branch `convenios/publico-v1` (PRJ-1/T-2). Item 8: cache 120/30, revogação em ~3 min.
 - 2026-10-10: correção T-1 do Codex, antes do aceite (v1 ainda não congelada): `instituicoes[]` passa a `{ nome, publicos_base, ofertas[{ forma, codigo_forma, publicos }], evidencia }`, com `publicos_restritos` resolvido no servidor; saem `produtos`, `publicos` e `formas` da instituição; sai `aprovado_por`; `cta` nullable no tipo; JSON Schema completo com `required` e `additionalProperties: false` em cada objeto; cache 120/30 em todas as menções.
 - 2026-10-10: T-19, mudança **aditiva**: `instituicoes[].logo_url` (string https absoluta ou null; opcional no JSON Schema, snapshots publicados antes não têm a chave) e as rotas `GET /api/convenios/publico/v1/instituicoes` e `GET /api/convenios/publico/v1/instituicoes/{id}/logo` (seção 13). `financial_institutions.id` passa a ser público só nessas duas superfícies (seção 5).
+- 2026-10-10: T-19, aditivo: `GET /api/convenios/publico/v1/instituicoes` ganha `site?`, `sac?` e `horario?` opcionais (seção 13). `produtos` não é servido (sem coluna de origem).
+- 2026-10-10: T-19, aditivo: `logo_wide_url?` na lista e variante `?v=wide` da rota de logo.

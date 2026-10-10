@@ -18,18 +18,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   if (!ehUuid(id)) return erro({ erro: 'id_invalido' }, 400, 'no-store')
 
+  const wide = new URL(request.url).searchParams.get('v') === 'wide'
   try {
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('financial_institutions')
-      .select('logo_url')
+      .select('logo_url, logo_wide_url')
       .eq('id', id)
       .eq('is_active', true)
       .is('deleted_at', null)
       .maybeSingle()
     if (error) throw error
 
-    const logo = logoDataUrl((data as { logo_url: string | null } | null)?.logo_url)
+    const logo = logoDataUrl(wide ? (data as { logo_wide_url: string | null } | null)?.logo_wide_url : (data as { logo_url: string | null } | null)?.logo_url)
     if (!logo) return erro({ erro: 'sem_logo' }, 404, CACHE_404)
 
     const etag = `"${createHash('md5').update(logo.base64).digest('hex')}"`

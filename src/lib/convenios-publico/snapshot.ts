@@ -110,12 +110,59 @@ export function logoDataUrl(v: unknown): { mime: string; base64: string } | null
 }
 
 /** URL pública da logo: data URL válida → rota de logo (absoluta); https real → ela mesma; resto → null. */
-export function logoPublico(id: string, logoUrlBanco: unknown, base: string = BASE_PUBLICA_PADRAO): string | null {
+export function logoPublico(id: string, logoUrlBanco: unknown, base: string = BASE_PUBLICA_PADRAO, wide = false): string | null {
   if (logoDataUrl(logoUrlBanco)) {
     if (!ehUuid(id)) return null
-    return `${base.replace(/\/+$/, '')}/api/convenios/publico/v1/instituicoes/${id.toLowerCase()}/logo`
+    return `${base.replace(/\/+$/, '')}/api/convenios/publico/v1/instituicoes/${id.toLowerCase()}/logo${wide ? '?v=wide' : ''}`
   }
   return urlHttps(logoUrlBanco)
+}
+
+const DIAS = ['Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado', 'Domingo']
+const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/** Horário do SAC em texto ("Segunda-Feira a Sexta-Feira, 08:00–20:00; Sábado, 09:00–14:00"). Linha ativa incompleta = dado incerto → null. */
+export function horarioPublico(linhas: unknown): string | null {
+  if (!Array.isArray(linhas)) return null
+  const porDia = new Map<number, string>()
+  for (const l of linhas) {
+    if (!l || typeof l !== 'object' || !(l as Record<string, unknown>).enabled) continue
+    const { dia_da_semana, hora_inicial, hora_final } = l as Record<string, unknown>
+    const d = DIAS.indexOf(String(dia_da_semana))
+    if (d < 0 || !HORA_RE.test(String(hora_inicial)) || !HORA_RE.test(String(hora_final)) || porDia.has(d)) return null
+    porDia.set(d, `${hora_inicial}–${hora_final}`)
+  }
+  if (!porDia.size) return null
+  const faixas: { de: number; ate: number; h: string }[] = []
+  for (let d = 0; d < 7; d++) {
+    const h = porDia.get(d)
+    if (!h) continue
+    const ult = faixas[faixas.length - 1]
+    if (ult && ult.ate === d - 1 && ult.h === h) ult.ate = d
+    else faixas.push({ de: d, ate: d, h })
+  }
+  if (faixas.length === 1 && faixas[0].de === 0 && faixas[0].ate === 6) return `Todos os dias, ${faixas[0].h}`
+  return faixas.map((f) => `${f.de === f.ate ? DIAS[f.de] : `${DIAS[f.de]} a ${DIAS[f.ate]}`}, ${f.h}`).join('; ')
+}
+
+/**
+ * Campos opcionais da lista pública de instituições (cadastro da IF):
+ * site = general_data.site_institucional (https; "www.x" ganha https://);
+ * sac/horario = sac_ouvidoria.sac, só com "Exibir no card do site" (card_enabled). Ausente = chave omitida.
+ */
+export function extrasInstituicaoPublica(siteBanco: unknown, sacBanco: unknown): { site?: string; sac?: string; horario?: string } {
+  const out: { site?: string; sac?: string; horario?: string } = {}
+  const bruto = typeof siteBanco === 'string' ? siteBanco.trim() : ''
+  const site = urlHttps(/^www\./i.test(bruto) ? `https://${bruto}` : bruto)
+  if (site) out.site = site
+  const sac = sacBanco && typeof sacBanco === 'object' ? (sacBanco as Record<string, unknown>) : null
+  if (sac?.card_enabled === true) {
+    const tel = String(sac.telefone ?? '').replace(/\D/g, '')
+    if (tel.length >= 8 && tel.length <= 13) out.sac = tel
+    const horario = horarioPublico(sac.atendimento)
+    if (horario) out.horario = horario
+  }
+  return out
 }
 
 /** Controles, espaços e invisíveis Unicode comuns: somem na comparação de esquema e tornam uma URL inválida. */

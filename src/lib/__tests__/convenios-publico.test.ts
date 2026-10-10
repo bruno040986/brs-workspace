@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { SLUG_PUBLICO_RE, codigoDoNome, logoDataUrl, logoPublico, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
+import { SLUG_PUBLICO_RE, codigoDoNome, extrasInstituicaoPublica, horarioPublico, logoDataUrl, logoPublico, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
 const UUID = '3f2b8c1e-1111-4222-8333-444455556666'
 
 function entrada(over: Partial<EntradaSnapshot> = {}, conteudo: Record<string, unknown> = {}): EntradaSnapshot {
@@ -227,10 +227,11 @@ describe('montarSnapshotPublico', () => {
   })
 })
 
+const IF = '0a1b2c3d-1111-4222-8333-444455556666'
+const PNG = 'data:image/png;base64,iVBORw0KGgo='
+const ROTA = `https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/${IF}/logo`
+
 describe('logo das instituições', () => {
-  const IF = '0a1b2c3d-1111-4222-8333-444455556666'
-  const PNG = 'data:image/png;base64,iVBORw0KGgo='
-  const ROTA = `https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/${IF}/logo`
   const inst = (logo_url: string | null | undefined) =>
     snap(entrada({ instituicoes: [{ id: IF, nome: 'StarBank', logo_url, publicos: null, ofertas: [{ forma: 'Novo', publicos_restritos: null }] }] })).instituicoes[0].logo_url
 
@@ -256,6 +257,50 @@ describe('logo das instituições', () => {
     assert.strictEqual(inst('data:image/png;base64,nao base64'), null)
     assert.strictEqual(inst(undefined), null)
     assert.strictEqual(inst(''), null)
+  })
+})
+
+describe('extras da lista de instituições', () => {
+  it('logo larga: ?v=wide para data URL, https direto, resto null', () => {
+    assert.strictEqual(logoPublico(IF, PNG, undefined, true), `${ROTA}?v=wide`)
+    assert.strictEqual(logoPublico(IF, 'https://x.com/l.png', undefined, true), 'https://x.com/l.png')
+    assert.strictEqual(logoPublico(IF, '', undefined, true), null)
+  })
+
+  it('extras nunca carregam campos sensíveis', () => {
+    const r = extrasInstituicaoPublica('https://x.com.br', { card_enabled: true, telefone: '0800 1', email: 'a@b.com', whatsapp: '5511999999999', atendimento: [] })
+    assert.deepStrictEqual(Object.keys(r).sort(), ['site'])
+  })
+
+  const linha = (dia: string, enabled = true, ini = '08:00', fim = '20:00') => ({ enabled, dia_da_semana: dia, hora_inicial: ini, hora_final: fim })
+  const semana = ['Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira']
+
+  it('horario agrupa dias seguidos com a mesma faixa', () => {
+    assert.strictEqual(horarioPublico([...semana.map((d) => linha(d)), linha('Sábado', true, '09:00', '14:00'), linha('', false, '', '')]),
+      'Segunda-Feira a Sexta-Feira, 08:00–20:00; Sábado, 09:00–14:00')
+    const todos = [...semana, 'Sábado', 'Domingo'].map((d) => linha(d, true, '00:00', '23:59'))
+    assert.strictEqual(horarioPublico(todos), 'Todos os dias, 00:00–23:59')
+  })
+
+  it('horario: linha ativa sem dia ou hora, dia repetido, ou nada ativo → null', () => {
+    assert.strictEqual(horarioPublico([linha('Segunda-Feira'), linha('')]), null)
+    assert.strictEqual(horarioPublico([linha('Segunda-Feira', true, '8h', '20:00')]), null)
+    assert.strictEqual(horarioPublico([linha('Segunda-Feira'), linha('Segunda-Feira')]), null)
+    assert.strictEqual(horarioPublico([linha('', false)]), null)
+    assert.strictEqual(horarioPublico(null), null)
+  })
+
+  it('site: https ou www. viram https; resto some', () => {
+    assert.deepStrictEqual(extrasInstituicaoPublica('www.bib.com.br', null), { site: 'https://www.bib.com.br/' })
+    assert.deepStrictEqual(extrasInstituicaoPublica('https://x.com.br/a', null), { site: 'https://x.com.br/a' })
+    for (const ruim of ['', 'http://x.com.br', 'javascript:alert(1)', 'bib.com.br', null]) assert.deepStrictEqual(extrasInstituicaoPublica(ruim, null), {}, String(ruim))
+  })
+
+  it('sac e horario só com card_enabled', () => {
+    const sac = { card_enabled: true, telefone: '0800 762-7777', atendimento: semana.map((d) => linha(d)) }
+    assert.deepStrictEqual(extrasInstituicaoPublica('', sac), { sac: '08007627777', horario: 'Segunda-Feira a Sexta-Feira, 08:00–20:00' })
+    assert.deepStrictEqual(extrasInstituicaoPublica('', { ...sac, card_enabled: false }), {})
+    assert.deepStrictEqual(extrasInstituicaoPublica('', { ...sac, telefone: '' }), { horario: 'Segunda-Feira a Sexta-Feira, 08:00–20:00' })
   })
 })
 
