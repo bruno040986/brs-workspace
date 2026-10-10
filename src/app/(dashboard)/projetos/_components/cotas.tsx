@@ -1,15 +1,16 @@
 'use client'
 
 /**
- * Cartão "Cotas das IAs" da tela /projetos: quanto cada IA já usou de cada
- * cota. O dado é informado (IA registra pelo MCP com cota_registrar, ou o
- * Bruno edita aqui); nenhuma IA expõe a própria cota por API.
+ * Cartão "Cotas das IAs" da tela /projetos: quanto cada CONTA (Claude.ai /
+ * Claude Code, Codex, Antigravity) já usou de cada cota. O dado é informado
+ * (IA registra pelo MCP com cota_registrar, ou o Bruno edita aqui); nenhuma IA
+ * expõe a própria cota por API.
  */
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Gauge, Pencil, Plus, Trash2 } from 'lucide-react'
 import { registrarCotas, removerCota } from '@/lib/projetos/actions'
 import { MAX_COTA_NOME, MAX_COTA_OBS, MAX_COTAS, corCota, tempoDesde, validarCotas } from '@/lib/projetos/puro'
-import type { AgenteComCotas, Cota } from '@/lib/projetos/tipos'
+import type { ContaCotas, Cota } from '@/lib/projetos/tipos'
 import { Aviso, Modal, erroMsg } from './ui'
 
 const COR = { success: 'var(--brs-success)', warning: 'var(--brs-warning)', danger: 'var(--brs-danger)' }
@@ -52,14 +53,14 @@ function BarraCota({ c }: { c: Cota }) {
   )
 }
 
-export function CotasCard({ agentes, erro, onSalvo }: { agentes: AgenteComCotas[]; erro: string; onSalvo: () => Promise<void> }) {
+export function CotasCard({ contas, erro, onSalvo }: { contas: ContaCotas[]; erro: string; onSalvo: () => Promise<void> }) {
   const [aberto, setAberto] = useState(true)
-  const [editando, setEditando] = useState<AgenteComCotas | null>(null)
+  const [editando, setEditando] = useState<ContaCotas | null>(null)
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [salvando, setSalvando] = useState(false)
   const [erroModal, setErroModal] = useState('')
 
-  function editar(a: AgenteComCotas) {
+  function editar(a: ContaCotas) {
     setErroModal('')
     setEditando(a)
     setLinhas(
@@ -88,7 +89,7 @@ export function CotasCard({ agentes, erro, onSalvo }: { agentes: AgenteComCotas[
           )
         : []
       if (cotas.length) {
-        const r = await registrarCotas(editando.id, cotas)
+        const r = await registrarCotas(editando.conta, cotas)
         if (!r.success) throw new Error(r.error)
       }
       // Removidas ou renomeadas: some da lista a cota antiga cujo nome não ficou.
@@ -120,10 +121,11 @@ export function CotasCard({ agentes, erro, onSalvo }: { agentes: AgenteComCotas[
       {aberto && (
         <div style={{ padding: '0 1rem 0.9rem' }}>
           <Aviso erro={erro} />
-          {agentes.map((a) => (
-            <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem 1rem', flexWrap: 'wrap', padding: '0.6rem 0', borderTop: '1px solid var(--brs-gray-100)' }}>
+          {contas.map((a) => (
+            <div key={a.conta} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem 1rem', flexWrap: 'wrap', padding: '0.6rem 0', borderTop: '1px solid var(--brs-gray-100)' }}>
               <div style={{ flex: '0 0 160px', minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{a.nome}</div>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{a.rotulo}</div>
+                {a.agentes.length > 1 && <div style={{ fontSize: '0.7rem', color: 'var(--brs-gray-600)' }}>compartilhada por: {a.agentes.join(', ')}</div>}
                 {a.cotas.length > 0 && (
                   <div style={{ fontSize: '0.7rem', color: 'var(--brs-gray-400)' }} title={`por ${maisRecente(a.cotas).atualizadoPorNome}`}>
                     atualizado {tempoDesde(maisRecente(a.cotas).atualizadoEm)}
@@ -138,13 +140,13 @@ export function CotasCard({ agentes, erro, onSalvo }: { agentes: AgenteComCotas[
               </button>
             </div>
           ))}
-          {agentes.length === 0 && !erro && <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-400)' }}>Nenhuma IA cadastrada.</div>}
+          {contas.length === 0 && !erro && <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-400)' }}>Nenhuma conta com cota legível.</div>}
         </div>
       )}
 
       {editando && (
         <Modal
-          titulo={`Cotas de ${editando.nome}`}
+          titulo={`Cotas de ${editando.rotulo}`}
           largura={720}
           onFechar={() => !salvando && setEditando(null)}
           rodape={

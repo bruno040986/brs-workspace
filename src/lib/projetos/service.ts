@@ -12,6 +12,7 @@ import {
   codigoProjeto,
   commitDeLinha,
   concluidaEmPara,
+  contasDeAgentes,
   ehPrioridade,
   ehTarefaStatus,
   erroTransicaoProjeto,
@@ -20,6 +21,7 @@ import {
   normalizarPrazo,
   parseCodigoProjeto,
   patchEscritaTecnica,
+  resolverContaCota,
   tarefaDeLinha,
   temEscritaTecnica,
   textoChat,
@@ -29,7 +31,8 @@ import {
   PROJETO_STATUS_LABEL,
   TAREFA_STATUS_LABEL,
   type Agente,
-  type AgenteComCotas,
+  type AgenteConta,
+  type ContaCotas,
   type Cota,
   type Mensagem,
   type MensagemTipo,
@@ -623,39 +626,62 @@ export async function atualizarTarefa(
 }
 
 // ---------------------------------------------------------------------------
-// Cotas das IAs (valor informado pelo Bruno ou pela própria IA; sem histórico)
+// Cotas das IAs: a cota é da CONTA (Claude.ai e Claude Code dividem uma).
+// Valor informado pelo Bruno ou por uma IA; sem histórico.
 // ---------------------------------------------------------------------------
 
-/** IAs ativas (e inativas que ainda têm cota) com suas cotas; IA por nome, cota por nome. */
-export async function listarCotas(admin: Admin): Promise<AgenteComCotas[]> {
-  const [agentes, cotasR] = await Promise.all([carregarAgentes(admin), admin.from('projeto_agente_cotas').select('*').order('nome')])
+async function carregarAgentesConta(admin: Admin): Promise<AgenteConta[]> {
+  const { data, error } = await admin.from('projeto_agentes').select('id, slug, nome, ativo, cota_conta, cota_conta_rotulo')
+  if (error) throw error
+  return (data || []).map((r) => ({
+    id: String(r.id),
+    slug: String(r.slug),
+    nome: String(r.nome),
+    ativo: r.ativo !== false,
+    cotaConta: r.cota_conta ? String(r.cota_conta) : null,
+    cotaContaRotulo: r.cota_conta_rotulo ? String(r.cota_conta_rotulo) : null,
+  }))
+}
+
+/** Contas com cota legível (IA com cota_conta), ordem pelo rótulo; conta sem IA ativa só aparece se tiver cota. */
+export async function listarCotas(admin: Admin): Promise<ContaCotas[]> {
+  const [agentes, cotasR] = await Promise.all([carregarAgentesConta(admin), admin.from('projeto_agente_cotas').select('*').order('nome')])
   if (cotasR.error) throw cotasR.error
   const linhas = cotasR.data || []
   const nomes = await nomesUsuarios(admin, linhas.map((r) => String(r.atualizado_por_usuario_id || '')))
-  const porAgente = new Map<string, Cota[]>()
+  const nomeAgente = new Map(agentes.map((a) => [a.id, a.nome]))
+  const porConta = new Map<string, Cota[]>()
   for (const r of linhas) {
     const porAgenteId = r.atualizado_por_agente_id ? String(r.atualizado_por_agente_id) : null
     const cota: Cota = {
       id: String(r.id),
-      agenteId: String(r.agente_id),
+      conta: String(r.cota_conta),
       nome: String(r.nome),
       percentualUsado: Number(r.percentual_usado),
       reiniciaEm: r.reinicia_em ? String(r.reinicia_em) : null,
       observacao: r.observacao ? String(r.observacao) : null,
       atualizadoEm: String(r.updated_at),
-      atualizadoPorNome: porAgenteId ? agentes.get(porAgenteId)?.nome || 'IA' : nomes.get(String(r.atualizado_por_usuario_id)) || '—',
+      atualizadoPorNome: porAgenteId ? nomeAgente.get(porAgenteId) || 'IA' : nomes.get(String(r.atualizado_por_usuario_id)) || '—',
     }
-    porAgente.set(cota.agenteId, [...(porAgente.get(cota.agenteId) || []), cota])
+    porConta.set(cota.conta, [...(porConta.get(cota.conta) || []), cota])
   }
-  return [...agentes.values()]
-    .map((a) => ({ ...a, cotas: porAgente.get(a.id) || [] }))
-    .filter((a) => a.ativo || a.cotas.length)
-    .sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR'))
+  return contasDeAgentes(agentes)
+    .map((c) => ({ ...c, cotas: porConta.get(c.conta) || [] }))
+    .filter((c) => c.agentes.length || c.cotas.length)
 }
 
-/** Upsert por (IA, nome sem diferenciar maiúsculas). Cotas não listadas ficam como estão. */
-export async function registrarCotas(admin: Admin, autor: Autor, agenteId: string, cotas: unknown): Promise<{ agente: Agente; total: number }> {
-  const agente = agenteValido(await carregarAgentes(admin), agenteId, 'Cotas')
+/**
+ * Upsert por (conta, nome sem diferenciar maiúsculas). Cotas não listadas ficam como estão.
+ * Conta: `conta` explícita > conta da IA `agenteSlug` > conta da IA `agenteId`.
+ */
+export async function registrarCotas(
+  admin: Admin,
+  autor: Autor,
+  alvo: { conta?: string | null; agenteSlug?: string | null; agenteId?: string | null },
+  cotas: unknown,
+): Promise<{ conta: string; rotulo: string; total: number }> {
+  const agentes = await carregarAgentesConta(admin)
+  const conta = resolverContaCota(agentes, alvo)
   const lista = validarCotas(cotas)
   const quem =
     'agenteId' in autor
@@ -663,17 +689,17 @@ export async function registrarCotas(admin: Admin, autor: Autor, agenteId: strin
       : { atualizado_por_usuario_id: autor.usuarioId, atualizado_por_agente_id: null }
   const { error } = await admin.from('projeto_agente_cotas').upsert(
     lista.map((c) => ({
-      agente_id: agente.id,
+      cota_conta: conta,
       nome: c.nome,
       percentual_usado: c.percentualUsado,
       reinicia_em: c.reiniciaEm,
       observacao: c.observacao,
       ...quem,
     })),
-    { onConflict: 'agente_id,nome_chave' },
+    { onConflict: 'cota_conta,nome_chave' },
   )
   if (error) throw error
-  return { agente, total: lista.length }
+  return { conta, rotulo: contasDeAgentes(agentes).find((c) => c.conta === conta)?.rotulo || conta, total: lista.length }
 }
 
 export async function removerCota(admin: Admin, cotaId: string) {

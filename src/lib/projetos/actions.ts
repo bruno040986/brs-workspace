@@ -14,7 +14,7 @@ import { codigoProjeto, parseCodigoProjeto } from './puro'
 import type {
   ActionResult,
   Agente,
-  AgenteComCotas,
+  ContaCotas,
   Mensagem,
   ProjetoDetalhe,
   ProjetoResumo,
@@ -186,7 +186,7 @@ export async function atualizarTarefa(input: {
 
 // Cotas das IAs: sem revalidatePath (a tela /projetos busca por polling e recarrega após salvar).
 
-export async function listarCotas(): Promise<ActionResult<AgenteComCotas[]>> {
+export async function listarCotas(): Promise<ActionResult<ContaCotas[]>> {
   try {
     await requirePermission('projetos', 'can_view')
     return { success: true, data: await svc.listarCotas(await createAdminClient()) }
@@ -196,12 +196,12 @@ export async function listarCotas(): Promise<ActionResult<AgenteComCotas[]>> {
 }
 
 export async function registrarCotas(
-  agenteId: string,
+  conta: string,
   cotas: { nome: string; percentualUsado: number; reiniciaEm?: string | null; observacao?: string | null }[],
 ): Promise<ActionResult> {
   try {
     const { user } = await requirePermission('projetos', 'can_edit')
-    await svc.registrarCotas(await createAdminClient(), { usuarioId: user.id }, agenteId, cotas)
+    await svc.registrarCotas(await createAdminClient(), { usuarioId: user.id }, { conta }, cotas)
     return { success: true, data: undefined }
   } catch (err) {
     return falha(err, 'Erro ao salvar cotas.')

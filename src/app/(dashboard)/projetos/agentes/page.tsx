@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Bot, Copy, KeyRound } from 'lucide-react'
 import { gerarTokenAgente, listarAgentes, listarCotas } from '@/lib/projetos/actions'
-import type { Agente, AgenteComCotas } from '@/lib/projetos/tipos'
+import type { Agente, ContaCotas } from '@/lib/projetos/tipos'
 import { CotasCard } from '../_components/cotas'
 import { Aviso, Carregando, Modal, erroMsg } from '../_components/ui'
 
@@ -16,7 +16,7 @@ export default function AgentesPage() {
   const [gerando, setGerando] = useState('')
   const [gerado, setGerado] = useState<{ nome: string; url: string } | null>(null)
   const [copiado, setCopiado] = useState(false)
-  const [cotas, setCotas] = useState<AgenteComCotas[]>([])
+  const [cotas, setCotas] = useState<ContaCotas[]>([])
   const [erroCotas, setErroCotas] = useState('')
 
   async function carregar() {
@@ -122,7 +122,7 @@ export default function AgentesPage() {
         </div>
       )}
 
-      {!carregando && <CotasCard agentes={cotas} erro={erroCotas} onSalvo={carregar} />}
+      {!carregando && <CotasCard contas={cotas} erro={erroCotas} onSalvo={carregar} />}
 
       <div className="card">
         <div className="card-header"><h3 className="card-title">Como conectar</h3></div>

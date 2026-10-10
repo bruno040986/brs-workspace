@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Bot, FolderKanban, Plus, Search } from 'lucide-react'
 import { criarProjeto, listarAgentes, listarCotas, listarProjetos } from '@/lib/projetos/actions'
-import { PROJETO_STATUS_LABEL, PROJETO_STATUS_ORDEM, type Agente, type AgenteComCotas, type ProjetoResumo, type ProjetoStatus } from '@/lib/projetos/tipos'
+import { PROJETO_STATUS_LABEL, PROJETO_STATUS_ORDEM, type Agente, type ContaCotas, type ProjetoResumo, type ProjetoStatus } from '@/lib/projetos/tipos'
 import { CotasCard } from './_components/cotas'
 import { AgenteChips, Aviso, Carregando, CamposProjeto, Modal, ProjetoStatusBadge, dataFmt, erroMsg, type FormProjeto } from './_components/ui'
 
@@ -26,7 +26,7 @@ export default function ProjetosPage() {
   const [form, setForm] = useState<FormProjeto | null>(null)
   const [agentes, setAgentes] = useState<Agente[]>([])
   const [salvando, setSalvando] = useState(false)
-  const [cotas, setCotas] = useState<AgenteComCotas[]>([])
+  const [cotas, setCotas] = useState<ContaCotas[]>([])
   const [erroCotas, setErroCotas] = useState('')
 
   async function carregar() {
@@ -110,7 +110,7 @@ export default function ProjetosPage() {
 
       {!form && <Aviso erro={erro} />}
 
-      {!carregando && <CotasCard agentes={cotas} erro={erroCotas} onSalvo={carregar} />}
+      {!carregando && <CotasCard contas={cotas} erro={erroCotas} onSalvo={carregar} />}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: '0.9rem', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: '1 1 240px' }}>

@@ -4,6 +4,7 @@ import {
   MAX_CHAT,
   avisoEscritaAlterada,
   concluidaEmPara,
+  contasDeAgentes,
   corCota,
   ehChat,
   erroTransicaoProjeto,
@@ -11,6 +12,7 @@ import {
   normalizarPrazo,
   parseCodigoProjeto,
   patchEscritaTecnica,
+  resolverContaCota,
   temEscritaTecnica,
   tempoDesde,
   textoChat,
@@ -133,6 +135,32 @@ describe('cotas das IAs', () => {
     for (const p of [-1, 100.01, '', null, 'abc', undefined]) assert.throws(() => validarCotas([{ nome: 'x', percentualUsado: p }]), /0 a 100/)
     assert.throws(() => validarCotas([{ nome: 'x', percentualUsado: 1, reiniciaEm: 'amanhã' }]), /ISO/)
     assert.throws(() => validarCotas([{ nome: 'x', percentualUsado: 1, observacao: 'a'.repeat(201) }]), /200/)
+  })
+  const ags = [
+    { id: '1', slug: 'claude-code', nome: 'Claude Code', ativo: true, cotaConta: 'claude', cotaContaRotulo: 'Claude.ai / Claude Code' },
+    { id: '2', slug: 'claude', nome: 'Claude', ativo: true, cotaConta: 'claude', cotaContaRotulo: 'Claude.ai / Claude Code' },
+    { id: '3', slug: 'jarvis', nome: 'Jarvis (ChatGPT)', ativo: true, cotaConta: null, cotaContaRotulo: null },
+    { id: '4', slug: 'codex', nome: 'Codex', ativo: true, cotaConta: 'codex', cotaContaRotulo: 'Codex (OpenAI)' },
+    { id: '5', slug: 'gemini-antigravity', nome: 'Gemini (Antigravity)', ativo: true, cotaConta: 'antigravity', cotaContaRotulo: 'Gemini (Antigravity)' },
+    { id: '6', slug: 'gemini-notebooklm', nome: 'Gemini (NotebookLM)', ativo: true, cotaConta: null, cotaContaRotulo: null },
+  ]
+  it('agrupa IAs por conta: Claude e Claude Code numa linha, sem Jarvis/NotebookLM, ordem pelo rótulo', () => {
+    assert.deepEqual(contasDeAgentes(ags), [
+      { conta: 'claude', rotulo: 'Claude.ai / Claude Code', agentes: ['Claude', 'Claude Code'] },
+      { conta: 'codex', rotulo: 'Codex (OpenAI)', agentes: ['Codex'] },
+      { conta: 'antigravity', rotulo: 'Gemini (Antigravity)', agentes: ['Gemini (Antigravity)'] },
+    ])
+    assert.deepEqual(contasDeAgentes([{ ...ags[3], ativo: false, cotaContaRotulo: null }]), [{ conta: 'codex', rotulo: 'codex', agentes: [] }])
+  })
+  it('resolve a conta: conta > agenteSlug > IA chamadora; erro claro sem conta', () => {
+    assert.equal(resolverContaCota(ags, { agenteId: '1' }), 'claude')
+    assert.equal(resolverContaCota(ags, { agenteId: '2' }), 'claude')
+    assert.equal(resolverContaCota(ags, { agenteId: '3', agenteSlug: 'codex' }), 'codex')
+    assert.equal(resolverContaCota(ags, { agenteId: '3', conta: ' Antigravity ', agenteSlug: 'codex' }), 'antigravity')
+    assert.throws(() => resolverContaCota(ags, { agenteId: '3' }), /Jarvis \(ChatGPT\) não tem conta.*antigravity, claude, codex/)
+    assert.throws(() => resolverContaCota(ags, { agenteId: '1', agenteSlug: 'gemini-notebooklm' }), /NotebookLM\) não tem conta/)
+    assert.throws(() => resolverContaCota(ags, { agenteId: '1', agenteSlug: 'xpto' }), /não encontrada/)
+    assert.throws(() => resolverContaCota(ags, { conta: 'chatgpt' }), /não existe/)
   })
   it('cor: < 50 verde, 50–70 amarelo, > 70 vermelho', () => {
     assert.deepEqual([0, 49.99, 50, 70, 70.01, 100].map(corCota), ['success', 'success', 'warning', 'warning', 'danger', 'danger'])

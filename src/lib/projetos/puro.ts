@@ -7,7 +7,9 @@ import {
   TAREFA_PRIORIDADE_LABEL,
   TAREFA_STATUS_LABEL,
   type Agente,
+  type AgenteConta,
   type Commit,
+  type Conta,
   type Mensagem,
   type MensagemTipo,
   type ProjetoStatus,
@@ -131,12 +133,12 @@ export type CotaEntrada = { nome: string; percentualUsado: number; reiniciaEm: s
 
 /**
  * Normaliza a lista de cotas recebida (tela ou MCP): nome aparado e único por
- * IA (sem diferenciar maiúsculas), percentual 0–100 (aceita "45,5" e "45%",
+ * conta (sem diferenciar maiúsculas), percentual 0–100 (aceita "45,5" e "45%",
  * arredonda em 2 casas), reiniciaEm ISO ou vazio, observação opcional.
  */
 export function validarCotas(v: unknown): CotaEntrada[] {
   if (!Array.isArray(v) || !v.length) throw new Error('Informe ao menos uma cota.')
-  if (v.length > MAX_COTAS) throw new Error(`No máximo ${MAX_COTAS} cotas por IA.`)
+  if (v.length > MAX_COTAS) throw new Error(`No máximo ${MAX_COTAS} cotas por conta.`)
   const vistos = new Set<string>()
   return v.map((c: Record<string, unknown> | null) => {
     const nome = String(c?.nome ?? '').trim()
@@ -159,6 +161,37 @@ export function validarCotas(v: unknown): CotaEntrada[] {
 
     return { nome, percentualUsado: Math.round(p * 100) / 100, reiniciaEm: r ? new Date(t).toISOString() : null, observacao: obs || null }
   })
+}
+
+/** Contas de cota a partir das IAs: só IAs com conta; IAs ativas por nome; rótulo da 1ª IA que tiver; ordem pelo rótulo. */
+export function contasDeAgentes(agentes: AgenteConta[]): Conta[] {
+  const m = new Map<string, Conta>()
+  for (const a of [...agentes].sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR'))) {
+    if (!a.cotaConta) continue
+    const c = m.get(a.cotaConta) || { conta: a.cotaConta, rotulo: '', agentes: [] }
+    c.rotulo ||= a.cotaContaRotulo?.trim() || ''
+    if (a.ativo) c.agentes.push(a.nome)
+    m.set(a.cotaConta, c)
+  }
+  return [...m.values()].map((c) => ({ ...c, rotulo: c.rotulo || c.conta })).sort((x, y) => x.rotulo.localeCompare(y.rotulo, 'pt-BR'))
+}
+
+/** Conta onde gravar cotas: `conta` explícita > conta da IA `agenteSlug` > conta da IA `agenteId` (a chamadora). */
+export function resolverContaCota(
+  agentes: AgenteConta[],
+  alvo: { conta?: string | null; agenteSlug?: string | null; agenteId?: string | null },
+): string {
+  const validas = [...new Set(agentes.map((a) => a.cotaConta).filter((c): c is string => !!c))].sort()
+  const conta = alvo.conta?.trim().toLowerCase()
+  if (conta) {
+    if (!validas.includes(conta)) throw new Error(`Conta "${conta}" não existe. Use: ${validas.join(', ')}.`)
+    return conta
+  }
+  const slug = alvo.agenteSlug?.trim()
+  const a = slug ? agentes.find((x) => x.slug === slug) : agentes.find((x) => x.id === alvo.agenteId)
+  if (!a) throw new Error(slug ? `IA "${slug}" não encontrada. Use listar_agentes para ver os slugs.` : 'Informe a conta das cotas.')
+  if (!a.cotaConta) throw new Error(`${a.nome} não tem conta com cota legível (só ${validas.join(', ')}). Passe conta ou agenteSlug de uma IA com conta.`)
+  return a.cotaConta
 }
 
 /** Faixa de cor do uso: < 50 verde, 50–70 amarelo, > 70 vermelho. */
