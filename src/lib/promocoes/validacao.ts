@@ -90,3 +90,16 @@ export function pixValido(tipo: PixTipo, chave: string | null): boolean {
       return false
   }
 }
+
+/** "Não encontrei meu convênio": trim, sem HTML/controles, espaços colapsados, até 120. Vazio/curto → null. */
+export function textoConvenioLivre(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const t = raw
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[<>\p{Cc}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+    .trim()
+  return t.length >= 2 ? t : null
+}

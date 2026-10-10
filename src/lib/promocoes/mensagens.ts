@@ -5,7 +5,7 @@
 import { dataSorteioBr, formatarDataBr, formatarTelefone } from './mascara.ts'
 import { formatarNumeroSorte } from './codigos.ts'
 
-const NOME_PROMOCAO = 'NuAzul – Você Sempre no Azul | Valparaíso de Goiás'
+const NOME_PROMOCAO = 'NuAzul – Você Sempre no Azul | Servidor Premiado'
 
 /** M1 — OTP */
 export function textoOtp(codigo: string): string {
@@ -73,7 +73,7 @@ export type ItemAvisoPagamento = { nome: string; cpfMascarado: string }
  */
 export function textoAvisoPagamento(v: { valor: string; itens: ItemAvisoPagamento[]; pixChave: string; pagadorCnpjFmt: string; pagadorNome: string }): string {
   return [
-    `Pela sua indicação na promoção NuAzul - Você sempre no azul | Valparaíso de Goiás, hoje estamos realizando o pagamento de R$ ${v.valor} referente as indicações abaixo. Obrigado!`,
+    `Pela sua indicação na promoção NuAzul - Você sempre no azul | Servidor Premiado, hoje estamos realizando o pagamento de R$ ${v.valor} referente as indicações abaixo. Obrigado!`,
     ...v.itens.map((i) => `${i.nome} - CPF ${i.cpfMascarado}`),
     '',
     `Para sua conferência o valor será pago pelo CNPJ ${v.pagadorCnpjFmt} em nome de ${v.pagadorNome} até as 20:00h de hoje no pix cadastrado:`,

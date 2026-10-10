@@ -1,4 +1,32 @@
-# CONTRATO — Promoção "NuAzul – Você Sempre no Azul | Valparaíso de Goiás"
+# CONTRATO — Promoção "NuAzul – Você Sempre no Azul | Servidor Premiado"
+
+> **Atualização 2026-10-11 (PRJ-1/T-18) — prevalece sobre o texto abaixo.** A campanha nasceu como
+> "Valparaíso de Goiás" (slug `valparaiso-go`); o histórico abaixo mantém esse nome. Agora é a promoção
+> geral da NuAzul para servidores públicos de **qualquer convênio**:
+> - **Slug:** `promocao-servidor-publico` (migration `20261010121453_promocao_geral.sql` renomeia a linha
+>   `valparaiso-go`; `cidade`/`uf` passam a aceitar null; `regulamento_versao = '2026-10-11'`,
+>   `regulamento_url = 'https://nuazul.com.br/promocao-servidor-publico#regulamento'`, tags WeSales
+>   `{promo-servidor-publico}`). Prefixos de código (`VPG`/`IND`) não mudam.
+> - **Convênio é da inscrição, não da campanha:** `promocao_inscricoes` e `promocao_indicacoes` ganham
+>   `convenio_id uuid null → convenios` e `convenio_texto_livre text null` (≤ 120). Check: nas linhas criadas
+>   depois da migration, pelo menos um dos dois é obrigatório (as antigas ficam de fora; backfill com o
+>   `convenio_id` da campanha). `promocao_campanhas.convenio_id` fica só como fallback do WeSales.
+> - **`GET /convenios?campanha=promocao-servidor-publico[&q=]`** → `200 { convenios: [{ id, nome, uf }] }` ordenada
+>   por nome; convênios `is_active` e não excluídos (independe de publicação no site). `q` (≥ 2 caracteres,
+>   `ilike` no nome) → até 20; sem `q` (ou `q` curto) → lista completa até 200.
+>   `Cache-Control: public, s-maxage=300`. 404 `CAMPANHA_INDISPONIVEL`; 405 para outros métodos.
+> - **Convênio no cadastro** (`POST /inscricoes` e `POST /indicacoes`): exatamente um de
+>   `convenioId` (uuid da lista) **ou** `convenioTexto` ("Não encontrei meu convênio": trim, HTML removido,
+>   espaços colapsados, 2–120 caracteres). Nenhum → **400 `CONVENIO_OBRIGATORIO`**; os dois, ou id
+>   inexistente/inativo → **400 `CONVENIO_INVALIDO`**. Na indicação é o convênio do INDICADO (no topo do
+>   body; também aceito dentro de `indicado`) e é gravado na inscrição do indicado e na indicação. Na
+>   inscrição que assume um cadastro vindo de indicação, o convênio informado substitui o anterior.
+> - **Área interna:** Inscritos e Indicações mostram a coluna Convênio (nome, ou selo "(texto livre) …").
+>   Em Inscritos, "Vincular convênio" preenche `convenio_id` da inscrição (e da indicação dela, se vazia),
+>   mantém o texto original, registra `inscricao.convenio_vinculado` e reenfileira o sync do WeSales.
+> - WeSales: campos de convênio (`codigo_sistema`/`nome_reduzido`) vêm do convênio da inscrição.
+> - Link de geração de números (job `promocoes.enviar_link_numeros`) usa o slug: passa a ser
+>   `${site_base_url}/promocao-servidor-publico/numeros?t=…` — o site precisa servir essa página.
 
 > Lei para as frentes paralelas (A–E, H + Site). Fonte das regras de negócio:
 > `.claude/tmp/promocao-regras.md` (02/10/2026). Em conflito, vale ESTE arquivo
@@ -398,16 +426,17 @@ Testes (`src/lib/promocoes/__tests__/*.test.ts`, **`node:test` + `node:assert/st
 - Adicionar `'/api/promocoes/publico'` em `publicRoutes` (`src/lib/supabase/middleware.ts`) — 1 linha, frente B.
 - Site NuAzul expõe como `/api/promo/:path*` → rewrite para `https://<workspace>/api/promocoes/publico/:path*`. Sem CORS (mesma origem via rewrite). IP = `x-forwarded-for` (1º), `ip_hash = sha256(ip + PROMO_IP_SALT)` para tracking; IP cru só em `promocao_otps`/`promocao_geracoes` (retenção interna).
 - Todas as respostas de erro: `{ error: { code: string; message: string } }` com HTTP indicado. Mensagens em pt-BR prontas para exibir.
-- Todo POST: `{ campanha: 'valparaiso-go', submissionId?: uuid, site: '' /*honeypot*/, ...}`. `campanha` inexistente/`status<>'ativa'` → `404 CAMPANHA_INDISPONIVEL` (exceção: `geracao/*` funciona com `encerrada_cadastro` até `prazo_geracao_ate`).
+- Todo POST: `{ campanha: 'promocao-servidor-publico' /*era 'valparaiso-go'*/, submissionId?: uuid, site: '' /*honeypot*/, ...}`. `campanha` inexistente/`status<>'ativa'` → `404 CAMPANHA_INDISPONIVEL` (exceção: `geracao/*` funciona com `encerrada_cadastro` até `prazo_geracao_ate`).
 - Rate limit (`promocao_limite_tentar`): chave `rl:<rota>:ip:<ip>` e `rl:<rota>:tel:<telefone>`; estourou → `429 LIMITE_EXCEDIDO`.
 
 | # | Método/Path | Request | Response 200 | Erros |
 |---|---|---|---|---|
+| 4.0 | `GET /convenios?campanha=&q=` (T-18) | — | `{ convenios:[{ id, nome, uf }] }` por nome (q ≥ 2 → até 20; sem q → até 200), `Cache-Control: public, s-maxage=300` | 404, 405 |
 | 4.1 | `GET /config?campanha=` | — | `{ nome, status, inicio, fim, prazoGeracaoAte, dataSorteio, otpObrigatorio, otpDisponivel /*instância conectada*/, telefoneContato, regulamentoUrl, regulamentoVersao, pixels:{meta,ga4,gads}, faixasCartao, minimoCentavos }` | 404 |
 | 4.2 | `POST /otp/iniciar` | `{ campanha, telefone, finalidade:'servidor'\|'indicador', site }` | `{ otpId, expiraEm, reenvioEm }` — se OTP indisponível: `{ otpId:null, dispensado:true }` | 422 `TELEFONE_INVALIDO`; 429 (3/tel/h, 10/ip/h, cooldown 60 s → `AGUARDE_REENVIO` com `reenvioEm`) |
 | 4.3 | `POST /otp/confirmar` | `{ campanha, otpId, codigo }` | `{ otpToken, telefone, expiraEm }` | 422 `CODIGO_INVALIDO` (`tentativasRestantes`), 410 `CODIGO_EXPIRADO`, 423 `CODIGO_BLOQUEADO` |
-| 4.4 | `POST /inscricoes` (servidor direto) | `{ campanha, submissionId, otpToken?, nome, cpf, telefone, **dataNascimento (obrigatória, AAAA-MM-DD, >= 18 anos; dispensada só se a inscrição assumida por indicação já tem nascimento)**, email? (opcional), consentPromocao:true, consentContatoComercial:boolean, regulamentoVersao, tracking?:{eventId,utm_source,…,referrer,landingUrl}, site }` | `{ inscricaoId, codigo:'VPG-100001', telefoneVerificado, wesales:'ok'\|'pendente', whatsappUrl:'https://wa.me/55…?text=…' }` (texto §6.3-M7) | 422 `DADOS_INVALIDOS` (`campos:[{campo,msg}]`), 422 **`NASCIMENTO_INVALIDO`** (ausente, inválida, futura ou menor de 18), 422 `CPF_NAO_ELEGIVEL`, 409 `CPF_JA_INSCRITO`, 401 `OTP_OBRIGATORIO` (otpToken ausente/inválido/telefone ≠ e `otp_obrigatorio && otpDisponivel`), 409 `CONSENTIMENTO_OBRIGATORIO` |
-| 4.5 | `POST /indicacoes` | `{ campanha, submissionId, otpToken?, indicador:{ nome, cpf, telefone, dataNascimento, pix:{ tipo, chave?, bancoCodigo?, bancoNome?, agencia?, conta? } }, indicado:{ nome, cpf, telefone, dataNascimento }, consentPromocao:true, declaraRelacaoLegitima:true, regulamentoVersao, tracking?, site }` | `{ indicacaoId, numeroIndicacao:'IND-100001', codigoInscricaoIndicado:'VPG-100002', comprovanteToken, comprovanteUrl:'/api/promo/comprovante?t=…', telefoneVerificado, wesales }` | 422 `DADOS_INVALIDOS`, 422 `AUTOINDICACAO`, 422 `MENOR_DE_IDADE`, 422 `CPF_NAO_ELEGIVEL`, **409 `CPF_JA_INDICADO`** (message = "Este servidor já foi indicado. Não é possível nova indicação e não será gerado número de indicação."), 401 `OTP_OBRIGATORIO`, 422 `PIX_INVALIDO` |
+| 4.4 | `POST /inscricoes` (servidor direto) | `{ campanha, submissionId, otpToken?, **convenioId \| convenioTexto**, nome, cpf, telefone, **dataNascimento (obrigatória, AAAA-MM-DD, >= 18 anos; dispensada só se a inscrição assumida por indicação já tem nascimento)**, email? (opcional), consentPromocao:true, consentContatoComercial:boolean, regulamentoVersao, tracking?:{eventId,utm_source,…,referrer,landingUrl}, site }` | `{ inscricaoId, codigo:'VPG-100001', telefoneVerificado, wesales:'ok'\|'pendente', whatsappUrl:'https://wa.me/55…?text=…' }` (texto §6.3-M7) | **400 `CONVENIO_OBRIGATORIO` / `CONVENIO_INVALIDO`**, 422 `DADOS_INVALIDOS` (`campos:[{campo,msg}]`), 422 **`NASCIMENTO_INVALIDO`** (ausente, inválida, futura ou menor de 18), 422 `CPF_NAO_ELEGIVEL`, 409 `CPF_JA_INSCRITO`, 401 `OTP_OBRIGATORIO` (otpToken ausente/inválido/telefone ≠ e `otp_obrigatorio && otpDisponivel`), 409 `CONSENTIMENTO_OBRIGATORIO` |
+| 4.5 | `POST /indicacoes` | `{ campanha, submissionId, otpToken?, **convenioId \| convenioTexto** /*do indicado*/, indicador:{ nome, cpf, telefone, dataNascimento, pix:{ tipo, chave?, bancoCodigo?, bancoNome?, agencia?, conta? } }, indicado:{ nome, cpf, telefone, dataNascimento }, consentPromocao:true, declaraRelacaoLegitima:true, regulamentoVersao, tracking?, site }` | `{ indicacaoId, numeroIndicacao:'IND-100001', codigoInscricaoIndicado:'VPG-100002', comprovanteToken, comprovanteUrl:'/api/promo/comprovante?t=…', telefoneVerificado, wesales }` | **400 `CONVENIO_OBRIGATORIO` / `CONVENIO_INVALIDO`**, 422 `DADOS_INVALIDOS`, 422 `AUTOINDICACAO`, 422 `MENOR_DE_IDADE`, 422 `CPF_NAO_ELEGIVEL`, **409 `CPF_JA_INDICADO`** (message = "Este servidor já foi indicado. Não é possível nova indicação e não será gerado número de indicação."), 401 `OTP_OBRIGATORIO`, 422 `PIX_INVALIDO` |
 | 4.6 | `GET /comprovante?t=` | token da indicação (24 h) | `image/png` (1080×1350, next/og) | 404 `LINK_INVALIDO` |
 | 4.7 | `POST /comprovante/enviar` | `{ campanha, t }` | `{ envio:'enviado'\|'incerto'\|'pendente' }` — inline; a 2ª chamada no mesmo token reaproveita a chave `comprovante-ind:<id>:<n>` só se `n` (contador em `promocao_eventos`) < 3 | 404, 429 (3/token) |
 | 4.8 | `GET /geracao?t=` (H) | token do link | `{ titularTipo, nome, telefoneMascarado, email?, qtd, expiraEm, snapshot:{operacoes:[{tipo,valorCentavos,dataPagamento,instituicao}], totalCentavos, usadoAnteriorCentavos, usadoNestaCentavos, saldoCentavos}, numerosAnteriores:['01234',…], regulamentoUrl, regulamentoVersao, primeiraGeracao:boolean }` | 404 `LINK_INVALIDO` (inclui usado/expirado/cancelado), 410 `PRAZO_ENCERRADO` |
@@ -472,7 +501,7 @@ Rotas de API internas (sessão): `GET /api/promocoes/interno/[slug]/remessas/[id
 | kind | payload | dedupe_key | maxAttempts | o que faz |
 |---|---|---|---|---|
 | `promocoes.wesales_sync` | `{ inscricaoId }` | `promo-wesales:<inscricaoId>` (resync manual: `…:<inscricaoId>:<epoch>`) | 8 | §7 |
-| `promocoes.enviar_link_numeros` | `{ geracaoId }` | `promo-link:<geracaoId>` | 8 | monta token (já criado) → URL `${site_base_url}/valparaiso-go/promocao/numeros?t=<token>`; texto M3/M4; `enviarWhatsappPromocao` chave `link:<geracaoId>`; status geração → `enviado` |
+| `promocoes.enviar_link_numeros` | `{ geracaoId }` | `promo-link:<geracaoId>` | 8 | monta token (já criado) → URL `${site_base_url}/valparaiso-go/numeros?t=<token>`; texto M3/M4; `enviarWhatsappPromocao` chave `link:<geracaoId>`; status geração → `enviado` |
 | `promocoes.enviar_comprovante` | `{ tipo:'indicacao'\|'numeros', id, n }` | `promo-comp:<tipo>:<id>:<n>` | 5 | fallback quando o envio inline deu `incerto`/timeout; MESMA chave de envio do inline |
 | `promocoes.aviso_pagamento` | `{ remessaId, indicadorId }` | `promo-pag:<remessaId>:<indicadorId>` | 8 | agrupa itens do indicador na remessa, texto M6, chave `pagamento:<remessaId>:<indicadorId>` |
 | `promocoes.recalcular_direitos` | `{ inscricaoId }` | `promo-recalc:<inscricaoId>:<epoch_min>` | 3 | safety net; mesma função do §5 |
@@ -593,8 +622,8 @@ Idempotente (buscar sempre antes de criar). Indicador NÃO vai para o WeSales ag
 | **C** (telas internas) | `src/app/(dashboard)/promocoes/**` exceto `remessa/` e o card da instância em `config/`; `src/lib/promocoes/{actions,direitos-service,sorteio-actions}.ts`; `src/app/api/promocoes/interno/[slug]/numeros.csv/route.ts`; os 3 pontos de permissão em código (`usuarios/page.tsx`, `divisoes.ts`, `permissions.ts`) | A | dados fake em memória só no dev; telas lêem tabelas do §2 |
 | **D** (remessa Pix) | `src/app/(dashboard)/promocoes/[slug]/remessa/**`; `src/lib/promocoes/remessa-actions.ts`; `src/app/api/promocoes/interno/[slug]/remessas/**` (Excel via `xlsx`); handler `promocoes.aviso_pagamento` dentro de `src/lib/promocoes/jobs-remessa.ts` (B registra 1 linha) | A, E | idem C |
 | **E** (instância dedicada) | `src/lib/promocoes/{whatsapp,instancia-actions}.ts`; componente `src/app/(dashboard)/promocoes/[slug]/config/InstanciaCard.tsx` (C importa); `src/app/api/promocoes/interno/[slug]/instancia/**` | A (`promocao_envios`, `campanhas.instancia_id`) | pode testar `engine.enviar` contra instância criada pela tela existente de Canais |
-| **H** (link de geração) | `src/app/api/promocoes/publico/geracao/**`; página Astro `/valparaiso-go/promocao/numeros` no repo do site | A (`promocao_gerar_numeros`), E (envio do comprovante), B (`http.ts` helpers de erro/rate-limit — H copia a assinatura se B atrasar) | stub do RPC devolvendo `qtd` números fixos |
-| **Site NuAzul** (Astro) | `vercel.json` rewrite `/api/promo/:path*`; `/valparaiso-go`, `/valparaiso-go/promocao`, `/valparaiso-go/promocao/numeros`; categoria "Consignado Municipal"; pixels atrás do aceite de cookies, `event_id` por `crypto.randomUUID()` | contratos §4 | mock JSON dos responses do §4 |
+| **H** (link de geração) | `src/app/api/promocoes/publico/geracao/**`; página Astro `/valparaiso-go/numeros` no repo do site | A (`promocao_gerar_numeros`), E (envio do comprovante), B (`http.ts` helpers de erro/rate-limit — H copia a assinatura se B atrasar) | stub do RPC devolvendo `qtd` números fixos |
+| **Site NuAzul** (Astro) | `vercel.json` rewrite `/api/promo/:path*`; `/valparaiso-go`, `/valparaiso-go/promocao`, `/valparaiso-go/numeros`; categoria "Consignado Municipal"; pixels atrás do aceite de cookies, `event_id` por `crypto.randomUUID()` | contratos §4 | mock JSON dos responses do §4 |
 
 Excel da remessa (D): colunas exatas `CPF | Nome Completo | Valor | Banco | Agência | Conta corrente | Pix | Tipo de chave`; `Tipo de chave` ∈ `CPF, Telefone, E-mail, Aleatória, Dados Bancários`; Banco/Agência/Conta só em `dados_bancarios`, `Pix` só nos demais. Estados: `gerada → exportada → enviada_pagamento`; ao marcar `enviada_pagamento`: direitos → `pago`, 1 job `promocoes.aviso_pagamento` por indicador da remessa.
 

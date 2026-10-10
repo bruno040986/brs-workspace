@@ -17,7 +17,7 @@ export const CAMPOS_TRAFEGO: Record<string, string> = {
   landing_url: 'trafego__pagina_de_entrada',
 }
 
-export const SOURCE_BASE = 'Promoção NuAzul Valparaíso'
+export const SOURCE_BASE = 'Promoção NuAzul Servidor Premiado'
 
 /** minúsculas, sem acento, só [a-z0-9_-], espaço vira hífen, máx 40. Vazio = ''. */
 export function slugTag(valor: unknown): string {
@@ -62,7 +62,7 @@ export function tagsTrafego(t: Tracking | null | undefined): string[] {
   })
 }
 
-/** 'Promoção NuAzul Valparaíso | meta/valparaiso_promo/margem_20' — sem UTM, o source de sempre. */
+/** 'Promoção NuAzul Servidor Premiado | meta/servidor_premiado/margem_20' — sem UTM, o source de sempre. */
 export function sourceTrafego(t: Tracking | null | undefined): string {
   const partes = [t?.utm_source, t?.utm_campaign, t?.utm_content].map((v) => slugTag(v))
   if (!partes.some(Boolean)) return SOURCE_BASE

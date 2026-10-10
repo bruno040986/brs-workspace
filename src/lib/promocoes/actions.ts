@@ -92,7 +92,7 @@ export async function listarInscritos(slug: string, q = ''): Promise<R<{ items: 
     const { db, camp } = await ctx(slug)
     let query = db
       .from('promocao_inscricoes')
-      .select('id, codigo, cpf, nome, telefone, origem, status, telefone_verificado, wesales_status, wesales_erro, created_at, indicacao:promocao_indicacoes!promocao_inscricoes_indicacao_fk(numero, indicador:promocao_indicadores(nome))')
+      .select('id, codigo, cpf, nome, telefone, origem, status, telefone_verificado, wesales_status, wesales_erro, created_at, convenio_texto_livre, convenio:convenios(nome), indicacao:promocao_indicacoes!promocao_inscricoes_indicacao_fk(numero, indicador:promocao_indicadores(nome))')
       .eq('campanha_id', camp.id)
       .order('created_at', { ascending: false })
       .limit(500)
@@ -120,6 +120,8 @@ export async function listarInscritos(slug: string, q = ''): Promise<R<{ items: 
         wesales: i.wesales_status,
         wesalesErro: i.wesales_erro,
         criadoEm: i.created_at,
+        convenio: i.convenio?.nome || null,
+        convenioTexto: i.convenio_texto_livre || null,
         numeroIndicacao: i.indicacao?.numero || null,
         indicador: i.indicacao?.indicador?.nome || null,
         totalCentavos: Number(d?.total_elegivel_centavos || 0),
@@ -144,6 +146,40 @@ export async function reenviarWesales(slug: string, inscricaoId: string): Promis
   }
 }
 
+/* ----------------------------- convênio ----------------------------- */
+
+export async function listarConveniosAtivos(slug: string): Promise<R<{ items: Array<{ id: string; nome: string }> }>> {
+  try {
+    const { db } = await ctx(slug, CH, 'can_edit')
+    const { data, error } = await db.from('convenios').select('id, nome').eq('is_active', true).is('deleted_at', null).order('nome')
+    if (error) throw error
+    return { ok: true, items: data || [] }
+  } catch (e) {
+    return { ok: false, error: msg(e) }
+  }
+}
+
+/** Vincula o convênio de uma inscrição que veio com texto livre (e da indicação dela). O texto original fica guardado. */
+export async function vincularConvenio(slug: string, inscricaoId: string, convenioId: string): Promise<R> {
+  try {
+    const { db, camp, userId } = await ctx(slug, CH, 'can_edit')
+    const { data: conv } = await db.from('convenios').select('id').eq('id', convenioId).eq('is_active', true).is('deleted_at', null).maybeSingle()
+    if (!conv) throw new Error('Convênio não encontrado.')
+    const agora = new Date().toISOString()
+    const { data: insc, error } = await db.from('promocao_inscricoes').update({ convenio_id: conv.id, updated_at: agora }).eq('id', inscricaoId).eq('campanha_id', camp.id).select('id, convenio_texto_livre').maybeSingle()
+    if (error) throw error
+    if (!insc) throw new Error('Inscrição não encontrada.')
+    const { error: eInd } = await db.from('promocao_indicacoes').update({ convenio_id: conv.id, updated_at: agora }).eq('inscricao_id', insc.id).is('convenio_id', null)
+    if (eInd) throw eInd
+    await evento(db, camp.id, 'inscricao', insc.id, 'inscricao.convenio_vinculado', { convenioId: conv.id, textoLivre: insc.convenio_texto_livre }, userId)
+    // leva o convênio para o WeSales (sync idempotente)
+    await enqueueJob({ kind: 'promocoes.wesales_sync', payload: { inscricaoId: insc.id }, dedupeKey: `promo-wesales:${insc.id}:${Date.now()}`, maxAttempts: 8 })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: msg(e) }
+  }
+}
+
 /* ---------------------------- indicações ---------------------------- */
 
 export async function listarIndicacoes(slug: string, q = ''): Promise<R<{ items: any[] }>> {
@@ -151,7 +187,7 @@ export async function listarIndicacoes(slug: string, q = ''): Promise<R<{ items:
     const { db, camp } = await ctx(slug)
     const { data, error } = await db
       .from('promocao_indicacoes')
-      .select('id, numero, status, inscrita_em, cpf_indicado, inscricao_id, indicador:promocao_indicadores(id, nome, cpf, telefone, pix_tipo, pix_chave, pix_atualizado_em), inscricao:promocao_inscricoes!promocao_indicacoes_inscricao_id_fkey(id, nome, codigo, indicacao_id)')
+      .select('id, numero, status, inscrita_em, cpf_indicado, inscricao_id, convenio_texto_livre, convenio:convenios(nome), indicador:promocao_indicadores(id, nome, cpf, telefone, pix_tipo, pix_chave, pix_atualizado_em), inscricao:promocao_inscricoes!promocao_indicacoes_inscricao_id_fkey(id, nome, codigo, indicacao_id)')
       .eq('campanha_id', camp.id)
       .order('inscrita_em', { ascending: false })
       .limit(500)
@@ -178,6 +214,8 @@ export async function listarIndicacoes(slug: string, q = ''): Promise<R<{ items:
           indicado: i.inscricao?.nome,
           indicadoCpf: mascararCpf(i.cpf_indicado),
           codigoIndicado: i.inscricao?.codigo,
+          convenio: i.convenio?.nome || null,
+          convenioTexto: i.convenio_texto_livre || null,
           inscricaoId: i.inscricao?.id,
           vinculada: i.inscricao?.indicacao_id === i.id,
           pixStatus: pix?.status || 'sem_direito',

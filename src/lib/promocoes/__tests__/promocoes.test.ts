@@ -1,11 +1,11 @@
-/** Frente A — lógica pura da promoção NuAzul Valparaíso. Roda com: npm test */
+/** Frente A — lógica pura da promoção NuAzul Servidor Premiado. Roda com: npm test */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { calcularElegibilidade, direitosDoIndicador, montarSnapshotGeracao, indicacaoVale, inscricaoPodeSerIndicada, operacoesConsideradasParaIndicador, pctCartaoDaFaixa } from '../elegibilidade.ts'
 import { PARAMETROS_PADRAO, type OperacaoConfirmada } from '../tipos.ts'
 import { apurarContemplado, parseNumeroLoteria } from '../sorteio.ts'
 import { ehDiaUtil, prazoLink, prazoPix, somarDiasUteis, dataCivilSp } from '../dias-uteis.ts'
-import { cpfValido, maiorDe18, validarNascimento, decidirNascimentoNoContato, nomeCompletoValido, pixValido, telefoneBrValido, telefoneParaE164Digitos } from '../validacao.ts'
+import { cpfValido, maiorDe18, validarNascimento, decidirNascimentoNoContato, nomeCompletoValido, pixValido, telefoneBrValido, telefoneParaE164Digitos, textoConvenioLivre } from '../validacao.ts'
 import { formatarCnpj, formatarCpf, formatarValor, mascararCpf, mascararPix, mascararTelefone, nomeCurto } from '../mascara.ts'
 import { formatarCodigo, formatarNumeroSorte, gerarCodigoOtp, gerarToken, hashToken } from '../codigos.ts'
 import { textoAvisoPagamento, textoAberturaAtendimento, urlWhatsapp, textoLinkIndicador } from '../mensagens.ts'
@@ -217,7 +217,7 @@ test('M6 — aviso de pagamento segue o texto exato', () => {
     pagadorNome: 'Blue Pay Solutions Ltda',
   })
   assert.equal(txt, [
-    'Pela sua indicação na promoção NuAzul - Você sempre no azul | Valparaíso de Goiás, hoje estamos realizando o pagamento de R$ 100,00 referente as indicações abaixo. Obrigado!',
+    'Pela sua indicação na promoção NuAzul - Você sempre no azul | Servidor Premiado, hoje estamos realizando o pagamento de R$ 100,00 referente as indicações abaixo. Obrigado!',
     'Fulano de Tal - CPF *23.***.789-**',
     'Ciclano Silva - CPF *87.***.321-**',
     '',
@@ -264,4 +264,12 @@ test('decidirNascimentoNoContato: vazio grava, igual mantém, diferente diverge'
   assert.equal(decidirNascimentoNoContato('', '1985-05-20'), 'gravar')
   assert.equal(decidirNascimentoNoContato('1985-05-20T00:00:00.000Z', '1985-05-20'), 'manter')
   assert.equal(decidirNascimentoNoContato('1990-01-01', '1985-05-20'), 'divergente')
+})
+
+test('textoConvenioLivre: trim, sem HTML, limite 120, vazio → null', () => {
+  assert.equal(textoConvenioLivre('  Prefeitura   de <b>Formosa</b>\n '), 'Prefeitura de Formosa')
+  assert.equal(textoConvenioLivre('<script>x</script>'), null)
+  assert.equal(textoConvenioLivre('a'), null)
+  assert.equal(textoConvenioLivre(123), null)
+  assert.equal(textoConvenioLivre('x'.repeat(300))?.length, 120)
 })

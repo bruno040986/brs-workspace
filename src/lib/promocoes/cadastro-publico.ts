@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { enqueueJob } from '@/lib/scp-engine/queue'
 import { formatarCodigo } from './codigos'
-import { hashIp, logSeguro, registrarEvento, telefoneContatoDigitos, type Campanha } from './http'
+import { hashIp, logSeguro, UUID_RE, registrarEvento, telefoneContatoDigitos, type Campanha } from './http'
 import { sincronizarInscricaoWesales } from './wesales-sync'
-import { maiorDe18, nomeCompletoValido, cpfValido, somenteDigitos, telefoneBrValido, telefoneParaE164Digitos } from './validacao'
+import { maiorDe18, nomeCompletoValido, cpfValido, somenteDigitos, textoConvenioLivre, telefoneBrValido, telefoneParaE164Digitos } from './validacao'
 import { textoAberturaAtendimento } from './mensagens'
 import { enviarEventoCapi, montarEventoLead } from './capi-meta'
 import { lerConfigMetaCapi } from '@/lib/meta/config'
@@ -18,6 +18,23 @@ export function dataIsoValida(v: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
   const d = new Date(`${v}T00:00:00Z`)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v && v >= '1900-01-01' && d <= new Date()
+}
+
+export type ConvenioCadastro = { convenio_id: string | null; convenio_texto_livre: string | null }
+
+/** Convênio do POST público: `convenioId` (uuid de convênio ativo) OU `convenioTexto` ("não encontrei meu convênio") — exatamente um. */
+export async function lerConvenio(admin: any, rawId: unknown, rawTexto: unknown): Promise<ConvenioCadastro | { code: string; message: string }> {
+  const temId = rawId !== undefined && rawId !== null && rawId !== ''
+  const texto = textoConvenioLivre(rawTexto)
+  if (!temId && !texto) return { code: 'CONVENIO_OBRIGATORIO', message: 'Selecione o seu convênio ou informe o nome dele.' }
+  if (temId && texto) return { code: 'CONVENIO_INVALIDO', message: 'Informe o convênio da lista ou o nome digitado, não os dois.' }
+  if (texto) return { convenio_id: null, convenio_texto_livre: texto }
+  const id = str(rawId, 36).toLowerCase()
+  const { data } = UUID_RE.test(id)
+    ? await admin.from('convenios').select('id').eq('id', id).eq('is_active', true).is('deleted_at', null).maybeSingle()
+    : { data: null }
+  if (!data?.id) return { code: 'CONVENIO_INVALIDO', message: 'Convênio não encontrado. Selecione outro ou informe o nome.' }
+  return { convenio_id: data.id, convenio_texto_livre: null }
 }
 
 export function lerNome(raw: unknown, campo: string, erros: CampoInvalido[]): string {

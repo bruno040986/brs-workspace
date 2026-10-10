@@ -70,11 +70,11 @@ test('botaoDoEstado', () => {
 test('textos finais iguais ao contrato', () => {
   assert.equal(
     textoAtendimentoServidor({ nome: 'Maria Souza', codigo: 'NA-1' }),
-    'Olá, Maria! Aqui é a NuAzul. Você pediu atendimento na promoção NuAzul – Você Sempre no Azul | Valparaíso de Goiás (código NA-1). Responda esta mensagem que um atendente continua com você. Se não foi você, é só ignorar.',
+    'Olá, Maria! Aqui é a NuAzul. Você pediu atendimento na promoção NuAzul – Você Sempre no Azul | Servidor Premiado (código NA-1). Responda esta mensagem que um atendente continua com você. Se não foi você, é só ignorar.',
   )
   assert.equal(
     textoAtendimentoIndicado({ nome: 'João Lima', nomeIndicador: 'Ana Paula Reis', numeroIndicacao: 'IND-9' }),
-    'Olá, João! Ana Paula Reis indicou você na promoção NuAzul – Você Sempre no Azul | Valparaíso de Goiás (número de indicação IND-9) para falar sobre consignado e concorrer a um iPhone 17. Responda esta mensagem que um atendente continua com você. Se não quiser receber mais mensagens, responda SAIR.',
+    'Olá, João! Ana Paula Reis indicou você na promoção NuAzul – Você Sempre no Azul | Servidor Premiado (número de indicação IND-9) para falar sobre consignado e concorrer a um iPhone 17. Responda esta mensagem que um atendente continua com você. Se não quiser receber mais mensagens, responda SAIR.',
   )
   assert.equal(CONSENTIMENTO_INDICADO_TEXTO, 'Você tem autorização do indicado para receber mensagem do nosso número? Se NÃO tiver, use o botão "Enviar pelo meu WhatsApp".')
   assert.equal(CONSENTIMENTO_INDICADO_GRAVADO, `${CONSENTIMENTO_INDICADO_TEXTO} [Tenho autorização — enviar]`)

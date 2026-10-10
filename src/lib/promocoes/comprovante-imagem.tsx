@@ -7,7 +7,7 @@ import { dataSorteioBr } from './mascara'
 
 const AZUL = '#0b3d91'
 const AZUL_CLARO = '#e8f0fe'
-const TITULO = 'Você Sempre no Azul | Valparaíso de Goiás'
+const TITULO = 'Você Sempre no Azul | Servidor Premiado'
 const rodape = (sorteio?: string | null) => `iPhone 17e 256 GB · Loteria Federal ${dataSorteioBr(sorteio)} · Regulamento em nuazul.com.br`
 
 export type DadosComprovante = {

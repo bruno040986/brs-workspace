@@ -31,7 +31,7 @@ export async function handleEnviarLinkNumeros(job: EngineJob): Promise<void> {
   const titular = await carregarTitular(sb, g)
   if (!c || !titular) throw new Error('Campanha ou titular não encontrados.')
 
-  const url = `${String(c.site_base_url).replace(/\/$/, '')}/${c.slug}/promocao/numeros?t=${encodeURIComponent(token)}`
+  const url = `${String(c.site_base_url).replace(/\/$/, '')}/${c.slug}/numeros?t=${encodeURIComponent(token)}`
   const prazo = dataCivilSp(c.prazo_geracao_ate)
   const contato = (await telefoneContatoDigitos(sb, c)) || ''
   const nome = String(titular.nome).split(' ')[0]

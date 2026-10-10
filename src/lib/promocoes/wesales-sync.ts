@@ -63,7 +63,7 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
       nomeIndicador = String(ind?.promocao_indicadores?.nome || '')
     }
 
-    const tags = [...new Set([...(camp.wesales_tags || ['promo-valparaiso']), insc.origem === 'direta' ? 'promo-direto' : 'promo-indicado'])]
+    const tags = [...new Set([...(camp.wesales_tags || ['promo-servidor-publico']), insc.origem === 'direta' ? 'promo-direto' : 'promo-indicado'])]
 
     // Atribuição: lida NO MOMENTO do sync (as rotas gravam o tracking antes de enfileirar; o retry do job também a encontra).
     const { data: trk } = await admin
@@ -101,8 +101,9 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
     const entradasCpf = [...entradas, ...trafego.entradas, ...(cpfEntrada ? [cpfEntrada] : [])]
     let tagsFinais = tags
 
-    if (camp.convenio_id) {
-      const { data: conv } = await admin.from('convenios').select('codigo_sistema, nome_reduzido').eq('id', camp.convenio_id).maybeSingle()
+    const convenioId = insc.convenio_id || camp.convenio_id
+    if (convenioId) {
+      const { data: conv } = await admin.from('convenios').select('codigo_sistema, nome_reduzido').eq('id', convenioId).maybeSingle()
       const defCod = await resolveCustomField(WESALES_FIELD_KEYS.convenioCodigo)
       const defNome = await resolveCustomField(WESALES_FIELD_KEYS.nomeConvenio)
       if (conv?.codigo_sistema && defCod) add(defCod, conv.codigo_sistema)
@@ -148,7 +149,7 @@ export async function sincronizarInscricaoWesales(inscricaoId: string): Promise<
       const alvo = await resolvePipelineStage(camp.wesales_funil_nome, camp.wesales_etapa_nome)
       if (alvo) {
         const ops = await findOpportunitiesByContact(contactId, alvo.pipeline.id)
-        const op = ops[0] || (await createOpportunity({ contactId, pipelineId: alvo.pipeline.id, pipelineStageId: alvo.stage.id, name: `Promoção Valparaíso — ${insc.codigo}` }))
+        const op = ops[0] || (await createOpportunity({ contactId, pipelineId: alvo.pipeline.id, pipelineStageId: alvo.stage.id, name: `Promoção Servidor Premiado — ${insc.codigo}` }))
         opportunityId = op.id
       } else {
         await registrarEvento(admin, insc.campanha_id, 'inscricao', inscricaoId, 'wesales.funil_nao_encontrado', {})

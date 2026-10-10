@@ -4,7 +4,7 @@
  */
 import { textoAberturaAtendimento, urlWhatsapp } from './mensagens.ts'
 
-const NOME_PROMOCAO = 'NuAzul – Você Sempre no Azul | Valparaíso de Goiás'
+const NOME_PROMOCAO = 'NuAzul – Você Sempre no Azul | Servidor Premiado'
 
 /** Primeira palavra do nome, como veio. */
 export function primeiroNome(nome: string): string {
@@ -32,7 +32,7 @@ export const CONSENTIMENTO_INDICADO_GRAVADO = `${CONSENTIMENTO_INDICADO_TEXTO} [
 /** 5.4 — texto do botão B (sai do celular do indicador). */
 export function textoIndicadorParaIndicado(v: { nomeIndicado: string; nomeIndicador: string; numeroIndicacao: string; codigoInscricao: string; contatoDigitos: string }): string {
   const link = urlWhatsapp(v.contatoDigitos, textoAberturaAtendimento({ codigo: v.codigoInscricao, numeroIndicacao: v.numeroIndicacao }))
-  return `Oi, ${primeiroNome(v.nomeIndicado)}! Aqui é ${v.nomeIndicador}. Indiquei você na promoção ${NOME_PROMOCAO}: crédito consignado para servidores da Prefeitura de Valparaíso de Goiás e concorre a um iPhone 17.\n\nSeu número de indicação é ${v.numeroIndicacao}. Para falar com a NuAzul, toque no link abaixo — a mensagem já vai pronta com o seu número:\n${link}`
+  return `Oi, ${primeiroNome(v.nomeIndicado)}! Aqui é ${v.nomeIndicador}. Indiquei você na promoção ${NOME_PROMOCAO}: crédito consignado para servidores públicos e concorre a um iPhone 17.\n\nSeu número de indicação é ${v.numeroIndicacao}. Para falar com a NuAzul, toque no link abaixo — a mensagem já vai pronta com o seu número:\n${link}`
 }
 
 export function urlWhatsappIndicado(telefoneIndicadoDigitos: string, texto: string): string {

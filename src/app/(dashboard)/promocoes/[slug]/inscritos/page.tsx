@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { RefreshCw, Users } from 'lucide-react'
-import { listarInscritos, reenviarWesales } from '@/lib/promocoes/actions'
+import { listarConveniosAtivos, listarInscritos, reenviarWesales, vincularConvenio } from '@/lib/promocoes/actions'
 import { formatarReais } from '@/lib/promocoes/mascara'
 import { Aviso, Busca, Selo, Titulo, Vazio, brDataHora, useCarga, useDebounce, type Feedback } from '../../_components/ui'
 
@@ -14,6 +14,27 @@ export default function InscritosPage() {
   const [fb, setFb] = useState<Feedback>(null)
   const loader = useCallback(() => listarInscritos(slug, qd), [slug, qd])
   const { data, erro, carregando, recarregar } = useCarga(loader)
+
+  const [convenios, setConvenios] = useState<Array<{ id: string; nome: string }> | null>(null)
+  const [vinculando, setVinculando] = useState<string | null>(null)
+
+  async function abrirVinculo(id: string) {
+    setVinculando(id)
+    if (convenios) return
+    const r = await listarConveniosAtivos(slug)
+    if (r.ok) setConvenios(r.items)
+    else setFb({ type: 'error', text: r.error })
+  }
+
+  async function vincular(inscricaoId: string, convenioId: string) {
+    if (!convenioId) return
+    const r = await vincularConvenio(slug, inscricaoId, convenioId)
+    setFb(r.ok ? { type: 'success', text: 'Convênio vinculado; WeSales será atualizado.' } : { type: 'error', text: r.error })
+    if (r.ok) {
+      setVinculando(null)
+      recarregar()
+    }
+  }
 
   async function resync(id: string) {
     const r = await reenviarWesales(slug, id)
@@ -33,6 +54,7 @@ export default function InscritosPage() {
               <tr>
                 <th>Código</th>
                 <th>Nome</th>
+                <th>Convênio</th>
                 <th>CPF</th>
                 <th>Telefone</th>
                 <th>Origem</th>
@@ -47,13 +69,39 @@ export default function InscritosPage() {
             </thead>
             <tbody>
               {!data?.items?.length ? (
-                <Vazio colSpan={12} carregando={carregando} texto="Nenhum inscrito." />
+                <Vazio colSpan={13} carregando={carregando} texto="Nenhum inscrito." />
               ) : (
                 data.items.map((i) => (
                   <tr key={i.id}>
                     <td style={{ fontWeight: 600 }}>{i.codigo}</td>
                     <td>
                       {i.nome} {i.status === 'cancelada' && <Selo valor="cancelada" />}
+                    </td>
+                    <td>
+                      {i.convenio ||
+                        (i.convenioTexto ? (
+                          <span className="badge badge-warning" title="Informado como texto livre no cadastro">(texto livre) {i.convenioTexto}</span>
+                        ) : (
+                          '—'
+                        ))}
+                      {!i.convenio && i.convenioTexto && (
+                        <div style={{ marginTop: 4 }}>
+                          {vinculando === i.id ? (
+                            <select className="form-control" defaultValue="" disabled={!convenios} onChange={(e) => vincular(i.id, e.target.value)} aria-label="Vincular convênio">
+                              <option value="">{convenios ? 'Selecione o convênio…' : 'Carregando…'}</option>
+                              {convenios?.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.nome}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button type="button" className="btn btn-outline btn-sm" onClick={() => abrirVinculo(i.id)}>
+                              Vincular convênio
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td>{i.cpf}</td>
                     <td>{i.telefone}</td>

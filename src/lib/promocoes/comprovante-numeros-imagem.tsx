@@ -21,7 +21,7 @@ export async function gerarImagemComprovanteNumeros(d: DadosImagemNumeros): Prom
   const img = new ImageResponse(
     (
       <div style={{ width: 1080, height: 1350, display: 'flex', flexDirection: 'column', background: AZUL, color: '#fff', padding: 72, fontFamily: 'sans-serif' }}>
-        <div style={{ display: 'flex', fontSize: 34, opacity: 0.85 }}>NuAzul – Você Sempre no Azul | Valparaíso de Goiás</div>
+        <div style={{ display: 'flex', fontSize: 34, opacity: 0.85 }}>NuAzul – Você Sempre no Azul | Servidor Premiado</div>
         <div style={{ display: 'flex', fontSize: 64, fontWeight: 700, marginTop: 40 }}>Números da sorte gerados</div>
         <div style={{ display: 'flex', fontSize: 38, marginTop: 24, opacity: 0.9 }}>{d.nome}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: 56, flex: 1, alignContent: 'flex-start' }}>

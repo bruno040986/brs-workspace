@@ -42,6 +42,7 @@ export default function IndicacoesPage() {
                 <th>Indicador</th>
                 <th>Pix</th>
                 <th>Indicado</th>
+                <th>Convênio</th>
                 <th>Inscrita em</th>
                 <th>Total elegível</th>
                 <th>Pix R$ 50</th>
@@ -52,7 +53,7 @@ export default function IndicacoesPage() {
             </thead>
             <tbody>
               {!data?.items?.length ? (
-                <Vazio colSpan={10} carregando={carregando} texto="Nenhuma indicação." />
+                <Vazio colSpan={11} carregando={carregando} texto="Nenhuma indicação." />
               ) : (
                 data.items.map((i) => (
                   <tr key={i.id}>
@@ -77,6 +78,14 @@ export default function IndicacoesPage() {
                       <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-500)' }}>
                         {i.indicadoCpf} · {i.codigoIndicado}
                       </div>
+                    </td>
+                    <td>
+                      {i.convenio ||
+                        (i.convenioTexto ? (
+                          <span className="badge badge-warning" title="Texto livre; vincule em Inscritos">(texto livre) {i.convenioTexto}</span>
+                        ) : (
+                          '—'
+                        ))}
                     </td>
                     <td>{brDataHora(i.inscritaEm)}</td>
                     <td>{formatarReais(i.totalCentavos)}</td>

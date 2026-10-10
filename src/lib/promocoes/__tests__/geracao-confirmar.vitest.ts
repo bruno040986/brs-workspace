@@ -17,7 +17,7 @@ function builder(tabela: string) {
     in: () => q,
     or: () => q,
     order: () => q,
-    maybeSingle: () => Promise.resolve({ data: tabela === 'promocao_geracoes' ? estado.geracao : tabela === 'promocao_campanhas' ? { id: 'c1', slug: 'valparaiso-go', status: 'ativa', prazo_geracao_ate: '2999-01-01T00:00:00Z' } : null }),
+    maybeSingle: () => Promise.resolve({ data: tabela === 'promocao_geracoes' ? estado.geracao : tabela === 'promocao_campanhas' ? { id: 'c1', slug: 'promocao-servidor-publico', status: 'ativa', regulamento_versao: 'v1', prazo_geracao_ate: '2999-01-01T00:00:00Z' } : null }),
     then: (res: any) => {
       if (q._upd && tabela === 'promocao_geracoes' && q._upd.submission_id) estado.geracao.submission_id = q._upd.submission_id
       return Promise.resolve({ data: tabela === 'promocao_numeros' ? [{ numero: 12 }, { numero: 34567 }] : [{ id: 'g1' }], count: 2, error: null }).then(res)
@@ -39,7 +39,7 @@ function req(extra: Record<string, unknown> = {}) {
   return new Request('http://x/api', {
     method: 'POST',
     headers: { 'x-forwarded-for': '1.2.3.4' },
-    body: JSON.stringify({ campanha: 'valparaiso-go', t: TOKEN, submissionId: SUB, telefoneConfirmacao: '0000', dados: { nome: 'Maria Silva', telefone: '61999990000' }, aceiteRegulamento: true, regulamentoVersao: 'v1', site: '', ...extra }),
+    body: JSON.stringify({ campanha: 'promocao-servidor-publico', t: TOKEN, submissionId: SUB, telefoneConfirmacao: '0000', dados: { nome: 'Maria Silva', telefone: '61999990000' }, aceiteRegulamento: true, regulamentoVersao: 'v1', site: '', ...extra }),
   }) as any
 }
 

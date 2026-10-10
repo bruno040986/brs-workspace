@@ -2,6 +2,7 @@
 import { after, NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import {
+  lerConvenio,
   cpfBloqueado,
   gravarAceites,
   enviarLeadCapi,
@@ -144,6 +145,9 @@ export async function POST(request: NextRequest) {
   if (limiteTel) return limiteTel
 
   const admin: any = await createAdminClient()
+  // convênio do INDICADO (canônico no topo do body; aceita também dentro de `indicado`)
+  const convenio = await lerConvenio(admin, body.convenioId ?? bd.convenioId, body.convenioTexto ?? bd.convenioTexto)
+  if ('code' in convenio) return erro(convenio.code, convenio.message, 400)
 
   const { data: repetida } = await admin.from('promocao_indicacoes').select('*').eq('submission_id', submissionId).eq('campanha_id', camp.id).maybeSingle()
   if (repetida) return respostaExistente(admin, camp, repetida)
@@ -236,6 +240,7 @@ export async function POST(request: NextRequest) {
       telefone: indicado.telefone,
       data_nascimento: indicado.nascimento,
       origem: 'indicacao',
+      ...convenio,
       consent_promocao: false,
       submission_id: crypto.randomUUID(),
     })
@@ -257,6 +262,7 @@ export async function POST(request: NextRequest) {
       indicador_id: indicadorId,
       inscricao_id: inscricao.id,
       cpf_indicado: indicado.cpf,
+      ...convenio,
       submission_id: submissionId,
     })
     .select('*')
