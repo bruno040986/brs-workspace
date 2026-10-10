@@ -125,4 +125,18 @@ export type ProjetoDetalhe = ProjetoResumo & {
   commits: Commit[]
 }
 
+/** Cota de uso de uma IA ("5 horas", "Semanal"...). Valor informado, não lido por API. */
+export type Cota = {
+  id: string
+  agenteId: string
+  nome: string
+  percentualUsado: number
+  reiniciaEm: string | null
+  observacao: string | null
+  atualizadoEm: string
+  atualizadoPorNome: string
+}
+
+export type AgenteComCotas = Agente & { cotas: Cota[] }
+
 export type ActionResult<T = undefined> = { success: true; data: T } | { success: false; error: string }

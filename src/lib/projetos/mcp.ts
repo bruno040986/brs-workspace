@@ -9,13 +9,14 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as svc from './service'
-import { MAX_CHAT, avisoEscritaAlterada, ehPrioridade, ehTarefaStatus } from './puro'
+import { MAX_CHAT, MAX_COTAS, avisoEscritaAlterada, ehPrioridade, ehTarefaStatus, tempoDesde } from './puro'
 import {
   MENSAGEM_TIPO_LABEL,
   PROJETO_STATUS_LABEL,
   TAREFA_PRIORIDADE_LABEL,
   TAREFA_STATUS_LABEL,
   type Agente,
+  type AgenteComCotas,
   type Mensagem,
   type ProjetoDetalhe,
   type ProjetoResumo,
@@ -36,6 +37,7 @@ const INSTRUCOES = [
   'Ideias e análises: contribuir. Tarefas: criar_tarefa / atualizar_tarefa.',
   'Antes de encerrar uma conversa com o Bruno sobre um projeto, registre o que foi conversado e decidido com registrar_conversa_direta.',
   'Para conversar em tempo real no chat do projeto: chat_ouvir (passando o cursor da resposta anterior) e chat_enviar, em laço.',
+  'Sempre que o Bruno colar a leitura de /usage, /status ou do painel de uso (ou a plataforma avisar limite), registre as cotas com cota_registrar.',
 ].join(' ')
 
 const codigo = { type: 'string', description: 'Código do projeto, ex.: "PRJ-3".' }
@@ -140,10 +142,42 @@ export const MCP_TOOLS = [
     description: `Envia uma mensagem curta no chat do projeto (até ${MAX_CHAT} caracteres, markdown simples). Só IAs participantes. Para ideias longas use contribuir. Em laço: chame chat_ouvir com o cursor da última resposta; responda com chat_enviar; repita.`,
     inputSchema: { type: 'object', properties: { codigo, conteudo: { type: 'string', description: `Mensagem (até ${MAX_CHAT} caracteres).` } }, required: ['codigo', 'conteudo'] },
   },
+  {
+    name: 'cota_registrar',
+    description:
+      'Registra quanto já foi usado de cada cota de uma IA (ex.: Claude Code: "5 horas", "Semanal"; Codex: "5 horas", "Semanal"; Antigravity: "5 horas", "Sonnet 5.5", "Opus 5.5", "GPT"). Nenhuma IA lê a própria cota por API: use esta tool SEMPRE que o Bruno colar a leitura de /usage (Claude Code), /status (Codex) ou do painel de uso (Antigravity) ou equivalente, e também quando a plataforma avisar que um limite está perto ou foi atingido. Converta "restante" em "usado" (usado = 100 − restante). Cada cota é atualizada pelo nome (sem diferenciar maiúsculas); cotas não enviadas ficam como estão. Sem agenteSlug, registra para você mesma; com agenteSlug, registra em nome de outra IA (quando o Bruno cola aqui a leitura de outra IA).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cotas: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MAX_COTAS,
+          items: {
+            type: 'object',
+            properties: {
+              nome: { type: 'string', description: 'Nome da cota como aparece na plataforma, ex.: "5 horas", "Semanal", "Opus 5.5" (até 60 caracteres).' },
+              percentualUsado: { type: 'number', minimum: 0, maximum: 100, description: 'Percentual JÁ USADO, de 0 a 100.' },
+              reiniciaEm: { type: 'string', description: 'Quando a cota reinicia, ISO 8601 com fuso, ex.: "2026-10-10T18:00:00-03:00". Omita se não souber.' },
+              observacao: { type: 'string', description: 'Observação curta (até 200 caracteres).' },
+            },
+            required: ['nome', 'percentualUsado'],
+          },
+        },
+        agenteSlug: { type: 'string', description: 'Slug da IA dona das cotas (veja listar_agentes). Omita para registrar as suas.' },
+      },
+      required: ['cotas'],
+    },
+  },
+  {
+    name: 'cota_listar',
+    description: 'Lista as cotas de uso de todas as IAs (percentual usado, quando reinicia e há quanto tempo foi atualizado).',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ]
 
 /** Tools que não mudam a tela renderizada no servidor: a rota não revalida o cache (o chat a tela busca por polling). */
-export const MCP_TOOLS_SEM_REVALIDAR = new Set(['listar_projetos', 'ler_projeto', 'listar_mensagens', 'listar_agentes', 'chat_ouvir', 'chat_enviar'])
+export const MCP_TOOLS_SEM_REVALIDAR = new Set(['listar_projetos', 'ler_projeto', 'listar_mensagens', 'listar_agentes', 'chat_ouvir', 'chat_enviar', 'cota_registrar', 'cota_listar'])
 
 // ---------------------------------------------------------------------------
 // Formatação (markdown curto para a IA)
@@ -165,6 +199,16 @@ const horaBr = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour
 function textoChat(ms: Mensagem[], cursor: string | null): string {
   const linhas = ms.map((m) => `[${horaBr(m.createdAt)}] ${m.autorNome}: ${m.conteudo}`)
   return `${linhas.join('\n') || 'Nenhuma mensagem nova.'}\n\ncursor: ${cursor ?? '(vazio)'}`
+}
+
+const dataHoraBr = (iso: string) =>
+  new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+
+function linhaCotas(a: AgenteComCotas): string {
+  if (!a.cotas.length) return `- ${a.nome} (${a.slug}): sem leitura registrada`
+  const cotas = a.cotas.map((c) => `${c.nome} ${c.percentualUsado}%${c.reiniciaEm ? ` (reinicia ${dataHoraBr(c.reiniciaEm)})` : ''}${c.observacao ? ` [${c.observacao}]` : ''}`)
+  const ultima = a.cotas.reduce((x, y) => (Date.parse(y.atualizadoEm) > Date.parse(x.atualizadoEm) ? y : x))
+  return `- ${a.nome} (${a.slug}): ${cotas.join(' · ')} — atualizado ${tempoDesde(ultima.atualizadoEm)} por ${ultima.atualizadoPorNome}`
 }
 
 function textoAprovacao(p: ProjetoDetalhe): string {
@@ -320,6 +364,18 @@ async function executarTool(admin: SupabaseClient, agente: Agente, nome: string,
     case 'chat_enviar': {
       const r = await svc.enviarChat(admin, autor, { codigo: arg(a, 'codigo', true)!, conteudo: arg(a, 'conteudo', true)! })
       return ok(`Mensagem enviada no chat de ${r.codigo}.`)
+    }
+    case 'cota_registrar': {
+      const slug = arg(a, 'agenteSlug')
+      const agenteId = slug ? (await slugParaId(admin, slug))! : agente.id
+      const r = await svc.registrarCotas(admin, autor, agenteId, a.cotas)
+      return ok(`${r.total} cota(s) de ${r.agente.nome} registrada(s).`, { agente: r.agente.slug, total: r.total })
+    }
+    case 'cota_listar': {
+      const lista = await svc.listarCotas(admin)
+      return ok(lista.map(linhaCotas).join('\n') || 'Nenhuma IA cadastrada.', {
+        agentes: lista.map((x) => ({ slug: x.slug, nome: x.nome, cotas: x.cotas })),
+      })
     }
     case 'listar_agentes': {
       const ags = (await svc.listarAgentes(admin)).filter((x) => x.ativo).map((x) => ({ slug: x.slug, nome: x.nome }))

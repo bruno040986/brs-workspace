@@ -119,6 +119,64 @@ export function textoChat(v: unknown): string {
   return s
 }
 
+// ---------------------------------------------------------------------------
+// Cotas das IAs
+// ---------------------------------------------------------------------------
+
+export const MAX_COTA_NOME = 60
+export const MAX_COTA_OBS = 200
+export const MAX_COTAS = 20
+
+export type CotaEntrada = { nome: string; percentualUsado: number; reiniciaEm: string | null; observacao: string | null }
+
+/**
+ * Normaliza a lista de cotas recebida (tela ou MCP): nome aparado e único por
+ * IA (sem diferenciar maiúsculas), percentual 0–100 (aceita "45,5" e "45%",
+ * arredonda em 2 casas), reiniciaEm ISO ou vazio, observação opcional.
+ */
+export function validarCotas(v: unknown): CotaEntrada[] {
+  if (!Array.isArray(v) || !v.length) throw new Error('Informe ao menos uma cota.')
+  if (v.length > MAX_COTAS) throw new Error(`No máximo ${MAX_COTAS} cotas por IA.`)
+  const vistos = new Set<string>()
+  return v.map((c: Record<string, unknown> | null) => {
+    const nome = String(c?.nome ?? '').trim()
+    if (!nome) throw new Error('Toda cota precisa de nome (ex.: "5 horas", "Semanal").')
+    if (nome.length > MAX_COTA_NOME) throw new Error(`Nome de cota passa de ${MAX_COTA_NOME} caracteres: "${nome.slice(0, 20)}…".`)
+    const chave = nome.toLowerCase()
+    if (vistos.has(chave)) throw new Error(`Cota repetida: "${nome}".`)
+    vistos.add(chave)
+
+    const bruto = String(c?.percentualUsado ?? '').replace('%', '').replace(',', '.').trim()
+    const p = bruto ? Number(bruto) : NaN
+    if (!Number.isFinite(p) || p < 0 || p > 100) throw new Error(`Percentual da cota "${nome}" deve ser um número de 0 a 100.`)
+
+    const r = String(c?.reiniciaEm ?? '').trim()
+    const t = r ? Date.parse(r) : NaN
+    if (r && Number.isNaN(t)) throw new Error(`Data de reinício da cota "${nome}" inválida: use ISO 8601 (ex.: 2026-10-10T18:00:00-03:00).`)
+
+    const obs = String(c?.observacao ?? '').trim()
+    if (obs.length > MAX_COTA_OBS) throw new Error(`Observação da cota "${nome}" passa de ${MAX_COTA_OBS} caracteres.`)
+
+    return { nome, percentualUsado: Math.round(p * 100) / 100, reiniciaEm: r ? new Date(t).toISOString() : null, observacao: obs || null }
+  })
+}
+
+/** Faixa de cor do uso: < 50 verde, 50–70 amarelo, > 70 vermelho. */
+export const corCota = (percentual: number): 'success' | 'warning' | 'danger' =>
+  percentual > 70 ? 'danger' : percentual >= 50 ? 'warning' : 'success'
+
+/** '2026-10-10T12:00Z' → 'há 5 min' / 'há 3 h' / 'há 2 dias' (relativo a `agora`). */
+export function tempoDesde(iso: string, agora = Date.now()): string {
+  const min = Math.floor((agora - Date.parse(iso)) / 60_000)
+  if (!Number.isFinite(min)) return '—'
+  if (min < 1) return 'agora'
+  if (min < 60) return `há ${min} min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `há ${h} h`
+  const d = Math.floor(h / 24)
+  return `há ${d} dia${d > 1 ? 's' : ''}`
+}
+
 /** 'refs/heads/main' → 'main'. */
 export function branchDoRef(ref: unknown): string {
   return String(ref || '').replace(/^refs\/heads\//, '')

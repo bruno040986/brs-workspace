@@ -4,8 +4,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Bot, Copy, KeyRound } from 'lucide-react'
-import { gerarTokenAgente, listarAgentes } from '@/lib/projetos/actions'
-import type { Agente } from '@/lib/projetos/tipos'
+import { gerarTokenAgente, listarAgentes, listarCotas } from '@/lib/projetos/actions'
+import type { Agente, AgenteComCotas } from '@/lib/projetos/tipos'
+import { CotasCard } from '../_components/cotas'
 import { Aviso, Carregando, Modal, erroMsg } from '../_components/ui'
 
 export default function AgentesPage() {
@@ -15,10 +16,15 @@ export default function AgentesPage() {
   const [gerando, setGerando] = useState('')
   const [gerado, setGerado] = useState<{ nome: string; url: string } | null>(null)
   const [copiado, setCopiado] = useState(false)
+  const [cotas, setCotas] = useState<AgenteComCotas[]>([])
+  const [erroCotas, setErroCotas] = useState('')
 
   async function carregar() {
     try {
-      const res = await listarAgentes()
+      const [res, resCotas] = await Promise.all([listarAgentes(), listarCotas()])
+      // Cotas falhando não derruba a lista de agentes.
+      if (resCotas.success) setCotas(resCotas.data)
+      setErroCotas(resCotas.success ? '' : resCotas.error)
       if (!res.success) throw new Error(res.error)
       setAgentes(res.data)
       setErro('')
@@ -115,6 +121,8 @@ export default function AgentesPage() {
           </table>
         </div>
       )}
+
+      {!carregando && <CotasCard agentes={cotas} erro={erroCotas} onSalvo={carregar} />}
 
       <div className="card">
         <div className="card-header"><h3 className="card-title">Como conectar</h3></div>
