@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   FileStack,
   FileText,
+  Globe,
   Landmark,
   Loader2,
   MessageCircleQuestion,
@@ -41,8 +42,9 @@ import InstituicoesTab from './bc/InstituicoesTab'
 import OrgaosRestricoesTab from './bc/OrgaosRestricoesTab'
 import PesquisaTab from './bc/PesquisaTab'
 import PublicoTab from './bc/PublicoTab'
+import SiteTab from './SiteTab'
 
-type AbaPrincipal = 'dados' | 'bc'
+type AbaPrincipal = 'dados' | 'bc' | 'site'
 type SubAbaBc = 'pesquisa' | 'publico' | 'formas' | 'instituicoes' | 'orgaos' | 'decretos' | 'faq' | 'documentos'
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
@@ -363,6 +365,16 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
           <BookOpen size={15} />
           Base de Conhecimento
         </button>
+        <button
+          type="button"
+          className={`btn ${abaAtiva === 'site' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => bcHabilitada && setAbaAtiva('site')}
+          disabled={!bcHabilitada}
+          title={bcHabilitada ? undefined : 'Salve os dados básicos primeiro'}
+        >
+          <Globe size={15} />
+          Site
+        </button>
       </div>
 
       {abaAtiva === 'dados' && (
@@ -634,6 +646,8 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
           {subAba === 'documentos' && <DocumentosLista convenioId={dados.id} tipo="outro" titulo="Outros Documentos" />}
         </div>
       )}
+
+      {abaAtiva === 'site' && dados.id && <SiteTab convenioId={dados.id} convenioNome={dados.nome} />}
     </div>
   )
 }

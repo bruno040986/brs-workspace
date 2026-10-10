@@ -128,20 +128,22 @@ export async function gravarTracking(admin: any, base: { campanhaId: string; ins
 
 /**
  * Lead server-side na API de Conversões da Meta. Para usar dentro de after(): nunca lança.
- * Sem consentimento_cookies===true ou sem config: silencioso. Falha/sucesso viram evento sem PII/token.
+ * Sem consentimento, sem config ou evento inválido: evento capi.lead_descartado com o motivo. Falha/sucesso viram evento sem PII/token.
  */
 export async function enviarLeadCapi(
   admin: any,
   base: { campanhaId: string; entidade: string; entidadeId: string; telefone: string; ip: string; userAgent: string },
   tracking: unknown,
 ) {
+  const descartar = (motivo: 'sem_consentimento' | 'sem_config' | 'evento_invalido') =>
+    registrarEvento(admin, base.campanhaId, base.entidade, base.entidadeId, 'capi.lead_descartado', { motivo })
   try {
     const t = tracking && typeof tracking === 'object' ? (tracking as Record<string, unknown>) : {}
-    if (t.consentimento_cookies !== true) return
+    if (t.consentimento_cookies !== true) return await descartar('sem_consentimento')
     const cfg = await lerConfigMetaCapi()
-    if (!cfg) return
+    if (!cfg) return await descartar('sem_config')
     const corpo = montarEventoLead({ tracking, telefone: base.telefone, ip: base.ip, userAgent: base.userAgent, testEventCode: cfg.testEventCode })
-    if (!corpo) return
+    if (!corpo) return await descartar('evento_invalido')
     const r = await enviarEventoCapi(corpo, cfg)
     await registrarEvento(admin, base.campanhaId, base.entidade, base.entidadeId, r.ok ? 'capi.lead_enviado' : 'capi.lead_falhou', { status: r.status })
   } catch (e) {
