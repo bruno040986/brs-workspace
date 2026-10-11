@@ -55,7 +55,7 @@ describe('montarSnapshotPublico', () => {
   it('só tem as chaves do contrato e nenhum campo interno/uuid', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
-      'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagens', 'instituicoes', 'logotipo_url',
+      'bandeira_url', 'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagens', 'instituicoes', 'logotipo_url',
       'publicado_em', 'publicos', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
@@ -238,13 +238,16 @@ describe('imagens do convênio (T-21)', () => {
     const s = snap(entrada())
     assert.strictEqual(s.logotipo_url, null)
     assert.strictEqual(s.brasao_url, null)
+    assert.strictEqual(s.bandeira_url, null)
     assert.deepStrictEqual(s.imagens, [])
   })
 
-  it('logotipo/brasão só https válida', () => {
-    const s = snap(entrada({ logotipo_url: `${BUCKET}/logotipo-1.png`, brasao_url: 'http://x.com/b.png' }))
+  it('logotipo/brasão/bandeira só https válida', () => {
+    const s = snap(entrada({ logotipo_url: `${BUCKET}/logotipo-1.png`, brasao_url: 'http://x.com/b.png', bandeira_url: `${BUCKET}/bandeira-1.webp` }))
     assert.strictEqual(s.logotipo_url, `${BUCKET}/logotipo-1.png`)
     assert.strictEqual(s.brasao_url, null)
+    assert.strictEqual(s.bandeira_url, `${BUCKET}/bandeira-1.webp`)
+    assert.strictEqual(snap(entrada({ bandeira_url: 'javascript:alert(1)' })).bandeira_url, null)
   })
 
   it('imagens inválidas saem; legenda vazia vira null; tipo desconhecido vira outro', () => {

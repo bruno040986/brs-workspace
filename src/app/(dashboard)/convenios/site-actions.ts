@@ -425,7 +425,7 @@ export async function publishConvenioConteudoSite(
 
     const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes, aprovadoPor] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
-      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at, logotipo_url, brasao_url').eq('id', convenioId).maybeSingle(),
+      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at, logotipo_url, brasao_url, bandeira_url').eq('id', convenioId).maybeSingle(),
       supabase.from('convenio_publicos').select('publicos_atendidos(id, nome, is_active, deleted_at)').eq('convenio_id', convenioId),
       supabase.from('convenio_formas_contrato').select('formas_contrato(nome, is_active)').eq('convenio_id', convenioId),
       supabase
@@ -474,6 +474,7 @@ export async function publishConvenioConteudoSite(
       base_publica: process.env.NEXT_PUBLIC_APP_URL || undefined,
       logotipo_url: convenio.logotipo_url,
       brasao_url: convenio.brasao_url,
+      bandeira_url: convenio.bandeira_url,
       imagens: imagensRes.data || [],
       instituicoes: ((instRes.data || []) as any[])
         .filter((i) => ativo(i.financial_institutions))

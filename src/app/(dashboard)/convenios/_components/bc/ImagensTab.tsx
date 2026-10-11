@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { AlertCircle, ArrowDown, ArrowUp, CheckCircle, Loader2, Trash2, Upload } from 'lucide-react'
 import {
+  definirBandeira,
   definirBrasao,
   definirLogotipo,
   editarImagem,
@@ -21,6 +22,9 @@ const TIPOS: { value: ImagemConvenio['tipo']; label: string }[] = [
   { value: 'cidade', label: 'Cidade' },
   { value: 'outro', label: 'Outro' },
 ]
+// 'bandeira' na galeria só por compatibilidade: a bandeira tem card próprio.
+const tiposPara = (atual?: ImagemConvenio['tipo']) => TIPOS.filter((t) => t.value !== 'bandeira' || t.value === atual)
+const ACOES_MARCA = { logotipo: definirLogotipo, brasao: definirBrasao, bandeira: definirBandeira }
 
 type Msg = { type: 'success' | 'error'; text: string } | null
 type Res = { success: boolean; error?: string }
@@ -28,6 +32,7 @@ type Res = { success: boolean; error?: string }
 export default function ImagensTab({ convenioId }: { convenioId: string }) {
   const [logotipo, setLogotipo] = useState<string | null>(null)
   const [brasao, setBrasao] = useState<string | null>(null)
+  const [bandeira, setBandeira] = useState<string | null>(null)
   const [items, setItems] = useState<ImagemConvenio[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -41,6 +46,7 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
     if (res.success) {
       setLogotipo(res.logotipo_url ?? null)
       setBrasao(res.brasao_url ?? null)
+      setBandeira(res.bandeira_url ?? null)
       setItems(res.items || [])
     } else setMessage({ type: 'error', text: res.error || 'Erro ao carregar imagens.' })
     setLoading(false)
@@ -67,13 +73,12 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
     }
   }
 
-  function marca(campo: 'logotipo' | 'brasao', arquivo: File | null) {
+  function marca(campo: keyof typeof ACOES_MARCA, arquivo: File | null) {
     const fd = new FormData()
     fd.append('convenio_id', convenioId)
     if (arquivo) fd.append('arquivo', arquivo)
     else fd.append('remover', '1')
-    const fn = campo === 'logotipo' ? definirLogotipo : definirBrasao
-    return run(campo, () => fn(fd), arquivo ? 'Imagem salva.' : 'Imagem removida.')
+    return run(campo, () => ACOES_MARCA[campo](fd), arquivo ? 'Imagem salva.' : 'Imagem removida.')
   }
 
   async function handleEnviar(e: React.FormEvent) {
@@ -138,22 +143,23 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
       )}
 
       <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-500)' }}>
-        PNG, JPEG ou WebP, até 2 MB, 1:1 para logotipo e brasão. As imagens entram no site na próxima publicação da aba Landing Page.
+        PNG, JPEG ou WebP, até 2 MB, 1:1 para logotipo e brasão; bandeira em proporção livre (recomendado 3:2). As imagens entram no site na próxima publicação da aba Landing Page.
       </div>
 
       <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
         {(
           [
-            { campo: 'logotipo', titulo: 'Logotipo (1:1)', url: logotipo },
-            { campo: 'brasao', titulo: 'Brasão (1:1)', url: brasao },
+            { campo: 'logotipo', titulo: 'Logotipo (1:1)', url: logotipo, proporcao: '1 / 1' },
+            { campo: 'brasao', titulo: 'Brasão (1:1)', url: brasao, proporcao: '1 / 1' },
+            { campo: 'bandeira', titulo: 'Bandeira (recomendado 3:2)', url: bandeira, proporcao: '3 / 2' },
           ] as const
         ).map((m) => (
           <div key={m.campo} className="card" style={{ padding: '1rem', display: 'grid', gap: '0.75rem', justifyItems: 'center' }}>
             <div style={{ fontWeight: 800, justifySelf: 'start' }}>{m.titulo}</div>
             <div
               style={{
-                width: 140,
-                aspectRatio: '1 / 1',
+                height: 140,
+                aspectRatio: m.proporcao,
                 borderRadius: 10,
                 border: '1px dashed var(--brs-gray-200, #E5E7EB)',
                 background: 'var(--brs-gray-50)',
@@ -211,7 +217,7 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
           <div className="form-group">
             <label className="form-label">Tipo</label>
             <select className="form-control" value={novoTipo} onChange={(e) => setNovoTipo(e.target.value as ImagemConvenio['tipo'])}>
-              {TIPOS.map((t) => (
+              {tiposPara().map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
@@ -251,7 +257,7 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
                     disabled={!!busy}
                     onChange={(e) => editar(item, { tipo: e.target.value as ImagemConvenio['tipo'] })}
                   >
-                    {TIPOS.map((t) => (
+                    {tiposPara(item.tipo).map((t) => (
                       <option key={t.value} value={t.value}>{t.label}</option>
                     ))}
                   </select>

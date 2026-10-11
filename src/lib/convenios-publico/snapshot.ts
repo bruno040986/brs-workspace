@@ -30,6 +30,8 @@ export type ConvenioPublicoV1 = {
   /** Aditivo (T-21): logotipo e brasão 1:1 do convênio (URL https do bucket público) ou null. */
   logotipo_url: string | null
   brasao_url: string | null
+  /** Aditivo (T-21): bandeira do convênio (proporção livre, recomendado 3:2) ou null. */
+  bandeira_url: string | null
   /** Aditivo (T-21): galeria do convênio, máx. 12, só https válidas, na ordem do cadastro. */
   imagens: ImagemPublica[]
   vantagens: ItemEvidenciado[]
@@ -69,9 +71,10 @@ export type EntradaSnapshot = {
     publicos: string[] | null
     ofertas: { forma: string; publicos_restritos: string[] | null }[]
   }[]
-  /** convenios.logotipo_url / brasao_url (URL pública do bucket); inválida vira null. */
+  /** convenios.logotipo_url / brasao_url / bandeira_url (URL pública do bucket); inválida vira null. */
   logotipo_url?: unknown
   brasao_url?: unknown
+  bandeira_url?: unknown
   /** convenio_imagens já em ordem; url inválida sai, tipo desconhecido vira 'outro'. */
   imagens?: { url: unknown; legenda: unknown; tipo: unknown }[]
   /** Origem absoluta do Workspace para montar a URL da logo; padrão BASE_PUBLICA_PADRAO. */
@@ -337,6 +340,7 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       },
       logotipo_url: urlHttps(e.logotipo_url),
       brasao_url: urlHttps(e.brasao_url),
+      bandeira_url: urlHttps(e.bandeira_url),
       imagens: limite(imagens, 12, 'Imagens'),
       vantagens: limite(vantagens, 12, 'Vantagens'),
       faqs: limite(faqs, 20, 'FAQs'),

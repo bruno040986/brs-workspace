@@ -1,7 +1,7 @@
 'use server'
 
 /**
- * Convênio — imagens públicas (PRJ-1/T-21): logotipo e brasão (1:1) e galeria.
+ * Convênio — imagens públicas (PRJ-1/T-21): logotipo e brasão (1:1), bandeira (proporção livre) e galeria.
  * Arquivo vai para o bucket PÚBLICO `convenios-publico` (só service role grava);
  * o banco guarda a URL pública. Entram no snapshot do contrato v1 ao publicar.
  */
@@ -68,17 +68,17 @@ const tipoValido = (v: unknown): v is ImagemTipo => (IMAGEM_TIPOS as readonly st
 
 export async function listarImagens(
   convenioId: string,
-): Promise<{ success: boolean; logotipo_url?: string | null; brasao_url?: string | null; items?: ImagemConvenio[]; error?: string }> {
+): Promise<{ success: boolean; logotipo_url?: string | null; brasao_url?: string | null; bandeira_url?: string | null; items?: ImagemConvenio[]; error?: string }> {
   try {
     await requirePermission(RESOURCE)
     const [conv, imgs] = await Promise.all([
-      admin.from('convenios').select('logotipo_url, brasao_url').eq('id', convenioId).maybeSingle(),
+      admin.from('convenios').select('logotipo_url, brasao_url, bandeira_url').eq('id', convenioId).maybeSingle(),
       admin.from('convenio_imagens').select('id, url, legenda, tipo, ordem').eq('convenio_id', convenioId).order('ordem').order('created_at'),
     ])
     if (conv.error) throw conv.error
     if (imgs.error) throw imgs.error
     if (!conv.data) return { success: false, error: 'Convênio não encontrado.' }
-    return { success: true, logotipo_url: conv.data.logotipo_url, brasao_url: conv.data.brasao_url, items: (imgs.data || []) as ImagemConvenio[] }
+    return { success: true, logotipo_url: conv.data.logotipo_url, brasao_url: conv.data.brasao_url, bandeira_url: conv.data.bandeira_url, items: (imgs.data || []) as ImagemConvenio[] }
   } catch (error) {
     console.error('Erro ao listar imagens do convênio:', error)
     return { success: false, error: erroMsg(error) }
@@ -164,7 +164,7 @@ export async function reordenarImagens(convenioId: string, ids: string[]): Promi
 }
 
 /** FormData: convenio_id + arquivo (envia/troca) ou remover=1. A imagem anterior é apagada do bucket. */
-async function definirMarca(campo: 'logotipo_url' | 'brasao_url', formData: FormData): Promise<Resultado & { url?: string | null }> {
+async function definirMarca(campo: 'logotipo_url' | 'brasao_url' | 'bandeira_url', formData: FormData): Promise<Resultado & { url?: string | null }> {
   try {
     await requirePermission(RESOURCE, 'can_edit')
     const convenioId = String(formData.get('convenio_id') || '').trim()
@@ -178,7 +178,7 @@ async function definirMarca(campo: 'logotipo_url' | 'brasao_url', formData: Form
     if (formData.get('remover') !== '1') {
       const arq = await lerArquivo(formData.get('arquivo'))
       if (typeof arq === 'string') return { success: false, error: arq }
-      url = await enviarObjeto(convenioId, campo === 'logotipo_url' ? 'logotipo' : 'brasao', arq)
+      url = await enviarObjeto(convenioId, campo.replace('_url', ''), arq)
     }
     const { error } = await admin.from('convenios').update({ [campo]: url }).eq('id', convenioId)
     if (error) {
@@ -199,4 +199,8 @@ export async function definirLogotipo(formData: FormData) {
 
 export async function definirBrasao(formData: FormData) {
   return definirMarca('brasao_url', formData)
+}
+
+export async function definirBandeira(formData: FormData) {
+  return definirMarca('bandeira_url', formData)
 }
