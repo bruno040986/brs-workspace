@@ -56,6 +56,9 @@ type ConvenioPublicoV1 = {
   subtitulo: string|null
   resumo_publico: string|null
   hero: { headline: string|null; subheadline: string|null; imagem_url: string|null; imagem_alt: string|null }
+  logotipo_url?: string|null      // aditivo (T-21): logotipo 1:1 do convênio (URL https do bucket público) ou null
+  brasao_url?: string|null        // aditivo (T-21): brasão 1:1 do convênio ou null
+  imagens?: Imagem[]              // aditivo (T-21): galeria, máx. 12, na ordem do cadastro; snapshot antigo não tem as 3 chaves
   vantagens: ItemEvidenciado[]    // máx. 12
   faqs: (ItemEvidenciado & { pergunta: string; resposta: string })[]  // máx. 20
   publicos: { codigo: string; nome: string }[]
@@ -76,6 +79,7 @@ type Oferta = {
   codigo_forma: string            // derivado do nome, mesma regra de formas_contratacao[].codigo
   publicos: string[]              // públicos elegíveis a ESTA forma nesta instituição; nunca vazio
 }
+type Imagem = { url: string; legenda: string|null; tipo: 'predio'|'bandeira'|'cidade'|'outro' }
 type Evidencia = { fonte: string|null; consultado_em: string|null; situacao: 'confirmado'|'pendente'; natureza: 'norma_oficial'|'regra_bancaria'|null }
 type ItemEvidenciado = { titulo: string; texto: string } & Evidencia
 ```
@@ -91,6 +95,8 @@ Todas as chaves estão sempre presentes. "Opcional" quer dizer que o valor pode 
 | `resumo_publico` | não | idem | 2000 |
 | `hero.headline` / `subheadline` | não | `hero_headline` / `hero_subheadline` | 200 / 300 |
 | `hero.imagem_url` / `imagem_alt` | não | `imagem_destaque_url` / `imagem_destaque_alt` | 2048 / 200 |
+| `logotipo_url` / `brasao_url` | não | `convenios.logotipo_url` / `brasao_url` (regra `urlHttps`) | URL https ou null |
+| `imagens[]` | não | `convenio_imagens` (ordem `ordem`, `created_at`); `url` inválida sai, `tipo` fora do enum vira `outro` | 12 itens; legenda 120 |
 | `vantagens[]` | não | `vantagens` jsonb | 12 itens; título 120, texto 600 |
 | `faqs[]` | não | `faqs` jsonb | 20 itens; pergunta 300, resposta 2000 |
 | `publicos[]` | não | `publicos_atendidos.nome` | 50 itens |
@@ -119,7 +125,7 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
 1. Item com `situacao = 'pendente'`, ou sem `situacao`, **não entra**. Campo ausente conta como pendente.
 2. `publicos: []` quer dizer **nenhum público confirmado**, nunca "todos". Nas instituições não existe lista vazia ambígua: a herança do cadastro já vem resolvida em `publicos_base` e `ofertas[].publicos` (ver "elegibilidade por oferta").
 3. Texto puro. Nenhum HTML é aceito na entrada. Tags são removidas na geração e o consumidor **nunca** renderiza HTML (só texto escapado).
-4. URLs (`cta.link`, `hero.imagem_url`, `fonte` quando for URL) precisam ser `https://`. Qualquer outro esquema, ou valor que não faz parse, vira `null`. Um item evidenciado cuja `fonte` foi anulada sai do snapshot. Se `cta.tipo_destino` exigir link e ele for anulado, o publicar falha.
+4. URLs (`cta.link`, `hero.imagem_url`, `logotipo_url`, `brasao_url`, `imagens[].url`, `fonte` quando for URL) precisam ser `https://`. Imagem da galeria com URL anulada sai da lista. Qualquer outro esquema, ou valor que não faz parse, vira `null`. Um item evidenciado cuja `fonte` foi anulada sai do snapshot. Se `cta.tipo_destino` exigir link e ele for anulado, o publicar falha.
 5. Seção oculta em `secoes_visibilidade` (`hero`, `resumo`, `vantagens`, `faq`, `cta`, `seo`) vai vazia ou null no snapshot.
 6. O snapshot inteiro tem no máximo 256 KB serializado. Se passar, o publicar falha. Nada é truncado em silêncio.
 
@@ -148,6 +154,9 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
                       "subheadline": { "type": ["string","null"], "maxLength": 300 },
                       "imagem_url": { "type": ["string","null"], "pattern": "^https://" },
                       "imagem_alt": { "type": ["string","null"], "maxLength": 200 } } },
+    "logotipo_url": { "type": ["string","null"], "format": "uri", "pattern": "^https://" },
+    "brasao_url": { "type": ["string","null"], "format": "uri", "pattern": "^https://" },
+    "imagens": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/imagem" } },
     "vantagens": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/vantagem" } },
     "faqs": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/faq" } },
     "publicos": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/codigoNome" } },
@@ -191,6 +200,10 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
                       "publicos_base": { "type": "array", "items": { "type": "string", "maxLength": 200 } },
                       "ofertas": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "#/$defs/oferta" } },
                       "evidencia": { "$ref": "#/$defs/evidencia" } } },
+    "imagem": { "type": "object", "additionalProperties": false, "required": ["url","legenda","tipo"],
+      "properties": { "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+                      "legenda": { "type": ["string","null"], "maxLength": 120 },
+                      "tipo": { "enum": ["predio","bandeira","cidade","outro"] } } },
     "oferta": { "type": "object", "additionalProperties": false, "required": ["forma","codigo_forma","publicos"],
       "properties": { "forma": { "type": "string", "maxLength": 200 }, "codigo_forma": { "type": "string" },
                       "publicos": { "type": "array", "minItems": 1, "items": { "type": "string", "maxLength": 200 } } } }
@@ -218,6 +231,7 @@ Regra geral: o snapshot é montado por **lista de permissão** (campos da seçã
 - **Campos de montagem do conteúdo central:** `is_draft`, `is_publicado`, `pendente_revisao_humana`, `secoes_ordem`, `secoes_visibilidade`, `variaveis_permitidas`.
 - **Site do parceiro:** tudo de `site_parceiro` e `site_landing_page` (overrides de WhatsApp e foto são do parceiro, não do convênio).
 - Credenciais, tokens, dados pessoais de qualquer pessoa, o valor cru de `financial_institutions.logo_url` (data URL base64; só sai como binário pela rota de logo da seção 13).
+- Exceção aditiva (T-21): URLs do bucket **público** `convenios-publico` do Supabase Storage (`https://<projeto>.supabase.co/storage/v1/object/public/convenios-publico/{convenio_id}/{tipo}-{uuid}.{ext}`) são permitidas em `logotipo_url`, `brasao_url` e `imagens[].url`. O caminho expõe o `convenios.id` e um uuid aleatório do arquivo; nenhum dado além da imagem. O bucket não é listável (sem policy em `storage.objects`); só lê quem tem a URL.
 - Exceção aditiva (T-19): `financial_institutions.id` aparece só em `GET /api/convenios/publico/v1/instituicoes` e dentro da URL de `instituicoes[].logo_url`. Nenhum outro id.
 
 ## 6. Respostas
@@ -283,6 +297,12 @@ Para cada passo, medir três pontos: (a) rota direta, (b) a mesma URL via rewrit
   "resumo_publico": "EXEMPLO Texto curto, sem taxas nem promessas de aprovação.",
   "hero": { "headline": "EXEMPLO Seu consignado do Governo de Goiás", "subheadline": null,
             "imagem_url": "https://exemplo.invalid/hero-go.webp", "imagem_alt": "EXEMPLO Servidor público" },
+  "logotipo_url": "https://exemplo.supabase.co/storage/v1/object/public/convenios-publico/00000000-0000-4000-8000-000000000002/logotipo-00000000-0000-4000-8000-000000000003.png",
+  "brasao_url": null,
+  "imagens": [
+    { "url": "https://exemplo.supabase.co/storage/v1/object/public/convenios-publico/00000000-0000-4000-8000-000000000002/predio-00000000-0000-4000-8000-000000000004.webp",
+      "legenda": "EXEMPLO Palácio Pedro Ludovico Teixeira", "tipo": "predio" }
+  ],
   "vantagens": [
     { "titulo": "EXEMPLO Desconto em folha", "texto": "EXEMPLO Parcelas descontadas direto no contracheque.",
       "fonte": "https://exemplo.invalid/decreto-go", "consultado_em": "2026-10-01", "situacao": "confirmado", "natureza": "norma_oficial" }
@@ -464,3 +484,4 @@ Troca de logo leva até 1 dia para aparecer no navegador e até 7 dias na CDN (o
 - 2026-10-10: T-19, mudança **aditiva**: `instituicoes[].logo_url` (string https absoluta ou null; opcional no JSON Schema, snapshots publicados antes não têm a chave) e as rotas `GET /api/convenios/publico/v1/instituicoes` e `GET /api/convenios/publico/v1/instituicoes/{id}/logo` (seção 13). `financial_institutions.id` passa a ser público só nessas duas superfícies (seção 5).
 - 2026-10-10: T-19, aditivo: `GET /api/convenios/publico/v1/instituicoes` ganha `site?`, `sac?` e `horario?` opcionais (seção 13). `produtos` não é servido (sem coluna de origem).
 - 2026-10-10: T-19, aditivo: `logo_wide_url?` na lista e variante `?v=wide` da rota de logo.
+- 2026-10-11: T-21, aditivo: `logotipo_url`, `brasao_url` (string https ou null) e `imagens[]` (`{ url, legenda, tipo }`, máx. 12, só https válidas) no snapshot; opcionais no JSON Schema (snapshots publicados antes não têm as chaves). Origem: `convenios.logotipo_url`/`brasao_url` e tabela `convenio_imagens`, arquivos no bucket público `convenios-publico` (PNG, JPEG ou WebP, até 2 MB; sem SVG; seção 5). Mudança de imagem só aparece no site após nova publicação (o snapshot é congelado).

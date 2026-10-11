@@ -12,6 +12,7 @@ import {
   FileStack,
   FileText,
   Globe,
+  Image as ImageIcon,
   Landmark,
   Loader2,
   MessageCircleQuestion,
@@ -38,6 +39,7 @@ import { getConvenioBc, getFormasContratoAtivas, getInstituicoesAtivas, type Con
 import DocumentosLista from './bc/DocumentosLista'
 import FaqTab from './bc/FaqTab'
 import FormasTab from './bc/FormasTab'
+import ImagensTab from './bc/ImagensTab'
 import InstituicoesTab from './bc/InstituicoesTab'
 import OrgaosRestricoesTab from './bc/OrgaosRestricoesTab'
 import PesquisaTab from './bc/PesquisaTab'
@@ -45,7 +47,7 @@ import PublicoTab from './bc/PublicoTab'
 import SiteTab from './SiteTab'
 
 type AbaPrincipal = 'dados' | 'bc' | 'site'
-type SubAbaBc = 'pesquisa' | 'publico' | 'formas' | 'instituicoes' | 'orgaos' | 'decretos' | 'faq' | 'documentos'
+type SubAbaBc = 'pesquisa' | 'publico' | 'formas' | 'instituicoes' | 'orgaos' | 'decretos' | 'faq' | 'documentos' | 'imagens'
 
 type FeedbackMessage = { type: 'success' | 'error'; text: string }
 
@@ -373,7 +375,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
           title={bcHabilitada ? undefined : 'Salve os dados básicos primeiro'}
         >
           <Globe size={15} />
-          Site
+          Landing Page
         </button>
       </div>
 
@@ -592,6 +594,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
               { key: 'decretos', label: 'Decretos', icon: ScrollText },
               { key: 'faq', label: 'FAQ', icon: MessageCircleQuestion },
               { key: 'documentos', label: 'Documentos', icon: FileStack },
+              { key: 'imagens', label: 'Imagens', icon: ImageIcon },
             ].map((tab) => {
               const Icon = tab.icon
               return (
@@ -644,6 +647,7 @@ export default function ConvenioEditor({ convenioId, isNew = false }: { convenio
             />
           )}
           {subAba === 'documentos' && <DocumentosLista convenioId={dados.id} tipo="outro" titulo="Outros Documentos" />}
+          {subAba === 'imagens' && <ImagensTab convenioId={dados.id} />}
         </div>
       )}
 

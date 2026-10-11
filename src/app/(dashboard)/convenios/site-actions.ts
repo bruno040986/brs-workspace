@@ -423,9 +423,9 @@ export async function publishConvenioConteudoSite(
 
     const supabase = await createAdminClient()
 
-    const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, aprovadoPor] = await Promise.all([
+    const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes, aprovadoPor] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
-      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at').eq('id', convenioId).maybeSingle(),
+      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at, logotipo_url, brasao_url').eq('id', convenioId).maybeSingle(),
       supabase.from('convenio_publicos').select('publicos_atendidos(id, nome, is_active, deleted_at)').eq('convenio_id', convenioId),
       supabase.from('convenio_formas_contrato').select('formas_contrato(nome, is_active)').eq('convenio_id', convenioId),
       supabase
@@ -437,9 +437,10 @@ export async function publishConvenioConteudoSite(
         )
         .eq('convenio_id', convenioId)
         .eq('is_active', true),
+      supabase.from('convenio_imagens').select('url, legenda, tipo').eq('convenio_id', convenioId).order('ordem').order('created_at'),
       nomeUsuario(supabase, user.id),
     ])
-    for (const r of [conteudoRes, convenioRes, publicosRes, formasRes, instRes]) if (r.error) throw r.error
+    for (const r of [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes]) if (r.error) throw r.error
 
     const conteudo = conteudoRes.data
     const convenio = convenioRes.data
@@ -471,6 +472,9 @@ export async function publishConvenioConteudoSite(
       publicos: publicosConvenio,
       formas: (formasRes.data || []).map((r: any) => r.formas_contrato).filter(ativo).sort(porNome),
       base_publica: process.env.NEXT_PUBLIC_APP_URL || undefined,
+      logotipo_url: convenio.logotipo_url,
+      brasao_url: convenio.brasao_url,
+      imagens: imagensRes.data || [],
       instituicoes: ((instRes.data || []) as any[])
         .filter((i) => ativo(i.financial_institutions))
         .map((i) => ({

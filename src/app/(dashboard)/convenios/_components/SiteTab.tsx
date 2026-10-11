@@ -83,7 +83,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
         setSlugInput(res.info?.slugPublico ?? '')
         setDirty(false)
       } else {
-        setMessage({ type: 'error', text: res.error || 'Erro ao carregar conteúdo do site.' })
+        setMessage({ type: 'error', text: res.error || 'Erro ao carregar a landing page.' })
       }
       setLoading(false)
     })
@@ -146,7 +146,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
     if (
       !dados ||
       !confirm(
-        'Retirar esta página do ar? Ela deixa de ser exibida nos sites públicos. Para republicar, será preciso salvar uma versão nova, revisá-la e publicar.',
+        'Retirar esta landing page do ar? Ela deixa de ser exibida nos sites públicos. Para republicar, será preciso salvar uma versão nova, revisá-la e publicar.',
       )
     )
       return
@@ -156,7 +156,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
     if (res.success) {
       setDados((prev) => (prev ? { ...prev, is_publicado: false } : prev))
       setInfo((prev) => (prev ? { ...prev, publicado: null } : prev))
-      setMessage({ type: 'success', text: 'Retirado do ar. Para republicar, salve uma versão nova, revise e publique.' })
+      setMessage({ type: 'success', text: 'Landing page retirada do ar. Para republicar, salve uma versão nova, revise e publique.' })
     } else {
       setMessage({ type: 'error', text: res.error || 'Erro ao retirar do ar.' })
     }
@@ -247,7 +247,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
     return (
       <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
         <Loader2 className="spinner" size={24} style={{ margin: '0 auto', color: 'var(--brs-navy)' }} />
-        <div style={{ marginTop: '0.5rem', color: 'var(--brs-gray-500)' }}>Carregando editor de site...</div>
+        <div style={{ marginTop: '0.5rem', color: 'var(--brs-gray-500)' }}>Carregando editor da landing page...</div>
       </div>
     )
   }
@@ -310,7 +310,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
             )}
           </div>
           <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--brs-gray-900)', marginTop: '0.35rem' }}>
-            Site Builder & Landing Page do Convênio: {convenioNome || 'Convênio'}
+            Landing Page do Convênio: {convenioNome || 'Convênio'}
           </div>
           <div style={{ fontSize: '0.85rem', color: 'var(--brs-gray-500)' }}>
             Configure seções, textos, imagens, vantagens, FAQs e SEO compartilhados entre os parceiros autorizados.
@@ -359,7 +359,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
             }
           >
             {publishing ? <Loader2 size={16} className="spinner" /> : <Send size={16} />}
-            Publicar v{dados.versao}
+            Publicar landing page (v{dados.versao})
           </button>
         </div>
       </div>

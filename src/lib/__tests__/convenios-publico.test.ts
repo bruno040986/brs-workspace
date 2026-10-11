@@ -55,8 +55,8 @@ describe('montarSnapshotPublico', () => {
   it('só tem as chaves do contrato e nenhum campo interno/uuid', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
-      'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'instituicoes', 'publicado_em',
-      'publicos', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
+      'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagens', 'instituicoes', 'logotipo_url',
+      'publicado_em', 'publicos', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
     assert.ok(!json.includes(UUID))
@@ -230,6 +230,48 @@ describe('montarSnapshotPublico', () => {
 const IF = '0a1b2c3d-1111-4222-8333-444455556666'
 const PNG = 'data:image/png;base64,iVBORw0KGgo='
 const ROTA = `https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/${IF}/logo`
+
+describe('imagens do convênio (T-21)', () => {
+  const BUCKET = 'https://abc.supabase.co/storage/v1/object/public/convenios-publico/' + UUID
+
+  it('campos ausentes viram null e lista vazia', () => {
+    const s = snap(entrada())
+    assert.strictEqual(s.logotipo_url, null)
+    assert.strictEqual(s.brasao_url, null)
+    assert.deepStrictEqual(s.imagens, [])
+  })
+
+  it('logotipo/brasão só https válida', () => {
+    const s = snap(entrada({ logotipo_url: `${BUCKET}/logotipo-1.png`, brasao_url: 'http://x.com/b.png' }))
+    assert.strictEqual(s.logotipo_url, `${BUCKET}/logotipo-1.png`)
+    assert.strictEqual(s.brasao_url, null)
+  })
+
+  it('imagens inválidas saem; legenda vazia vira null; tipo desconhecido vira outro', () => {
+    const s = snap(entrada({
+      imagens: [
+        { url: `${BUCKET}/predio-1.webp`, legenda: ' Sede ', tipo: 'predio' },
+        { url: 'javascript:alert(1)', legenda: 'x', tipo: 'outro' },
+        { url: 'http://exemplo.com/a.png', legenda: null, tipo: 'cidade' },
+        { url: 'data:image/png;base64,AAAA', legenda: null, tipo: 'cidade' },
+        { url: null, legenda: null, tipo: 'cidade' },
+        { url: `${BUCKET}/outro-2.png`, legenda: '', tipo: 'logo' },
+      ],
+    }))
+    assert.deepStrictEqual(s.imagens, [
+      { url: `${BUCKET}/predio-1.webp`, legenda: 'Sede', tipo: 'predio' },
+      { url: `${BUCKET}/outro-2.png`, legenda: null, tipo: 'outro' },
+    ])
+  })
+
+  it('limite de 12 imagens válidas (inválidas não contam)', () => {
+    const img = (n: number) => ({ url: `${BUCKET}/outro-${n}.png`, legenda: null, tipo: 'outro' })
+    const doze = Array.from({ length: 12 }, (_, n) => img(n))
+    assert.strictEqual(snap(entrada({ imagens: [...doze, { url: 'ftp://x.com/a.png', legenda: null, tipo: 'outro' }] })).imagens.length, 12)
+    const r = montarSnapshotPublico(entrada({ imagens: [...doze, img(12)] }))
+    assert.ok(!r.ok && /Imagens: máximo de 12/.test(r.erro))
+  })
+})
 
 describe('logo das instituições', () => {
   const inst = (logo_url: string | null | undefined) =>

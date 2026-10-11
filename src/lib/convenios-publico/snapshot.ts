@@ -8,6 +8,9 @@ export const ESFERAS = ['municipal', 'estadual', 'federal', 'inss', 'outro'] as 
 export const CTA_TIPOS = ['whatsapp', 'simulador', 'formulario', 'url_customizada', 'link_externo'] as const
 const CTA_EXIGE_LINK = new Set(['url_customizada', 'link_externo'])
 export const SNAPSHOT_MAX_BYTES = 256 * 1024
+export const IMAGEM_TIPOS = ['predio', 'bandeira', 'cidade', 'outro'] as const
+export type ImagemTipo = (typeof IMAGEM_TIPOS)[number]
+export type ImagemPublica = { url: string; legenda: string | null; tipo: ImagemTipo }
 
 export type Situacao = 'confirmado' | 'pendente'
 export type Natureza = 'norma_oficial' | 'regra_bancaria'
@@ -24,6 +27,11 @@ export type ConvenioPublicoV1 = {
   subtitulo: string | null
   resumo_publico: string | null
   hero: { headline: string | null; subheadline: string | null; imagem_url: string | null; imagem_alt: string | null }
+  /** Aditivo (T-21): logotipo e brasão 1:1 do convênio (URL https do bucket público) ou null. */
+  logotipo_url: string | null
+  brasao_url: string | null
+  /** Aditivo (T-21): galeria do convênio, máx. 12, só https válidas, na ordem do cadastro. */
+  imagens: ImagemPublica[]
   vantagens: ItemEvidenciado[]
   faqs: (ItemEvidenciado & { pergunta: string; resposta: string })[]
   publicos: { codigo: string; nome: string }[]
@@ -61,6 +69,11 @@ export type EntradaSnapshot = {
     publicos: string[] | null
     ofertas: { forma: string; publicos_restritos: string[] | null }[]
   }[]
+  /** convenios.logotipo_url / brasao_url (URL pública do bucket); inválida vira null. */
+  logotipo_url?: unknown
+  brasao_url?: unknown
+  /** convenio_imagens já em ordem; url inválida sai, tipo desconhecido vira 'outro'. */
+  imagens?: { url: unknown; legenda: unknown; tipo: unknown }[]
   /** Origem absoluta do Workspace para montar a URL da logo; padrão BASE_PUBLICA_PADRAO. */
   base_publica?: string
 }
@@ -299,6 +312,14 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       }
     }
 
+    const imagens: ImagemPublica[] = []
+    for (const i of e.imagens ?? []) {
+      const url = urlHttps(i.url)
+      if (!url) continue
+      const tipo = (IMAGEM_TIPOS as readonly string[]).includes(String(i.tipo)) ? (i.tipo as ImagemTipo) : 'outro'
+      imagens.push({ url, legenda: texto(i.legenda, 120, 'Legenda da imagem'), tipo })
+    }
+
     const snapshot: ConvenioPublicoV1 = {
       contrato: 'v1',
       slug: e.slug,
@@ -314,6 +335,9 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
         imagem_url: hero ? urlHttps(c.imagem_destaque_url) : null,
         imagem_alt: hero ? texto(c.imagem_destaque_alt, 200, 'Texto alternativo da imagem') : null,
       },
+      logotipo_url: urlHttps(e.logotipo_url),
+      brasao_url: urlHttps(e.brasao_url),
+      imagens: limite(imagens, 12, 'Imagens'),
       vantagens: limite(vantagens, 12, 'Vantagens'),
       faqs: limite(faqs, 20, 'FAQs'),
       // Cadastro conta como confirmado pelo ato de publicar (decisão Bruno 10/10). Lista vazia = nenhum, nunca "todos".
