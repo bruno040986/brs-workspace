@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import {
   getConvenioConteudoSite,
+  listarFaqBase,
   marcarConvenioConteudoSiteRevisado,
   publishConvenioConteudoSite,
   salvarSlugPublicoConvenio,
@@ -30,7 +31,9 @@ import {
   unpublishConvenioConteudoSite,
   type ConvenioConteudoSiteInfo,
   type ConvenioConteudoSiteRecord,
+  type FaqBaseItem,
 } from '../site-actions'
+import { FAQ_MAX } from '@/lib/convenios-publico/snapshot'
 import {
   interpolarTexto,
   type EvidenciaItem,
@@ -56,6 +59,8 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
   // Edição local não salva: bloqueia revisar/publicar (eles valem para o que está no banco).
   const [dirty, setDirty] = useState(false)
   const [slugInput, setSlugInput] = useState('')
+  const [faqBase, setFaqBase] = useState<FaqBaseItem[] | null>(null)
+  const [faqBaseErro, setFaqBaseErro] = useState<string | null>(null)
 
   function editar(next: ConvenioConteudoSiteRecord) {
     setDados(next)
@@ -86,6 +91,11 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
         setMessage({ type: 'error', text: res.error || 'Erro ao carregar a landing page.' })
       }
       setLoading(false)
+    })
+    listarFaqBase(convenioId).then((res) => {
+      if (!ativo) return
+      if (res.success) setFaqBase(res.items ?? [])
+      else setFaqBaseErro(res.error || 'Erro ao carregar o FAQ da Base de Conhecimento.')
     })
     return () => {
       ativo = false
@@ -242,6 +252,17 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
     if (!dados) return
     editar({ ...dados, faqs: dados.faqs.filter((_, i) => i !== idx) })
   }
+
+  function toggleFaqBase(id: string) {
+    if (!dados) return
+    const ocultas = dados.faq_ocultas.includes(id) ? dados.faq_ocultas.filter((x) => x !== id) : [...dados.faq_ocultas, id]
+    editar({ ...dados, faq_ocultas: ocultas })
+  }
+
+  // Mesma regra da publicação: base não ocultada + perguntas da landing confirmadas.
+  const faqBaseVisiveis = (faqBase ?? []).filter((f) => !dados?.faq_ocultas.includes(f.id))
+  const faqLandingConfirmadas = (dados?.faqs ?? []).filter((f) => f.situacao === 'confirmado').length
+  const faqTotal = faqBaseVisiveis.length + faqLandingConfirmadas
 
   if (loading || !dados) {
     return (
@@ -411,7 +432,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
           </button>
         </div>
         <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-500)' }}>
-          No conteúdo público só entram vantagens e FAQs com situação &quot;confirmado&quot;. Textos com variáveis {'{{...}}'} bloqueiam a publicação.
+          No conteúdo público só entram vantagens e perguntas só da landing com situação &quot;confirmado&quot;; o FAQ da Base de Conhecimento mostrado entra como confirmado. Textos com variáveis {'{{...}}'} bloqueiam a publicação.
         </div>
       </div>
 
@@ -680,12 +701,57 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
         </div>
       </div>
 
-      {/* Seção Completa de FAQs */}
+      {/* Seção Completa de FAQs: Base de Conhecimento (menos as ocultas) + perguntas só desta landing */}
       <div className="card" style={{ padding: '1.25rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <HelpCircle size={16} />
-            Perguntas Frequentes (FAQs Central) ({dados.faqs.length})
+        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--brs-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <HelpCircle size={16} />
+          Perguntas Frequentes
+        </div>
+        <div style={{ fontSize: '0.8rem', color: faqTotal > FAQ_MAX ? '#dc2626' : 'var(--brs-gray-500)', margin: '0.25rem 0 1rem' }}>
+          {faqBaseVisiveis.length} da base + {faqLandingConfirmadas} da landing serão publicadas
+          {faqTotal > FAQ_MAX ? ` — passa do máximo de ${FAQ_MAX}; a publicação será bloqueada.` : ` (máx. ${FAQ_MAX}).`}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--brs-gray-900)' }}>
+            Perguntas da Base de Conhecimento ({faqBase?.length ?? 0})
+          </div>
+          <a href="?aba=bc&sub=faq" target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
+            <Link2 size={14} /> Editar na Base de Conhecimento
+          </a>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          {faqBaseErro && <div style={{ fontSize: '0.8rem', color: '#dc2626' }}>{faqBaseErro}</div>}
+          {!faqBaseErro && faqBase === null && <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>Carregando...</div>}
+          {faqBase?.length === 0 && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>Nenhuma pergunta ativa na Base de Conhecimento deste convênio.</div>
+          )}
+          {faqBase?.map((f) => {
+            const mostrar = !dados.faq_ocultas.includes(f.id)
+            return (
+              <div
+                key={f.id}
+                style={{ padding: '0.75rem', background: '#ffffff', borderRadius: 8, border: '1px solid #e2e8f0', opacity: mostrar ? 1 : 0.55 }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0f172a' }}>
+                    {f.pergunta}
+                    {f.importada && <span style={{ marginLeft: 6, fontSize: '0.7rem', fontWeight: 500, color: 'var(--brs-gray-500)' }}>(regra geral importada)</span>}
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                    <input type="checkbox" role="switch" checked={mostrar} onChange={() => toggleFaqBase(f.id)} />
+                    Mostrar na landing
+                  </label>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '0.25rem', whiteSpace: 'pre-wrap' }}>{f.resposta}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--brs-gray-900)' }}>
+            Perguntas só desta landing ({dados.faqs.length})
           </div>
           <button type="button" className="btn btn-outline btn-sm" onClick={addFaq}>
             <Plus size={14} /> Nova Pergunta
@@ -838,7 +904,7 @@ export default function SiteTab({ convenioId, convenioNome }: Props) {
                       <div key="faq">
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '1rem' }}>Dúvidas Frequentes</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                          {dados.faqs.map((faq, i) => (
+                          {[...faqBaseVisiveis, ...dados.faqs].map((faq, i) => (
                             <div key={i} style={{ padding: '1rem', background: '#ffffff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                               <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#0f172a', marginBottom: '0.25rem' }}>
                                 {interpolarTexto(faq.pergunta, contextoMock)}

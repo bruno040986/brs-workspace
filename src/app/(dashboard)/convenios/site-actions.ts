@@ -48,6 +48,8 @@ export type ConvenioConteudoSiteRecord = {
   hero_subheadline?: string | null
   vantagens: VantagemItem[]
   faqs: FaqItem[]
+  /** ids de faq_itens (Base de Conhecimento) que esta versão NÃO mostra na landing. */
+  faq_ocultas: string[]
   secoes_ordem: SecaoKey[]
   secoes_visibilidade: SecoesVisibilidadeMap
   meta_title?: string | null
@@ -62,6 +64,51 @@ export type ConvenioConteudoSiteRecord = {
   created_at?: string
   updated_at?: string
   expected_updated_at?: string
+}
+
+export type FaqBaseItem = { id: string; pergunta: string; resposta: string; importada: boolean }
+
+/**
+ * FAQ ativo da Base de Conhecimento do convênio, na ordem da base: próprias do convênio
+ * (ordem) e depois as gerais importadas (convenio_faq_vinculos, ordem). Mesma fonte da publicação.
+ */
+async function buscarFaqBase(supabase: Awaited<ReturnType<typeof createAdminClient>>, convenioId: string): Promise<FaqBaseItem[]> {
+  const [propriasRes, vinculosRes] = await Promise.all([
+    supabase
+      .from('faq_itens')
+      .select('id, pergunta, resposta')
+      .eq('escopo', 'convenio')
+      .eq('convenio_id', convenioId)
+      .eq('status', 'ativo')
+      .order('ordem')
+      .order('created_at'),
+    supabase
+      .from('convenio_faq_vinculos')
+      .select('faq:faq_item_id(id, pergunta, resposta, ordem, status)')
+      .eq('convenio_id', convenioId)
+      .order('created_at'),
+  ])
+  if (propriasRes.error) throw propriasRes.error
+  if (vinculosRes.error) throw vinculosRes.error
+  const vinculadas = ((vinculosRes.data || []) as any[])
+    .map((v) => v.faq)
+    .filter((f) => f && f.status === 'ativo')
+    .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
+  return [
+    ...((propriasRes.data || []) as any[]).map((f) => ({ id: f.id, pergunta: f.pergunta, resposta: f.resposta, importada: false })),
+    ...vinculadas.map((f) => ({ id: f.id, pergunta: f.pergunta, resposta: f.resposta, importada: true })),
+  ]
+}
+
+/** Perguntas da Base de Conhecimento que a landing pode mostrar (somente leitura na aba Landing Page). */
+export async function listarFaqBase(convenioId: string): Promise<{ success: boolean; items?: FaqBaseItem[]; error?: string }> {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_view')
+    if (!convenioId) return { success: false, error: 'ID do convênio é obrigatório.' }
+    return { success: true, items: await buscarFaqBase(await createAdminClient(), convenioId) }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao carregar o FAQ da Base de Conhecimento.' }
+  }
 }
 
 /**
@@ -142,6 +189,7 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
           ...semSnapshot,
           vantagens: Array.isArray(data.vantagens) ? data.vantagens : [],
           faqs: Array.isArray(data.faqs) ? data.faqs : [],
+          faq_ocultas: Array.isArray(data.faq_ocultas) ? data.faq_ocultas : [],
           secoes_ordem: Array.isArray(data.secoes_ordem) ? data.secoes_ordem : [...SECOES_VALIDAS],
           secoes_visibilidade: typeof data.secoes_visibilidade === 'object' && data.secoes_visibilidade !== null
             ? data.secoes_visibilidade
@@ -171,6 +219,7 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
           { titulo: 'Desconto em Folha', descricao: 'Amortização direta conforme regramento.', icone: 'ShieldCheck', situacao: 'pendente' },
         ],
         faqs: [],
+        faq_ocultas: [],
         secoes_ordem: [...SECOES_VALIDAS],
         secoes_visibilidade: { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
         meta_title: 'Empréstimo Consignado',
@@ -295,6 +344,7 @@ export async function saveConvenioConteudoSiteDraft(
       hero_subheadline: payload.hero_subheadline || null,
       vantagens: payload.vantagens || [],
       faqs: payload.faqs || [],
+      faq_ocultas: [...new Set(payload.faq_ocultas || [])],
       secoes_ordem: payload.secoes_ordem || [...SECOES_VALIDAS],
       secoes_visibilidade: payload.secoes_visibilidade || { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
       meta_title: payload.meta_title || null,
@@ -423,7 +473,7 @@ export async function publishConvenioConteudoSite(
 
     const supabase = await createAdminClient()
 
-    const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes, aprovadoPor] = await Promise.all([
+    const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes, aprovadoPor, faqsBase] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
       supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at, logotipo_url, brasao_url, bandeira_url').eq('id', convenioId).maybeSingle(),
       supabase.from('convenio_publicos').select('publicos_atendidos(id, nome, is_active, deleted_at)').eq('convenio_id', convenioId),
@@ -439,6 +489,7 @@ export async function publishConvenioConteudoSite(
         .eq('is_active', true),
       supabase.from('convenio_imagens').select('url, legenda, tipo').eq('convenio_id', convenioId).order('ordem').order('created_at'),
       nomeUsuario(supabase, user.id),
+      buscarFaqBase(supabase, convenioId),
     ])
     for (const r of [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes]) if (r.error) throw r.error
 
@@ -476,6 +527,7 @@ export async function publishConvenioConteudoSite(
       brasao_url: convenio.brasao_url,
       bandeira_url: convenio.bandeira_url,
       imagens: imagensRes.data || [],
+      faqs_base: faqsBase,
       instituicoes: ((instRes.data || []) as any[])
         .filter((i) => ativo(i.financial_institutions))
         .map((i) => ({

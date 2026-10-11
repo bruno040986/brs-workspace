@@ -227,6 +227,48 @@ describe('montarSnapshotPublico', () => {
   })
 })
 
+describe('FAQ: Base de Conhecimento + só da landing', () => {
+  const B1 = '1a000000-1111-4222-8333-444455556666'
+  const B2 = '2b000000-1111-4222-8333-444455556666'
+  const B3 = '3c000000-1111-4222-8333-444455556666'
+  const base = [
+    { id: B1, pergunta: 'Base 1?', resposta: 'R1' },
+    { id: B2, pergunta: 'Base 2?', resposta: 'R2' },
+    { id: B3, pergunta: 'Base 3?', resposta: 'R3' },
+  ]
+
+  it('união na ordem: base primeiro, depois a landing; base sem evidência entra confirmada', () => {
+    const s = snap(entrada({ faqs_base: base }))
+    assert.deepStrictEqual(s.faqs.map((f) => f.pergunta), ['Base 1?', 'Base 2?', 'Base 3?', 'Quem pode?'])
+    assert.deepStrictEqual(s.faqs[0], {
+      pergunta: 'Base 1?', resposta: 'R1', titulo: 'Base 1?', texto: 'R1',
+      fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null,
+    })
+    assert.strictEqual(s.faqs[3].fonte, 'regra do banco')
+    assert.ok(!JSON.stringify(s).includes(B1))
+  })
+
+  it('ocultas ficam fora', () => {
+    const s = snap(entrada({ faqs_base: base }, { faq_ocultas: [B2] }))
+    assert.deepStrictEqual(s.faqs.map((f) => f.pergunta), ['Base 1?', 'Base 3?', 'Quem pode?'])
+  })
+
+  it('seção FAQ oculta não publica nem a base', () => {
+    const s = snap(entrada({ faqs_base: base }, { secoes_visibilidade: { faq: false } }))
+    assert.deepStrictEqual(s.faqs, [])
+  })
+
+  it('limite de 20 no total (base + landing) com erro claro', () => {
+    const muitas = Array.from({ length: 20 }, (_, i) => ({ id: `${String(i).padStart(8, '0')}-1111-4222-8333-444455556666`, pergunta: `P${i}?`, resposta: 'R' }))
+    assert.strictEqual(snap(entrada({ faqs_base: muitas }, { faqs: [] })).faqs.length, 20)
+    const r = montarSnapshotPublico(entrada({ faqs_base: muitas }))
+    assert.ok(!r.ok)
+    assert.match(r.erro, /20 da Base de Conhecimento \+ 1 só da landing = 21; o máximo publicado é 20/)
+    // ocultar uma da base libera a publicação
+    assert.ok(montarSnapshotPublico(entrada({ faqs_base: muitas }, { faq_ocultas: [muitas[0].id] })).ok)
+  })
+})
+
 const IF = '0a1b2c3d-1111-4222-8333-444455556666'
 const PNG = 'data:image/png;base64,iVBORw0KGgo='
 const ROTA = `https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/${IF}/logo`

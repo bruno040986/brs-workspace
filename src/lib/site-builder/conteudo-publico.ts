@@ -273,6 +273,16 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
     }
   }
 
+  // 2b. FAQ da Base de Conhecimento ocultado nesta versão (ids de faq_itens)
+  if (payload.faq_ocultas !== undefined) {
+    if (!Array.isArray(payload.faq_ocultas) || payload.faq_ocultas.length > 500) {
+      return { valido: false, erro: 'faq_ocultas deve ser uma lista (máx. 500).' }
+    }
+    if (payload.faq_ocultas.some((id: unknown) => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+      return { valido: false, erro: 'faq_ocultas: id de pergunta inválido.' }
+    }
+  }
+
   // 3. Validação de Ordem das Seções (Enum + Unicidade)
   if (payload.secoes_ordem !== undefined) {
     if (!Array.isArray(payload.secoes_ordem)) {

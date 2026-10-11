@@ -33,6 +33,7 @@ GET /api/convenios/publico/v1/{slug}
 - A rota serve **só** `snapshot_publico` da linha com `is_publicado = true` **e** `pendente_revisao_humana = false`. O índice único parcial `convenio_conteudo_site_publicado_unique_idx` já garante no máximo uma por convênio. Se `snapshot_publico` for null, a resposta é 404.
 - O snapshot é gerado **na publicação**, pela action que chama `convenio_conteudo_site_publicar`. Ele junta:
   - conteúdo central (`convenio_conteudo_site`);
+  - FAQ ativo da Base de Conhecimento do convênio (`faq_itens` próprios + gerais vinculados em `convenio_faq_vinculos`), menos `convenio_conteudo_site.faq_ocultas`;
   - públicos (`convenio_publicos` → `publicos_atendidos`);
   - formas (`convenio_formas_contrato` → `formas_contrato`);
   - instituições × formas × públicos (`convenio_instituicoes` → `financial_institutions`, `convenio_instituicao_publicos`, `convenio_instituicao_formas` incluindo `publicos_restritos`).
@@ -99,7 +100,7 @@ Todas as chaves estão sempre presentes. "Opcional" quer dizer que o valor pode 
 | `logotipo_url` / `brasao_url` / `bandeira_url` | não | `convenios.logotipo_url` / `brasao_url` / `bandeira_url` (regra `urlHttps`) | URL https ou null |
 | `imagens[]` | não | `convenio_imagens` (ordem `ordem`, `created_at`); `url` inválida sai, `tipo` fora do enum vira `outro` | 12 itens; legenda 120 |
 | `vantagens[]` | não | `vantagens` jsonb | 12 itens; título 120, texto 600 |
-| `faqs[]` | não | `faqs` jsonb | 20 itens; pergunta 300, resposta 2000 |
+| `faqs[]` | não | União, nesta ordem: (a) FAQ da Base de Conhecimento do convênio com `status = 'ativo'`, menos os ids em `faq_ocultas` (`uuid[]`): primeiro `faq_itens` com `escopo = 'convenio'` do convênio (ordem `ordem`, `created_at`), depois os gerais vinculados em `convenio_faq_vinculos` (ordem `ordem`); só `pergunta`/`resposta` são lidos, evidência fixa `{ fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null }` (a tabela não tem campos de evidência); (b) perguntas só da landing (`faqs` jsonb), com a regra de evidência de sempre | 20 itens **no total** (a + b; acima disso o publicar falha); pergunta 300, resposta 2000 |
 | `publicos[]` | não | `publicos_atendidos.nome` | 50 itens |
 | `formas_contratacao[]` | não | `formas_contrato.nome` | 30 itens |
 | `instituicoes[]` | não | `financial_institutions.name` + `convenio_instituicao_publicos` + `convenio_instituicao_formas` | 30 itens; 30 ofertas por instituição |
@@ -223,7 +224,7 @@ Regra geral: o snapshot é montado por **lista de permissão** (campos da seçã
 
 - **Bancos pagadores:** `convenio_bancos_pagadores` (todas as colunas).
 - **Calendário de folha/pagamento:** `convenios.pagamento_modo`, `pagamento_dia`, `pagamento_dia_util`, `pagamento_texto`, `fechamento_folha_modo`, `fechamento_folha_dia`, `fechamento_folha_dia_util`, `fechamento_folha_texto`.
-- **Documentos internos e roteiros:** `convenio_documentos` (inclui `tipo = 'roteiro'`, `texto_extraido`, `resumo_ia`, `arquivo_path`), `faq_itens` e `convenio_faq_vinculos` (FAQ interno; o FAQ público vem só de `convenio_conteudo_site.faqs`).
+- **Documentos internos e roteiros:** `convenio_documentos` (inclui `tipo = 'roteiro'`, `texto_extraido`, `resumo_ia`, `arquivo_path`), `faq_itens` e `convenio_faq_vinculos` fora de `pergunta`/`resposta` (id, escopo, entidade, categoria, ordem, origem, documento, status e autoria nunca saem; ver `faqs[]` na seção 4).
 - **Pesquisa/IA:** `convenio_pesquisas`, `convenio_pesquisa_fontes`, `convenio_bc_sugestoes`.
 - **Dados fiscais e endereço do órgão:** `convenios.cnpj`, `razao_social`, `nome_reduzido`, `cidade`, `cep`, `logradouro`, `numero`, `complemento`, `bairro`; `orgaos_empregadores` (incl. `cnpj`) e `convenio_instituicao_orgaos`.
 - **Códigos e integrações internas:** `convenios.codigo`, `codigo_sistema`, `codigo_motor_credito`, `wesales_business_id`, `averbadora_id`, `site_averbador`, `tipo_convenio_id`; `formas_contrato.codigo_arw`, `origem_margem`.
@@ -488,4 +489,5 @@ Troca de logo leva até 1 dia para aparecer no navegador e até 7 dias na CDN (o
 - 2026-10-10: T-19, aditivo: `GET /api/convenios/publico/v1/instituicoes` ganha `site?`, `sac?` e `horario?` opcionais (seção 13). `produtos` não é servido (sem coluna de origem).
 - 2026-10-10: T-19, aditivo: `logo_wide_url?` na lista e variante `?v=wide` da rota de logo.
 - 2026-10-11: T-21, aditivo: `logotipo_url`, `brasao_url` (string https ou null) e `imagens[]` (`{ url, legenda, tipo }`, máx. 12, só https válidas) no snapshot; opcionais no JSON Schema (snapshots publicados antes não têm as chaves). Origem: `convenios.logotipo_url`/`brasao_url` e tabela `convenio_imagens`, arquivos no bucket público `convenios-publico` (PNG, JPEG ou WebP, até 2 MB; sem SVG; seção 5). Mudança de imagem só aparece no site após nova publicação (o snapshot é congelado).
+- 2026-10-11: `faqs[]` muda só de **origem** (formato igual): passa a ser a união do FAQ ativo da Base de Conhecimento do convênio (menos os ocultados em `convenio_conteudo_site.faq_ocultas uuid[]`, migration `20261011185441_conteudo_site_faq_ocultas.sql`) com as perguntas só da landing (`faqs` jsonb), base primeiro, limite de 20 no total. FAQ da base entra como `confirmado` com `fonte`/`consultado_em`/`natureza` null. Mudança na base só aparece no site após nova publicação.
 - 2026-10-11: T-21, aditivo: `bandeira_url` (string https ou null; opcional no JSON Schema) no snapshot, ao lado de `logotipo_url` e `brasao_url`. Origem: `convenios.bandeira_url`, arquivo `{convenio_id}/bandeira-{uuid}.{ext}` no bucket `convenios-publico`, proporção livre (recomendado 3:2). O tipo `bandeira` de `imagens[]` continua válido (compatibilidade), mas a UI não oferece mais esse tipo no upload da galeria.

@@ -8,6 +8,8 @@ export const ESFERAS = ['municipal', 'estadual', 'federal', 'inss', 'outro'] as 
 export const CTA_TIPOS = ['whatsapp', 'simulador', 'formulario', 'url_customizada', 'link_externo'] as const
 const CTA_EXIGE_LINK = new Set(['url_customizada', 'link_externo'])
 export const SNAPSHOT_MAX_BYTES = 256 * 1024
+/** Máximo de perguntas publicadas: Base de Conhecimento (não ocultas) + só da landing. */
+export const FAQ_MAX = 20
 export const IMAGEM_TIPOS = ['predio', 'bandeira', 'cidade', 'outro'] as const
 export type ImagemTipo = (typeof IMAGEM_TIPOS)[number]
 export type ImagemPublica = { url: string; legenda: string | null; tipo: ImagemTipo }
@@ -79,6 +81,11 @@ export type EntradaSnapshot = {
   imagens?: { url: unknown; legenda: unknown; tipo: unknown }[]
   /** Origem absoluta do Workspace para montar a URL da logo; padrão BASE_PUBLICA_PADRAO. */
   base_publica?: string
+  /**
+   * FAQ ativo da Base de Conhecimento do convênio (faq_itens), já na ordem da base.
+   * Os ids em conteudo.faq_ocultas saem; o id nunca vai para o snapshot.
+   */
+  faqs_base?: { id: string; pergunta: unknown; resposta: unknown }[]
 }
 
 export type ResultadoSnapshot = { ok: true; snapshot: ConvenioPublicoV1 } | { ok: false; erro: string }
@@ -261,6 +268,18 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
 
     const faqs: ConvenioPublicoV1['faqs'] = []
     if (visivel('faq')) {
+      // 1º a Base de Conhecimento (menos as ocultadas nesta versão), depois as perguntas só da landing.
+      const ocultas = new Set(Array.isArray(c.faq_ocultas) ? c.faq_ocultas.map(String) : [])
+      for (const b of e.faqs_base ?? []) {
+        if (ocultas.has(b.id)) continue
+        const pergunta = texto(b.pergunta, 300, 'Pergunta do FAQ (Base de Conhecimento)')
+        const resposta = texto(b.resposta, 2000, 'Resposta do FAQ (Base de Conhecimento)')
+        // faq_itens não tem campos de evidência: conta como confirmado pelo ato de publicar (como o cadastro).
+        if (pergunta && resposta) {
+          faqs.push({ pergunta, resposta, titulo: pergunta, texto: resposta, fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null })
+        }
+      }
+      const daBase = faqs.length
       for (const bruto of Array.isArray(c.faqs) ? c.faqs : []) {
         if (!bruto || typeof bruto !== 'object') continue
         const f = bruto as Record<string, unknown>
@@ -268,6 +287,12 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
         const pergunta = texto(f.pergunta, 300, 'Pergunta do FAQ')
         const resposta = texto(f.resposta, 2000, 'Resposta do FAQ')
         if (ev && pergunta && resposta) faqs.push({ pergunta, resposta, titulo: pergunta, texto: resposta, ...ev })
+      }
+      if (faqs.length > FAQ_MAX) {
+        throw new ErroSnapshot(
+          `FAQ: ${daBase} da Base de Conhecimento + ${faqs.length - daBase} só da landing = ${faqs.length}; o máximo publicado é ${FAQ_MAX}. ` +
+            'Oculte perguntas da base ou remova perguntas da landing.',
+        )
       }
     }
 
@@ -343,7 +368,7 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       bandeira_url: urlHttps(e.bandeira_url),
       imagens: limite(imagens, 12, 'Imagens'),
       vantagens: limite(vantagens, 12, 'Vantagens'),
-      faqs: limite(faqs, 20, 'FAQs'),
+      faqs,
       // Cadastro conta como confirmado pelo ato de publicar (decisão Bruno 10/10). Lista vazia = nenhum, nunca "todos".
       publicos: publicosConvenio.map((n) => ({ codigo: codigoDoNome(n), nome: n })),
       formas_contratacao: limite(unicos(nomes(e.formas)), 30, 'Formas de contratação').map((n) => ({ codigo: codigoDoNome(n), nome: n })),
