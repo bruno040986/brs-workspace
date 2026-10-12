@@ -8,13 +8,14 @@ import { PREVIEW_VALIDADE_MS } from '@/lib/convenios-publico/montar-entrada'
 /**
  * Link de preview do RASCUNHO no site da NuAzul (contrato v1, seção 14). Válido por 2 h;
  * cada chamada troca o token (o link anterior para de funcionar) e renova a validade.
+ * Exige workspace-convenios can_edit (gerar link mexe no rascunho, então não é só leitura).
  * Gravar o token não muda updated_at do rascunho (trigger da migration), então não quebra revisão/publicação.
  */
 export async function gerarLinkPreview(
   convenioId: string,
 ): Promise<{ success: true; data: { url: string; expiraEm: string } } | { success: false; error: string }> {
   try {
-    await requirePermission('workspace-convenios', 'can_view')
+    await requirePermission('workspace-convenios', 'can_edit')
     if (!convenioId) return { success: false, error: 'ID do convênio é obrigatório.' }
 
     const supabase = await createAdminClient()
