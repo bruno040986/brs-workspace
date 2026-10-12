@@ -7,6 +7,7 @@ import { dispararRebuildNuAzul } from '@/lib/convenios-publico/deploy-hook'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { montarSnapshotPublico, SLUG_PUBLICO_RE } from '@/lib/convenios-publico/snapshot'
+import { buscarFaqBase, CONVENIO_COLS_SNAPSHOT, lerDadosSnapshot, montarEntradaSnapshot, type FaqBaseItem } from '@/lib/convenios-publico/montar-entrada'
 import {
   SERVER_WHITELIST_VARIAVEIS,
   SECOES_VALIDAS,
@@ -69,39 +70,7 @@ export type ConvenioConteudoSiteRecord = {
   expected_updated_at?: string
 }
 
-export type FaqBaseItem = { id: string; pergunta: string; resposta: string; importada: boolean }
-
-/**
- * FAQ ativo da Base de Conhecimento do convênio, na ordem da base: próprias do convênio
- * (ordem) e depois as gerais importadas (convenio_faq_vinculos, ordem). Mesma fonte da publicação.
- */
-async function buscarFaqBase(supabase: Awaited<ReturnType<typeof createAdminClient>>, convenioId: string): Promise<FaqBaseItem[]> {
-  const [propriasRes, vinculosRes] = await Promise.all([
-    supabase
-      .from('faq_itens')
-      .select('id, pergunta, resposta')
-      .eq('escopo', 'convenio')
-      .eq('convenio_id', convenioId)
-      .eq('status', 'ativo')
-      .order('ordem')
-      .order('created_at'),
-    supabase
-      .from('convenio_faq_vinculos')
-      .select('faq:faq_item_id(id, pergunta, resposta, ordem, status)')
-      .eq('convenio_id', convenioId)
-      .order('created_at'),
-  ])
-  if (propriasRes.error) throw propriasRes.error
-  if (vinculosRes.error) throw vinculosRes.error
-  const vinculadas = ((vinculosRes.data || []) as any[])
-    .map((v) => v.faq)
-    .filter((f) => f && f.status === 'ativo')
-    .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
-  return [
-    ...((propriasRes.data || []) as any[]).map((f) => ({ id: f.id, pergunta: f.pergunta, resposta: f.resposta, importada: false })),
-    ...vinculadas.map((f) => ({ id: f.id, pergunta: f.pergunta, resposta: f.resposta, importada: true })),
-  ]
-}
+export type { FaqBaseItem }
 
 /** Perguntas da Base de Conhecimento que a landing pode mostrar (somente leitura na aba Landing Page). */
 export async function listarFaqBase(convenioId: string): Promise<{ success: boolean; items?: FaqBaseItem[]; error?: string }> {
@@ -464,9 +433,6 @@ export async function marcarConvenioConteudoSiteRevisado(
   }
 }
 
-const ativo = (r: any) => r && r.is_active !== false && !r.deleted_at
-const porNome = (a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, 'pt-BR')
-
 /**
  * Publica o rascunho JÁ SALVO E REVISADO (não regrava o rascunho: isso desfaria a revisão).
  * Monta o snapshot público no servidor e grava na mesma transação da troca de publicação.
@@ -483,25 +449,13 @@ export async function publishConvenioConteudoSite(
 
     const supabase = await createAdminClient()
 
-    const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes, aprovadoPor, faqsBase] = await Promise.all([
+    const [conteudoRes, convenioRes, dados, aprovadoPor] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
-      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at, logotipo_url, brasao_url, bandeira_url').eq('id', convenioId).maybeSingle(),
-      supabase.from('convenio_publicos').select('publicos_atendidos(id, nome, is_active, deleted_at)').eq('convenio_id', convenioId),
-      supabase.from('convenio_formas_contrato').select('formas_contrato(nome, is_active)').eq('convenio_id', convenioId),
-      supabase
-        .from('convenio_instituicoes')
-        .select(
-          'financial_institutions(id, name, logo_url, is_active, deleted_at), ' +
-            'convenio_instituicao_publicos(publicos_atendidos(id, nome, is_active, deleted_at)), ' +
-            'convenio_instituicao_formas(publicos_restritos, formas_contrato(nome, is_active))',
-        )
-        .eq('convenio_id', convenioId)
-        .eq('is_active', true),
-      supabase.from('convenio_imagens').select('url, legenda, tipo').eq('convenio_id', convenioId).order('ordem').order('created_at'),
+      supabase.from('convenios').select(CONVENIO_COLS_SNAPSHOT).eq('id', convenioId).maybeSingle(),
+      lerDadosSnapshot(supabase, convenioId),
       nomeUsuario(supabase, user.id),
-      buscarFaqBase(supabase, convenioId),
     ])
-    for (const r of [conteudoRes, convenioRes, publicosRes, formasRes, instRes, imagensRes]) if (r.error) throw r.error
+    for (const r of [conteudoRes, convenioRes]) if (r.error) throw r.error
 
     const conteudo = conteudoRes.data
     const convenio = convenioRes.data
@@ -515,57 +469,7 @@ export async function publishConvenioConteudoSite(
     }
     if (!convenio.slug_publico) return { success: false, error: 'Defina o slug público do convênio antes de publicar.' }
 
-    // id → nome dos públicos ativos (convênio + vínculos), para resolver publicos_restritos (uuid[]).
-    const publicosConvenio = (publicosRes.data || []).map((r: any) => r.publicos_atendidos).filter(ativo).sort(porNome)
-    const nomePublico = new Map<string, string>()
-    for (const p of publicosConvenio) nomePublico.set(p.id, p.nome)
-    for (const i of (instRes.data || []) as any[]) {
-      for (const r of i.convenio_instituicao_publicos || []) if (ativo(r.publicos_atendidos)) nomePublico.set(r.publicos_atendidos.id, r.publicos_atendidos.nome)
-    }
-    const nomesOrdenados = (l: string[]) => l.sort((a, b) => a.localeCompare(b, 'pt-BR'))
-
-    const montado = montarSnapshotPublico({
-      slug: convenio.slug_publico,
-      convenio: { nome: convenio.nome, esfera: convenio.esfera, uf: convenio.uf },
-      versao: conteudo.versao,
-      publicado_em: new Date().toISOString(),
-      conteudo,
-      publicos: publicosConvenio,
-      formas: (formasRes.data || []).map((r: any) => r.formas_contrato).filter(ativo).sort(porNome),
-      base_publica: process.env.NEXT_PUBLIC_APP_URL || undefined,
-      logotipo_url: convenio.logotipo_url,
-      brasao_url: convenio.brasao_url,
-      bandeira_url: convenio.bandeira_url,
-      imagens: imagensRes.data || [],
-      faqs_base: faqsBase,
-      instituicoes: ((instRes.data || []) as any[])
-        .filter((i) => ativo(i.financial_institutions))
-        .map((i) => ({
-          id: i.financial_institutions.id as string,
-          nome: i.financial_institutions.name as string,
-          logo_url: (i.financial_institutions.logo_url as string | null) ?? null,
-          // Vínculo sem público no cadastro = todos do convênio (null); a resolução é no snapshot.
-          publicos: (i.convenio_instituicao_publicos || []).length
-            ? (i.convenio_instituicao_publicos as any[])
-                .map((p) => p.publicos_atendidos)
-                .filter(ativo)
-                .sort(porNome)
-                .map((p) => p.nome as string)
-            : null,
-          ofertas: ((i.convenio_instituicao_formas || []) as any[])
-            .filter((f) => ativo(f.formas_contrato))
-            .map((f) => ({
-              forma: f.formas_contrato.nome as string,
-              // Restrito a público inativo/excluído some; se sobrar nenhum, a oferta sai (nunca alarga para a base).
-              publicos_restritos:
-                Array.isArray(f.publicos_restritos) && f.publicos_restritos.length
-                  ? nomesOrdenados((f.publicos_restritos as string[]).map((id) => nomePublico.get(id)).filter((n): n is string => !!n))
-                  : null,
-            }))
-            .sort((a, b) => a.forma.localeCompare(b.forma, 'pt-BR')),
-        }))
-        .sort(porNome),
-    })
+    const montado = montarSnapshotPublico(montarEntradaSnapshot(dados, convenio, convenio.slug_publico, conteudo, new Date().toISOString()))
     if (!montado.ok) return { success: false, error: `Publicação bloqueada: ${montado.erro}` }
 
     const { data: publishedRow, error: rpcErr } = await supabase.rpc('convenio_conteudo_site_publicar', {
