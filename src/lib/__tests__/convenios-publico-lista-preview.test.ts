@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import { itemListaPublica, ordenarListaPublica, type ConvenioListaPublica } from '../convenios-publico/lista.ts'
-import { montarEntradaSnapshot, montarPreview, tokenPreviewValido, type DadosSnapshot } from '../convenios-publico/montar-entrada.ts'
+import { decidirTokenPreview, montarEntradaSnapshot, montarPreview, tokenPreviewValido, type DadosSnapshot } from '../convenios-publico/montar-entrada.ts'
 
 const linha = (over: Record<string, unknown> = {}) => ({
   slug_publico: 'governo-go',
@@ -69,6 +69,15 @@ describe('token de preview', () => {
     assert.equal(tokenPreviewValido('', null, '2026-10-11T13:00:00Z', agora), false)
     assert.equal(tokenPreviewValido(TOKEN + 'x', TOKEN + 'x', '2026-10-11T13:00:00Z', agora), false)
   })
+  it('caso real de Goiás (2026-10-12): token gerado pela action vale; depois de girado, o antigo cai', () => {
+    const gerado = 'xSNxHJ8RPrkyJKZ1wg2QW0sHpgJn8o80AkwhzIRl0PA'
+    const agoraGo = Date.parse('2026-10-12T20:05:00Z')
+    // formato que o PostgREST devolve para timestamptz e o do psql
+    assert.equal(tokenPreviewValido(gerado, gerado, '2026-10-12T22:02:59.837+00:00', agoraGo), true)
+    assert.equal(tokenPreviewValido(gerado, gerado, '2026-10-12 22:02:59.837+00', agoraGo), true)
+    // nova chamada de gerarLinkPreview (Ver preview / Recarregar) troca o token: o link anterior responde 401
+    assert.equal(tokenPreviewValido(gerado, 'a5OeqJ2xqnc5VAawTVX8eGo1sTpj7LnCn20kJai-OA8', '2026-10-12T22:05:15.093+00:00', agoraGo), false)
+  })
 })
 
 describe('preview do rascunho', () => {
@@ -126,5 +135,18 @@ describe('preview do rascunho', () => {
   it('erro de validação do conteúdo volta como erro (não lança)', () => {
     const r = montarPreview(dados, convenio, 'governo-go', { ...rascunho, titulo_destaque: 'Olá {{nome_parceiro}}' })
     assert.equal(r.ok, false)
+  })
+})
+
+describe('decidirTokenPreview', () => {
+  const agora = Date.parse('2026-10-12T12:00:00Z')
+  const em = (min: number) => new Date(agora + min * 60_000).toISOString()
+  it('reutiliza com mais de 30 min restantes', () => assert.strictEqual(decidirTokenPreview('t', em(31), agora), 'reutilizar'))
+  it('gera novo com 30 min ou menos, expirado ou sem token', () => {
+    assert.strictEqual(decidirTokenPreview('t', em(30), agora), 'novo')
+    assert.strictEqual(decidirTokenPreview('t', em(-5), agora), 'novo')
+    assert.strictEqual(decidirTokenPreview(null, em(90), agora), 'novo')
+    assert.strictEqual(decidirTokenPreview('t', null, agora), 'novo')
+    assert.strictEqual(decidirTokenPreview('t', 'lixo', agora), 'novo')
   })
 })

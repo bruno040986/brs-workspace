@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
@@ -123,12 +123,23 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
     }
   }
 
-  // Link novo a cada abertura/salvamento: renova a validade e recarrega o iframe.
-  async function carregarPreview() {
-    const res = await gerarLinkPreview(convenioId)
-    if (res.success) setPreview((p) => ({ url: res.data.url, n: (p?.n ?? 0) + 1 }))
-    else setMessage({ type: 'error', text: res.error || 'Erro ao gerar o preview.' })
+  // A action reaproveita o token válido; aqui só evitamos chamadas concorrentes (reaproveita a promise pendente).
+  const previewPendente = useRef<Promise<void> | null>(null)
+  function carregarPreview() {
+    previewPendente.current ??= (async () => {
+      try {
+        const res = await gerarLinkPreview(convenioId)
+        if (res.success) setPreview((p) => ({ url: res.data.url, n: (p?.n ?? 0) + 1 }))
+        else setMessage({ type: 'error', text: res.error || 'Erro ao gerar o preview.' })
+      } finally {
+        previewPendente.current = null
+      }
+    })()
+    return previewPendente.current
   }
+
+  // Token é reaproveitado: depois de salvar basta remontar o iframe com a URL atual.
+  const recarregarIframe = () => setPreview((p) => (p ? { ...p, n: p.n + 1 } : p))
 
   const salvar = () =>
     rodar('salvar', async () => {
@@ -142,7 +153,7 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
       setDirty(false)
       setInfo((prev) => (prev ? { ...prev, revisadoPorNome: null } : prev))
       setMessage({ type: 'success', text: 'Rascunho salvo. Confira no preview e marque como revisado para publicar.' })
-      if (preview) await carregarPreview()
+      if (preview) recarregarIframe()
     })
 
   const verPreview = () =>
@@ -625,7 +636,8 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
           chave={preview.n}
           dirty={dirty}
           recarregando={busy === 'preview' || busy === 'salvar'}
-          onRecarregar={verPreview}
+          onRecarregar={recarregarIframe}
+          onNovoLink={verPreview}
           onFechar={() => setPreview(null)}
         />
       )}

@@ -10,6 +10,7 @@ export default function PreviewPainel({
   dirty,
   recarregando,
   onRecarregar,
+  onNovoLink,
   onFechar,
 }: {
   url: string
@@ -18,6 +19,8 @@ export default function PreviewPainel({
   dirty: boolean
   recarregando: boolean
   onRecarregar: () => void
+  /** Pede o link à action (reaproveitado se ainda válido). Útil se o iframe mostrar "token inválido". */
+  onNovoLink: () => void
   onFechar: () => void
 }) {
   useEffect(() => {
@@ -50,6 +53,9 @@ export default function PreviewPainel({
             <button type="button" className="btn btn-outline btn-sm" onClick={onRecarregar} disabled={recarregando} aria-label="Recarregar preview">
               {recarregando ? <Loader2 size={14} className="spinner" /> : <RefreshCw size={14} />}
             </button>
+            <button type="button" className="btn btn-outline btn-sm" onClick={onNovoLink} disabled={recarregando} title="Use se o preview mostrar erro de token inválido">
+              Gerar novo link
+            </button>
             <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
               <ExternalLink size={14} /> Abrir em nova aba
             </a>
@@ -62,7 +68,7 @@ export default function PreviewPainel({
           O preview mostra o rascunho salvo.{dirty ? ' Você tem alterações não salvas: salve para vê-las aqui.' : ''}
         </div>
       </div>
-      <iframe key={chave} src={url} title="Preview da landing page" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerPolicy="no-referrer" style={{ flex: 1, width: '100%', border: 0, background: '#fff' }} />
+      <iframe key={chave} src={`${url}&t=${chave}`} title="Preview da landing page" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerPolicy="no-referrer" style={{ flex: 1, width: '100%', border: 0, background: '#fff' }} />
     </aside>
   )
 }

@@ -142,6 +142,14 @@ export function montarEntradaSnapshot(
 /** 32 bytes em base64url = 43 caracteres. */
 export const TOKEN_PREVIEW_RE = /^[A-Za-z0-9_-]{43}$/
 export const PREVIEW_VALIDADE_MS = 2 * 60 * 60 * 1000
+export const PREVIEW_REUSO_MIN_MS = 30 * 60 * 1000
+
+/** Reaproveita o token do rascunho enquanto faltar mais de 30 min para expirar; senão, gera um novo. */
+export function decidirTokenPreview(atual: string | null | undefined, expiraEm: string | null | undefined, agora: number): 'reutilizar' | 'novo' {
+  if (!atual || !expiraEm) return 'novo'
+  const t = Date.parse(expiraEm)
+  return Number.isFinite(t) && t - agora > PREVIEW_REUSO_MIN_MS ? 'reutilizar' : 'novo'
+}
 
 /** Token recebido bate com o salvo (tempo constante) e ainda não expirou. */
 export function tokenPreviewValido(recebido: string, salvo: unknown, expiraEm: unknown, agora: number = Date.now()): boolean {
