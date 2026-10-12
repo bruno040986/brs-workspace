@@ -63,6 +63,7 @@ type ConvenioPublicoV1 = {
   imagens?: Imagem[]              // aditivo (T-21): galeria, máx. 12, na ordem do cadastro; snapshot antigo não tem as 3 chaves
   vantagens: ItemEvidenciado[]    // máx. 12
   faqs: (ItemEvidenciado & { pergunta: string; resposta: string })[]  // máx. 20
+  publicos_destaque?: PublicoDestaque[]  // aditivo: cards por público, máx. 8, ordem da landing; seção `publicos` oculta = []; snapshot antigo não tem a chave
   publicos: { codigo: string; nome: string }[]
   formas_contratacao: { codigo: string; nome: string }[]
   instituicoes: Instituicao[]      // máx. 30
@@ -82,6 +83,12 @@ type Oferta = {
   publicos: string[]              // públicos elegíveis a ESTA forma nesta instituição; nunca vazio
 }
 type Imagem = { url: string; legenda: string|null; tipo: 'predio'|'bandeira'|'cidade'|'outro' }
+type PublicoDestaque = {
+  publico: string                 // nome do público (mesmo valor de publicos[].nome); o id nunca sai
+  titulo: string                  // texto puro, 1..60
+  texto: string                   // texto puro, 0..300 ('' quando vazio)
+  imagem_url: string|null         // https (regra urlHttps) ou null
+}
 type Evidencia = { fonte: string|null; consultado_em: string|null; situacao: 'confirmado'|'pendente'; natureza: 'norma_oficial'|'regra_bancaria'|null }
 type ItemEvidenciado = { titulo: string; texto: string } & Evidencia
 ```
@@ -101,6 +108,7 @@ Todas as chaves estão sempre presentes. "Opcional" quer dizer que o valor pode 
 | `imagens[]` | não | `convenio_imagens` (ordem `ordem`, `created_at`); `url` inválida sai, `tipo` fora do enum vira `outro` | 12 itens; legenda 120 |
 | `vantagens[]` | não | `vantagens` jsonb | 12 itens; título 120, texto 600 |
 | `faqs[]` | não | União, nesta ordem: (a) FAQ da Base de Conhecimento do convênio com `status = 'ativo'`, menos os ids em `faq_ocultas` (`uuid[]`): primeiro `faq_itens` com `escopo = 'convenio'` do convênio (ordem `ordem`, `created_at`), depois os gerais vinculados em `convenio_faq_vinculos` (ordem `ordem`); só `pergunta`/`resposta` são lidos, evidência fixa `{ fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null }` (a tabela não tem campos de evidência); (b) perguntas só da landing (`faqs` jsonb), com a regra de evidência de sempre | 20 itens **no total** (a + b; acima disso o publicar falha); pergunta 300, resposta 2000 |
+| `publicos_destaque[]` | não | `convenio_conteudo_site.publicos_destaque` jsonb (`[{ publico_id, titulo, texto, imagem_url }]`, migration `20261011223951_conteudo_site_publicos_destaque.sql`); `publico_id` resolvido para o nome entre os públicos **ativos** de `convenio_publicos` (não vinculado, inativo ou repetido sai; card sem título sai); tags removidas; `imagem_url` pela regra `urlHttps` (inválida vira null); seção `publicos` de `secoes_visibilidade` = `false` → `[]` | 8 itens (acima disso o publicar falha); título 60, texto 300 |
 | `publicos[]` | não | `publicos_atendidos.nome` | 50 itens |
 | `formas_contratacao[]` | não | `formas_contrato.nome` | 30 itens |
 | `instituicoes[]` | não | `financial_institutions.name` + `convenio_instituicao_publicos` + `convenio_instituicao_formas` | 30 itens; 30 ofertas por instituição |
@@ -162,6 +170,7 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
     "imagens": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/imagem" } },
     "vantagens": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/vantagem" } },
     "faqs": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/faq" } },
+    "publicos_destaque": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/publicoDestaque" } },
     "publicos": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/codigoNome" } },
     "formas_contratacao": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/codigoNome" } },
     "instituicoes": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/instituicao" } },
@@ -203,6 +212,11 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
                       "publicos_base": { "type": "array", "items": { "type": "string", "maxLength": 200 } },
                       "ofertas": { "type": "array", "minItems": 1, "maxItems": 30, "items": { "$ref": "#/$defs/oferta" } },
                       "evidencia": { "$ref": "#/$defs/evidencia" } } },
+    "publicoDestaque": { "type": "object", "additionalProperties": false, "required": ["publico","titulo","texto","imagem_url"],
+      "properties": { "publico": { "type": "string", "maxLength": 200 },
+                      "titulo": { "type": "string", "minLength": 1, "maxLength": 60 },
+                      "texto": { "type": "string", "maxLength": 300 },
+                      "imagem_url": { "type": ["string","null"], "format": "uri", "pattern": "^https://" } } },
     "imagem": { "type": "object", "additionalProperties": false, "required": ["url","legenda","tipo"],
       "properties": { "url": { "type": "string", "format": "uri", "pattern": "^https://" },
                       "legenda": { "type": ["string","null"], "maxLength": 120 },
@@ -234,7 +248,7 @@ Regra geral: o snapshot é montado por **lista de permissão** (campos da seçã
 - **Campos de montagem do conteúdo central:** `is_draft`, `is_publicado`, `pendente_revisao_humana`, `secoes_ordem`, `secoes_visibilidade`, `variaveis_permitidas`.
 - **Site do parceiro:** tudo de `site_parceiro` e `site_landing_page` (overrides de WhatsApp e foto são do parceiro, não do convênio).
 - Credenciais, tokens, dados pessoais de qualquer pessoa, o valor cru de `financial_institutions.logo_url` (data URL base64; só sai como binário pela rota de logo da seção 13).
-- Exceção aditiva (T-21): URLs do bucket **público** `convenios-publico` do Supabase Storage (`https://<projeto>.supabase.co/storage/v1/object/public/convenios-publico/{convenio_id}/{tipo}-{uuid}.{ext}`) são permitidas em `logotipo_url`, `brasao_url`, `bandeira_url` e `imagens[].url`. O caminho expõe o `convenios.id` e um uuid aleatório do arquivo; nenhum dado além da imagem. O bucket não é listável (sem policy em `storage.objects`); só lê quem tem a URL.
+- Exceção aditiva (T-21): URLs do bucket **público** `convenios-publico` do Supabase Storage (`https://<projeto>.supabase.co/storage/v1/object/public/convenios-publico/{convenio_id}/{tipo}-{uuid}.{ext}`) são permitidas em `logotipo_url`, `brasao_url`, `bandeira_url`, `imagens[].url` e `publicos_destaque[].imagem_url` (arquivo `{convenio_id}/landing-{uuid}.{ext}`). O caminho expõe o `convenios.id` e um uuid aleatório do arquivo; nenhum dado além da imagem. O bucket não é listável (sem policy em `storage.objects`); só lê quem tem a URL.
 - Exceção aditiva (T-19): `financial_institutions.id` aparece só em `GET /api/convenios/publico/v1/instituicoes` e dentro da URL de `instituicoes[].logo_url`. Nenhum outro id.
 
 ## 6. Respostas
@@ -315,6 +329,11 @@ Para cada passo, medir três pontos: (a) rota direta, (b) a mesma URL via rewrit
     { "pergunta": "EXEMPLO Comissionado pode contratar?", "resposta": "EXEMPLO Somente cartão benefício e cartão consignado.",
       "titulo": "EXEMPLO Comissionado pode contratar?", "texto": "EXEMPLO Somente cartão benefício e cartão consignado.",
       "fonte": "EXEMPLO regra do banco StarBank", "consultado_em": "2026-10-01", "situacao": "confirmado", "natureza": "regra_bancaria" }
+  ],
+  "publicos_destaque": [
+    { "publico": "Efetivo", "titulo": "EXEMPLO Servidor efetivo", "texto": "EXEMPLO Consignado com desconto em folha.",
+      "imagem_url": "https://exemplo.supabase.co/storage/v1/object/public/convenios-publico/00000000-0000-4000-8000-000000000002/landing-00000000-0000-4000-8000-000000000007.webp" },
+    { "publico": "Aposentado", "titulo": "EXEMPLO Aposentados", "texto": "", "imagem_url": null }
   ],
   "publicos": [
     { "codigo": "efetivo", "nome": "Efetivo" }, { "codigo": "aposentado", "nome": "Aposentado" },
@@ -536,3 +555,4 @@ Cabeçalhos de todas as respostas: `Cache-Control: no-store`, `X-Robots-Tag: noi
 - 2026-10-11: `faqs[]` muda só de **origem** (formato igual): passa a ser a união do FAQ ativo da Base de Conhecimento do convênio (menos os ocultados em `convenio_conteudo_site.faq_ocultas uuid[]`, migration `20261011185441_conteudo_site_faq_ocultas.sql`) com as perguntas só da landing (`faqs` jsonb), base primeiro, limite de 20 no total. FAQ da base entra como `confirmado` com `fonte`/`consultado_em`/`natureza` null. Mudança na base só aparece no site após nova publicação.
 - 2026-10-11: T-21, aditivo: `bandeira_url` (string https ou null; opcional no JSON Schema) no snapshot, ao lado de `logotipo_url` e `brasao_url`. Origem: `convenios.bandeira_url`, arquivo `{convenio_id}/bandeira-{uuid}.{ext}` no bucket `convenios-publico`, proporção livre (recomendado 3:2). O tipo `bandeira` de `imagens[]` continua válido (compatibilidade), mas a UI não oferece mais esse tipo no upload da galeria.
 - 2026-10-11: aditivo (seção 14): lista `GET /api/convenios/publico/v1` (`{ convenios: [{ slug, nome, nome_reduzido, esfera, uf, logotipo_url, brasao_url, imagem_card_url, publicado_em }] }`) e preview do rascunho por token `GET /api/convenios/publico/v1/{slug}/rascunho?token=…` (mesmo formato + `preview: true`, `no-store`, `noindex`). Colunas `convenio_conteudo_site.preview_token` / `preview_token_expira_em` (migration `20261011210512_conteudo_site_preview_token.sql`). Montagem da entrada do snapshot extraída para `src/lib/convenios-publico/montar-entrada.ts`, sem mudar a publicação.
+- 2026-10-11: aditivo: `publicos_destaque[]` (`{ publico, titulo, texto, imagem_url }`, máx. 8; opcional no JSON Schema, snapshots publicados antes não têm a chave). Origem: `convenio_conteudo_site.publicos_destaque` jsonb (migration `20261011223951_conteudo_site_publicos_destaque.sql`), com `publico_id` resolvido para o nome dos públicos ativos do convênio (não vinculado/inativo sai). Seção nova `publicos` em `secoes_ordem`/`secoes_visibilidade` (padrão visível; oculta → `[]`). Preview do rascunho e publicação usam a mesma montagem, então os dois já trazem a chave.

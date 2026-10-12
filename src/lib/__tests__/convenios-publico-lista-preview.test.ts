@@ -109,6 +109,20 @@ describe('preview do rascunho', () => {
     if (r.ok) assert.deepStrictEqual(r.snapshot.formas_contratacao, [{ codigo: 'consignado', nome: 'Consignado' }])
   })
 
+  it('publicos_destaque do rascunho sai com o nome do público ativo; inativo do convênio é descartado', () => {
+    const comInativo: DadosSnapshot = {
+      ...dados,
+      publicos: [...dados.publicos, { publicos_atendidos: { id: 'p2', nome: 'Temporário', is_active: false } }],
+    }
+    const publicos_destaque = [
+      { publico_id: 'p2', titulo: 'Temporários', texto: '', imagem_url: null },
+      { publico_id: 'p1', titulo: 'Efetivos', texto: 'Desconto em folha.', imagem_url: 'http://inseguro.exemplo.com/a.png' },
+    ]
+    const r = montarPreview(comInativo, convenio, 'governo-go', { ...rascunho, publicos_destaque })
+    assert.ok(r.ok)
+    if (r.ok) assert.deepStrictEqual(r.snapshot.publicos_destaque, [{ publico: 'Servidor efetivo', titulo: 'Efetivos', texto: 'Desconto em folha.', imagem_url: null }])
+  })
+
   it('erro de validação do conteúdo volta como erro (não lança)', () => {
     const r = montarPreview(dados, convenio, 'governo-go', { ...rascunho, titulo_destaque: 'Olá {{nome_parceiro}}' })
     assert.equal(r.ok, false)

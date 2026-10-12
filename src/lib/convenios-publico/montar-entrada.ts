@@ -95,6 +95,7 @@ export function montarEntradaSnapshot(
     convenio: { nome: convenio.nome, esfera: convenio.esfera, uf: convenio.uf },
     versao: conteudo.versao,
     publicado_em: publicadoEm,
+    // conteudo.publicos_destaque vai cru; o snapshot resolve publico_id → nome com os ids destes públicos.
     conteudo,
     publicos: publicosConvenio,
     formas: d.formas.map((r: any) => r.formas_contrato).filter(ativo).sort(porNome),

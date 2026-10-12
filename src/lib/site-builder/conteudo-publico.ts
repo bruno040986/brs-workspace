@@ -18,7 +18,7 @@ export const SERVER_WHITELIST_VARIAVEIS = [
 
 export type VariavelPermitida = (typeof SERVER_WHITELIST_VARIAVEIS)[number]
 
-export const SECOES_VALIDAS = ['hero', 'resumo', 'vantagens', 'faq', 'cta', 'seo'] as const
+export const SECOES_VALIDAS = ['hero', 'resumo', 'vantagens', 'publicos', 'faq', 'cta', 'seo'] as const
 export type SecaoKey = (typeof SECOES_VALIDAS)[number]
 
 export const CTA_DESTINOS_VALIDOS = ['whatsapp', 'simulador', 'formulario', 'url_customizada', 'link_externo'] as const

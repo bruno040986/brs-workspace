@@ -56,7 +56,7 @@ describe('montarSnapshotPublico', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
       'bandeira_url', 'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagens', 'instituicoes', 'logotipo_url',
-      'publicado_em', 'publicos', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
+      'publicado_em', 'publicos', 'publicos_destaque', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
     assert.ok(!json.includes(UUID))
@@ -417,5 +417,55 @@ describe('dispararRebuildNuAzul', () => {
     await dispararRebuildNuAzul('retirar', 'x', async (u) => { urls.push(u); throw new Error('boom https://hook.test/abc') })
     assert.deepEqual(urls, ['https://hook.test/abc'])
     delete process.env.NUAZUL_DEPLOY_HOOK_URL
+  })
+})
+
+describe('montarSnapshotPublico: publicos_destaque', () => {
+  const ID_EF = '0a000000-0000-4000-8000-000000000001'
+  const ID_TEMP = '0a000000-0000-4000-8000-000000000002'
+  const ID_INATIVO = '0a000000-0000-4000-8000-000000000003'
+  const publicos = [{ id: ID_EF, nome: 'Efetivo' }, { id: ID_TEMP, nome: 'Temporário' }]
+  const card = (publico_id: string, over: Record<string, unknown> = {}) => ({ publico_id, titulo: 'Título', texto: 'Texto', imagem_url: null, ...over })
+
+  it('mapeia publico_id → nome, na ordem da landing, sem vazar o id', () => {
+    const s = snap(entrada({ publicos }, { publicos_destaque: [card(ID_TEMP.toUpperCase(), { titulo: '<b>Temporários</b>' }), card(ID_EF, { texto: '' })] }))
+    assert.deepStrictEqual(s.publicos_destaque, [
+      { publico: 'Temporário', titulo: 'Temporários', texto: 'Texto', imagem_url: null },
+      { publico: 'Efetivo', titulo: 'Título', texto: '', imagem_url: null },
+    ])
+    assert.ok(!JSON.stringify(s).includes(ID_EF))
+  })
+
+  it('descarta público inativo/desvinculado, repetido e card sem título', () => {
+    // montar-entrada só passa os públicos ATIVOS do convênio: ID_INATIVO não está em `publicos`.
+    const s = snap(entrada({ publicos }, { publicos_destaque: [card(ID_INATIVO), card(ID_EF), card(ID_EF), card(ID_TEMP, { titulo: '  ' })] }))
+    assert.deepStrictEqual(s.publicos_destaque.map((p) => p.publico), ['Efetivo'])
+  })
+
+  it('limite de 8 (acima disso o publicar falha)', () => {
+    const muitos = Array.from({ length: 9 }, (_, i) => ({ id: `0b000000-0000-4000-8000-00000000000${i}`, nome: `P${i}` }))
+    const ok = snap(entrada({ publicos: muitos }, { publicos_destaque: muitos.slice(0, 8).map((p) => card(p.id)) }))
+    assert.strictEqual(ok.publicos_destaque.length, 8)
+    const r = montarSnapshotPublico(entrada({ publicos: muitos }, { publicos_destaque: muitos.map((p) => card(p.id)) }))
+    assert.ok(!r.ok && /Públicos em destaque/.test(r.erro))
+  })
+
+  it('imagem_url inválida vira null; https válida passa', () => {
+    const s = snap(entrada({ publicos }, {
+      publicos_destaque: [card(ID_EF, { imagem_url: 'javascript:alert(1)' }), card(ID_TEMP, { imagem_url: 'https://cdn.exemplo.com/p.webp' })],
+    }))
+    assert.deepStrictEqual(s.publicos_destaque.map((p) => p.imagem_url), [null, 'https://cdn.exemplo.com/p.webp'])
+  })
+
+  it('título > 60 ou texto > 300 bloqueia', () => {
+    assert.ok(!montarSnapshotPublico(entrada({ publicos }, { publicos_destaque: [card(ID_EF, { titulo: 'x'.repeat(61) })] })).ok)
+    assert.ok(!montarSnapshotPublico(entrada({ publicos }, { publicos_destaque: [card(ID_EF, { texto: 'x'.repeat(301) })] })).ok)
+  })
+
+  it('seção publicos oculta → []; ausente/sem chave → visível', () => {
+    const vis = { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true }
+    assert.deepStrictEqual(snap(entrada({ publicos }, { publicos_destaque: [card(ID_EF)], secoes_visibilidade: { ...vis, publicos: false } })).publicos_destaque, [])
+    assert.strictEqual(snap(entrada({ publicos }, { publicos_destaque: [card(ID_EF)], secoes_visibilidade: vis })).publicos_destaque.length, 1)
+    assert.deepStrictEqual(snap(entrada({ publicos })).publicos_destaque, [])
   })
 })

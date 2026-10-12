@@ -163,10 +163,13 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
           faqs: Array.isArray(data.faqs) ? data.faqs : [],
           faq_ocultas: Array.isArray(data.faq_ocultas) ? data.faq_ocultas : [],
           publicos_destaque: Array.isArray(data.publicos_destaque) ? data.publicos_destaque : [],
-          secoes_ordem: Array.isArray(data.secoes_ordem) ? data.secoes_ordem : [...SECOES_VALIDAS],
+          // Seção nova (ex.: 'publicos') entra no fim da ordem de versões antigas, para a aba poder mostrar/ocultar.
+          secoes_ordem: Array.isArray(data.secoes_ordem)
+            ? [...data.secoes_ordem, ...SECOES_VALIDAS.filter((k) => !data.secoes_ordem.includes(k))]
+            : [...SECOES_VALIDAS],
           secoes_visibilidade: typeof data.secoes_visibilidade === 'object' && data.secoes_visibilidade !== null
             ? data.secoes_visibilidade
-            : { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
+            : { hero: true, resumo: true, vantagens: true, publicos: true, faq: true, cta: true, seo: true },
           variaveis_permitidas: [...SERVER_WHITELIST_VARIAVEIS],
         },
       }
@@ -193,7 +196,7 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
         faq_ocultas: [],
         publicos_destaque: [],
         secoes_ordem: [...SECOES_VALIDAS],
-        secoes_visibilidade: { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
+        secoes_visibilidade: { hero: true, resumo: true, vantagens: true, publicos: true, faq: true, cta: true, seo: true },
         meta_title: null,
         meta_description: null,
         keywords: null,
@@ -325,7 +328,7 @@ export async function saveConvenioConteudoSiteDraft(
         imagem_url: p.imagem_url || null,
       })),
       secoes_ordem: payload.secoes_ordem || [...SECOES_VALIDAS],
-      secoes_visibilidade: payload.secoes_visibilidade || { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
+      secoes_visibilidade: payload.secoes_visibilidade || { hero: true, resumo: true, vantagens: true, publicos: true, faq: true, cta: true, seo: true },
       meta_title: payload.meta_title || null,
       meta_description: payload.meta_description || null,
       keywords: payload.keywords || null,

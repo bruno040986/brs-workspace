@@ -57,6 +57,7 @@ const NOME_SECAO: Record<SecaoKey, string> = {
   hero: 'Topo',
   resumo: 'Sobre o convênio',
   vantagens: 'Vantagens',
+  publicos: 'Públicos em destaque',
   faq: 'Perguntas frequentes',
   cta: 'Botão de WhatsApp',
   seo: 'SEO (metadados)',

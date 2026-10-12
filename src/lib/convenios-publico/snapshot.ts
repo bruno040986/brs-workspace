@@ -13,6 +13,9 @@ export const FAQ_MAX = 20
 export const IMAGEM_TIPOS = ['predio', 'bandeira', 'cidade', 'outro'] as const
 export type ImagemTipo = (typeof IMAGEM_TIPOS)[number]
 export type ImagemPublica = { url: string; legenda: string | null; tipo: ImagemTipo }
+export const PUBLICOS_DESTAQUE_MAX = 8
+/** Card de público em destaque: `publico` = nome do público ativo do convênio (o id nunca sai). */
+export type PublicoDestaquePublico = { publico: string; titulo: string; texto: string; imagem_url: string | null }
 
 export type Situacao = 'confirmado' | 'pendente'
 export type Natureza = 'norma_oficial' | 'regra_bancaria'
@@ -38,6 +41,8 @@ export type ConvenioPublicoV1 = {
   imagens: ImagemPublica[]
   vantagens: ItemEvidenciado[]
   faqs: (ItemEvidenciado & { pergunta: string; resposta: string })[]
+  /** Aditivo: cards de públicos em destaque (máx. 8, ordem da landing); seção `publicos` oculta = []. */
+  publicos_destaque: PublicoDestaquePublico[]
   publicos: { codigo: string; nome: string }[]
   formas_contratacao: { codigo: string; nome: string }[]
   instituicoes: InstituicaoPublica[]
@@ -57,7 +62,8 @@ export type EntradaSnapshot = {
   publicado_em: string
   /** Linha de convenio_conteudo_site (só os campos da lista de permissão são lidos). */
   conteudo: Record<string, unknown>
-  publicos: { nome: string }[]
+  /** Públicos ativos do convênio; `id` (publicos_atendidos.id) só resolve conteudo.publicos_destaque[].publico_id → nome. */
+  publicos: { id?: string; nome: string }[]
   formas: { nome: string }[]
   /**
    * publicos: nomes ativos de convenio_instituicao_publicos; null = vínculo sem público no cadastro
@@ -340,6 +346,23 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       }
     }
 
+    // publico_id → nome só entre os públicos ativos do convênio: desvinculado/inativo/repetido sai; sem título sai.
+    const publicosDestaque: PublicoDestaquePublico[] = []
+    if (visivel('publicos')) {
+      const nomePorId = new Map(e.publicos.filter((p) => typeof p.id === 'string').map((p) => [p.id!.toLowerCase(), p.nome]))
+      const vistos = new Set<string>()
+      for (const bruto of Array.isArray(c.publicos_destaque) ? c.publicos_destaque : []) {
+        if (!bruto || typeof bruto !== 'object') continue
+        const p = bruto as Record<string, unknown>
+        const id = typeof p.publico_id === 'string' ? p.publico_id.toLowerCase() : ''
+        const publico = texto(nomePorId.get(id), 200, 'Nome do público')
+        const titulo = texto(p.titulo, 60, 'Título do público em destaque')
+        if (!publico || !titulo || vistos.has(id)) continue
+        vistos.add(id)
+        publicosDestaque.push({ publico, titulo, texto: texto(p.texto, 300, 'Texto do público em destaque') ?? '', imagem_url: urlHttps(p.imagem_url) })
+      }
+    }
+
     const imagens: ImagemPublica[] = []
     for (const i of e.imagens ?? []) {
       const url = urlHttps(i.url)
@@ -369,6 +392,7 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       imagens: limite(imagens, 12, 'Imagens'),
       vantagens: limite(vantagens, 12, 'Vantagens'),
       faqs,
+      publicos_destaque: limite(publicosDestaque, PUBLICOS_DESTAQUE_MAX, 'Públicos em destaque'),
       // Cadastro conta como confirmado pelo ato de publicar (decisão Bruno 10/10). Lista vazia = nenhum, nunca "todos".
       publicos: publicosConvenio.map((n) => ({ codigo: codigoDoNome(n), nome: n })),
       formas_contratacao: limite(unicos(nomes(e.formas)), 30, 'Formas de contratação').map((n) => ({ codigo: codigoDoNome(n), nome: n })),
