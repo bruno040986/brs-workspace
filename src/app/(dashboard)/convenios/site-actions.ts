@@ -17,6 +17,7 @@ import {
   type SecaoKey,
   type SecoesVisibilidadeMap,
   type CtaTipoDestino,
+  type PublicoDestaque,
 } from '@/lib/site-builder/conteudo-publico'
 
 const PERMISSION_RESOURCE = 'workspace-convenios'
@@ -50,6 +51,8 @@ export type ConvenioConteudoSiteRecord = {
   faqs: FaqItem[]
   /** ids de faq_itens (Base de Conhecimento) que esta versão NÃO mostra na landing. */
   faq_ocultas: string[]
+  /** Cards de públicos em destaque (máx. 8). */
+  publicos_destaque: PublicoDestaque[]
   secoes_ordem: SecaoKey[]
   secoes_visibilidade: SecoesVisibilidadeMap
   meta_title?: string | null
@@ -190,6 +193,7 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
           vantagens: Array.isArray(data.vantagens) ? data.vantagens : [],
           faqs: Array.isArray(data.faqs) ? data.faqs : [],
           faq_ocultas: Array.isArray(data.faq_ocultas) ? data.faq_ocultas : [],
+          publicos_destaque: Array.isArray(data.publicos_destaque) ? data.publicos_destaque : [],
           secoes_ordem: Array.isArray(data.secoes_ordem) ? data.secoes_ordem : [...SECOES_VALIDAS],
           secoes_visibilidade: typeof data.secoes_visibilidade === 'object' && data.secoes_visibilidade !== null
             ? data.secoes_visibilidade
@@ -199,7 +203,7 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
       }
     }
 
-    // Se não existir registro no banco, retorna modelo inicial neutro para revisão (R2-5).
+    // Sem registro no banco: modelo em branco (o botão "Preencher automaticamente" da aba só preenche campo vazio).
     // Sem {{variáveis}}: o conteúdo público v1 é por convênio e recusa placeholders na publicação.
     return {
       success: true,
@@ -210,21 +214,20 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
         is_publicado: false,
         is_draft: true,
         pendente_revisao_humana: true,
-        titulo_destaque: 'Crédito Consignado',
-        subtitulo: 'Informações e atendimento sobre a modalidade de crédito.',
-        resumo_publico: 'Página informativa para simulação e orientação sobre o convênio.',
-        hero_headline: 'Crédito consignado',
-        hero_subheadline: 'Tire suas dúvidas e solicite uma simulação.',
-        vantagens: [
-          { titulo: 'Desconto em Folha', descricao: 'Amortização direta conforme regramento.', icone: 'ShieldCheck', situacao: 'pendente' },
-        ],
+        titulo_destaque: '',
+        subtitulo: '',
+        resumo_publico: '',
+        hero_headline: null,
+        hero_subheadline: null,
+        vantagens: [],
         faqs: [],
         faq_ocultas: [],
+        publicos_destaque: [],
         secoes_ordem: [...SECOES_VALIDAS],
         secoes_visibilidade: { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
-        meta_title: 'Empréstimo Consignado',
-        meta_description: 'Informações sobre crédito consignado.',
-        keywords: 'consignado, emprestimo',
+        meta_title: null,
+        meta_description: null,
+        keywords: null,
         cta_texto_botao: 'Simular via WhatsApp',
         cta_tipo_destino: 'whatsapp',
         cta_link_destino: null,
@@ -272,6 +275,7 @@ export async function saveConvenioConteudoSiteDraft(
       payload.imagem_destaque_alt,
       ...(payload.vantagens || []).flatMap((v) => [v.titulo, v.descricao]),
       ...(payload.faqs || []).flatMap((f) => [f.pergunta, f.resposta]),
+      ...(payload.publicos_destaque || []).flatMap((p) => [p.titulo, p.texto]),
     ]
 
     const invalidas = new Set<string>()
@@ -345,6 +349,12 @@ export async function saveConvenioConteudoSiteDraft(
       vantagens: payload.vantagens || [],
       faqs: payload.faqs || [],
       faq_ocultas: [...new Set(payload.faq_ocultas || [])],
+      publicos_destaque: (payload.publicos_destaque || []).map((p) => ({
+        publico_id: p.publico_id,
+        titulo: p.titulo.trim(),
+        texto: p.texto.trim(),
+        imagem_url: p.imagem_url || null,
+      })),
       secoes_ordem: payload.secoes_ordem || [...SECOES_VALIDAS],
       secoes_visibilidade: payload.secoes_visibilidade || { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
       meta_title: payload.meta_title || null,

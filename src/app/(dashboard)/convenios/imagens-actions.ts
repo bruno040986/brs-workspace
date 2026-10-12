@@ -163,6 +163,29 @@ export async function reordenarImagens(convenioId: string, ids: string[]): Promi
   }
 }
 
+/**
+ * Foto da landing (topo e públicos em destaque). FormData: convenio_id, arquivo.
+ * Só sobe o arquivo e devolve a URL: quem grava é o rascunho da landing.
+ * Remover/trocar no rascunho NÃO apaga do bucket: uma versão publicada pode apontar para ela.
+ * ponytail: arquivo trocado vira órfão no bucket; limpar por varredura se o volume importar.
+ */
+export async function enviarImagemLanding(formData: FormData): Promise<Resultado & { url?: string }> {
+  try {
+    await requirePermission(RESOURCE, 'can_edit')
+    const convenioId = String(formData.get('convenio_id') || '').trim()
+    if (!convenioId) return { success: false, error: 'ID de convênio inválido.' }
+    const { data: conv, error: cErr } = await admin.from('convenios').select('id').eq('id', convenioId).maybeSingle()
+    if (cErr) throw cErr
+    if (!conv) return { success: false, error: 'Convênio não encontrado.' }
+    const arq = await lerArquivo(formData.get('arquivo'))
+    if (typeof arq === 'string') return { success: false, error: arq }
+    return { success: true, url: await enviarObjeto(convenioId, 'landing', arq) }
+  } catch (error) {
+    console.error('Erro ao enviar foto da landing:', error)
+    return { success: false, error: erroMsg(error) }
+  }
+}
+
 /** FormData: convenio_id + arquivo (envia/troca) ou remover=1. A imagem anterior é apagada do bucket. */
 async function definirMarca(campo: 'logotipo_url' | 'brasao_url' | 'bandeira_url', formData: FormData): Promise<Resultado & { url?: string | null }> {
   try {
