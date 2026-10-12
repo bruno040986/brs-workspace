@@ -480,6 +480,50 @@ Content-Disposition: inline
 
 Troca de logo leva até 1 dia para aparecer no navegador e até 7 dias na CDN (ou purge manual).
 
+## 14. Lista e preview (aditivo)
+
+Mesmo prefixo público do middleware (`/api/convenios/publico`), mesmo padrão de erro (`405` com `Allow: GET` e `no-store`; `503 { "erro": "indisponivel" }` com `no-store`; `X-Content-Type-Options: nosniff` em tudo).
+
+### `GET /api/convenios/publico/v1`
+
+Lista dos convênios com landing no ar. Arquivo `v1/route.ts`: não colide com `v1/[slug]` (profundidades diferentes).
+
+```
+200 { "convenios": [ { "slug": "governo-go", "nome": "Governo de Goiás", "nome_reduzido": "GOV GO" | null,
+                       "esfera": "municipal|estadual|federal|inss|outro", "uf": "GO" | null,
+                       "logotipo_url": "https://…" | null, "brasao_url": "https://…" | null,
+                       "imagem_card_url": "https://…" | null, "publicado_em": "2026-10-10T14:00:00.000Z" } ] }
+Cache-Control: public, s-maxage=120, stale-while-revalidate=30
+```
+
+- Mesmo filtro da rota `{slug}`: convênio `is_active = true`, `deleted_at is null`, com `slug_publico`, e versão `is_publicado = true`, `pendente_revisao_humana = false` e `snapshot_publico` não nulo. Máx. 500.
+- Campos lidos **ao vivo** de `convenios` (não do snapshot): trocar nome ou imagem no cadastro aparece na lista sem republicar (respeitando o cache); o detalhe `{slug}` continua congelado.
+- `publicado_em` = `convenio_conteudo_site.published_at` da versão no ar, em ISO 8601 UTC.
+- `logotipo_url`, `brasao_url`: só `https://` válida (regra de `urlHttps`), senão `null`.
+- `imagem_card_url` = `logotipo_url` → `brasao_url` → primeira imagem `tipo = 'predio'` de `convenio_imagens` (ordem do cadastro) com URL https válida → `null`.
+- Ordem: `esfera` na ordem `municipal, estadual, federal, inss, outro`, depois `nome` (pt-BR). Linha com slug, esfera ou data inválidos fica fora.
+- A publicação não chama `revalidatePath` desta rota: a lista reflete publicar/retirar em até ~150 s (`s-maxage` + SWR).
+
+### `GET /api/convenios/publico/v1/{slug}/rascunho?token=…`
+
+Preview do **rascunho** (`is_draft = true`) para revisão no site antes de publicar. Sem login: o token é a credencial.
+
+- O token é gerado pela server action `gerarLinkPreview(convenioId)` (`src/app/(dashboard)/convenios/preview-actions.ts`, exige `workspace-convenios` `can_view`): 32 bytes aleatórios em base64url (43 caracteres), gravado no rascunho em `convenio_conteudo_site.preview_token` com `preview_token_expira_em = agora + 2 h` (migration `20261011210512_conteudo_site_preview_token.sql`). Cada chamada troca o token (o link anterior para de valer) e renova a validade. Devolve `{ url: "${NUAZUL_SITE_URL || https://www.nuazul.com.br}/{slug}?preview={token}", expiraEm }`. Gravar o token **não** altera `updated_at` do rascunho (trigger da migration), então não invalida revisão nem publicação abertas na tela.
+- O site recebe `?preview=` e chama esta rota com `?token=`.
+- O corpo do 200 é o mesmo `ConvenioPublicoV1`, montado a partir do rascunho com **a mesma montagem da publicação** (`src/lib/convenios-publico/montar-entrada.ts`), mais `"preview": true`. Diferenças: não exige revisão (`pendente_revisao_humana` é ignorado), não grava nada, `publicado_em` é a hora da requisição e `versao` é a do rascunho. Cadastro (públicos, formas, instituições, imagens, FAQ da base) lido ao vivo.
+- Rascunho de convênio inativo também gera preview; convênio excluído não.
+- O token nunca aparece no corpo. Comparação em tempo constante.
+
+| Status | Corpo | Quando |
+|---|---|---|
+| 200 | `ConvenioPublicoV1 & { "preview": true }` | token válido e dentro da validade |
+| 401 | `{ "erro": "token_invalido" }` | slug inexistente ou inválido, token ausente, errado ou expirado (mesma resposta, de propósito) |
+| 404 | `{ "erro": "sem_rascunho" }` | o token é de uma versão que deixou de ser rascunho (já publicada) e não há rascunho novo |
+| 422 | `{ "erro": "rascunho_invalido", "mensagem": "…" }` | o rascunho não passaria na publicação (ex.: `{{variavel}}`, limite de FAQ); `mensagem` é a mesma que bloquearia publicar |
+| 405 / 503 | como as demais | |
+
+Cabeçalhos de todas as respostas: `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`. O consumidor também deve marcar a página de preview com `noindex` e não cacheá-la.
+
 ## Changelog
 
 - 2026-10-10: proposta inicial da v1.
@@ -491,3 +535,4 @@ Troca de logo leva até 1 dia para aparecer no navegador e até 7 dias na CDN (o
 - 2026-10-11: T-21, aditivo: `logotipo_url`, `brasao_url` (string https ou null) e `imagens[]` (`{ url, legenda, tipo }`, máx. 12, só https válidas) no snapshot; opcionais no JSON Schema (snapshots publicados antes não têm as chaves). Origem: `convenios.logotipo_url`/`brasao_url` e tabela `convenio_imagens`, arquivos no bucket público `convenios-publico` (PNG, JPEG ou WebP, até 2 MB; sem SVG; seção 5). Mudança de imagem só aparece no site após nova publicação (o snapshot é congelado).
 - 2026-10-11: `faqs[]` muda só de **origem** (formato igual): passa a ser a união do FAQ ativo da Base de Conhecimento do convênio (menos os ocultados em `convenio_conteudo_site.faq_ocultas uuid[]`, migration `20261011185441_conteudo_site_faq_ocultas.sql`) com as perguntas só da landing (`faqs` jsonb), base primeiro, limite de 20 no total. FAQ da base entra como `confirmado` com `fonte`/`consultado_em`/`natureza` null. Mudança na base só aparece no site após nova publicação.
 - 2026-10-11: T-21, aditivo: `bandeira_url` (string https ou null; opcional no JSON Schema) no snapshot, ao lado de `logotipo_url` e `brasao_url`. Origem: `convenios.bandeira_url`, arquivo `{convenio_id}/bandeira-{uuid}.{ext}` no bucket `convenios-publico`, proporção livre (recomendado 3:2). O tipo `bandeira` de `imagens[]` continua válido (compatibilidade), mas a UI não oferece mais esse tipo no upload da galeria.
+- 2026-10-11: aditivo (seção 14): lista `GET /api/convenios/publico/v1` (`{ convenios: [{ slug, nome, nome_reduzido, esfera, uf, logotipo_url, brasao_url, imagem_card_url, publicado_em }] }`) e preview do rascunho por token `GET /api/convenios/publico/v1/{slug}/rascunho?token=…` (mesmo formato + `preview: true`, `no-store`, `noindex`). Colunas `convenio_conteudo_site.preview_token` / `preview_token_expira_em` (migration `20261011210512_conteudo_site_preview_token.sql`). Montagem da entrada do snapshot extraída para `src/lib/convenios-publico/montar-entrada.ts`, sem mudar a publicação.
