@@ -4,6 +4,8 @@
 // Repositório: brs-workspace
 // =============================================================================
 
+import { urlHttps } from '../convenios-publico/snapshot'
+
 export const SERVER_WHITELIST_VARIAVEIS = [
   'nome_parceiro',
   'whatsapp',
@@ -314,8 +316,8 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
       if (typeof item.texto !== 'string' || item.texto.length > PUBLICO_DESTAQUE_TEXTO_MAX) {
         return { valido: false, erro: `${rotulo}: texto deve ter até ${PUBLICO_DESTAQUE_TEXTO_MAX} caracteres.` }
       }
-      if (item.imagem_url != null && (typeof item.imagem_url !== 'string' || !validarUrlMedia(item.imagem_url))) {
-        return { valido: false, erro: `${rotulo}: URL da foto inválida.` }
+      if (item.imagem_url != null && (typeof item.imagem_url !== 'string' || (item.imagem_url.trim() !== '' && !urlHttps(item.imagem_url)))) {
+        return { valido: false, erro: 'Foto do público: use a imagem enviada pela aba (URL https)' }
       }
     }
   }

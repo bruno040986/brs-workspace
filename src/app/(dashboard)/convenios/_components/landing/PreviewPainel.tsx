@@ -62,7 +62,7 @@ export default function PreviewPainel({
           O preview mostra o rascunho salvo.{dirty ? ' Você tem alterações não salvas: salve para vê-las aqui.' : ''}
         </div>
       </div>
-      <iframe key={chave} src={url} title="Preview da landing page" style={{ flex: 1, width: '100%', border: 0, background: '#fff' }} />
+      <iframe key={chave} src={url} title="Preview da landing page" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerPolicy="no-referrer" style={{ flex: 1, width: '100%', border: 0, background: '#fff' }} />
     </aside>
   )
 }
