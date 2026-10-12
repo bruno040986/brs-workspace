@@ -7,6 +7,7 @@ import { dispararRebuildNuAzul } from '@/lib/convenios-publico/deploy-hook'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { montarSnapshotPublico, SLUG_PUBLICO_RE } from '@/lib/convenios-publico/snapshot'
+import { buscarFaqBase, CONVENIO_COLS_SNAPSHOT, lerDadosSnapshot, montarEntradaSnapshot, type FaqBaseItem } from '@/lib/convenios-publico/montar-entrada'
 import {
   SERVER_WHITELIST_VARIAVEIS,
   SECOES_VALIDAS,
@@ -17,6 +18,7 @@ import {
   type SecaoKey,
   type SecoesVisibilidadeMap,
   type CtaTipoDestino,
+  type PublicoDestaque,
 } from '@/lib/site-builder/conteudo-publico'
 
 const PERMISSION_RESOURCE = 'workspace-convenios'
@@ -48,6 +50,10 @@ export type ConvenioConteudoSiteRecord = {
   hero_subheadline?: string | null
   vantagens: VantagemItem[]
   faqs: FaqItem[]
+  /** ids de faq_itens (Base de Conhecimento) que esta versão NÃO mostra na landing. */
+  faq_ocultas: string[]
+  /** Cards de públicos em destaque (máx. 8). */
+  publicos_destaque: PublicoDestaque[]
   secoes_ordem: SecaoKey[]
   secoes_visibilidade: SecoesVisibilidadeMap
   meta_title?: string | null
@@ -62,6 +68,17 @@ export type ConvenioConteudoSiteRecord = {
   created_at?: string
   updated_at?: string
   expected_updated_at?: string
+}
+
+/** Perguntas da Base de Conhecimento que a landing pode mostrar (somente leitura na aba Landing Page). */
+export async function listarFaqBase(convenioId: string): Promise<{ success: boolean; items?: FaqBaseItem[]; error?: string }> {
+  try {
+    await requirePermission(PERMISSION_RESOURCE, 'can_view')
+    if (!convenioId) return { success: false, error: 'ID do convênio é obrigatório.' }
+    return { success: true, items: await buscarFaqBase(await createAdminClient(), convenioId) }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao carregar o FAQ da Base de Conhecimento.' }
+  }
 }
 
 /**
@@ -142,16 +159,21 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
           ...semSnapshot,
           vantagens: Array.isArray(data.vantagens) ? data.vantagens : [],
           faqs: Array.isArray(data.faqs) ? data.faqs : [],
-          secoes_ordem: Array.isArray(data.secoes_ordem) ? data.secoes_ordem : [...SECOES_VALIDAS],
+          faq_ocultas: Array.isArray(data.faq_ocultas) ? data.faq_ocultas : [],
+          publicos_destaque: Array.isArray(data.publicos_destaque) ? data.publicos_destaque : [],
+          // Seção nova (ex.: 'publicos') entra no fim da ordem de versões antigas, para a aba poder mostrar/ocultar.
+          secoes_ordem: Array.isArray(data.secoes_ordem)
+            ? [...data.secoes_ordem, ...SECOES_VALIDAS.filter((k) => !data.secoes_ordem.includes(k))]
+            : [...SECOES_VALIDAS],
           secoes_visibilidade: typeof data.secoes_visibilidade === 'object' && data.secoes_visibilidade !== null
             ? data.secoes_visibilidade
-            : { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
+            : { hero: true, resumo: true, vantagens: true, publicos: true, faq: true, cta: true, seo: true },
           variaveis_permitidas: [...SERVER_WHITELIST_VARIAVEIS],
         },
       }
     }
 
-    // Se não existir registro no banco, retorna modelo inicial neutro para revisão (R2-5).
+    // Sem registro no banco: modelo em branco (o botão "Preencher automaticamente" da aba só preenche campo vazio).
     // Sem {{variáveis}}: o conteúdo público v1 é por convênio e recusa placeholders na publicação.
     return {
       success: true,
@@ -162,20 +184,20 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
         is_publicado: false,
         is_draft: true,
         pendente_revisao_humana: true,
-        titulo_destaque: 'Crédito Consignado',
-        subtitulo: 'Informações e atendimento sobre a modalidade de crédito.',
-        resumo_publico: 'Página informativa para simulação e orientação sobre o convênio.',
-        hero_headline: 'Crédito consignado',
-        hero_subheadline: 'Tire suas dúvidas e solicite uma simulação.',
-        vantagens: [
-          { titulo: 'Desconto em Folha', descricao: 'Amortização direta conforme regramento.', icone: 'ShieldCheck', situacao: 'pendente' },
-        ],
+        titulo_destaque: '',
+        subtitulo: '',
+        resumo_publico: '',
+        hero_headline: null,
+        hero_subheadline: null,
+        vantagens: [],
         faqs: [],
+        faq_ocultas: [],
+        publicos_destaque: [],
         secoes_ordem: [...SECOES_VALIDAS],
-        secoes_visibilidade: { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
-        meta_title: 'Empréstimo Consignado',
-        meta_description: 'Informações sobre crédito consignado.',
-        keywords: 'consignado, emprestimo',
+        secoes_visibilidade: { hero: true, resumo: true, vantagens: true, publicos: true, faq: true, cta: true, seo: true },
+        meta_title: null,
+        meta_description: null,
+        keywords: null,
         cta_texto_botao: 'Simular via WhatsApp',
         cta_tipo_destino: 'whatsapp',
         cta_link_destino: null,
@@ -223,6 +245,7 @@ export async function saveConvenioConteudoSiteDraft(
       payload.imagem_destaque_alt,
       ...(payload.vantagens || []).flatMap((v) => [v.titulo, v.descricao]),
       ...(payload.faqs || []).flatMap((f) => [f.pergunta, f.resposta]),
+      ...(payload.publicos_destaque || []).flatMap((p) => [p.titulo, p.texto]),
     ]
 
     const invalidas = new Set<string>()
@@ -295,8 +318,15 @@ export async function saveConvenioConteudoSiteDraft(
       hero_subheadline: payload.hero_subheadline || null,
       vantagens: payload.vantagens || [],
       faqs: payload.faqs || [],
+      faq_ocultas: [...new Set(payload.faq_ocultas || [])],
+      publicos_destaque: (payload.publicos_destaque || []).map((p) => ({
+        publico_id: p.publico_id,
+        titulo: p.titulo.trim(),
+        texto: p.texto.trim(),
+        imagem_url: p.imagem_url || null,
+      })),
       secoes_ordem: payload.secoes_ordem || [...SECOES_VALIDAS],
-      secoes_visibilidade: payload.secoes_visibilidade || { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true },
+      secoes_visibilidade: payload.secoes_visibilidade || { hero: true, resumo: true, vantagens: true, publicos: true, faq: true, cta: true, seo: true },
       meta_title: payload.meta_title || null,
       meta_description: payload.meta_description || null,
       keywords: payload.keywords || null,
@@ -404,9 +434,6 @@ export async function marcarConvenioConteudoSiteRevisado(
   }
 }
 
-const ativo = (r: any) => r && r.is_active !== false && !r.deleted_at
-const porNome = (a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, 'pt-BR')
-
 /**
  * Publica o rascunho JÁ SALVO E REVISADO (não regrava o rascunho: isso desfaria a revisão).
  * Monta o snapshot público no servidor e grava na mesma transação da troca de publicação.
@@ -423,23 +450,13 @@ export async function publishConvenioConteudoSite(
 
     const supabase = await createAdminClient()
 
-    const [conteudoRes, convenioRes, publicosRes, formasRes, instRes, aprovadoPor] = await Promise.all([
+    const [conteudoRes, convenioRes, dados, aprovadoPor] = await Promise.all([
       supabase.from('convenio_conteudo_site').select('*').eq('id', conteudoId).eq('convenio_id', convenioId).maybeSingle(),
-      supabase.from('convenios').select('nome, esfera, uf, slug_publico, is_active, deleted_at').eq('id', convenioId).maybeSingle(),
-      supabase.from('convenio_publicos').select('publicos_atendidos(id, nome, is_active, deleted_at)').eq('convenio_id', convenioId),
-      supabase.from('convenio_formas_contrato').select('formas_contrato(nome, is_active)').eq('convenio_id', convenioId),
-      supabase
-        .from('convenio_instituicoes')
-        .select(
-          'financial_institutions(name, is_active, deleted_at), ' +
-            'convenio_instituicao_publicos(publicos_atendidos(id, nome, is_active, deleted_at)), ' +
-            'convenio_instituicao_formas(publicos_restritos, formas_contrato(nome, is_active))',
-        )
-        .eq('convenio_id', convenioId)
-        .eq('is_active', true),
+      supabase.from('convenios').select(CONVENIO_COLS_SNAPSHOT).eq('id', convenioId).maybeSingle(),
+      lerDadosSnapshot(supabase, convenioId),
       nomeUsuario(supabase, user.id),
     ])
-    for (const r of [conteudoRes, convenioRes, publicosRes, formasRes, instRes]) if (r.error) throw r.error
+    for (const r of [conteudoRes, convenioRes]) if (r.error) throw r.error
 
     const conteudo = conteudoRes.data
     const convenio = convenioRes.data
@@ -453,49 +470,7 @@ export async function publishConvenioConteudoSite(
     }
     if (!convenio.slug_publico) return { success: false, error: 'Defina o slug público do convênio antes de publicar.' }
 
-    // id → nome dos públicos ativos (convênio + vínculos), para resolver publicos_restritos (uuid[]).
-    const publicosConvenio = (publicosRes.data || []).map((r: any) => r.publicos_atendidos).filter(ativo).sort(porNome)
-    const nomePublico = new Map<string, string>()
-    for (const p of publicosConvenio) nomePublico.set(p.id, p.nome)
-    for (const i of (instRes.data || []) as any[]) {
-      for (const r of i.convenio_instituicao_publicos || []) if (ativo(r.publicos_atendidos)) nomePublico.set(r.publicos_atendidos.id, r.publicos_atendidos.nome)
-    }
-    const nomesOrdenados = (l: string[]) => l.sort((a, b) => a.localeCompare(b, 'pt-BR'))
-
-    const montado = montarSnapshotPublico({
-      slug: convenio.slug_publico,
-      convenio: { nome: convenio.nome, esfera: convenio.esfera, uf: convenio.uf },
-      versao: conteudo.versao,
-      publicado_em: new Date().toISOString(),
-      conteudo,
-      publicos: publicosConvenio,
-      formas: (formasRes.data || []).map((r: any) => r.formas_contrato).filter(ativo).sort(porNome),
-      instituicoes: ((instRes.data || []) as any[])
-        .filter((i) => ativo(i.financial_institutions))
-        .map((i) => ({
-          nome: i.financial_institutions.name as string,
-          // Vínculo sem público no cadastro = todos do convênio (null); a resolução é no snapshot.
-          publicos: (i.convenio_instituicao_publicos || []).length
-            ? (i.convenio_instituicao_publicos as any[])
-                .map((p) => p.publicos_atendidos)
-                .filter(ativo)
-                .sort(porNome)
-                .map((p) => p.nome as string)
-            : null,
-          ofertas: ((i.convenio_instituicao_formas || []) as any[])
-            .filter((f) => ativo(f.formas_contrato))
-            .map((f) => ({
-              forma: f.formas_contrato.nome as string,
-              // Restrito a público inativo/excluído some; se sobrar nenhum, a oferta sai (nunca alarga para a base).
-              publicos_restritos:
-                Array.isArray(f.publicos_restritos) && f.publicos_restritos.length
-                  ? nomesOrdenados((f.publicos_restritos as string[]).map((id) => nomePublico.get(id)).filter((n): n is string => !!n))
-                  : null,
-            }))
-            .sort((a, b) => a.forma.localeCompare(b.forma, 'pt-BR')),
-        }))
-        .sort(porNome),
-    })
+    const montado = montarSnapshotPublico(montarEntradaSnapshot(dados, convenio, convenio.slug_publico, conteudo, new Date().toISOString()))
     if (!montado.ok) return { success: false, error: `Publicação bloqueada: ${montado.erro}` }
 
     const { data: publishedRow, error: rpcErr } = await supabase.rpc('convenio_conteudo_site_publicar', {

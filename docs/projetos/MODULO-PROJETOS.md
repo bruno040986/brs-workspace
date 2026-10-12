@@ -19,6 +19,7 @@ Código: `src/lib/projetos/` (tipos, puro, service, actions, mcp),
 | `projeto_tarefas` | `numero` sequencial por projeto → `T-<n>`; status, prioridade, prazo, responsável (IA), concluida_em |
 | `projeto_mensagens` | linha do tempo; autor = usuário OU agente; tipos: mensagem, contribuicao, decisao, registro_direto, status, escrita_tecnica |
 | `projeto_commits` | commits do webhook, `unique(repo, sha)`, ligados a projeto/tarefa |
+| `projeto_agente_cotas` | cotas de uso de cada conta de IA (ver "Cotas das IAs"); migrations `*_projetos_cotas.sql` e `*_projetos_cotas_contas.sql` |
 
 Todas com RLS ligada sem policy (só service role).
 
@@ -77,7 +78,7 @@ Migration `*_projetos_aprovacao.sql` (colunas em `projetos`).
 Tools: `listar_projetos`, `ler_projeto`, `listar_mensagens`,
 `registrar_escrita_tecnica` (só redator), `contribuir`,
 `registrar_conversa_direta`, `criar_tarefa`, `atualizar_tarefa`,
-`listar_agentes`, `chat_ouvir`, `chat_enviar`. Ler é livre para qualquer IA
+`listar_agentes`, `chat_ouvir`, `chat_enviar`, `cota_registrar`, `cota_listar`. Ler é livre para qualquer IA
 ativa; escrever só para participantes do projeto.
 
 ### Instrução padrão para colar em cada IA
@@ -89,6 +90,65 @@ ativa; escrever só para participantes do projeto.
 > `registrar_escrita_tecnica`. Antes de encerrar qualquer conversa comigo sobre
 > um projeto, registre no projeto, via `registrar_conversa_direta`, um resumo
 > do que conversamos, do que foi decidido e dos próximos passos.
+
+## Cotas das IAs
+
+A cota é da **conta**, não da IA nem do projeto: Claude (chat) e Claude Code
+usam a mesma conta e aparecem numa linha só. `projeto_agentes.cota_conta` liga
+a IA à conta (`cota_conta_rotulo` é o nome exibido):
+
+| Conta (`cota_conta`) | Rótulo | IAs |
+|---|---|---|
+| `claude` | Claude.ai / Claude Code | `claude`, `claude-code` |
+| `codex` | Codex (OpenAI) | `codex` |
+| `antigravity` | Gemini (Antigravity) | `gemini-antigravity` |
+| — (null) | não aparece | `jarvis`, `gemini-notebooklm` (cota não legível) |
+
+Cartão "Cotas das IAs" (componente único
+`_components/cotas.tsx`) no topo de `/projetos` e abaixo da tabela de
+`/projetos/agentes`; não aparece dentro de `/projetos/[codigo]`. Colapsável, aberto por padrão:
+uma linha por conta (ordem pelo rótulo; com "compartilhada por: Claude, Claude
+Code" quando mais de uma IA usa a conta) e, por cota, barra com o percentual **já usado**, "reinicia em
+dd/mm hh:mm" e, no tooltip, "atualizado há X por Y". Cores: < 50 verde,
+50–70 amarelo, > 70 vermelho. Atualiza junto com a lista (polling de 60 s).
+
+Nenhuma IA lê a própria cota por API: o dado é **informado**.
+
+1. Bruno lê o uso na plataforma:
+   - **Claude Code**: `/usage` (ex.: "5 horas", "Semanal", "Fable semanal").
+   - **Codex**: `/status` (ex.: "5 horas", "Semanal").
+   - **Antigravity**: painel de uso (ex.: "5 horas", "Sonnet 5.5", "Opus 5.5", "GPT").
+2. Cola a leitura na própria IA (ou em qualquer outra IA conectada), que grava
+   com `cota_registrar`; ou clica em **Editar** na linha da conta e preenche na tela.
+
+Regras:
+
+- Tabela `projeto_agente_cotas`: `(cota_conta, lower(nome))` único (coluna
+  gerada `nome_chave`, alvo do upsert). A migration `*_projetos_cotas_contas.sql`
+  trocou `agente_id` por `cota_conta` (linhas de IA sem conta apagadas; nome
+  repetido entre Claude e Claude Code fica a leitura mais recente). Nome até 60 caracteres, percentual
+  0–100 (2 casas), `reinicia_em` opcional, observação até 200 caracteres,
+  `atualizado_por_usuario_id` / `atualizado_por_agente_id`.
+- `cota_registrar { cotas: [{ nome, percentualUsado, reiniciaEm?, observacao? }], conta?, agenteSlug? }`:
+  `conta` (`claude` | `codex` | `antigravity`) > conta da IA `agenteSlug` >
+  conta da IA que chama. IA sem conta (Jarvis, NotebookLM) recebe erro pedindo
+  `conta` ou `agenteSlug`. Atualiza pelo nome; cotas não enviadas ficam como
+  estão. Até 20 cotas por chamada. Regra pura em `resolverContaCota` (`puro.ts`).
+- `cota_listar {}`: uma linha por conta com as IAs que a dividem, as cotas e "atualizado há X".
+- Na tela, salvar o modal faz o upsert das linhas e apaga as cotas removidas
+  ou renomeadas. Ação `registrarCotas`/`removerCota` exige `can_edit`.
+- **Sem histórico** (YAGNI): guarda só a última leitura. Se um dia precisar de
+  gráfico de consumo, criar `projeto_agente_cotas_leituras` alimentada no upsert.
+
+### Instrução para colar nas IAs (cotas)
+
+> Sempre que eu colar aqui a leitura de `/usage`, `/status` ou do painel de uso
+> de uma IA, ou quando a plataforma avisar que um limite está perto ou foi
+> atingido, registre as cotas no BRS Workspace com `cota_registrar`: uma
+> entrada por cota, com o nome como aparece na tela (ex.: "5 horas",
+> "Semanal"), o percentual **já usado** (se vier "restante", use 100 − restante)
+> e, se houver, quando reinicia (ISO 8601 com fuso). Se a leitura for de outra
+> conta, passe `conta` (`claude`, `codex` ou `antigravity`).
 
 ## Chat
 

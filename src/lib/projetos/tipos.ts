@@ -125,4 +125,24 @@ export type ProjetoDetalhe = ProjetoResumo & {
   commits: Commit[]
 }
 
+/** Cota de uso de uma conta ("5 horas", "Semanal"...). Valor informado, não lido por API. */
+export type Cota = {
+  id: string
+  conta: string
+  nome: string
+  percentualUsado: number
+  reiniciaEm: string | null
+  observacao: string | null
+  atualizadoEm: string
+  atualizadoPorNome: string
+}
+
+/** IA com a conta de cota dela (null = cota não legível, ex.: Jarvis). */
+export type AgenteConta = { id: string; slug: string; nome: string; ativo: boolean; cotaConta: string | null; cotaContaRotulo: string | null }
+
+/** Conta de uso (ex.: "Claude.ai / Claude Code"): a cota é da conta, compartilhada pelas IAs listadas (nomes). */
+export type Conta = { conta: string; rotulo: string; agentes: string[] }
+
+export type ContaCotas = Conta & { cotas: Cota[] }
+
 export type ActionResult<T = undefined> = { success: true; data: T } | { success: false; error: string }

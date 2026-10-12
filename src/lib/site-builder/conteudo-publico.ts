@@ -4,6 +4,8 @@
 // Repositório: brs-workspace
 // =============================================================================
 
+import { urlHttps } from '../convenios-publico/snapshot'
+
 export const SERVER_WHITELIST_VARIAVEIS = [
   'nome_parceiro',
   'whatsapp',
@@ -18,7 +20,7 @@ export const SERVER_WHITELIST_VARIAVEIS = [
 
 export type VariavelPermitida = (typeof SERVER_WHITELIST_VARIAVEIS)[number]
 
-export const SECOES_VALIDAS = ['hero', 'resumo', 'vantagens', 'faq', 'cta', 'seo'] as const
+export const SECOES_VALIDAS = ['hero', 'resumo', 'vantagens', 'publicos', 'faq', 'cta', 'seo'] as const
 export type SecaoKey = (typeof SECOES_VALIDAS)[number]
 
 export const CTA_DESTINOS_VALIDOS = ['whatsapp', 'simulador', 'formulario', 'url_customizada', 'link_externo'] as const
@@ -43,6 +45,19 @@ export type FaqItem = EvidenciaItem & {
   resposta: string
   categoria?: string
 }
+
+/** Card de público em destaque na landing (coluna publicos_destaque). publico_id = publicos_atendidos.id do convênio. */
+export type PublicoDestaque = {
+  publico_id: string
+  titulo: string
+  texto: string
+  imagem_url: string | null
+}
+export const PUBLICOS_DESTAQUE_MAX = 8
+export const PUBLICO_DESTAQUE_TITULO_MAX = 60
+export const PUBLICO_DESTAQUE_TEXTO_MAX = 300
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function erroEvidencia(item: any, rotulo: string): string | null {
   if (item.situacao != null && item.situacao !== 'confirmado' && item.situacao !== 'pendente') return `${rotulo}: situação inválida.`
@@ -270,6 +285,40 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
       }
       const ev = erroEvidencia(item, `FAQ no índice ${idx}`)
       if (ev) return { valido: false, erro: ev }
+    }
+  }
+
+  // 2b. FAQ da Base de Conhecimento ocultado nesta versão (ids de faq_itens)
+  if (payload.faq_ocultas !== undefined) {
+    if (!Array.isArray(payload.faq_ocultas) || payload.faq_ocultas.length > 500) {
+      return { valido: false, erro: 'faq_ocultas deve ser uma lista (máx. 500).' }
+    }
+    if (payload.faq_ocultas.some((id: unknown) => typeof id !== 'string' || !UUID_RE.test(id))) {
+      return { valido: false, erro: 'faq_ocultas: id de pergunta inválido.' }
+    }
+  }
+
+  // 2c. Públicos em destaque (cards da landing)
+  if (payload.publicos_destaque !== undefined) {
+    const lista = payload.publicos_destaque
+    if (!Array.isArray(lista) || lista.length > PUBLICOS_DESTAQUE_MAX) {
+      return { valido: false, erro: `Públicos em destaque: no máximo ${PUBLICOS_DESTAQUE_MAX}.` }
+    }
+    const vistos = new Set<string>()
+    for (const [idx, item] of lista.entries()) {
+      const rotulo = `Público em destaque ${idx + 1}`
+      if (typeof item !== 'object' || item === null) return { valido: false, erro: `${rotulo} é inválido.` }
+      if (typeof item.publico_id !== 'string' || !UUID_RE.test(item.publico_id)) return { valido: false, erro: `${rotulo}: escolha o público.` }
+      if (vistos.has(item.publico_id)) return { valido: false, erro: `${rotulo}: público repetido.` }
+      vistos.add(item.publico_id)
+      if (typeof item.titulo !== 'string' || !item.titulo.trim()) return { valido: false, erro: `${rotulo}: título é obrigatório.` }
+      if (item.titulo.length > PUBLICO_DESTAQUE_TITULO_MAX) return { valido: false, erro: `${rotulo}: título passa de ${PUBLICO_DESTAQUE_TITULO_MAX} caracteres.` }
+      if (typeof item.texto !== 'string' || item.texto.length > PUBLICO_DESTAQUE_TEXTO_MAX) {
+        return { valido: false, erro: `${rotulo}: texto deve ter até ${PUBLICO_DESTAQUE_TEXTO_MAX} caracteres.` }
+      }
+      if (item.imagem_url != null && (typeof item.imagem_url !== 'string' || (item.imagem_url.trim() !== '' && !urlHttps(item.imagem_url)))) {
+        return { valido: false, erro: 'Foto do público: use a imagem enviada pela aba (URL https)' }
+      }
     }
   }
 

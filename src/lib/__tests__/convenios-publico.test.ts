@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { SLUG_PUBLICO_RE, codigoDoNome, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
+import { SLUG_PUBLICO_RE, codigoDoNome, extrasInstituicaoPublica, horarioPublico, logoDataUrl, logoPublico, montarSnapshotPublico, urlHttps, type EntradaSnapshot } from '../convenios-publico/snapshot.ts'
 const UUID = '3f2b8c1e-1111-4222-8333-444455556666'
 
 function entrada(over: Partial<EntradaSnapshot> = {}, conteudo: Record<string, unknown> = {}): EntradaSnapshot {
@@ -55,8 +55,8 @@ describe('montarSnapshotPublico', () => {
   it('só tem as chaves do contrato e nenhum campo interno/uuid', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
-      'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'instituicoes', 'publicado_em',
-      'publicos', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
+      'bandeira_url', 'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagens', 'instituicoes', 'logotipo_url',
+      'publicado_em', 'publicos', 'publicos_destaque', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
     assert.ok(!json.includes(UUID))
@@ -66,6 +66,7 @@ describe('montarSnapshotPublico', () => {
     assert.strictEqual(s.contrato, 'v1')
     assert.deepStrictEqual(s.instituicoes[0], {
       nome: 'StarBank',
+      logo_url: null,
       publicos_base: ['Temporário'],
       ofertas: [{ forma: 'Cartão Benefício', codigo_forma: 'cartao-beneficio', publicos: ['Temporário'] }],
       evidencia: { fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null },
@@ -226,6 +227,170 @@ describe('montarSnapshotPublico', () => {
   })
 })
 
+describe('FAQ: Base de Conhecimento + só da landing', () => {
+  const B1 = '1a000000-1111-4222-8333-444455556666'
+  const B2 = '2b000000-1111-4222-8333-444455556666'
+  const B3 = '3c000000-1111-4222-8333-444455556666'
+  const base = [
+    { id: B1, pergunta: 'Base 1?', resposta: 'R1' },
+    { id: B2, pergunta: 'Base 2?', resposta: 'R2' },
+    { id: B3, pergunta: 'Base 3?', resposta: 'R3' },
+  ]
+
+  it('união na ordem: base primeiro, depois a landing; base sem evidência entra confirmada', () => {
+    const s = snap(entrada({ faqs_base: base }))
+    assert.deepStrictEqual(s.faqs.map((f) => f.pergunta), ['Base 1?', 'Base 2?', 'Base 3?', 'Quem pode?'])
+    assert.deepStrictEqual(s.faqs[0], {
+      pergunta: 'Base 1?', resposta: 'R1', titulo: 'Base 1?', texto: 'R1',
+      fonte: null, consultado_em: null, situacao: 'confirmado', natureza: null,
+    })
+    assert.strictEqual(s.faqs[3].fonte, 'regra do banco')
+    assert.ok(!JSON.stringify(s).includes(B1))
+  })
+
+  it('ocultas ficam fora', () => {
+    const s = snap(entrada({ faqs_base: base }, { faq_ocultas: [B2] }))
+    assert.deepStrictEqual(s.faqs.map((f) => f.pergunta), ['Base 1?', 'Base 3?', 'Quem pode?'])
+  })
+
+  it('seção FAQ oculta não publica nem a base', () => {
+    const s = snap(entrada({ faqs_base: base }, { secoes_visibilidade: { faq: false } }))
+    assert.deepStrictEqual(s.faqs, [])
+  })
+
+  it('limite de 20 no total (base + landing) com erro claro', () => {
+    const muitas = Array.from({ length: 20 }, (_, i) => ({ id: `${String(i).padStart(8, '0')}-1111-4222-8333-444455556666`, pergunta: `P${i}?`, resposta: 'R' }))
+    assert.strictEqual(snap(entrada({ faqs_base: muitas }, { faqs: [] })).faqs.length, 20)
+    const r = montarSnapshotPublico(entrada({ faqs_base: muitas }))
+    assert.ok(!r.ok)
+    assert.match(r.erro, /20 da Base de Conhecimento \+ 1 só da landing = 21; o máximo publicado é 20/)
+    // ocultar uma da base libera a publicação
+    assert.ok(montarSnapshotPublico(entrada({ faqs_base: muitas }, { faq_ocultas: [muitas[0].id] })).ok)
+  })
+})
+
+const IF = '0a1b2c3d-1111-4222-8333-444455556666'
+const PNG = 'data:image/png;base64,iVBORw0KGgo='
+const ROTA = `https://workspace.brspromotora.com.br/api/convenios/publico/v1/instituicoes/${IF}/logo`
+
+describe('imagens do convênio (T-21)', () => {
+  const BUCKET = 'https://abc.supabase.co/storage/v1/object/public/convenios-publico/' + UUID
+
+  it('campos ausentes viram null e lista vazia', () => {
+    const s = snap(entrada())
+    assert.strictEqual(s.logotipo_url, null)
+    assert.strictEqual(s.brasao_url, null)
+    assert.strictEqual(s.bandeira_url, null)
+    assert.deepStrictEqual(s.imagens, [])
+  })
+
+  it('logotipo/brasão/bandeira só https válida', () => {
+    const s = snap(entrada({ logotipo_url: `${BUCKET}/logotipo-1.png`, brasao_url: 'http://x.com/b.png', bandeira_url: `${BUCKET}/bandeira-1.webp` }))
+    assert.strictEqual(s.logotipo_url, `${BUCKET}/logotipo-1.png`)
+    assert.strictEqual(s.brasao_url, null)
+    assert.strictEqual(s.bandeira_url, `${BUCKET}/bandeira-1.webp`)
+    assert.strictEqual(snap(entrada({ bandeira_url: 'javascript:alert(1)' })).bandeira_url, null)
+  })
+
+  it('imagens inválidas saem; legenda vazia vira null; tipo desconhecido vira outro', () => {
+    const s = snap(entrada({
+      imagens: [
+        { url: `${BUCKET}/predio-1.webp`, legenda: ' Sede ', tipo: 'predio' },
+        { url: 'javascript:alert(1)', legenda: 'x', tipo: 'outro' },
+        { url: 'http://exemplo.com/a.png', legenda: null, tipo: 'cidade' },
+        { url: 'data:image/png;base64,AAAA', legenda: null, tipo: 'cidade' },
+        { url: null, legenda: null, tipo: 'cidade' },
+        { url: `${BUCKET}/outro-2.png`, legenda: '', tipo: 'logo' },
+      ],
+    }))
+    assert.deepStrictEqual(s.imagens, [
+      { url: `${BUCKET}/predio-1.webp`, legenda: 'Sede', tipo: 'predio' },
+      { url: `${BUCKET}/outro-2.png`, legenda: null, tipo: 'outro' },
+    ])
+  })
+
+  it('limite de 12 imagens válidas (inválidas não contam)', () => {
+    const img = (n: number) => ({ url: `${BUCKET}/outro-${n}.png`, legenda: null, tipo: 'outro' })
+    const doze = Array.from({ length: 12 }, (_, n) => img(n))
+    assert.strictEqual(snap(entrada({ imagens: [...doze, { url: 'ftp://x.com/a.png', legenda: null, tipo: 'outro' }] })).imagens.length, 12)
+    const r = montarSnapshotPublico(entrada({ imagens: [...doze, img(12)] }))
+    assert.ok(!r.ok && /Imagens: máximo de 12/.test(r.erro))
+  })
+})
+
+describe('logo das instituições', () => {
+  const inst = (logo_url: string | null | undefined) =>
+    snap(entrada({ instituicoes: [{ id: IF, nome: 'StarBank', logo_url, publicos: null, ofertas: [{ forma: 'Novo', publicos_restritos: null }] }] })).instituicoes[0].logo_url
+
+  it('logoPublico: data URL válida → rota absoluta; https → ela mesma; resto → null', () => {
+    assert.strictEqual(logoPublico(IF, PNG), ROTA)
+    assert.strictEqual(logoPublico(IF, PNG, 'https://preview.vercel.app/'), `https://preview.vercel.app/api/convenios/publico/v1/instituicoes/${IF}/logo`)
+    assert.strictEqual(logoPublico(IF, 'https://cdn.exemplo.com/l.png'), 'https://cdn.exemplo.com/l.png')
+    for (const ruim of [null, '', 'http://cdn.exemplo.com/l.png', 'javascript:alert(1)', 'data:text/html;base64,PGI+', 'data:image/gif;base64,R0lGOA==', 'data:image/png;base64,@@@']) {
+      assert.strictEqual(logoPublico(IF, ruim), null, String(ruim))
+    }
+    assert.strictEqual(logoPublico('nao-e-uuid', PNG), null)
+  })
+
+  it('logoDataUrl: tipo, base64 e limite de 300 KB', () => {
+    assert.deepStrictEqual(logoDataUrl('data:image/jpg;base64,/9j/'), { mime: 'image/jpeg', base64: '/9j/' })
+    assert.strictEqual(logoDataUrl('data:image/svg+xml;base64,PHN2Zz4=')?.mime, 'image/svg+xml')
+    assert.ok(logoDataUrl(`data:image/png;base64,${'A'.repeat(400 * 1024)}`))
+    assert.strictEqual(logoDataUrl(`data:image/png;base64,${'A'.repeat(400 * 1024 + 4)}`), null)
+  })
+
+  it('snapshot: logo válido vira rota, inválido vira null, ausente vira null', () => {
+    assert.strictEqual(inst(PNG), ROTA)
+    assert.strictEqual(inst('data:image/png;base64,nao base64'), null)
+    assert.strictEqual(inst(undefined), null)
+    assert.strictEqual(inst(''), null)
+  })
+})
+
+describe('extras da lista de instituições', () => {
+  it('logo larga: ?v=wide para data URL, https direto, resto null', () => {
+    assert.strictEqual(logoPublico(IF, PNG, undefined, true), `${ROTA}?v=wide`)
+    assert.strictEqual(logoPublico(IF, 'https://x.com/l.png', undefined, true), 'https://x.com/l.png')
+    assert.strictEqual(logoPublico(IF, '', undefined, true), null)
+  })
+
+  it('extras nunca carregam campos sensíveis', () => {
+    const r = extrasInstituicaoPublica('https://x.com.br', { card_enabled: true, telefone: '0800 1', email: 'a@b.com', whatsapp: '5511999999999', atendimento: [] })
+    assert.deepStrictEqual(Object.keys(r).sort(), ['site'])
+  })
+
+  const linha = (dia: string, enabled = true, ini = '08:00', fim = '20:00') => ({ enabled, dia_da_semana: dia, hora_inicial: ini, hora_final: fim })
+  const semana = ['Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira']
+
+  it('horario agrupa dias seguidos com a mesma faixa', () => {
+    assert.strictEqual(horarioPublico([...semana.map((d) => linha(d)), linha('Sábado', true, '09:00', '14:00'), linha('', false, '', '')]),
+      'Segunda-Feira a Sexta-Feira, 08:00–20:00; Sábado, 09:00–14:00')
+    const todos = [...semana, 'Sábado', 'Domingo'].map((d) => linha(d, true, '00:00', '23:59'))
+    assert.strictEqual(horarioPublico(todos), 'Todos os dias, 00:00–23:59')
+  })
+
+  it('horario: linha ativa sem dia ou hora, dia repetido, ou nada ativo → null', () => {
+    assert.strictEqual(horarioPublico([linha('Segunda-Feira'), linha('')]), null)
+    assert.strictEqual(horarioPublico([linha('Segunda-Feira', true, '8h', '20:00')]), null)
+    assert.strictEqual(horarioPublico([linha('Segunda-Feira'), linha('Segunda-Feira')]), null)
+    assert.strictEqual(horarioPublico([linha('', false)]), null)
+    assert.strictEqual(horarioPublico(null), null)
+  })
+
+  it('site: https ou www. viram https; resto some', () => {
+    assert.deepStrictEqual(extrasInstituicaoPublica('www.bib.com.br', null), { site: 'https://www.bib.com.br/' })
+    assert.deepStrictEqual(extrasInstituicaoPublica('https://x.com.br/a', null), { site: 'https://x.com.br/a' })
+    for (const ruim of ['', 'http://x.com.br', 'javascript:alert(1)', 'bib.com.br', null]) assert.deepStrictEqual(extrasInstituicaoPublica(ruim, null), {}, String(ruim))
+  })
+
+  it('sac e horario só com card_enabled', () => {
+    const sac = { card_enabled: true, telefone: '0800 762-7777', atendimento: semana.map((d) => linha(d)) }
+    assert.deepStrictEqual(extrasInstituicaoPublica('', sac), { sac: '08007627777', horario: 'Segunda-Feira a Sexta-Feira, 08:00–20:00' })
+    assert.deepStrictEqual(extrasInstituicaoPublica('', { ...sac, card_enabled: false }), {})
+    assert.deepStrictEqual(extrasInstituicaoPublica('', { ...sac, telefone: '' }), { horario: 'Segunda-Feira a Sexta-Feira, 08:00–20:00' })
+  })
+})
+
 describe('slug público', () => {
   it('regex do contrato', () => {
     for (const ok of ['governo-go', 'clt', 'a', 'taboao-da-serra-sp', 'a'.repeat(63)]) assert.ok(SLUG_PUBLICO_RE.test(ok), ok)
@@ -252,5 +417,55 @@ describe('dispararRebuildNuAzul', () => {
     await dispararRebuildNuAzul('retirar', 'x', async (u) => { urls.push(u); throw new Error('boom https://hook.test/abc') })
     assert.deepEqual(urls, ['https://hook.test/abc'])
     delete process.env.NUAZUL_DEPLOY_HOOK_URL
+  })
+})
+
+describe('montarSnapshotPublico: publicos_destaque', () => {
+  const ID_EF = '0a000000-0000-4000-8000-000000000001'
+  const ID_TEMP = '0a000000-0000-4000-8000-000000000002'
+  const ID_INATIVO = '0a000000-0000-4000-8000-000000000003'
+  const publicos = [{ id: ID_EF, nome: 'Efetivo' }, { id: ID_TEMP, nome: 'Temporário' }]
+  const card = (publico_id: string, over: Record<string, unknown> = {}) => ({ publico_id, titulo: 'Título', texto: 'Texto', imagem_url: null, ...over })
+
+  it('mapeia publico_id → nome, na ordem da landing, sem vazar o id', () => {
+    const s = snap(entrada({ publicos }, { publicos_destaque: [card(ID_TEMP.toUpperCase(), { titulo: '<b>Temporários</b>' }), card(ID_EF, { texto: '' })] }))
+    assert.deepStrictEqual(s.publicos_destaque, [
+      { publico: 'Temporário', titulo: 'Temporários', texto: 'Texto', imagem_url: null },
+      { publico: 'Efetivo', titulo: 'Título', texto: '', imagem_url: null },
+    ])
+    assert.ok(!JSON.stringify(s).includes(ID_EF))
+  })
+
+  it('descarta público inativo/desvinculado, repetido e card sem título', () => {
+    // montar-entrada só passa os públicos ATIVOS do convênio: ID_INATIVO não está em `publicos`.
+    const s = snap(entrada({ publicos }, { publicos_destaque: [card(ID_INATIVO), card(ID_EF), card(ID_EF), card(ID_TEMP, { titulo: '  ' })] }))
+    assert.deepStrictEqual(s.publicos_destaque.map((p) => p.publico), ['Efetivo'])
+  })
+
+  it('limite de 8 (acima disso o publicar falha)', () => {
+    const muitos = Array.from({ length: 9 }, (_, i) => ({ id: `0b000000-0000-4000-8000-00000000000${i}`, nome: `P${i}` }))
+    const ok = snap(entrada({ publicos: muitos }, { publicos_destaque: muitos.slice(0, 8).map((p) => card(p.id)) }))
+    assert.strictEqual(ok.publicos_destaque.length, 8)
+    const r = montarSnapshotPublico(entrada({ publicos: muitos }, { publicos_destaque: muitos.map((p) => card(p.id)) }))
+    assert.ok(!r.ok && /Públicos em destaque/.test(r.erro))
+  })
+
+  it('imagem_url inválida vira null; https válida passa', () => {
+    const s = snap(entrada({ publicos }, {
+      publicos_destaque: [card(ID_EF, { imagem_url: 'javascript:alert(1)' }), card(ID_TEMP, { imagem_url: 'https://cdn.exemplo.com/p.webp' })],
+    }))
+    assert.deepStrictEqual(s.publicos_destaque.map((p) => p.imagem_url), [null, 'https://cdn.exemplo.com/p.webp'])
+  })
+
+  it('título > 60 ou texto > 300 bloqueia', () => {
+    assert.ok(!montarSnapshotPublico(entrada({ publicos }, { publicos_destaque: [card(ID_EF, { titulo: 'x'.repeat(61) })] })).ok)
+    assert.ok(!montarSnapshotPublico(entrada({ publicos }, { publicos_destaque: [card(ID_EF, { texto: 'x'.repeat(301) })] })).ok)
+  })
+
+  it('seção publicos oculta → []; ausente/sem chave → visível', () => {
+    const vis = { hero: true, resumo: true, vantagens: true, faq: true, cta: true, seo: true }
+    assert.deepStrictEqual(snap(entrada({ publicos }, { publicos_destaque: [card(ID_EF)], secoes_visibilidade: { ...vis, publicos: false } })).publicos_destaque, [])
+    assert.strictEqual(snap(entrada({ publicos }, { publicos_destaque: [card(ID_EF)], secoes_visibilidade: vis })).publicos_destaque.length, 1)
+    assert.deepStrictEqual(snap(entrada({ publicos })).publicos_destaque, [])
   })
 })
