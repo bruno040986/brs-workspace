@@ -26,8 +26,8 @@ import {
   unpublishConvenioConteudoSite,
   type ConvenioConteudoSiteInfo,
   type ConvenioConteudoSiteRecord,
-  type FaqBaseItem,
 } from '../../site-actions'
+import type { FaqBaseItem } from '@/lib/convenios-publico/montar-entrada'
 import { getDadosLanding } from '../../landing-actions'
 import { gerarLinkPreview } from '@/app/(dashboard)/convenios/preview-actions'
 import { FAQ_MAX } from '@/lib/convenios-publico/snapshot'

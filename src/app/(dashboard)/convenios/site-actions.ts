@@ -70,8 +70,6 @@ export type ConvenioConteudoSiteRecord = {
   expected_updated_at?: string
 }
 
-export type { FaqBaseItem }
-
 /** Perguntas da Base de Conhecimento que a landing pode mostrar (somente leitura na aba Landing Page). */
 export async function listarFaqBase(convenioId: string): Promise<{ success: boolean; items?: FaqBaseItem[]; error?: string }> {
   try {
