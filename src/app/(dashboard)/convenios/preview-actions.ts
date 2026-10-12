@@ -8,12 +8,13 @@ import { PREVIEW_VALIDADE_MS, TOKEN_PREVIEW_RE, decidirTokenPreview } from '@/li
 /**
  * Link de preview do RASCUNHO no site da NuAzul (contrato v1, seção 14). Válido por 2 h e
  * reaproveitado enquanto faltar mais de 30 min para expirar (chamadas seguidas devolvem o mesmo link, só estendendo
- * a validade); abaixo disso gera token novo (o anterior para de funcionar).
+ * a validade); abaixo disso, ou com `forcarNovo` (botão "Gerar novo link"), revoga o anterior e cria um token novo.
  * Exige workspace-convenios can_edit (gerar link mexe no rascunho, então não é só leitura).
  * Gravar o token não muda updated_at do rascunho (trigger da migration), então não quebra revisão/publicação.
  */
 export async function gerarLinkPreview(
   convenioId: string,
+  opcoes?: { forcarNovo?: boolean },
 ): Promise<{ success: true; data: { url: string; expiraEm: string } } | { success: false; error: string }> {
   try {
     await requirePermission('workspace-convenios', 'can_edit')
@@ -40,6 +41,7 @@ export async function gerarLinkPreview(
     if (!atual) return { success: false, error: 'Não há rascunho salvo deste convênio. Salve o rascunho antes de gerar o preview.' }
 
     const reutilizar =
+      !opcoes?.forcarNovo &&
       decidirTokenPreview(atual.preview_token, atual.preview_token_expira_em, Date.now()) === 'reutilizar' &&
       TOKEN_PREVIEW_RE.test(atual.preview_token as string)
     const token = reutilizar ? (atual.preview_token as string) : randomBytes(32).toString('base64url')

@@ -125,10 +125,10 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
 
   // A action reaproveita o token válido; aqui só evitamos chamadas concorrentes (reaproveita a promise pendente).
   const previewPendente = useRef<Promise<void> | null>(null)
-  function carregarPreview() {
+  function carregarPreview(forcarNovo = false) {
     previewPendente.current ??= (async () => {
       try {
-        const res = await gerarLinkPreview(convenioId)
+        const res = await gerarLinkPreview(convenioId, { forcarNovo })
         if (res.success) setPreview((p) => ({ url: res.data.url, n: (p?.n ?? 0) + 1 }))
         else setMessage({ type: 'error', text: res.error || 'Erro ao gerar o preview.' })
       } finally {
@@ -163,6 +163,12 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
         return
       }
       await carregarPreview()
+    })
+
+  const novoLink = () =>
+    rodar('preview', async () => {
+      if (!dados?.id) return
+      await carregarPreview(true)
     })
 
   const revisar = () =>
@@ -637,7 +643,7 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
           dirty={dirty}
           recarregando={busy === 'preview' || busy === 'salvar'}
           onRecarregar={recarregarIframe}
-          onNovoLink={verPreview}
+          onNovoLink={novoLink}
           onFechar={() => setPreview(null)}
         />
       )}
