@@ -427,3 +427,17 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
     throw err
   }
 }
+
+/** A chamada alternativa do topo (hero_*) está preenchida e difere do Título/Subtítulo: o site usa ela, não o título. */
+export function heroSobrescreveTitulo(d: {
+  titulo_destaque?: string | null
+  subtitulo?: string | null
+  hero_headline?: string | null
+  hero_subheadline?: string | null
+}): boolean {
+  const dif = (hero?: string | null, base?: string | null) => {
+    const h = (hero ?? '').trim()
+    return h !== '' && h !== (base ?? '').trim()
+  }
+  return dif(d.hero_headline, d.titulo_destaque) || dif(d.hero_subheadline, d.subtitulo)
+}

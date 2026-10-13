@@ -30,7 +30,7 @@ import {
 import type { FaqBaseItem } from '@/lib/convenios-publico/montar-entrada'
 import { getDadosLanding } from '../../landing-actions'
 import { gerarLinkPreview } from '@/app/(dashboard)/convenios/preview-actions'
-import { FAQ_MAX } from '@/lib/convenios-publico/snapshot'
+import { FAQ_MAX, heroSobrescreveTitulo } from '@/lib/convenios-publico/snapshot'
 import { preencherLanding, type DadosConvenioLanding } from '@/lib/convenios-landing/preencher'
 import {
   PUBLICOS_DESTAQUE_MAX,
@@ -362,6 +362,14 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
         <Campo rotulo="Subtítulo" contador={[dados.subtitulo.length, 300]}>
           <input className="form-control" maxLength={300} value={dados.subtitulo} onChange={(e) => editar({ subtitulo: e.target.value })} />
         </Campo>
+        {heroSobrescreveTitulo(dados) && (
+          <div role="alert" style={{ padding: '0.6rem 0.8rem', borderRadius: 8, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', fontSize: '0.85rem', display: 'grid', gap: '0.5rem', justifyItems: 'start' }}>
+            <span>O site está usando a chamada alternativa do topo (em Avançado) em vez do Título/Subtítulo acima, por isso a mudança não aparece.</span>
+            <button type="button" className="btn btn-outline" onClick={() => editar({ hero_headline: '', hero_subheadline: '' })}>
+              Usar o Título e o Subtítulo acima
+            </button>
+          </div>
+        )}
       </Secao>
 
       {/* 2. Sobre o convênio */}
@@ -564,10 +572,10 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
 
           <div style={{ display: 'grid', gap: '0.75rem' }}>
             <strong style={{ fontSize: '0.875rem' }}>Chamada alternativa do topo (opcional)</strong>
-            <Campo rotulo="Headline" dica="Vazio: o site usa o título.">
+            <Campo rotulo="Headline" dica="Só preencha se quiser um texto diferente do Título. Vazio: o site usa o Título.">
               <input className="form-control" maxLength={200} value={dados.hero_headline || ''} onChange={(e) => editar({ hero_headline: e.target.value })} />
             </Campo>
-            <Campo rotulo="Sub-headline" dica="Vazio: o site usa o subtítulo.">
+            <Campo rotulo="Sub-headline" dica="Só preencha se quiser um texto diferente do Subtítulo. Vazio: o site usa o Subtítulo.">
               <input className="form-control" maxLength={300} value={dados.hero_subheadline || ''} onChange={(e) => editar({ hero_subheadline: e.target.value })} />
             </Campo>
           </div>

@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import { itemListaPublica, ordenarListaPublica, type ConvenioListaPublica } from '../convenios-publico/lista.ts'
+import { heroSobrescreveTitulo } from '../convenios-publico/snapshot.ts'
 import { decidirTokenPreview, montarEntradaSnapshot, montarPreview, tokenPreviewValido, type DadosSnapshot } from '../convenios-publico/montar-entrada.ts'
 
 const linha = (over: Record<string, unknown> = {}) => ({
@@ -148,5 +149,14 @@ describe('decidirTokenPreview', () => {
     assert.strictEqual(decidirTokenPreview(null, em(90), agora), 'novo')
     assert.strictEqual(decidirTokenPreview('t', null, agora), 'novo')
     assert.strictEqual(decidirTokenPreview('t', 'lixo', agora), 'novo')
+  })
+})
+
+describe('heroSobrescreveTitulo', () => {
+  it('avisa só quando a chamada alternativa preenchida difere do título/subtítulo', () => {
+    assert.equal(heroSobrescreveTitulo({ titulo_destaque: 'A', subtitulo: 'B', hero_headline: '', hero_subheadline: null }), false)
+    assert.equal(heroSobrescreveTitulo({ titulo_destaque: 'A', subtitulo: 'B', hero_headline: ' A ', hero_subheadline: 'B' }), false)
+    assert.equal(heroSobrescreveTitulo({ titulo_destaque: 'A', subtitulo: 'B', hero_headline: 'X' }), true)
+    assert.equal(heroSobrescreveTitulo({ titulo_destaque: 'A', subtitulo: 'B', hero_headline: 'A', hero_subheadline: 'Y' }), true)
   })
 })
