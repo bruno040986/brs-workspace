@@ -202,8 +202,8 @@ async function definirMarca(campo: 'logotipo_url' | 'brasao_url' | 'bandeira_url
     if (formData.get('remover') !== '1') {
       const arq = await lerArquivo(formData.get('arquivo'))
       if (typeof arq === 'string') return { success: false, error: arq }
-      // Emblema: apara a margem transparente (galeria e foto da landing ficam como enviadas).
-      const { buffer } = await aparar(arq.bytes)
+      // Emblema: apara a margem e padroniza a proporção (logotipo/brasão 1:1, bandeira 10:7) (galeria e foto da landing ficam como enviadas).
+      const { buffer } = await aparar(arq.bytes, campo === 'bandeira_url' ? 'bandeira' : 'quadrado')
       url = await enviarObjeto(convenioId, campo.replace('_url', ''), { ...arq, bytes: buffer })
     }
     const { error } = await admin.from('convenios').update({ [campo]: url }).eq('id', convenioId)
