@@ -3,6 +3,8 @@
 import { useRef, useState } from 'react'
 import { ImagePlus, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { enviarImagemLanding } from '../../imagens-actions'
+import type { ImagemSlot } from '@/lib/convenios-publico/imagem-specs'
+import ImagemSpecDica from '../ImagemSpecDica'
 
 const ACCEPT = 'image/png,image/jpeg,image/webp'
 const MAX_BYTES = 2 * 1024 * 1024
@@ -10,11 +12,13 @@ const MAX_BYTES = 2 * 1024 * 1024
 /** Foto da landing: envia para o bucket público e devolve a URL (quem grava é o rascunho). */
 export default function FotoUpload({
   convenioId,
+  slot,
   url,
   onChange,
   altura = 200,
 }: {
   convenioId: string
+  slot: ImagemSlot
   url: string | null | undefined
   onChange: (url: string | null) => void
   altura?: number
@@ -75,7 +79,6 @@ export default function FotoUpload({
         >
           {enviando ? <Loader2 size={22} className="spinner" /> : <ImagePlus size={22} />}
           {enviando ? 'Enviando...' : 'Escolher foto'}
-          <span style={{ fontSize: '0.75rem' }}>PNG, JPEG ou WebP, até 2 MB</span>
         </button>
       )}
       {url && (
@@ -90,6 +93,7 @@ export default function FotoUpload({
           </button>
         </div>
       )}
+      <ImagemSpecDica slot={slot} />
       {erro && <div style={{ fontSize: '0.8rem', color: '#dc2626' }}>{erro}</div>}
       <input ref={input} type="file" accept={ACCEPT} hidden onChange={(e) => enviar(e.target.files?.[0])} />
     </div>

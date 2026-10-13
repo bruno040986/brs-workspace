@@ -349,7 +349,7 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
       {/* 1. Topo */}
       <Secao n={1} titulo="Topo" ajuda="A primeira coisa que o visitante vê.">
         <Campo rotulo="Foto de destaque" grupo>
-          <FotoUpload convenioId={convenioId} url={dados.imagem_destaque_url} onChange={(url) => editar({ imagem_destaque_url: url })} />
+          <FotoUpload convenioId={convenioId} slot="destaque" url={dados.imagem_destaque_url} onChange={(url) => editar({ imagem_destaque_url: url })} />
         </Campo>
         {dados.imagem_destaque_url && (
           <Campo rotulo="Descreva a foto em poucas palavras" dica="Lida por leitores de tela. Ex.: Prédio da prefeitura de Mesquita.">
@@ -423,7 +423,7 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
                 <textarea className="form-control" rows={3} maxLength={PUBLICO_DESTAQUE_TEXTO_MAX} value={p.texto} onChange={(e) => setPublico(i, { texto: e.target.value })} />
               </Campo>
               <Campo rotulo="Foto" grupo>
-                <FotoUpload convenioId={convenioId} url={p.imagem_url} altura={150} onChange={(url) => setPublico(i, { imagem_url: url })} />
+                <FotoUpload convenioId={convenioId} slot="publico_destaque" url={p.imagem_url} altura={150} onChange={(url) => setPublico(i, { imagem_url: url })} />
               </Campo>
             </Item>
           )

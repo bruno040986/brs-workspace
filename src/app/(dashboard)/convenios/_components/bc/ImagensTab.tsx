@@ -13,6 +13,8 @@ import {
   reordenarImagens,
   type ImagemConvenio,
 } from '../../imagens-actions'
+import { IMAGEM_SPECS } from '@/lib/convenios-publico/imagem-specs'
+import ImagemSpecDica from '../ImagemSpecDica'
 
 const ACCEPT = 'image/png,image/jpeg,image/webp'
 const MAX_GALERIA = 12
@@ -143,15 +145,15 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
       )}
 
       <div style={{ fontSize: '0.82rem', color: 'var(--brs-gray-500)' }}>
-        PNG, JPEG ou WebP, até 2 MB, 1:1 para logotipo e brasão; bandeira em proporção livre (recomendado 3:2). As imagens entram no site na próxima publicação da aba Landing Page.
+        Cada campo mostra o tamanho ideal; use essas medidas no Canva ou no ChatGPT. As imagens entram no site na próxima publicação da aba Landing Page.
       </div>
 
       <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
         {(
           [
-            { campo: 'logotipo', titulo: 'Logotipo (1:1)', url: logotipo, proporcao: '1 / 1' },
-            { campo: 'brasao', titulo: 'Brasão (1:1)', url: brasao, proporcao: '1 / 1' },
-            { campo: 'bandeira', titulo: 'Bandeira (recomendado 3:2)', url: bandeira, proporcao: '3 / 2' },
+            { campo: 'logotipo', titulo: `Logotipo (${IMAGEM_SPECS.logotipo.proporcao})`, url: logotipo, proporcao: '1 / 1' },
+            { campo: 'brasao', titulo: `Brasão (${IMAGEM_SPECS.brasao.proporcao})`, url: brasao, proporcao: '1 / 1' },
+            { campo: 'bandeira', titulo: `Bandeira (${IMAGEM_SPECS.bandeira.proporcao})`, url: bandeira, proporcao: '10 / 7' },
           ] as const
         ).map((m) => (
           <div key={m.campo} className="card" style={{ padding: '1rem', display: 'grid', gap: '0.75rem', justifyItems: 'center' }}>
@@ -176,6 +178,7 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
                 <span style={{ fontSize: '0.8rem', color: 'var(--brs-gray-500)' }}>Sem imagem</span>
               )}
             </div>
+            <ImagemSpecDica slot={m.campo} />
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
               <label className={`btn btn-outline btn-sm${busy ? ' disabled' : ''}`} style={{ cursor: busy ? 'not-allowed' : 'pointer' }}>
                 {busy === m.campo ? <Loader2 size={14} className="spinner" /> : <Upload size={14} />}
@@ -229,6 +232,7 @@ export default function ImagensTab({ convenioId }: { convenioId: string }) {
           <div className="form-group">
             <label className="form-label">Arquivo</label>
             <input key={inputKey} type="file" className="form-control" accept={ACCEPT} onChange={(e) => setNovoArquivo(e.target.files?.[0] || null)} />
+            <ImagemSpecDica slot={`galeria_${novoTipo}`} />
           </div>
           <div className="form-group">
             <button type="submit" className="btn btn-primary" disabled={!!busy || cheia} title={cheia ? `Máximo de ${MAX_GALERIA} imagens` : undefined}>
