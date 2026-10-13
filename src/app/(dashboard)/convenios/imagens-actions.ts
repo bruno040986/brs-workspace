@@ -7,6 +7,7 @@
  */
 
 import { requirePermission } from '@/lib/auth/server'
+import { aparar } from '@/lib/convenios-publico/emblema-imagem'
 import { IMAGEM_TIPOS, type ImagemTipo } from '@/lib/convenios-publico/snapshot'
 import { admin } from './supabase-admin'
 
@@ -201,7 +202,9 @@ async function definirMarca(campo: 'logotipo_url' | 'brasao_url' | 'bandeira_url
     if (formData.get('remover') !== '1') {
       const arq = await lerArquivo(formData.get('arquivo'))
       if (typeof arq === 'string') return { success: false, error: arq }
-      url = await enviarObjeto(convenioId, campo.replace('_url', ''), arq)
+      // Emblema: apara a margem transparente (galeria e foto da landing ficam como enviadas).
+      const { buffer } = await aparar(arq.bytes)
+      url = await enviarObjeto(convenioId, campo.replace('_url', ''), { ...arq, bytes: buffer })
     }
     const { error } = await admin.from('convenios').update({ [campo]: url }).eq('id', convenioId)
     if (error) {
