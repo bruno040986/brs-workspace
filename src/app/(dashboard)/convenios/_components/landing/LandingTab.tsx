@@ -356,6 +356,23 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
             <input className="form-control" maxLength={200} value={dados.imagem_destaque_alt || ''} onChange={(e) => editar({ imagem_destaque_alt: e.target.value })} />
           </Campo>
         )}
+        <Campo rotulo="Imagem do card (página Consignado Estadual/Municipal)" grupo>
+          <FotoUpload convenioId={convenioId} slot="card" url={dados.imagem_card_url} altura={150} onChange={(url) => editar({ imagem_card_url: url })} />
+        </Campo>
+        {dados.imagem_card_url && (
+          <>
+            <Campo rotulo="Descreva a imagem do card em poucas palavras" dica="Lida por leitores de tela. Se ficar vazio, o site usa o nome do convênio.">
+              <input className="form-control" maxLength={200} value={dados.imagem_card_alt || ''} onChange={(e) => editar({ imagem_card_alt: e.target.value })} />
+            </Campo>
+            <div aria-hidden style={{ position: 'relative', width: '100%', maxWidth: 300, aspectRatio: '2 / 1', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--brs-gray-200)' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={dados.imagem_card_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <div style={{ position: 'absolute', inset: 'auto 0 0 0', padding: '0.4rem 0.6rem', background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: '0.8rem', fontWeight: 700 }}>
+                {conv?.nome || dados.titulo_destaque || 'Nome do convênio'}
+              </div>
+            </div>
+          </>
+        )}
         <Campo rotulo="Título" contador={[dados.titulo_destaque.length, 200]}>
           <input className="form-control" maxLength={200} placeholder="Ex.: Consignado Prefeitura de Mesquita" value={dados.titulo_destaque} onChange={(e) => editar({ titulo_destaque: e.target.value })} />
         </Campo>

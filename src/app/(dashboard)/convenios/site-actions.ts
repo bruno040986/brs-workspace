@@ -64,6 +64,9 @@ export type ConvenioConteudoSiteRecord = {
   cta_link_destino?: string | null
   imagem_destaque_url?: string | null
   imagem_destaque_alt?: string | null
+  /** Imagem própria do card de /solucoes/consignado-* (2:1); null = fallback logotipo/brasão/prédio. */
+  imagem_card_url?: string | null
+  imagem_card_alt?: string | null
   variaveis_permitidas: string[]
   created_at?: string
   updated_at?: string
@@ -203,6 +206,8 @@ export async function getConvenioConteudoSite(convenioId: string): Promise<{
         cta_link_destino: null,
         imagem_destaque_url: null,
         imagem_destaque_alt: null,
+        imagem_card_url: null,
+        imagem_card_alt: null,
         variaveis_permitidas: [...SERVER_WHITELIST_VARIAVEIS],
       },
     }
@@ -243,6 +248,7 @@ export async function saveConvenioConteudoSiteDraft(
       payload.cta_texto_botao,
       payload.cta_link_destino,
       payload.imagem_destaque_alt,
+      payload.imagem_card_alt,
       ...(payload.vantagens || []).flatMap((v) => [v.titulo, v.descricao]),
       ...(payload.faqs || []).flatMap((f) => [f.pergunta, f.resposta]),
       ...(payload.publicos_destaque || []).flatMap((p) => [p.titulo, p.texto]),
@@ -335,6 +341,8 @@ export async function saveConvenioConteudoSiteDraft(
       cta_link_destino: payload.cta_link_destino || null,
       imagem_destaque_url: payload.imagem_destaque_url || null,
       imagem_destaque_alt: payload.imagem_destaque_alt || null,
+      imagem_card_url: payload.imagem_card_url || null,
+      imagem_card_alt: payload.imagem_card_alt || null,
       variaveis_permitidas: [...SERVER_WHITELIST_VARIAVEIS],
       updated_at: new Date().toISOString(),
     }

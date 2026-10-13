@@ -165,7 +165,7 @@ export async function reordenarImagens(convenioId: string, ids: string[]): Promi
 }
 
 /**
- * Foto da landing (topo e públicos em destaque). FormData: convenio_id, arquivo.
+ * Foto da landing (topo, card da lista e públicos em destaque). FormData: convenio_id, arquivo.
  * Só sobe o arquivo e devolve a URL: quem grava é o rascunho da landing.
  * Remover/trocar no rascunho NÃO apaga do bucket: uma versão publicada pode apontar para ela.
  * ponytail: arquivo trocado vira órfão no bucket; limpar por varredura se o volume importar.

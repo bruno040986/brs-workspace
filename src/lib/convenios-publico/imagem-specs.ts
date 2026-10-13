@@ -52,11 +52,11 @@ export const IMAGEM_SPECS: Record<ImagemSlot, ImagemSpec> = {
     largura: 1000, altura: 700, proporcao: '10:7', formatos: FORMATOS, pesoMaxMb: 2,
     dica: 'bandeira inteira, sem moldura; o sistema apara a margem e ajusta',
   },
-  // Não é upload: o card de /solucoes/consignado-* usa logotipo, senão brasão, senão a imagem do tipo "Prédio" da galeria (corte 2:1).
+  // Upload próprio (imagem_card_url). Sem ela, o card de /solucoes/consignado-* usa logotipo, senão brasão, senão a foto "Prédio" da galeria.
   card: {
-    rotulo: 'Card na lista de convênios',
+    rotulo: 'Imagem do card (página Consignado Estadual/Municipal)',
     largura: 1200, altura: 600, proporcao: '2:1', formatos: FORMATOS, pesoMaxMb: 2,
-    dica: 'só vale para a foto do tipo Prédio (cortada em faixa 2:1, assunto no centro); logotipo e brasão entram inteiros',
+    dica: `faixa 2:1, o site corta as bordas: assunto no centro, ${SEM_TEXTO}. Sem esta imagem, o card usa logotipo, brasão ou foto do Prédio`,
   },
   galeria_predio: {
     rotulo: 'Galeria: Prédio', ...GALERIA,

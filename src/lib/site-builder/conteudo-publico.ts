@@ -218,6 +218,8 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
     'cta_link_destino',
     'imagem_destaque_url',
     'imagem_destaque_alt',
+    'imagem_card_url',
+    'imagem_card_alt',
     'termo_busca_modulo_convenio',
     'mensagem_sem_convenios',
     'mensagem_erro_busca_convenios',
@@ -364,6 +366,9 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
   }
   if (payload.imagem_destaque_url && !validarUrlMedia(payload.imagem_destaque_url)) {
     return { valido: false, erro: 'URL da imagem de destaque é inválida para mídias.' }
+  }
+  if (payload.imagem_card_url && !validarUrlMedia(payload.imagem_card_url)) {
+    return { valido: false, erro: 'URL da imagem do card é inválida para mídias.' }
   }
   if (payload.og_image_url && !validarUrlMedia(payload.og_image_url)) {
     return { valido: false, erro: 'URL de og:image é inválida para mídias.' }
