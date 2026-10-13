@@ -9,8 +9,12 @@ export type ConvenioListaPublica = {
   uf: string | null
   logotipo_url: string | null
   brasao_url: string | null
-  /** logotipo → brasão → primeira imagem tipo 'predio' (ordem do cadastro) → null; só https. */
+  /** imagem do card (landing) → logotipo → brasão → primeira imagem tipo 'predio' (ordem do cadastro) → null; só https. */
   imagem_card_url: string | null
+  /** De onde veio `imagem_card_url`; null quando não há nenhuma. */
+  imagem_card_origem: 'card' | 'logotipo' | 'brasao' | 'predio' | null
+  /** Texto alternativo; só quando a origem é 'card'. */
+  imagem_card_alt: string | null
   publicado_em: string
 }
 
@@ -24,6 +28,9 @@ export function itemListaPublica(r: {
   logotipo_url?: unknown
   brasao_url?: unknown
   imagens_predio?: { url: unknown }[] | null
+  /** convenio_conteudo_site.imagem_card_url / imagem_card_alt da versão no ar. */
+  imagem_card_site?: unknown
+  imagem_card_site_alt?: unknown
   publicado_em: unknown
 }): ConvenioListaPublica | null {
   const slug = typeof r.slug_publico === 'string' ? r.slug_publico : ''
@@ -34,6 +41,11 @@ export function itemListaPublica(r: {
   const logotipo = urlHttps(r.logotipo_url)
   const brasao = urlHttps(r.brasao_url)
   const predio = (r.imagens_predio ?? []).map((i) => urlHttps(i.url)).find((u) => u) ?? null
+  const card = urlHttps(r.imagem_card_site)
+  const [imagem_card_url, imagem_card_origem] = (
+    card ? [card, 'card'] : logotipo ? [logotipo, 'logotipo'] : brasao ? [brasao, 'brasao'] : predio ? [predio, 'predio'] : [null, null]
+  ) as [string | null, ConvenioListaPublica['imagem_card_origem']]
+  const alt = typeof r.imagem_card_site_alt === 'string' ? r.imagem_card_site_alt.replace(/<[^>]*>/g, '').trim().slice(0, 200) : ''
   return {
     slug,
     nome,
@@ -42,7 +54,9 @@ export function itemListaPublica(r: {
     uf: typeof r.uf === 'string' && /^[A-Z]{2}$/.test(r.uf) ? r.uf : null,
     logotipo_url: logotipo,
     brasao_url: brasao,
-    imagem_card_url: logotipo ?? brasao ?? predio,
+    imagem_card_url,
+    imagem_card_origem,
+    imagem_card_alt: card && alt ? alt : null,
     publicado_em: new Date(t).toISOString(),
   }
 }

@@ -55,7 +55,7 @@ describe('montarSnapshotPublico', () => {
   it('só tem as chaves do contrato e nenhum campo interno/uuid', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
-      'bandeira_url', 'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagens', 'instituicoes', 'logotipo_url',
+      'bandeira_url', 'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagem_card_alt', 'imagem_card_url', 'imagens', 'instituicoes', 'logotipo_url',
       'publicado_em', 'publicos', 'publicos_destaque', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
@@ -417,6 +417,19 @@ describe('dispararRebuildNuAzul', () => {
     await dispararRebuildNuAzul('retirar', 'x', async (u) => { urls.push(u); throw new Error('boom https://hook.test/abc') })
     assert.deepEqual(urls, ['https://hook.test/abc'])
     delete process.env.NUAZUL_DEPLOY_HOOK_URL
+  })
+})
+
+describe('montarSnapshotPublico: imagem do card', () => {
+  it('https passa, alt sem tags; inválida/ausente vira null; independe da seção hero', () => {
+    const ok = snap(entrada({}, { imagem_card_url: 'https://cdn.exemplo.com/card.webp', imagem_card_alt: '<i>Prédio</i>', secoes_visibilidade: { hero: false, resumo: true, vantagens: true, faq: true, cta: true, seo: true } }))
+    assert.strictEqual(ok.imagem_card_url, 'https://cdn.exemplo.com/card.webp')
+    assert.strictEqual(ok.imagem_card_alt, 'Prédio')
+    for (const u of ['javascript:alert(1)', 'http://a.com/c.png', 'data:image/png;base64,AA', undefined]) {
+      assert.strictEqual(snap(entrada({}, { imagem_card_url: u })).imagem_card_url, null, String(u))
+    }
+    assert.strictEqual(snap(entrada()).imagem_card_alt, null)
+    assert.ok(!montarSnapshotPublico(entrada({}, { imagem_card_url: 'https://cdn.exemplo.com/c.webp', imagem_card_alt: 'x'.repeat(201) })).ok)
   })
 })
 

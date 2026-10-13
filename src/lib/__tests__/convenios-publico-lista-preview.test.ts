@@ -22,7 +22,7 @@ const linha = (over: Record<string, unknown> = {}) => ({
 describe('lista pública de convênios', () => {
   it('só os campos do contrato, publicado_em em ISO UTC', () => {
     const i = itemListaPublica(linha())!
-    assert.deepStrictEqual(Object.keys(i).sort(), ['brasao_url', 'esfera', 'imagem_card_url', 'logotipo_url', 'nome', 'nome_reduzido', 'publicado_em', 'slug', 'uf'])
+    assert.deepStrictEqual(Object.keys(i).sort(), ['brasao_url', 'esfera', 'imagem_card_alt', 'imagem_card_origem', 'imagem_card_url', 'logotipo_url', 'nome', 'nome_reduzido', 'publicado_em', 'slug', 'uf'])
     assert.equal(i.publicado_em, '2026-10-10T14:00:00.000Z')
     assert.equal(i.imagem_card_url, null)
   })
@@ -37,6 +37,19 @@ describe('lista pública de convênios', () => {
     assert.equal(ruim.logotipo_url, null)
     assert.equal(ruim.brasao_url, null)
     assert.equal(ruim.imagem_card_url, null)
+  })
+
+  it('imagem_card_origem: card → logotipo → brasão → prédio → null; alt só com origem card', () => {
+    const l = 'https://cdn.x.com/l.png'
+    const c = { imagem_card_site: 'https://cdn.x.com/card.webp', imagem_card_site_alt: ' <b>Prédio</b> ' }
+    const comCard = itemListaPublica(linha({ logotipo_url: l, ...c }))!
+    assert.deepStrictEqual([comCard.imagem_card_url, comCard.imagem_card_origem, comCard.imagem_card_alt], ['https://cdn.x.com/card.webp', 'card', 'Prédio'])
+    const semCard = itemListaPublica(linha({ logotipo_url: l, imagem_card_site: 'http://x.com/c.webp', imagem_card_site_alt: 'x' }))!
+    assert.deepStrictEqual([semCard.imagem_card_url, semCard.imagem_card_origem, semCard.imagem_card_alt], [l, 'logotipo', null])
+    assert.equal(itemListaPublica(linha({ brasao_url: 'https://cdn.x.com/b.png' }))!.imagem_card_origem, 'brasao')
+    assert.equal(itemListaPublica(linha({ imagens_predio: [{ url: 'https://cdn.x.com/p.webp' }] }))!.imagem_card_origem, 'predio')
+    const nenhum = itemListaPublica(linha())!
+    assert.deepStrictEqual([nenhum.imagem_card_url, nenhum.imagem_card_origem, nenhum.imagem_card_alt], [null, null, null])
   })
 
   it('linha inválida sai (slug, esfera, data)', () => {

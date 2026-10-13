@@ -37,6 +37,9 @@ export type ConvenioPublicoV1 = {
   brasao_url: string | null
   /** Aditivo (T-21): bandeira do convênio (proporção livre, recomendado 3:2) ou null. */
   bandeira_url: string | null
+  /** Aditivo: imagem própria do card da lista (2:1) e texto alternativo; null = card usa logotipo/brasão/prédio. */
+  imagem_card_url: string | null
+  imagem_card_alt: string | null
   /** Aditivo (T-21): galeria do convênio, máx. 12, só https válidas, na ordem do cadastro. */
   imagens: ImagemPublica[]
   vantagens: ItemEvidenciado[]
@@ -389,6 +392,8 @@ export function montarSnapshotPublico(e: EntradaSnapshot): ResultadoSnapshot {
       logotipo_url: urlHttps(e.logotipo_url),
       brasao_url: urlHttps(e.brasao_url),
       bandeira_url: urlHttps(e.bandeira_url),
+      imagem_card_url: urlHttps(c.imagem_card_url),
+      imagem_card_alt: texto(c.imagem_card_alt, 200, 'Texto alternativo da imagem do card'),
       imagens: limite(imagens, 12, 'Imagens'),
       vantagens: limite(vantagens, 12, 'Vantagens'),
       faqs,

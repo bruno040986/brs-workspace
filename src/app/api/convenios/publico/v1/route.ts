@@ -26,7 +26,7 @@ export async function GET() {
       .from('convenios')
       .select(
         'slug_publico, nome, nome_reduzido, esfera, uf, logotipo_url, brasao_url, ' +
-          'convenio_conteudo_site!inner(published_at), imagens_predio:convenio_imagens(url)',
+          'convenio_conteudo_site!inner(published_at, imagem_card_url, imagem_card_alt), imagens_predio:convenio_imagens(url)',
       )
       .not('slug_publico', 'is', null)
       .is('deleted_at', null)
@@ -40,10 +40,13 @@ export async function GET() {
       .limit(500)
     if (error) throw error
 
-    type Linha = Parameters<typeof itemListaPublica>[0] & { convenio_conteudo_site?: { published_at: unknown }[] }
+    type Linha = Parameters<typeof itemListaPublica>[0] & { convenio_conteudo_site?: { published_at: unknown; imagem_card_url?: unknown; imagem_card_alt?: unknown }[] }
     const convenios = ordenarListaPublica(
       ((data || []) as unknown as Linha[])
-        .map((r) => itemListaPublica({ ...r, publicado_em: r.convenio_conteudo_site?.[0]?.published_at }))
+        .map((r) => {
+          const site = r.convenio_conteudo_site?.[0]
+          return itemListaPublica({ ...r, publicado_em: site?.published_at, imagem_card_site: site?.imagem_card_url, imagem_card_site_alt: site?.imagem_card_alt })
+        })
         .filter((c): c is ConvenioListaPublica => !!c),
     )
     return json({ convenios }, 200, CACHE_PUBLICO)
