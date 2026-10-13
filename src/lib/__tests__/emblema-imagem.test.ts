@@ -3,6 +3,11 @@ import assert from 'node:assert'
 import sharp from 'sharp'
 import { aparar } from '../convenios-publico/emblema-imagem.ts'
 
+const ok = async (b: Buffer, p?: 'quadrado' | 'bandeira') => {
+  const r = await aparar(b, p)
+  if (r.rejeitada) throw new Error(`rejeitada: ${r.motivo}`)
+  return r
+}
 const dims = async (b: Buffer) => {
   const m = await sharp(b).metadata()
   return { w: m.width!, h: m.height! }
@@ -20,7 +25,7 @@ const emTela = (cw: number, ch: number) =>
 
 describe('aparar emblema', () => {
   it('logotipo 400x128 em 500x500 vira quadrado e mantém a proporção do conteúdo', async () => {
-    const r = await aparar(await emTela(400, 128), 'quadrado')
+    const r = await ok(await emTela(400, 128), 'quadrado')
     assert.equal(r.aparada, true)
     const { w, h } = await dims(r.buffer)
     assert.ok(Math.abs(w - h) <= 1, `${w}x${h}`)
@@ -30,38 +35,35 @@ describe('aparar emblema', () => {
   })
 
   it('brasão 300x400 vira quadrado', async () => {
-    const r = await aparar(await emTela(300, 400), 'quadrado')
+    const r = await ok(await emTela(300, 400), 'quadrado')
     const { w, h } = await dims(r.buffer)
     assert.ok(Math.abs(w - h) <= 1, `${w}x${h}`)
     assert.ok(h >= 400)
   })
 
   it('bandeira 500x350 fica 10:7 sem mudar', async () => {
-    const r = await aparar(await opaco(500, 350), 'bandeira')
+    const r = await ok(await opaco(500, 350), 'bandeira')
     const { w, h } = await dims(r.buffer)
     assert.ok(Math.abs(w / h - 10 / 7) <= 0.02, `${w}x${h}`)
     assert.ok(Math.abs(w - 500) <= 10 && Math.abs(h - 350) <= 7)
   })
 
   it('bandeira 600x400 (3:2) vira 10:7 sem distorcer', async () => {
-    const r = await aparar(await opaco(600, 400), 'bandeira')
+    const r = await ok(await opaco(600, 400), 'bandeira')
     assert.equal(r.aparada, true)
     const { w, h } = await dims(r.buffer)
     assert.ok(Math.abs(w / h - 10 / 7) <= 0.02, `${w}x${h}`)
     assert.ok(w >= 600 && h >= 400)
   })
 
-  it('imagem com pixels demais (6000x6000) volta intacta, sem decodificar', async () => {
+  it('imagem com pixels demais (6000x6000) é rejeitada, sem decodificar', async () => {
     const grande = await sharp({ create: { width: 6000, height: 6000, channels: 3, background: { r: 128, g: 128, b: 128 } } }).png().toBuffer()
     const r = await aparar(grande, 'quadrado')
-    assert.equal(r.aparada, false)
-    assert.equal(r.buffer, grande)
+    assert.deepEqual(r, { rejeitada: true, motivo: 'pixels' })
   })
 
-  it('entrada inválida devolve o original', async () => {
-    const lixo = Buffer.from('nao e imagem')
-    const r = await aparar(lixo)
-    assert.equal(r.aparada, false)
-    assert.equal(r.buffer, lixo)
+  it('entrada ilegível é rejeitada', async () => {
+    const r = await aparar(Buffer.from('nao e imagem'))
+    assert.deepEqual(r, { rejeitada: true, motivo: 'leitura' })
   })
 })

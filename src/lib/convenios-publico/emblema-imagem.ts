@@ -5,7 +5,15 @@ const LIMITE_PIXELS = 25_000_000 // 5000x5000: barra decompression bomb (PNG/Web
 const MARGEM = 1.08 // quadrado: 4% por lado, para o emblema não encostar na borda do cartão
 const BANDEIRA = 10 / 7 // largura:altura oficial da bandeira
 
+const LADO_MAX = 5000
+
 export type Proporcao = 'quadrado' | 'bandeira'
+export type ResultadoAparar = { buffer: Buffer; aparada: boolean; rejeitada?: undefined } | { rejeitada: true; motivo: 'pixels' | 'leitura' }
+
+export const MSG_REJEICAO: Record<'pixels' | 'leitura', string> = {
+  pixels: 'Imagem muito grande em pixels (máximo 5000 × 5000). Reduza a imagem e envie de novo.',
+  leitura: 'Não foi possível ler a imagem. Envie PNG, JPEG ou WebP válido.',
+}
 
 /**
  * Apara a margem transparente (ou de cor uniforme) de logotipo/brasão/bandeira e devolve
@@ -13,16 +21,23 @@ export type Proporcao = 'quadrado' | 'bandeira'
  * no mesmo formato. Qualquer falha ou resultado suspeito devolve o original (aparada=false).
  * Só para os 3 emblemas, não para galeria/foto.
  */
-export async function aparar(buffer: Buffer, proporcao: Proporcao = 'quadrado'): Promise<{ buffer: Buffer; aparada: boolean }> {
+export async function aparar(buffer: Buffer, proporcao: Proporcao = 'quadrado'): Promise<ResultadoAparar> {
   const original = { buffer, aparada: false }
+  // Sob demanda: sharp é optionalDependency do next; falha ao carregar não pode derrubar o módulo de upload.
+  let sharp: typeof import('sharp')
   try {
-    // Sob demanda: sharp é optionalDependency do next; falha ao carregar não pode derrubar o módulo de upload.
-    const { default: sharp } = await import('sharp')
-    const abrir = (b: Buffer) => sharp(b, { limitInputPixels: LIMITE_PIXELS })
+    sharp = (await import('sharp')).default
+  } catch (e) {
+    console.error('sharp indisponível; emblema gravado sem processar:', e instanceof Error ? e.message : 'erro')
+    return original
+  }
+  try {
+    // pages:1 ignora frames extras (WebP/GIF animado); sequentialRead e o teto de pixels limitam memória.
+    const abrir = (b: Buffer) => sharp(b, { limitInputPixels: LIMITE_PIXELS, sequentialRead: true, pages: 1 })
     const meta = await abrir(buffer).metadata()
     const { format, width, height } = meta
-    if (!width || !height || (format !== 'png' && format !== 'webp' && format !== 'jpeg')) return original
-    if (width * height > LIMITE_PIXELS) return original // não decodifica
+    if (!width || !height || (format !== 'png' && format !== 'webp' && format !== 'jpeg')) return { rejeitada: true, motivo: 'leitura' }
+    if (width * height > LIMITE_PIXELS || width > LADO_MAX || height > LADO_MAX) return { rejeitada: true, motivo: 'pixels' } // não decodifica
     const comAlfa = Boolean(meta.hasAlpha)
 
     // Fundo: transparente se houver alfa; senão a cor do canto (é o que o trim usa por padrão).
@@ -50,6 +65,7 @@ export async function aparar(buffer: Buffer, proporcao: Proporcao = 'quadrado'):
       cw = Math.max(w, Math.round(h * BANDEIRA))
       ch = Math.max(h, Math.round(cw / BANDEIRA))
     }
+    if (cw * ch > LIMITE_PIXELS || cw > LADO_MAX || ch > LADO_MAX) return { rejeitada: true, motivo: 'pixels' }
     if (cw === width && ch === height && w === width && h === height) return original // nada a mudar
 
     const left = Math.floor((cw - w) / 2)
@@ -58,7 +74,8 @@ export async function aparar(buffer: Buffer, proporcao: Proporcao = 'quadrado'):
     img = format === 'png' ? img.png() : format === 'webp' ? img.webp({ quality: 90 }) : img.jpeg({ quality: 90 })
     return { buffer: await img.toBuffer(), aparada: true }
   } catch (e) {
-    console.error('Falha ao aparar emblema; mantendo original:', e instanceof Error ? e.message : 'erro')
-    return original
+    const msg = e instanceof Error ? e.message : 'erro'
+    console.error('Falha ao aparar emblema; rejeitado:', msg)
+    return { rejeitada: true, motivo: /pixel/i.test(msg) ? 'pixels' : 'leitura' }
   }
 }
