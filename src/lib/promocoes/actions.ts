@@ -12,7 +12,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { enqueueJob } from '@/lib/scp-engine/queue'
 import type { PermissionAction } from '@/lib/auth/permissions'
 import { somenteDigitos, cpfValido, telefoneParaE164Digitos } from './validacao'
-import { mascararCpf, mascararPix, mascararTelefone } from './mascara'
+import { formatarCpf, formatarTelefone, mascararPix } from './mascara'
 import { prazoLink } from './dias-uteis'
 import { fimDoMinuto } from './seguranca'
 import { AVISO_INDICACAO_POSTERIOR, calcularElegibilidade, direitosDoIndicador, indicacaoVale, inscricaoPodeSerIndicada, operacoesConsideradasParaIndicador } from './elegibilidade'
@@ -76,7 +76,7 @@ export async function getPainel(slug: string): Promise<R<{ campanha: any; kpis: 
       (gers || []).map(async (g: any) => {
         const tabela = g.titular_tipo === 'inscricao' ? 'promocao_inscricoes' : 'promocao_indicadores'
         const { data: t } = await db.from(tabela).select('nome, cpf').eq('id', g.titular_id).maybeSingle()
-        return { ...g, nome: t?.nome || '—', cpf: t?.cpf ? mascararCpf(t.cpf) : '', prazo: prazoLink(g.created_at) }
+        return { ...g, nome: t?.nome || '—', cpf: t?.cpf ? formatarCpf(t.cpf) : '', prazo: prazoLink(g.created_at) }
       }),
     )
     return { ok: true, campanha: camp, kpis: { inscritos, indicacoes, opsInformadas, opsConfirmadas, numeros, pixDevidos }, links }
@@ -112,8 +112,8 @@ export async function listarInscritos(slug: string, q = ''): Promise<R<{ items: 
         id: i.id,
         codigo: i.codigo,
         nome: i.nome,
-        cpf: mascararCpf(i.cpf),
-        telefone: mascararTelefone(i.telefone),
+        cpf: formatarCpf(i.cpf),
+        telefone: formatarTelefone(i.telefone),
         origem: i.origem,
         status: i.status,
         verificado: i.telefone_verificado,
@@ -207,12 +207,12 @@ export async function listarIndicacoes(slug: string, q = ''): Promise<R<{ items:
           inscritaEm: i.inscrita_em,
           indicadorId: i.indicador?.id,
           indicador: i.indicador?.nome,
-          indicadorCpf: mascararCpf(i.indicador?.cpf || ''),
-          indicadorTel: mascararTelefone(i.indicador?.telefone || ''),
+          indicadorCpf: formatarCpf(i.indicador?.cpf || ''),
+          indicadorTel: formatarTelefone(i.indicador?.telefone || ''),
           pix: mascararPix(i.indicador?.pix_tipo, i.indicador?.pix_chave),
           pixAlteradoRecente: !!i.indicador?.pix_atualizado_em && new Date(i.indicador.pix_atualizado_em).getTime() > sete,
           indicado: i.inscricao?.nome,
-          indicadoCpf: mascararCpf(i.cpf_indicado),
+          indicadoCpf: formatarCpf(i.cpf_indicado),
           codigoIndicado: i.inscricao?.codigo,
           convenio: i.convenio?.nome || null,
           convenioTexto: i.convenio_texto_livre || null,
@@ -294,7 +294,7 @@ export async function listarOperacoes(slug: string, q = '', status = ''): Promis
         id: o.id,
         inscricaoId: o.inscricao_id,
         nome: o.inscricao?.nome,
-        cpf: mascararCpf(o.inscricao?.cpf || ''),
+        cpf: formatarCpf(o.inscricao?.cpf || ''),
         codigo: o.inscricao?.codigo,
         tipo: o.tipo,
         valorCentavos: Number(o.valor_liquido_centavos),
@@ -503,7 +503,7 @@ export async function listarNumeros(slug: string, q = ''): Promise<R<{ items: an
           status: n.status,
           titularTipo: n.titular_tipo,
           titular: x?.nome || '—',
-          cpf: x ? mascararCpf(x.cpf) : '',
+          cpf: x ? formatarCpf(x.cpf) : '',
           codigo: n.inscricao?.codigo,
           indicador: n.titular_tipo === 'indicador' ? null : n.inscricao?.indicacao?.indicador?.nome || null,
           origem: n.titular_tipo === 'indicador' ? 'Número do indicador' : n.inscricao?.indicacao ? 'Servidor indicado' : 'Servidor (direto)',
@@ -542,7 +542,7 @@ export async function listarBloqueados(slug: string): Promise<R<{ items: any[] }
     const { db, camp } = await ctx(slug, 'comercial-promocoes-bloqueados')
     const { data, error } = await db.from('promocao_cpfs_bloqueados').select('*').or(`campanha_id.is.null,campanha_id.eq.${camp.id}`).order('created_at', { ascending: false })
     if (error) throw error
-    return { ok: true, items: (data || []).map((b: any) => ({ id: b.id, cpf: mascararCpf(b.cpf), nome: b.nome, motivo: b.motivo, todas: !b.campanha_id, criadoEm: b.created_at })) }
+    return { ok: true, items: (data || []).map((b: any) => ({ id: b.id, cpf: formatarCpf(b.cpf), nome: b.nome, motivo: b.motivo, todas: !b.campanha_id, criadoEm: b.created_at })) }
   } catch (e) {
     return { ok: false, error: msg(e) }
   }

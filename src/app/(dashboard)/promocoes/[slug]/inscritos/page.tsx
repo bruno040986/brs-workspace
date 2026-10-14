@@ -44,7 +44,7 @@ export default function InscritosPage() {
 
   return (
     <div className="page-content">
-      <Titulo icon={<Users size={18} />} titulo="Inscritos" sub="Servidores inscritos (cadastro direto ou por indicação). CPF e telefone mascarados." />
+      <Titulo icon={<Users size={18} />} titulo="Inscritos" sub="Servidores inscritos (cadastro direto ou por indicação)." />
       <Aviso f={fb || (erro ? { type: 'error', text: erro } : null)} />
       <Busca valor={q} onChange={setQ} placeholder="Buscar por nome, código, CPF ou telefone..." />
       <div className="card">

@@ -9,7 +9,7 @@ import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import type { PermissionAction } from '@/lib/auth/permissions'
 import { apurarContemplado, parseNumeroLoteria } from './sorteio'
-import { mascararCpf, mascararTelefone } from './mascara'
+import { formatarCpf, formatarTelefone } from './mascara'
 import { titularesDosNumeros } from './direitos-service'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -38,7 +38,7 @@ async function montarView(db: any, s: any) {
       const t = (await titularesDosNumeros(db, [n])).get(`${n.titular_tipo}:${n.titular_id}`)
       const tabela = n.titular_tipo === 'inscricao' ? 'promocao_inscricoes' : 'promocao_indicadores'
       const { data: ct } = await db.from(tabela).select('telefone').eq('id', n.titular_id).maybeSingle()
-      ganhador = { nome: t?.nome, cpf: t ? mascararCpf(t.cpf) : '', telefone: ct ? mascararTelefone(ct.telefone) : '', tipo: n.titular_tipo }
+      ganhador = { nome: t?.nome, cpf: t ? formatarCpf(t.cpf) : '', telefone: ct ? formatarTelefone(ct.telefone) : '', tipo: n.titular_tipo }
     }
   }
   const { data: ev } = await db.from('promocao_eventos').select('dados, created_at, tipo').eq('entidade', 'sorteio').eq('entidade_id', s.id).order('created_at', { ascending: false }).limit(20)
