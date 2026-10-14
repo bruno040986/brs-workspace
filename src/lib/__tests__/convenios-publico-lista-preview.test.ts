@@ -22,7 +22,7 @@ const linha = (over: Record<string, unknown> = {}) => ({
 describe('lista pública de convênios', () => {
   it('só os campos do contrato, publicado_em em ISO UTC', () => {
     const i = itemListaPublica(linha())!
-    assert.deepStrictEqual(Object.keys(i).sort(), ['brasao_url', 'esfera', 'imagem_card_alt', 'imagem_card_origem', 'imagem_card_url', 'logotipo_url', 'nome', 'nome_reduzido', 'publicado_em', 'slug', 'uf'])
+    assert.deepStrictEqual(Object.keys(i).sort(), ['brasao_url', 'esfera', 'imagem_card_alt', 'imagem_card_origem', 'imagem_card_url', 'logotipo_url', 'nome', 'nome_reduzido', 'publicado_em', 'slug', 'texto_card', 'uf'])
     assert.equal(i.publicado_em, '2026-10-10T14:00:00.000Z')
     assert.equal(i.imagem_card_url, null)
   })
@@ -50,6 +50,12 @@ describe('lista pública de convênios', () => {
     assert.equal(itemListaPublica(linha({ imagens_predio: [{ url: 'https://cdn.x.com/p.webp' }] }))!.imagem_card_origem, 'predio')
     const nenhum = itemListaPublica(linha())!
     assert.deepStrictEqual([nenhum.imagem_card_url, nenhum.imagem_card_origem, nenhum.imagem_card_alt], [null, null, null])
+  })
+
+  it('texto_card: sem HTML, espaços colapsados, corta em 160; vazio vira null', () => {
+    assert.equal(itemListaPublica(linha({ texto_card_site: ' <b>Para  servidores</b>\n do estado ' }))!.texto_card, 'Para servidores do estado')
+    assert.equal(itemListaPublica(linha({ texto_card_site: 'x'.repeat(200) }))!.texto_card, 'x'.repeat(160))
+    for (const v of ['  ', '<br>', null, undefined, 5]) assert.equal(itemListaPublica(linha({ texto_card_site: v }))!.texto_card, null)
   })
 
   it('linha inválida sai (slug, esfera, data)', () => {

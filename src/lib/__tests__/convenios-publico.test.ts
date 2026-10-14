@@ -56,7 +56,7 @@ describe('montarSnapshotPublico', () => {
     const s = snap(entrada())
     assert.deepStrictEqual(Object.keys(s).sort(), [
       'bandeira_url', 'brasao_url', 'contrato', 'convenio', 'cta', 'faqs', 'formas_contratacao', 'hero', 'imagem_card_alt', 'imagem_card_url', 'imagens', 'instituicoes', 'logotipo_url',
-      'publicado_em', 'publicos', 'publicos_destaque', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'titulo_destaque', 'vantagens', 'versao',
+      'publicado_em', 'publicos', 'publicos_destaque', 'resumo_publico', 'seo', 'slug', 'subtitulo', 'texto_card', 'titulo_destaque', 'vantagens', 'versao',
     ])
     const json = JSON.stringify(s)
     assert.ok(!json.includes(UUID))
@@ -430,6 +430,15 @@ describe('montarSnapshotPublico: imagem do card', () => {
     }
     assert.strictEqual(snap(entrada()).imagem_card_alt, null)
     assert.ok(!montarSnapshotPublico(entrada({}, { imagem_card_url: 'https://cdn.exemplo.com/c.webp', imagem_card_alt: 'x'.repeat(201) })).ok)
+  })
+})
+
+describe('montarSnapshotPublico: texto_card', () => {
+  it('texto puro: tags saem, espaços colapsam, vazio vira null, 161 caracteres falha', () => {
+    assert.strictEqual(snap(entrada({}, { texto_card: ' <b>Para</b>  servidores\ndo estado ' })).texto_card, 'Para servidores do estado')
+    for (const v of ['', '   ', '<br>', null, undefined]) assert.strictEqual(snap(entrada({}, { texto_card: v })).texto_card, null)
+    assert.strictEqual(snap(entrada({}, { texto_card: 'x'.repeat(160) })).texto_card, 'x'.repeat(160))
+    assert.ok(!montarSnapshotPublico(entrada({}, { texto_card: 'x'.repeat(161) })).ok)
   })
 })
 

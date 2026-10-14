@@ -15,6 +15,8 @@ export type ConvenioListaPublica = {
   imagem_card_origem: 'card' | 'logotipo' | 'brasao' | 'predio' | null
   /** Texto alternativo; só quando a origem é 'card'. */
   imagem_card_alt: string | null
+  /** Subtexto do card (texto puro, máx. 160) ou null = texto padrão do site. */
+  texto_card: string | null
   publicado_em: string
 }
 
@@ -31,6 +33,8 @@ export function itemListaPublica(r: {
   /** convenio_conteudo_site.imagem_card_url / imagem_card_alt da versão no ar. */
   imagem_card_site?: unknown
   imagem_card_site_alt?: unknown
+  /** convenio_conteudo_site.texto_card da versão no ar. */
+  texto_card_site?: unknown
   publicado_em: unknown
 }): ConvenioListaPublica | null {
   const slug = typeof r.slug_publico === 'string' ? r.slug_publico : ''
@@ -46,6 +50,7 @@ export function itemListaPublica(r: {
     card ? [card, 'card'] : logotipo ? [logotipo, 'logotipo'] : brasao ? [brasao, 'brasao'] : predio ? [predio, 'predio'] : [null, null]
   ) as [string | null, ConvenioListaPublica['imagem_card_origem']]
   const alt = typeof r.imagem_card_site_alt === 'string' ? r.imagem_card_site_alt.replace(/<[^>]*>/g, '').trim().slice(0, 200) : ''
+  const textoCard = typeof r.texto_card_site === 'string' ? r.texto_card_site.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 160) : ''
   return {
     slug,
     nome,
@@ -57,6 +62,7 @@ export function itemListaPublica(r: {
     imagem_card_url,
     imagem_card_origem,
     imagem_card_alt: card && alt ? alt : null,
+    texto_card: textoCard || null,
     publicado_em: new Date(t).toISOString(),
   }
 }

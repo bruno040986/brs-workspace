@@ -62,6 +62,7 @@ type ConvenioPublicoV1 = {
   bandeira_url?: string|null      // aditivo (T-21): bandeira do convênio (proporção livre, recomendado 3:2) ou null
   imagem_card_url?: string|null   // aditivo: imagem própria do card da lista (2:1, 1200 × 600) ou null
   imagem_card_alt?: string|null   // aditivo: texto alternativo da imagem do card ou null
+  texto_card?: string|null        // aditivo: subtexto do card da lista (texto puro, ≤160) ou null = texto padrão do site
   imagens?: Imagem[]              // aditivo (T-21): galeria, máx. 12, na ordem do cadastro; snapshot antigo não tem as 3 chaves
   vantagens: ItemEvidenciado[]    // máx. 12
   faqs: (ItemEvidenciado & { pergunta: string; resposta: string })[]  // máx. 20
@@ -107,6 +108,7 @@ Todas as chaves estão sempre presentes. "Opcional" quer dizer que o valor pode 
 | `hero.headline` / `subheadline` | não | `hero_headline` / `hero_subheadline` | 200 / 300 |
 | `hero.imagem_url` / `imagem_alt` | não | `imagem_destaque_url` / `imagem_destaque_alt` | 2048 / 200 |
 | `imagem_card_url` / `imagem_card_alt` | não | `imagem_card_url` / `imagem_card_alt` (migration `20261013175422_conteudo_site_imagem_card.sql`); url pela regra `urlHttps`; alt sem tags; independe da seção `hero` | 2048 / 200 |
+| `texto_card` | não | `texto_card` (migration `20261014142130_conteudo_site_texto_card.sql`); tags removidas, espaços colapsados, vazio vira null; independe de seção | 160 (acima disso o publicar falha) |
 | `logotipo_url` / `brasao_url` / `bandeira_url` | não | `convenios.logotipo_url` / `brasao_url` / `bandeira_url` (regra `urlHttps`) | URL https ou null |
 | `imagens[]` | não | `convenio_imagens` (ordem `ordem`, `created_at`); `url` inválida sai, `tipo` fora do enum vira `outro` | 12 itens; legenda 120 |
 | `vantagens[]` | não | `vantagens` jsonb | 12 itens; título 120, texto 600 |
@@ -172,6 +174,7 @@ Cada `ofertas[]` é uma linha de `convenio_instituicao_formas`. A elegibilidade 
     "bandeira_url": { "type": ["string","null"], "format": "uri", "pattern": "^https://" },
     "imagem_card_url": { "type": ["string","null"], "format": "uri", "pattern": "^https://" },
     "imagem_card_alt": { "type": ["string","null"], "maxLength": 200 },
+    "texto_card": { "type": ["string","null"], "maxLength": 160 },
     "imagens": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/imagem" } },
     "vantagens": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/vantagem" } },
     "faqs": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/faq" } },
@@ -517,7 +520,7 @@ Lista dos convênios com landing no ar. Arquivo `v1/route.ts`: não colide com `
                        "esfera": "municipal|estadual|federal|inss|outro", "uf": "GO" | null,
                        "logotipo_url": "https://…" | null, "brasao_url": "https://…" | null,
                        "imagem_card_url": "https://…" | null, "imagem_card_origem": "card|logotipo|brasao|predio" | null,
-                       "imagem_card_alt": "…" | null, "publicado_em": "2026-10-10T14:00:00.000Z" } ] }
+                       "imagem_card_alt": "…" | null, "texto_card": "…" | null, "publicado_em": "2026-10-10T14:00:00.000Z" } ] }
 Cache-Control: public, s-maxage=120, stale-while-revalidate=30
 ```
 
@@ -563,3 +566,4 @@ Cabeçalhos de todas as respostas: `Cache-Control: no-store`, `X-Robots-Tag: noi
 - 2026-10-11: aditivo (seção 14): lista `GET /api/convenios/publico/v1` (`{ convenios: [{ slug, nome, nome_reduzido, esfera, uf, logotipo_url, brasao_url, imagem_card_url, publicado_em }] }`) e preview do rascunho por token `GET /api/convenios/publico/v1/{slug}/rascunho?token=…` (mesmo formato + `preview: true`, `no-store`, `noindex`). Colunas `convenio_conteudo_site.preview_token` / `preview_token_expira_em` (migration `20261011210512_conteudo_site_preview_token.sql`). Montagem da entrada do snapshot extraída para `src/lib/convenios-publico/montar-entrada.ts`, sem mudar a publicação.
 - 2026-10-11: aditivo: `publicos_destaque[]` (`{ publico, titulo, texto, imagem_url }`, máx. 8; opcional no JSON Schema, snapshots publicados antes não têm a chave). Origem: `convenio_conteudo_site.publicos_destaque` jsonb (migration `20261011223951_conteudo_site_publicos_destaque.sql`), com `publico_id` resolvido para o nome dos públicos ativos do convênio (não vinculado/inativo sai). Seção nova `publicos` em `secoes_ordem`/`secoes_visibilidade` (padrão visível; oculta → `[]`). Preview do rascunho e publicação usam a mesma montagem, então os dois já trazem a chave.
 - 2026-10-13: aditivo: imagem própria do card. Snapshot (`{slug}` e `/rascunho`) ganha `imagem_card_url` e `imagem_card_alt` (string/null; opcionais no JSON Schema, snapshots antigos não têm as chaves). Lista (seção 14) ganha `imagem_card_origem` (`card|logotipo|brasao|predio|null`) e `imagem_card_alt`; `imagem_card_url` continua sempre preenchida com a imagem escolhida (a do card vem primeiro). Colunas `convenio_conteudo_site.imagem_card_url`/`imagem_card_alt` (migration `20261013175422_conteudo_site_imagem_card.sql`).
+- 2026-10-14: aditivo: `texto_card` (string ≤160 ou null; opcional no JSON Schema) no snapshot (`{slug}` e `/rascunho`) e em cada item da lista (seção 14, lido ao vivo da versão publicada; na lista, acima de 160 é cortado). Null = o site usa o texto padrão. Coluna `convenio_conteudo_site.texto_card` (migration `20261014142130_conteudo_site_texto_card.sql`).
