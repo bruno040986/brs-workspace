@@ -6,7 +6,7 @@
  * "Reportar problema" do Workspace (modo `rapido`: sistema fixo 'workspace',
  * tela e contexto técnico já capturados). Anexos: colar, escolher ou arrastar.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, Loader2, X } from 'lucide-react'
 import { abrirHelpdeskTicket } from '@/lib/helpdesk/actions'
 import { useAnexosImagem } from '@/lib/helpdesk/useAnexosImagem'
@@ -72,6 +72,7 @@ export default function NovoTicketModal({ onFechar, onCriado, rapido }: Props) {
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [arrastando, setArrastando] = useState(false)
+  const profundidade = useRef(0) // dragenter/dragleave disparam por filho
   const anexos = useAnexosImagem()
   const set = (patch: Partial<typeof f>) => setF((atual) => ({ ...atual, ...patch }))
 
@@ -138,25 +139,31 @@ export default function NovoTicketModal({ onFechar, onCriado, rapido }: Props) {
     }) as const
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+    <div
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        profundidade.current++
+        setArrastando(true)
+      }}
+      onDragOver={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
+      onDragLeave={() => {
+        profundidade.current = Math.max(0, profundidade.current - 1)
+        if (!profundidade.current) setArrastando(false)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        profundidade.current = 0
+        setArrastando(false)
+        anexos.adicionar(e.dataTransfer.files)
+      }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="helpdesk-novo-titulo"
         className="card"
         onPaste={anexos.onPaste}
-        onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes('Files')) return
-          e.preventDefault()
-          setArrastando(true)
-        }}
-        onDragLeave={(e) => e.currentTarget === e.target && setArrastando(false)}
-        onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return
-          e.preventDefault()
-          setArrastando(false)
-          anexos.adicionar(e.dataTransfer.files)
-        }}
         style={{ width: 'min(600px, 100%)', maxHeight: '90dvh', overflow: 'auto', padding: '1.1rem', outline: arrastando ? '3px dashed var(--brs-navy)' : 'none' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.9rem' }}>

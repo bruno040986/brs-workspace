@@ -58,7 +58,7 @@ export function validarHelpdeskTicket(
 ): { ok: true; dados: HelpdeskTicketValidado } | { ok: false; error: string } {
   const titulo = texto(input.titulo)
   const descricao = texto(input.descricao)
-  const url = texto(input.url)
+  const url = texto(input.url).slice(0, LIMITES.url) // URL longa trunca, não bloqueia o ticket
   const menu_contexto = texto(input.menu_contexto)
   const area = texto(input.area)
 
@@ -66,7 +66,6 @@ export function validarHelpdeskTicket(
   if (!descricao) return { ok: false, error: 'Descreva o problema ou pedido.' }
   if (titulo.length > LIMITES.titulo) return { ok: false, error: `O título passa de ${LIMITES.titulo} caracteres.` }
   if (descricao.length > LIMITES.descricao) return { ok: false, error: `A descrição passa de ${LIMITES.descricao} caracteres.` }
-  if (url.length > LIMITES.url) return { ok: false, error: `A URL passa de ${LIMITES.url} caracteres.` }
   if (menu_contexto.length > LIMITES.menu_contexto) return { ok: false, error: `O menu/contexto passa de ${LIMITES.menu_contexto} caracteres.` }
   if (area.length > LIMITES.area) return { ok: false, error: `A área passa de ${LIMITES.area} caracteres.` }
 

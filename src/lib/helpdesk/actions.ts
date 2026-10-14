@@ -88,7 +88,14 @@ export async function abrirHelpdeskTicket(
         .insert(v.dados.anexos.map((a) => ({ ...a, ticket_id: id, enviado_por: user.id })))
       if (erroAnexos) {
         // sem os anexos o ticket fica incompleto: desfaz (cascade) e o usuário reenvia
-        await admin.from('helpdesk_tickets').delete().eq('id', id)
+        const { error: erroNotif } = await admin
+          .from('workspace_notifications')
+          .delete()
+          .eq('entity_type', 'helpdesk_ticket')
+          .eq('entity_id', id)
+          .eq('type', 'helpdesk_aberto')
+        const { error: erroDel } = await admin.from('helpdesk_tickets').delete().eq('id', id)
+        if (erroNotif || erroDel) console.error('[helpdesk] rollback do ticket falhou', { id, erroNotif, erroDel })
         throw new Error('Não foi possível salvar as imagens. Tente abrir o ticket de novo.')
       }
     }

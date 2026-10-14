@@ -44,3 +44,9 @@ test('contexto técnico: só chaves conhecidas', () => {
   assert.ok(r.ok)
   if (r.ok) assert.deepEqual(r.dados.ticket.contexto_tecnico, { pathname: '/rh' })
 })
+
+test('URL acima de 500 caracteres é truncada, não rejeitada', () => {
+  const r = validarHelpdeskTicket({ ...base, url: `https://x.com/${'a'.repeat(600)}` }, EU)
+  assert.ok(r.ok)
+  if (r.ok) assert.equal(r.dados.ticket.url.length, 500)
+})

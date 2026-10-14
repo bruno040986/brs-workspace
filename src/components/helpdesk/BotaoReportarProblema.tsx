@@ -30,14 +30,16 @@ export default function BotaoReportarProblema() {
     }
   }, [])
 
-  if (!pode || pathname === '/helpdesk' || pathname.startsWith('/helpdesk/')) return null
+  // /helpdesk tem formulário próprio; os CRMs Alvo Consig e Vende AI CLT têm helpdesk/UI própria
+  const oculto = ['/helpdesk', '/crm-alvoconsig', '/crm-vende-ai-clt'].some((p) => pathname === p || pathname.startsWith(`${p}/`))
+  if (!pode || oculto) return null
 
   function abrir() {
     setEnviado(false)
     setAberto({
       ...areaDaRota(pathname),
       contexto: {
-        url: window.location.href,
+        url: (window.location.pathname + window.location.search).slice(0, 500),
         pathname,
         titulo: document.title,
         user_agent: navigator.userAgent,

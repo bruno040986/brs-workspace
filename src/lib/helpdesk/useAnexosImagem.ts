@@ -24,6 +24,8 @@ export function useAnexosImagem() {
   const [anexos, setAnexos] = useState<AnexoLocal[]>([])
   const [aviso, setAviso] = useState('')
   const previews = useRef<string[]>([])
+  const contagem = useRef(0) // itens sem erro; ref evita closure velho em colagens/drops rápidos
+  const ids = useRef(new Map<string, boolean>()) // id -> contado
 
   useEffect(() => () => previews.current.forEach((u) => URL.revokeObjectURL(u)), [])
 
@@ -40,6 +42,10 @@ export function useAnexosImagem() {
       if (!res.ok || !json.path) throw new Error(json.error || 'Falha no upload.')
       atualizar(id, { status: 'ok', enviado: { path: json.path, name: json.name, size: json.size, type: json.type } })
     } catch (err) {
+      if (ids.current.get(id)) {
+        ids.current.set(id, false)
+        contagem.current--
+      }
       atualizar(id, { status: 'erro', erro: err instanceof Error ? err.message : 'Falha no upload.' })
     }
   }
@@ -48,7 +54,7 @@ export function useAnexosImagem() {
     setAviso('')
     const imagens = [...(files || [])].filter((f) => HELPDESK_IMAGEM_MIME.includes(f.type))
     const recusadas = [...(files || [])].length - imagens.length
-    const vagas = HELPDESK_MAX_ANEXOS - anexos.length
+    const vagas = HELPDESK_MAX_ANEXOS - contagem.current
     if (recusadas) setAviso('Só imagens (PNG, JPEG, GIF ou WebP).')
     if (imagens.length > vagas) setAviso(`No máximo ${HELPDESK_MAX_ANEXOS} imagens por ticket.`)
     for (const file of imagens.slice(0, Math.max(0, vagas))) {
@@ -59,12 +65,16 @@ export function useAnexosImagem() {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
       const preview = URL.createObjectURL(file)
       previews.current.push(preview)
+      contagem.current++
+      ids.current.set(id, true)
       setAnexos((lista) => [...lista, { id, nome: file.name || 'imagem colada', preview, status: 'enviando' }])
       void enviar(id, file)
     }
   }
 
   function remover(id: string) {
+    if (ids.current.get(id)) contagem.current--
+    ids.current.delete(id)
     setAnexos((lista) => lista.filter((a) => a.id !== id))
   }
 
