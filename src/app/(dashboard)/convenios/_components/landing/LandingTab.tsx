@@ -359,6 +359,16 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
         <Campo rotulo="Imagem do card (página Consignado Estadual/Municipal)" grupo>
           <FotoUpload convenioId={convenioId} slot="card" url={dados.imagem_card_url} altura={150} onChange={(url) => editar({ imagem_card_url: url })} />
         </Campo>
+        <Campo rotulo="Texto do card (páginas Consignado Municipal/Estadual)" dica="Aparece abaixo do título do card. Vazio: o site usa o texto padrão." contador={[(dados.texto_card || '').length, 160]}>
+          <textarea
+            className="form-control"
+            rows={2}
+            maxLength={160}
+            placeholder={`Crédito consignado para servidores, aposentados e pensionistas ${conv?.esfera === 'municipal' ? 'do município' : 'do estado'}, conforme as regras do convênio.`}
+            value={dados.texto_card || ''}
+            onChange={(e) => editar({ texto_card: e.target.value })}
+          />
+        </Campo>
         {dados.imagem_card_url && (
           <>
             <Campo rotulo="Descreva a imagem do card em poucas palavras" dica="Lida por leitores de tela. Se ficar vazio, o site usa o nome do convênio.">
@@ -369,6 +379,7 @@ export default function LandingTab({ convenioId }: { convenioId: string; conveni
               <img src={dados.imagem_card_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               <div style={{ position: 'absolute', inset: 'auto 0 0 0', padding: '0.4rem 0.6rem', background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: '0.8rem', fontWeight: 700 }}>
                 {conv?.nome || dados.titulo_destaque || 'Nome do convênio'}
+                {dados.texto_card?.trim() && <div style={{ fontWeight: 400, fontSize: '0.7rem', marginTop: 2 }}>{dados.texto_card}</div>}
               </div>
             </div>
           </>

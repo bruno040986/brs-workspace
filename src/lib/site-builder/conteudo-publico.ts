@@ -220,6 +220,7 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
     'imagem_destaque_alt',
     'imagem_card_url',
     'imagem_card_alt',
+    'texto_card',
     'termo_busca_modulo_convenio',
     'mensagem_sem_convenios',
     'mensagem_erro_busca_convenios',
@@ -366,6 +367,9 @@ export function validarRuntimePayload(payload: any): { valido: boolean; erro?: s
   }
   if (payload.imagem_destaque_url && !validarUrlMedia(payload.imagem_destaque_url)) {
     return { valido: false, erro: 'URL da imagem de destaque é inválida para mídias.' }
+  }
+  if (typeof payload.texto_card === 'string' && payload.texto_card.length > 160) {
+    return { valido: false, erro: 'texto_card deve ter até 160 caracteres.' }
   }
   if (payload.imagem_card_url && !validarUrlMedia(payload.imagem_card_url)) {
     return { valido: false, erro: 'URL da imagem do card é inválida para mídias.' }
