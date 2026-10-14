@@ -9,6 +9,7 @@ import type { UserProfile } from '@/types'
 import ThemeInit from '@/components/theme/ThemeInit'
 import SidebarCollapseToggle from '@/components/layout/SidebarCollapseToggle'
 import WorkspaceSidebar from '@/components/layout/WorkspaceSidebar'
+import BotaoReportarProblema from '@/components/helpdesk/BotaoReportarProblema'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <MessengerNotificationBridge />
         <MessengerDockShell />
         <SidebarCollapseToggle />
+        <BotaoReportarProblema />
         <div className="workspace-body">
           <WorkspaceSidebar />
           {/* page-shell = padrão ÚNICO de espaçamento de conteúdo do Workspace
