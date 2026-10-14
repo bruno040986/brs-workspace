@@ -10,9 +10,13 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
-import { requireCurrentUser, requirePermission, getEffectivePermissionsForUser } from '@/lib/auth/server'
+import { requireCurrentUser, requirePermission } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
-import { HELPDESK_SISTEMAS, type HelpdeskSistema, type HelpdeskTicket } from './tipos'
+import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL } from '@/lib/chat/attachments'
+import type { HelpdeskAnexo, HelpdeskTicket } from './tipos'
+import { validarHelpdeskTicket, type HelpdeskTicketEntrada } from './validacao'
+
+type AnexoLinha = { id: string; path: string; nome: string; tamanho: number; tipo: string }
 
 export async function listarHelpdeskTickets(): Promise<{
   success: boolean
@@ -25,7 +29,7 @@ export async function listarHelpdeskTickets(): Promise<{
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('helpdesk_tickets')
-      .select('*')
+      .select('*, helpdesk_anexos(id, path, nome, tamanho, tipo)')
       .order('urgente', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(300)
@@ -37,13 +41,23 @@ export async function listarHelpdeskTickets(): Promise<{
       : { data: [] as Array<{ id: string; name: string | null }> }
     const nomePorId = new Map((usuarios || []).map((u) => [String(u.id), String(u.name || '')]))
 
+    // Bucket privado: assina todos os anexos numa chamada só (a tela não vê o path).
+    const paths = (data || []).flatMap((t) => ((t.helpdesk_anexos || []) as AnexoLinha[]).map((a) => a.path))
+    const { data: assinadas } = paths.length
+      ? await admin.storage.from(CHAT_ATTACHMENT_BUCKET).createSignedUrls(paths, CHAT_SIGNED_URL_TTL)
+      : { data: [] }
+    const urlPorPath = new Map((assinadas || []).map((a) => [String(a.path), a.signedUrl || '']))
+
     void user
     return {
       success: true,
       podeAprovar: hasPermission(permissions, 'helpdesk-aprovar', 'can_edit'),
-      data: (data || []).map((t) => ({
-        ...(t as Omit<HelpdeskTicket, 'aberto_por_nome'>),
+      data: (data || []).map(({ helpdesk_anexos, ...t }) => ({
+        ...(t as Omit<HelpdeskTicket, 'aberto_por_nome' | 'anexos'>),
         aberto_por_nome: nomePorId.get(String(t.aberto_por)) || '—',
+        anexos: ((helpdesk_anexos || []) as AnexoLinha[]).map(
+          (a): HelpdeskAnexo => ({ id: a.id, nome: a.nome, tipo: a.tipo, tamanho: Number(a.tamanho) || 0, url: urlPorPath.get(a.path) || '' }),
+        ),
       })) as HelpdeskTicket[],
     }
   } catch (err) {
@@ -51,37 +65,35 @@ export async function listarHelpdeskTickets(): Promise<{
   }
 }
 
-export async function abrirHelpdeskTicket(input: {
-  titulo: string
-  descricao: string
-  url?: string
-  menu_contexto?: string
-  sistema: HelpdeskSistema
-  urgente?: boolean
-}): Promise<{ success: boolean; id?: string; error?: string }> {
+export async function abrirHelpdeskTicket(
+  input: HelpdeskTicketEntrada,
+): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
     const { user } = await requirePermission('helpdesk-abrir', 'can_include')
-    const titulo = String(input.titulo || '').trim()
-    if (!titulo) throw new Error('Dê um título ao ticket.')
-    if (!HELPDESK_SISTEMAS.some((s) => s.id === input.sistema)) throw new Error('Escolha o sistema.')
+    const v = validarHelpdeskTicket(input, user.id)
+    if (!v.ok) throw new Error(v.error)
 
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('helpdesk_tickets')
-      .insert({
-        titulo: titulo.slice(0, 200),
-        descricao: String(input.descricao || '').trim().slice(0, 8000),
-        url: String(input.url || '').trim().slice(0, 500),
-        menu_contexto: String(input.menu_contexto || '').trim().slice(0, 200),
-        sistema: input.sistema,
-        urgente: Boolean(input.urgente),
-        aberto_por: user.id,
-      })
+      .insert({ ...v.dados.ticket, aberto_por: user.id })
       .select('id')
       .single()
     if (error) throw error
+    const id = String(data.id)
+
+    if (v.dados.anexos.length) {
+      const { error: erroAnexos } = await admin
+        .from('helpdesk_anexos')
+        .insert(v.dados.anexos.map((a) => ({ ...a, ticket_id: id, enviado_por: user.id })))
+      if (erroAnexos) {
+        // sem os anexos o ticket fica incompleto: desfaz (cascade) e o usuário reenvia
+        await admin.from('helpdesk_tickets').delete().eq('id', id)
+        throw new Error('Não foi possível salvar as imagens. Tente abrir o ticket de novo.')
+      }
+    }
     revalidatePath('/helpdesk')
-    return { success: true, id: String(data.id) }
+    return { success: true, id }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao abrir ticket.' }
   }
