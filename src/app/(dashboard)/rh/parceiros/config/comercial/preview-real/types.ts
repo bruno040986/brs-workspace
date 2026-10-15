@@ -1,7 +1,9 @@
+import type { ComercialRole } from '@/lib/comerciais-hierarquia'
+
 export type PreviewRealEntity = {
   id: string
   name: string
-  role: 'superintendente' | 'supervisor' | 'gerente'
+  role: ComercialRole
   status?: 'ativo' | 'inativo'
   commercial_slug?: string | null
   card_enabled?: boolean | null

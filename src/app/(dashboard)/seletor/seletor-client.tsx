@@ -12,6 +12,7 @@ type SeletorCartaoClientProps = {
 function getRoleLabel(role: PublicCommercialPreviewCard['entity']['role']) {
   if (role === 'superintendente') return 'Superintendente'
   if (role === 'supervisor') return 'Supervisor'
+  if (role === 'independente') return 'Comercial Independente'
   return 'Gerente'
 }
 

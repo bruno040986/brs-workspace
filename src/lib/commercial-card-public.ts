@@ -1,15 +1,18 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import type { CommercialCompanyLinksProfile } from '@/lib/commercial-card'
+import type { ComercialRole } from '@/lib/comerciais-hierarquia'
 
 type PublicCommercialEntityRow = {
   id: string
   name: string
-  role: 'superintendente' | 'supervisor' | 'gerente'
+  role: ComercialRole
   status: 'ativo' | 'inativo'
   commercial_slug: string | null
   card_enabled: boolean | null
   user_id: string | null
   parent_id: string | null
+  /** Foto própria do comercial; tem prioridade sobre a foto do usuário vinculado. */
+  photo_url?: string | null
   phone_whatsapp: string | null
   email_comissao: string | null
   cadastral_data: Record<string, any> | null
@@ -20,7 +23,7 @@ type PublicCommercialEntityRow = {
 type PublicCommercialEntityRelation = {
   id: string
   name: string
-  role: 'superintendente' | 'supervisor' | 'gerente'
+  role: ComercialRole
   commercial_slug: string | null
   cadastral_data: Record<string, any> | null
   user_id: string | null
@@ -93,7 +96,7 @@ function normalizeCompanyProfile(company: { nickname?: string | null; company_da
 function normalizeRelation(entity: {
   id: string
   name: string
-  role: 'superintendente' | 'supervisor' | 'gerente'
+  role: ComercialRole
   commercial_slug: string | null
   cadastral_data: Record<string, any> | null
   user_id: string | null
@@ -132,7 +135,7 @@ function normalizeCardLink(link: {
 async function fetchCommercialEntities(admin: Awaited<ReturnType<typeof createAdminClient>>) {
   const { data, error } = await admin
     .from('commercial_entities')
-    .select('id, name, role, status, commercial_slug, card_enabled, user_id, parent_id, phone_whatsapp, email_comissao, cadastral_data, arw_data, card_data')
+    .select('id, name, role, status, commercial_slug, card_enabled, user_id, parent_id, photo_url, phone_whatsapp, email_comissao, cadastral_data, arw_data, card_data')
     .order('name')
 
   if (error) throw error
@@ -191,7 +194,7 @@ function buildCommercialEntityRelations(
       ? {
           ...parentEntity,
           user_id: parentEntity.user_id,
-          avatar_url: parentEntity.user_id ? userById.get(parentEntity.user_id)?.avatar_url || null : null,
+          avatar_url: parentEntity.photo_url || (parentEntity.user_id ? userById.get(parentEntity.user_id)?.avatar_url || null : null),
         }
       : null,
   )
@@ -201,7 +204,7 @@ function buildCommercialEntityRelations(
       ? {
           ...superiorEntity,
           user_id: superiorEntity.user_id,
-          avatar_url: superiorEntity.user_id ? userById.get(superiorEntity.user_id)?.avatar_url || null : null,
+          avatar_url: superiorEntity.photo_url || (superiorEntity.user_id ? userById.get(superiorEntity.user_id)?.avatar_url || null : null),
         }
       : null,
   )

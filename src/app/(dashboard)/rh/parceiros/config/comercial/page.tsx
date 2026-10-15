@@ -30,8 +30,12 @@ import {
 import { buildCommercialCardLinks } from '@/lib/commercial-card'
 import PublicCommercialCard from '@/app/cartao/_components/PublicCommercialCard'
 import type { PublicCommercialCardData, PublicCommercialCardLink } from '@/lib/commercial-card-public'
+import { COMERCIAL_ROLES, COMERCIAL_ROLE_LABELS, nomeComercial, opcoesSuperior, type ComercialRole } from '@/lib/comerciais-hierarquia'
 
-type Role = 'superintendente' | 'supervisor' | 'gerente'
+type Role = ComercialRole
+
+const PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp'
+const PHOTO_MAX_BYTES = 2 * 1024 * 1024
 type TabKey =
   | 'dados'
   | 'arw'
@@ -111,6 +115,7 @@ type CommercialDraft = {
   role: Role
   parent_id: string | null
   user_id: string | null
+  photo_url?: string | null
   status: 'ativo' | 'inativo'
   arw_code?: string
   filial?: string
@@ -157,6 +162,7 @@ type EntityRow = {
   role: Role
   parent_id: string | null
   user_id: string | null
+  photo_url?: string | null
   status: 'ativo' | 'inativo'
   arw_code?: string | null
   filial?: string | null
@@ -524,6 +530,7 @@ function normalizeDraft(row?: Partial<EntityRow> | null): CommercialDraft {
     role: source.role || 'gerente',
     parent_id: source.parent_id || null,
     user_id: source.user_id || null,
+    photo_url: source.photo_url || null,
     status: source.status || 'ativo',
     arw_code: source.arw_code || '',
     filial: source.filial || '',
@@ -577,6 +584,7 @@ function buildCardRole(draft: CommercialDraft) {
   const sex = String(draft.cadastral_data?.sex || '').toLowerCase()
   const base = draft.role === 'superintendente' ? 'Superintendente Comercial' : draft.role === 'supervisor' ? 'Supervisor Comercial' : 'Gerente Comercial'
   if (draft.role === 'gerente') return 'Gerente Comercial'
+  if (draft.role === 'independente') return COMERCIAL_ROLE_LABELS.independente
   if (sex === 'f' && draft.role === 'supervisor') return 'Supervisora Comercial'
   if (sex === 'f' && draft.role === 'superintendente') return 'Superintendente Comercial'
   return base
@@ -712,6 +720,7 @@ export default function ComercialConfigPage() {
         card_enabled: !!editingEntity.card_enabled,
         user_id: editingEntity.user_id,
         parent_id: editingEntity.parent_id,
+        photo_url: editingEntity.photo_url || null,
         phone_whatsapp: String(editingEntity.cadastral_data?.phone_whatsapp || editingEntity.phone_whatsapp || ''),
         email_comissao: String(editingEntity.cadastral_data?.email_professional || editingEntity.email_comissao || ''),
         cadastral_data: editingEntity.cadastral_data || {},
@@ -735,7 +744,7 @@ export default function ComercialConfigPage() {
             commercial_slug: parentRow.commercial_slug || null,
             cadastral_data: parentRow.cadastral_data || {},
             user_id: parentRow.user_id,
-            avatar_url: parentUser?.avatar_url || null,
+            avatar_url: parentRow.photo_url || parentUser?.avatar_url || null,
           }
         : null,
       superior: superiorRow
@@ -746,7 +755,7 @@ export default function ComercialConfigPage() {
             commercial_slug: superiorRow.commercial_slug || null,
             cadastral_data: superiorRow.cadastral_data || {},
             user_id: superiorRow.user_id,
-            avatar_url: superiorUser?.avatar_url || null,
+            avatar_url: superiorRow.photo_url || superiorUser?.avatar_url || null,
           }
         : null,
     }
@@ -845,8 +854,25 @@ export default function ComercialConfigPage() {
     setBankDropdownOpen(false)
   }, [editingEntity?.id, editingEntity?.cadastral_data.bank_code, editingEntity?.cadastral_data.bank_name])
 
-  const superintendentes = useMemo(() => entities.filter((e) => e.role === 'superintendente' && e.status === 'ativo'), [entities])
-  const supervisores = useMemo(() => entities.filter((e) => e.role === 'supervisor' && e.status === 'ativo'), [entities])
+  const superiorOptions = useMemo(
+    () => (editingEntity ? opcoesSuperior(entities, editingEntity.role, editingEntity.parent_id, editingEntity.id) : []),
+    [entities, editingEntity],
+  )
+
+  function handlePhotoFile(file: File | undefined) {
+    if (!file) return
+    if (!PHOTO_ACCEPT.split(',').includes(file.type)) {
+      setMessage({ type: 'error', text: 'Foto inválida: use JPG, PNG ou WEBP.' })
+      return
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      setMessage({ type: 'error', text: 'Foto muito grande: máximo 2 MB.' })
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => updateDraft({ photo_url: String(reader.result || '') })
+    reader.readAsDataURL(file)
+  }
 
   const filteredEntities = useMemo(() => {
     return entities.filter((ent) => {
@@ -1176,7 +1202,7 @@ export default function ComercialConfigPage() {
                 Estrutura Comercial BRS Promotora
               </h1>
               <p style={{ color: 'var(--brs-gray-400)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
-                Gerencie superintendentes, supervisores, gerentes, o cartao virtual e as tabelas de apoio.
+                Gerencie superintendentes, supervisores, gerentes, comerciais independentes, o cartao virtual e as tabelas de apoio.
               </p>
             </div>
             <button className="btn btn-primary" onClick={openCreate}>
@@ -1220,9 +1246,11 @@ export default function ComercialConfigPage() {
             </div>
             <select className="form-control" style={{ width: '220px' }} value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as any)}>
               <option value="all">Todos os cargos</option>
-              <option value="superintendente">Superintendente</option>
-              <option value="supervisor">Supervisor</option>
-              <option value="gerente">Gerente Comercial</option>
+              {COMERCIAL_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {COMERCIAL_ROLE_LABELS[r]}
+                </option>
+              ))}
             </select>
             <select className="form-control" style={{ width: '150px' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
               <option value="ativo">Ativos</option>
@@ -1272,17 +1300,23 @@ export default function ComercialConfigPage() {
                         <td>
                           <span
                             className={`badge ${
-                              ent.role === 'superintendente' ? 'badge-primary' : ent.role === 'supervisor' ? 'badge-success' : 'badge-warning'
+                              ent.role === 'superintendente'
+                                ? 'badge-primary'
+                                : ent.role === 'supervisor'
+                                  ? 'badge-success'
+                                  : ent.role === 'independente'
+                                    ? 'badge-info'
+                                    : 'badge-warning'
                             }`}
                           >
-                            {ent.role === 'superintendente' ? 'Superintendente' : ent.role === 'supervisor' ? 'Supervisor' : 'Gerente'}
+                            {COMERCIAL_ROLE_LABELS[ent.role] || ent.role}
                           </span>
                         </td>
                         <td style={{ fontSize: '0.875rem' }}>
                           {ent.parent ? (
                             <div>
                               {((ent.parent as any)?.cadastral_data?.commercial_name || ent.parent.name) as string}{' '}
-                              <small style={{ color: 'var(--brs-gray-400)' }}>({ent.parent.role})</small>
+                              <small style={{ color: 'var(--brs-gray-400)' }}>({COMERCIAL_ROLE_LABELS[ent.parent.role as Role] || ent.parent.role})</small>
                             </div>
                           ) : ent.role === 'superintendente' ? (
                             <span style={{ fontWeight: 600, color: 'var(--brs-gray-700)' }}>Superintendente</span>
@@ -1874,26 +1908,21 @@ export default function ComercialConfigPage() {
                       <option value="gerente">Gerente Comercial</option>
                       <option value="supervisor">Supervisor Comercial</option>
                       <option value="superintendente">Superintendente Comercial</option>
+                      <option value="independente">{COMERCIAL_ROLE_LABELS.independente}</option>
                     </select>
                   </RowField>
-                  <RowField label="Supervisor Vinculado">
+                  <RowField
+                    label="Superior Vinculado"
+                    hint={editingEntity.role === 'independente' ? 'Pode responder a um Gerente, Supervisor ou Superintendente.' : undefined}
+                  >
                     {editingEntity.role === 'superintendente' ? (
                       <input className="form-control" disabled value="Sem subordinacao" />
-                    ) : editingEntity.role === 'supervisor' ? (
-                      <select className="form-control" value={editingEntity.parent_id || ''} onChange={(e) => updateDraft({ parent_id: e.target.value || null })}>
-                        <option value="">Selecione o Superintendente...</option>
-                        {superintendentes.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
                     ) : (
                       <select className="form-control" value={editingEntity.parent_id || ''} onChange={(e) => updateDraft({ parent_id: e.target.value || null })}>
-                        <option value="">Selecione o Supervisor...</option>
-                        {supervisores.map((s) => (
+                        <option value="">Selecione o superior...</option>
+                        {superiorOptions.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.name}
+                            {nomeComercial(s)} ({COMERCIAL_ROLE_LABELS[s.role] || s.role})
                           </option>
                         ))}
                       </select>
@@ -2189,6 +2218,37 @@ export default function ComercialConfigPage() {
                         <input className="form-control" value={buildCardRole(editingEntity)} disabled />
                       </RowField>
                     </div>
+                    <RowField label="Foto do comercial" hint="JPG, PNG ou WEBP até 2 MB. Sem foto, o cartão usa a do usuário vinculado e, sem ela, as iniciais.">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, display: 'grid', placeItems: 'center', background: 'var(--brs-gray-100)', color: 'var(--brs-gray-500)', fontWeight: 700 }}>
+                          {editingEntity.photo_url || selectedLinkedUser?.avatar_url ? (
+                            <img src={editingEntity.photo_url || selectedLinkedUser?.avatar_url || ''} alt="Foto do comercial" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            buildCardName(editingEntity).slice(0, 1).toUpperCase() || '?'
+                          )}
+                        </div>
+                        <label className="btn btn-outline" style={{ cursor: 'pointer' }}>
+                          {editingEntity.photo_url ? 'Trocar foto' : 'Enviar foto'}
+                          <input
+                            type="file"
+                            accept={PHOTO_ACCEPT}
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              handlePhotoFile(e.target.files?.[0])
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                        {editingEntity.photo_url ? (
+                          <button type="button" className="btn btn-outline" onClick={() => updateDraft({ photo_url: null })}>
+                            <Trash2 size={16} /> Remover
+                          </button>
+                        ) : null}
+                      </div>
+                      {!editingEntity.photo_url && selectedLinkedUser?.avatar_url ? (
+                        <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--brs-gray-400)' }}>Mostrando a foto do usuário vinculado.</div>
+                      ) : null}
+                    </RowField>
                   </div>
 
                   <div className="card" style={{ padding: '1rem', border: '1px solid var(--brs-gray-100)' }}>

@@ -35,6 +35,55 @@ export const COMERCIAL_CARGO_LABELS: Record<ComercialCargo, string> = {
  * valor gravado (`selecionadoId`), para o dado antigo não sumir da tela.
  * Ordem: cargo mais alto primeiro, depois nome.
  */
+/**
+ * Cargo da entidade comercial (coluna `commercial_entities.role`). O
+ * "Comercial Independente" (15/10/2026) fica ABAIXO do Gerente: não ocupa os
+ * campos de hierarquia do parceiro (opcoesComerciais o ignora), mas pode
+ * responder direto a um Gerente, Supervisor ou Superintendente.
+ */
+export type ComercialRole = ComercialCargo | 'independente'
+
+export const COMERCIAL_ROLES: ComercialRole[] = ['superintendente', 'supervisor', 'gerente', 'independente']
+
+export const COMERCIAL_ROLE_LABELS: Record<ComercialRole, string> = {
+  ...COMERCIAL_CARGO_LABELS,
+  independente: 'Comercial Independente',
+}
+
+/** Cargos aceitos como superior direto (`parent_id`) de cada cargo. */
+export const SUPERIORES_PERMITIDOS: Record<ComercialRole, ComercialCargo[]> = {
+  superintendente: [],
+  supervisor: ['superintendente'],
+  gerente: ['supervisor'],
+  independente: ['gerente', 'supervisor', 'superintendente'],
+}
+
+export function isComercialRole(value: unknown): value is ComercialRole {
+  return COMERCIAL_ROLES.includes(value as ComercialRole)
+}
+
+/**
+ * Opções do select "Superior Vinculado" no cadastro do comercial. Mesma regra
+ * de inativo de opcoesComerciais; nunca oferece a própria entidade.
+ */
+export function opcoesSuperior<T extends ComercialResumo>(
+  comerciais: T[],
+  role: ComercialRole,
+  selecionadoId?: string | null,
+  proprioId?: string | null,
+): T[] {
+  const aceitos = SUPERIORES_PERMITIDOS[role] || []
+  return comerciais
+    .filter((c) => {
+      if (c.id === proprioId || !aceitos.includes(c.role as ComercialCargo)) return false
+      return c.status !== 'inativo' || c.id === selecionadoId
+    })
+    .sort((a, b) => {
+      const dn = NIVEL[b.role as ComercialCargo] - NIVEL[a.role as ComercialCargo]
+      return dn !== 0 ? dn : nomeComercial(a).localeCompare(nomeComercial(b), 'pt-BR')
+    })
+}
+
 export function opcoesComerciais<T extends ComercialResumo>(
   comerciais: T[],
   campo: ComercialCargo,

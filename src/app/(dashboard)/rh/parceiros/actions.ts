@@ -22,6 +22,7 @@ import {
   type TaxRegimeVersionRecord,
 } from '@/lib/tax-regimes'
 import { normalizeCommercialTypeName, type CommercialTypeRecord } from '@/lib/commercial-types'
+import { COMERCIAL_ROLE_LABELS, SUPERIORES_PERMITIDOS, isComercialRole, type ComercialCargo, type ComercialRole } from '@/lib/comerciais-hierarquia'
 import { normalizeCnaeCodeDigits, normalizeCnaeDescription, type CnaeRecord } from '@/lib/cnaes'
 import { normalizeCtnCodeDigits, normalizeCtnDescription, type CtnRecord } from '@/lib/ctns'
 import { normalizeFinancialInstitutionLogo, normalizeFinancialInstitutionName, type FinancialInstitutionRecord } from '@/lib/financial-institutions'
@@ -914,7 +915,7 @@ export async function createAssinafyTestField(name: string, type: string = 'text
 }
 
 // =========================================================================
-// 2. Entidades Comerciais (Superintendentes, Supervisores, Gerentes)
+// 2. Entidades Comerciais (Superintendentes, Supervisores, Gerentes, Independentes)
 // =========================================================================
 
 export async function getCommercialEntities() {
@@ -1098,9 +1099,11 @@ export async function saveCommercialEntity(entityData: {
   id?: string
   name: string
   cpf_cnpj: string
-  role: 'superintendente' | 'supervisor' | 'gerente'
+  role: ComercialRole
   parent_id?: string | null
   user_id?: string | null
+  /** data:image/... = nova foto; null/'' = remover; URL existente = manter. */
+  photo_url?: string | null
   status: 'ativo' | 'inativo'
   arw_code?: string
   filial?: string
@@ -1122,6 +1125,24 @@ export async function saveCommercialEntity(entityData: {
 }) {
   try {
     await requirePermission('comercial-agentes', entityData.id ? 'can_edit' : 'can_include')
+
+    if (!isComercialRole(entityData.role)) throw new Error('Cargo comercial inválido.')
+    // Superior do Comercial Independente (cargo novo) é validado aqui; os
+    // cargos antigos seguem como antes para não travar registros existentes.
+    if (entityData.parent_id && entityData.role === 'independente') {
+      if (entityData.parent_id === entityData.id) throw new Error('O comercial não pode ser superior de si mesmo.')
+      const { data: superior, error: supErr } = await supabaseAdmin
+        .from('commercial_entities')
+        .select('role')
+        .eq('id', entityData.parent_id)
+        .maybeSingle()
+      if (supErr) throw supErr
+      if (!superior || !SUPERIORES_PERMITIDOS.independente.includes(superior.role as ComercialCargo)) {
+        throw new Error(`${COMERCIAL_ROLE_LABELS.independente} deve responder a um Gerente, Supervisor ou Superintendente.`)
+      }
+    }
+
+    const photoUrl = await resolveCommercialPhotoUrl(entityData.id, entityData.photo_url)
 
     const payload = {
       name: entityData.name,
@@ -1147,6 +1168,7 @@ export async function saveCommercialEntity(entityData: {
       remuneration_variable_data: entityData.remuneration_variable_data ?? {},
       vehicle_rental_data: entityData.vehicle_rental_data ?? {},
       card_data: entityData.card_data ?? {},
+      ...(photoUrl !== undefined ? { photo_url: photoUrl } : {}),
       updated_at: new Date().toISOString()
     }
 
@@ -1179,6 +1201,32 @@ export async function saveCommercialEntity(entityData: {
     console.error('Erro ao salvar entidade comercial:', error)
     return { success: false, error: error.message }
   }
+}
+
+const COMMERCIAL_PHOTO_TYPES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+const COMMERCIAL_PHOTO_MAX_BYTES = 2 * 1024 * 1024
+
+/**
+ * Foto própria do comercial (mesmo padrão do avatar de usuário: data URL do
+ * formulário → bucket `avatars`, aqui na pasta `comerciais/`).
+ * Retorna undefined = não mexer na coluna; null = remover; string = nova URL.
+ */
+async function resolveCommercialPhotoUrl(entityId: string | undefined, value: string | null | undefined) {
+  if (value === undefined) return undefined
+  if (!value) return null
+  if (!value.startsWith('data:')) return undefined // URL já gravada: mantém
+
+  const match = /^data:([^;,]+);base64,(.+)$/.exec(value)
+  const ext = match ? COMMERCIAL_PHOTO_TYPES[match[1]] : undefined
+  if (!match || !ext) throw new Error('Foto inválida: use JPG, PNG ou WEBP.')
+  const buffer = Buffer.from(match[2], 'base64')
+  if (buffer.length > COMMERCIAL_PHOTO_MAX_BYTES) throw new Error('Foto muito grande: máximo 2 MB.')
+
+  // ponytail: foto antiga fica no bucket ao trocar/remover; limpar se o volume pesar.
+  const fileName = `comerciais/${entityId || 'novo'}-${Date.now()}.${ext}`
+  const { error } = await supabaseAdmin.storage.from('avatars').upload(fileName, buffer, { contentType: match[1], upsert: true })
+  if (error) throw new Error(`Erro ao enviar a foto: ${error.message}`)
+  return supabaseAdmin.storage.from('avatars').getPublicUrl(fileName).data.publicUrl
 }
 
 export async function getCommercialVehicleRentalRates() {

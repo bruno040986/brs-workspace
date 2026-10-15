@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Copy, ExternalLink, ShieldCheck, Sparkles } from 'lucide-react'
 import { type PreviewRealEntity } from './types'
+import { COMERCIAL_ROLE_LABELS } from '@/lib/comerciais-hierarquia'
 
 type PreviewRealClientProps = {
   entities: PreviewRealEntity[]
@@ -96,12 +97,7 @@ export default function PreviewRealClient({ entities, error }: PreviewRealClient
                 {!entities.length ? <option value="">Nenhuma entidade disponível</option> : null}
                 {entities.map((entity) => {
                   const slug = String(entity.commercial_slug || '').trim().toLowerCase()
-                  const roleLabel =
-                    entity.role === 'superintendente'
-                      ? 'Superintendente'
-                      : entity.role === 'supervisor'
-                        ? 'Supervisor'
-                        : 'Gerente'
+                  const roleLabel = COMERCIAL_ROLE_LABELS[entity.role] || entity.role
                   return (
                     <option key={entity.id} value={entity.id}>
                       {entity.name} - {roleLabel}
@@ -217,11 +213,7 @@ export default function PreviewRealClient({ entities, error }: PreviewRealClient
               </div>
               <div>
                 <strong>Cargo:</strong>{' '}
-                {selectedEntity?.role === 'superintendente'
-                  ? 'Superintendente'
-                  : selectedEntity?.role === 'supervisor'
-                    ? 'Supervisor'
-                    : 'Gerente'}
+                {selectedEntity ? COMERCIAL_ROLE_LABELS[selectedEntity.role] || selectedEntity.role : '-'}
               </div>
               <div>
                 <strong>Status:</strong> {selectedEntity?.status || '-'}

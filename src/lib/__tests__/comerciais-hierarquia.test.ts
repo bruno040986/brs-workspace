@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { nomeComercial, opcoesComerciais } from '../comerciais-hierarquia.ts'
+import { nomeComercial, opcoesComerciais, opcoesSuperior } from '../comerciais-hierarquia.ts'
 
 const eduardo = { id: 'e', name: 'Eduardo', role: 'superintendente', status: 'ativo' }
 const sandra = { id: 's', name: 'Sandra', role: 'supervisor', status: 'ativo' }
@@ -36,6 +36,20 @@ describe('hierarquia comercial (regra 25/09/2026)', () => {
 
   it('cargo desconhecido fica de fora', () => {
     assert.deepStrictEqual(ids(opcoesComerciais([{ id: 'x', name: 'X', role: 'diretor', status: 'ativo' }], 'gerente')), [])
+  })
+
+  it('Comercial Independente não ocupa campos de hierarquia do parceiro', () => {
+    const ind = { id: 'i', name: 'Ind', role: 'independente', status: 'ativo' }
+    assert.deepStrictEqual(ids(opcoesComerciais([...todos, ind], 'gerente')), ['e', 's', 'g'])
+  })
+
+  it('superior do independente: gerente, supervisor ou superintendente', () => {
+    const ind = { id: 'i', name: 'Ind', role: 'independente', status: 'ativo' }
+    assert.deepStrictEqual(ids(opcoesSuperior([...todos, ind], 'independente', null, 'i')), ['e', 's', 'g'])
+    assert.deepStrictEqual(ids(opcoesSuperior([...todos, ind], 'gerente')), ['s'])
+    assert.deepStrictEqual(ids(opcoesSuperior([...todos, ind], 'supervisor')), ['e'])
+    assert.deepStrictEqual(ids(opcoesSuperior([...todos, ind], 'superintendente')), [])
+    assert.deepStrictEqual(ids(opcoesSuperior(todos, 'independente', 'a')), ['e', 's', 'a', 'g'])
   })
 
   it('nomeComercial prefere o nome comercial e marca inativo', () => {

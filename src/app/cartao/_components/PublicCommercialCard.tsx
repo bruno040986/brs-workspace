@@ -69,7 +69,17 @@ function getRoleLabel(role: PublicCommercialCardData['entity']['role'], sex: str
   const female = isFemaleSex(sex)
   if (role === 'superintendente') return 'Superintendente Comercial'
   if (role === 'supervisor') return female ? 'Supervisora Comercial' : 'Supervisor Comercial'
+  if (role === 'independente') return 'Comercial Independente'
   return 'Gerente Comercial'
+}
+
+// Título do contato do superior pelo cargo REAL dele (o pai de um
+// independente pode ser gerente, supervisor ou superintendente).
+function getRelationTitle(role: string | null | undefined, sex: Parameters<typeof isFemaleSex>[0]) {
+  const female = isFemaleSex(sex)
+  if (role === 'superintendente') return female ? 'Fale com a minha Superintendente' : 'Fale com o meu Superintendente'
+  if (role === 'gerente') return female ? 'Fale com a minha Gerente' : 'Fale com o meu Gerente'
+  return female ? 'Fale com a minha Supervisora' : 'Fale com o meu Supervisor'
 }
 
 function getSupportRoleLabel(role: PublicCommercialCardData['entity']['role'], sex: string) {
@@ -350,7 +360,7 @@ function getRelationLinks(
   const parentPhone = String(parent?.cadastral_data?.phone_whatsapp || '').trim()
   if (parentSlug) {
     items.parent = {
-      title: isFemaleSex(parentSex) ? 'Fale com a minha Supervisora' : 'Fale com o meu Supervisor',
+      title: getRelationTitle(parent?.role, parentSex),
       displayName: getCommercialDisplayName(parent) || 'Contato vinculado',
       href: getPublicCardUrl(parentSlug),
       icon: Briefcase,
@@ -365,7 +375,7 @@ function getRelationLinks(
   const superiorPhone = String(superior?.cadastral_data?.phone_whatsapp || '').trim()
   if (superiorSlug) {
     items.superior = {
-      title: isFemaleSex(superiorSex) ? 'Fale com a minha Superintendente' : 'Fale com o meu Superintendente',
+      title: getRelationTitle(superior?.role, superiorSex),
       displayName: getCommercialDisplayName(superior) || 'Contato vinculado',
       href: getPublicCardUrl(superiorSlug),
       icon: BriefcaseBusiness,
@@ -746,9 +756,10 @@ export default function PublicCommercialCard({
   const currentYear = new Date().getFullYear()
   const isDesktopViewport = viewport === 'desktop'
 
-  const heroAvatar = linkedUser?.avatar_url ? (
+  const heroPhoto = entity.photo_url || linkedUser?.avatar_url
+  const heroAvatar = heroPhoto ? (
     <img
-      src={linkedUser.avatar_url}
+      src={heroPhoto}
       alt={name}
       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
     />
