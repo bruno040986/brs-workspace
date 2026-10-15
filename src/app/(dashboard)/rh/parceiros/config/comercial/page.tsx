@@ -652,7 +652,7 @@ export default function ComercialConfigPage() {
   const [banksLoading, setBanksLoading] = useState(false)
   const [ufsLoading, setUfsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null)
   const [view, setView] = useState<'list' | 'edit'>('list')
   const [activeTab, setActiveTab] = useState<TabKey>('dados')
   const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile')
@@ -992,7 +992,10 @@ export default function ComercialConfigPage() {
 
     const res = await saveCommercialEntity(draftToSave)
     if (res.success) {
-      setMessage({ type: 'success', text: 'Entidade comercial salva com sucesso.' })
+      const aviso = (res as { warning?: string | null }).warning
+      setMessage(aviso
+        ? { type: 'warning', text: `Entidade comercial salva com sucesso. Atenção: ${aviso}` }
+        : { type: 'success', text: 'Entidade comercial salva com sucesso.' })
       setView('list')
       setEditingEntity(null)
       await loadData()
@@ -1220,9 +1223,9 @@ export default function ComercialConfigPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.75rem',
-                background: message.type === 'success' ? '#ECFDF5' : '#FEF2F2',
-                color: message.type === 'success' ? '#065F46' : '#991B1B',
-                border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
+                background: message.type === 'success' ? '#ECFDF5' : message.type === 'warning' ? '#FFFBEB' : '#FEF2F2',
+                color: message.type === 'success' ? '#065F46' : message.type === 'warning' ? '#92400E' : '#991B1B',
+                border: `1px solid ${message.type === 'success' ? '#A7F3D0' : message.type === 'warning' ? '#FDE68A' : '#FECACA'}`,
               }}
             >
               {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
@@ -1425,9 +1428,9 @@ export default function ComercialConfigPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.75rem',
-                background: message.type === 'success' ? '#ECFDF5' : '#FEF2F2',
-                color: message.type === 'success' ? '#065F46' : '#991B1B',
-                border: `1px solid ${message.type === 'success' ? '#A7F3D0' : '#FECACA'}`,
+                background: message.type === 'success' ? '#ECFDF5' : message.type === 'warning' ? '#FFFBEB' : '#FEF2F2',
+                color: message.type === 'success' ? '#065F46' : message.type === 'warning' ? '#92400E' : '#991B1B',
+                border: `1px solid ${message.type === 'success' ? '#A7F3D0' : message.type === 'warning' ? '#FDE68A' : '#FECACA'}`,
               }}
             >
               {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}

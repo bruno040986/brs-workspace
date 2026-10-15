@@ -2,13 +2,13 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { after } from 'next/server'
 import {
   requireAnyPermission,
   requireCurrentUser,
   requirePermission as requireServerPermission,
 } from '@/lib/auth/server'
 import { registerAgentDomain } from '@/lib/vercel/register-domain'
+import { domainWarning, type DomainResult } from '@/lib/vercel/domain-warning'
 import { systemConfigRouteOptions, type PermissionAction, type PermissionRequirement } from '@/lib/auth/permissions'
 import { normalizeCompanyBankAccounts } from '@/lib/company-bank-accounts'
 import { normalizeCompanyFiscalData } from '@/lib/company-fiscal-data'
@@ -1185,18 +1185,23 @@ export async function saveCommercialEntity(entityData: {
       if (error) throw error
     }
 
-    const shouldRegisterDomain = !!payload.card_enabled && !!payload.commercial_slug
-    if (shouldRegisterDomain) {
-      const slug = String(payload.commercial_slug || '')
-      after(() => {
-        void registerAgentDomain(slug).catch((error) => {
-          console.error('Erro ao registrar dominio comercial na Vercel:', error)
-        })
-      })
+    // Registro do domínio não derruba o save: o resultado vira só um aviso.
+    let result: DomainResult | null = null
+    if (payload.card_enabled && payload.commercial_slug) {
+      try {
+        result = await Promise.race([
+          registerAgentDomain(String(payload.commercial_slug)),
+          new Promise<DomainResult>((resolve) =>
+            setTimeout(() => resolve({ success: false, error: 'tempo esgotado' }), 8000)),
+        ])
+      } catch (error: any) {
+        result = { success: false, error: error?.message || 'erro inesperado' }
+      }
     }
+    const warning = domainWarning(payload.commercial_slug, !!payload.card_enabled, result)
 
     revalidatePath('/rh/parceiros/config/comercial')
-    return { success: true }
+    return { success: true, warning }
   } catch (error: any) {
     console.error('Erro ao salvar entidade comercial:', error)
     return { success: false, error: error.message }
