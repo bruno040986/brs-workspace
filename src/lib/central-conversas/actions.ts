@@ -303,12 +303,14 @@ export async function registrarRecargaInstancia(input: {
     throw new Error('A próxima recarga não pode ser agendada para além de 60 dias da data de recarga.')
   }
 
+  const { data: autor } = await admin.from('crm_usuarios').select('id').eq('auth_user_id', user.id).maybeSingle()
+
   const { error } = await admin.from('chat_instancia_recargas').insert({
     instancia_id: input.instanciaId,
     data_recarga: input.data_recarga,
     valor: input.valor,
     proxima_recarga: input.proxima_recarga,
-    autor_crm_usuario_id: user.id,
+    autor_crm_usuario_id: autor?.id ?? null,
   })
 
   if (error) throw error
