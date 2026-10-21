@@ -1,8 +1,10 @@
 -- Cancelamento de solicitação com motivo (HelpDesk 0183f0f1).
 -- Ao cancelar uma simulação/digitação, o usuário informa o motivo (lista fechada)
 -- e uma observação opcional de até 1000 caracteres. Idempotente; sem DROP de dado.
--- Linhas já canceladas ficam sem motivo: o check de consistência é NOT VALID
--- (vale só para inserts/updates novos).
+-- Check de consistência VALIDADO e simples: motivo/observação só existem em
+-- 'cancelado'. A obrigatoriedade do motivo ao cancelar fica no app, porque há
+-- linhas antigas canceladas sem motivo (exigir no banco travaria UPDATEs nelas,
+-- inclusive ON DELETE SET NULL e o app antigo).
 
 alter table public.crm_solicitacoes_operacionais
   add column if not exists motivo_cancelamento text null,
@@ -23,13 +25,10 @@ begin
       check (observacao_cancelamento is null or char_length(observacao_cancelamento) <= 1000);
   end if;
   if not exists (select 1 from pg_constraint where conname = 'crm_solic_cancelamento_consistente_chk') then
-    -- motivo só em 'cancelado' e obrigatório nele; observação exige motivo.
+    -- motivo/observação só em 'cancelado' (vale para todas as linhas).
     alter table public.crm_solicitacoes_operacionais
       add constraint crm_solic_cancelamento_consistente_chk
-      check (
-        (status = 'cancelado' and motivo_cancelamento is not null)
-        or (status <> 'cancelado' and motivo_cancelamento is null and observacao_cancelamento is null)
-      ) not valid;
+      check (status = 'cancelado' or (motivo_cancelamento is null and observacao_cancelamento is null));
   end if;
 end $$;
 
