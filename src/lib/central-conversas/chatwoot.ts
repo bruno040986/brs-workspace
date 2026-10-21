@@ -8,6 +8,46 @@ function base(): string {
   return String(process.env.CHATWOOT_URL || 'https://chat.brspromotora.com.br').replace(/\/$/, '')
 }
 
+/**
+ * Contorno: o Chatwoot pode gerar data_url/thumb_url no domínio de marca (não servido pela
+ * Railway). Troca só esquema+host pela base pública quando o caminho é do Active Storage.
+ * Qualquer outra URL, URL inválida ou base ausente/interna => devolve a entrada intacta.
+ */
+export function normalizarUrlAnexoChatwoot<T>(url: T, baseUrl?: string | null): T {
+  if (typeof url !== 'string' || !baseUrl) return url
+  try {
+    const b = new URL(baseUrl)
+    if (!['http:', 'https:'].includes(b.protocol) || b.hostname.endsWith('.railway.internal')) return url
+    const u = new URL(url)
+    if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password) return url
+    if (u.origin === b.origin || !u.pathname.startsWith('/rails/active_storage/')) return url
+    u.protocol = b.protocol
+    u.hostname = b.hostname
+    u.port = b.port
+    return u.toString() as T
+  } catch {
+    return url
+  }
+}
+
+/** Base pública p/ anexos: CHATWOOT_ASSET_BASE_URL, senão CHATWOOT_URL (sem o fallback de marca). */
+function baseAnexos(): string | null {
+  return process.env.CHATWOOT_ASSET_BASE_URL || process.env.CHATWOOT_URL || null
+}
+
+type ComAnexos = { attachments?: Array<{ data_url?: string; thumb_url?: string }> | null }
+export function normalizarAnexosDaMensagem<M extends ComAnexos>(m: M, baseUrl: string | null = baseAnexos()): M {
+  if (!m?.attachments?.length) return m
+  return {
+    ...m,
+    attachments: m.attachments.map((a) => ({ ...a, ...(a.data_url ? { data_url: normalizarUrlAnexoChatwoot(a.data_url, baseUrl) } : {}), ...(a.thumb_url ? { thumb_url: normalizarUrlAnexoChatwoot(a.thumb_url, baseUrl) } : {}) })),
+  }
+}
+
+function normalizarConversa(c: ChatwootConversa): ChatwootConversa {
+  return c.last_non_activity_message ? { ...c, last_non_activity_message: normalizarAnexosDaMensagem(c.last_non_activity_message) } : c
+}
+
 export function mergeChatwootMessages<T extends ChatwootMensagem>(existing: T[], fresh: ChatwootMensagem[]): T[] {
   if (existing.length === 0) return fresh as T[]
   if (fresh.length === 0) return existing
@@ -128,7 +168,7 @@ export class ChatwootConta {
     if (params.q) s.set('q', params.q)
     if (params.inboxId) s.set('inbox_id', String(params.inboxId))
     if (params.teamId) s.set('team_id', String(params.teamId))
-    return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => r.data)
+    return this.req<{ data: { meta: Record<string, number>; payload: ChatwootConversa[] } }>(`/conversations?${s.toString()}`).then((r) => ({ ...r.data, payload: (r.data.payload || []).map(normalizarConversa) }))
   }
 
   /**
@@ -141,13 +181,13 @@ export class ChatwootConta {
     type Lista = { meta: Record<string, number>; payload: ChatwootConversa[] }
     return this.req<Lista | { data: Lista }>(`/conversations/filter?page=${params.page || 1}`, { method: 'POST', body: { payload: payloadFiltroConversas(params) } }).then((r) => {
       const lista = 'data' in r && r.data ? r.data : (r as Lista)
-      return { meta: lista.meta || {}, payload: lista.payload || [] }
+      return { meta: lista.meta || {}, payload: (lista.payload || []).map(normalizarConversa) }
     })
   }
 
   /** Conversa única — usado pelo worker de agendamento pra revalidar status antes de enviar (Fase B §5). */
   conversa(conversationId: number) {
-    return this.req<ChatwootConversa>(`/conversations/${conversationId}`)
+    return this.req<ChatwootConversa>(`/conversations/${conversationId}`).then(normalizarConversa)
   }
 
   /** Contadores por aba (mine/unassigned/assigned/all), opcionalmente por departamento. */
@@ -160,7 +200,7 @@ export class ChatwootConta {
 
   mensagens(conversationId: number, before?: number) {
     const s = before ? `?before=${before}` : ''
-    return this.req<{ payload: ChatwootMensagem[]; meta: Record<string, unknown> }>(`/conversations/${conversationId}/messages${s}`)
+    return this.req<{ payload: ChatwootMensagem[]; meta: Record<string, unknown> }>(`/conversations/${conversationId}/messages${s}`).then((r) => ({ ...r, payload: (r.payload || []).map((m) => normalizarAnexosDaMensagem(m)) }))
   }
 
   /**
@@ -397,6 +437,6 @@ export type ChatwootMensagem = {
   created_at: number
   private: boolean
   sender?: { id?: number; name?: string; type?: string } | null
-  attachments?: Array<{ id: number; file_type: string; data_url: string }>
+  attachments?: Array<{ id: number; file_type: string; data_url: string; thumb_url?: string }>
   content_attributes?: Record<string, unknown>
 }
