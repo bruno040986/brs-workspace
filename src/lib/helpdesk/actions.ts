@@ -129,7 +129,8 @@ export async function decidirHelpdeskPlano(input: {
     if (ticket.status !== 'plano_proposto') throw new Error('Este ticket não está aguardando aprovação de plano.')
 
     const agora = new Date().toISOString()
-    const { error } = await admin
+    // Atômico: só grava se AINDA está em plano_proposto (outro aprovador ou a rotina podem ter mudado).
+    const { data, error } = await admin
       .from('helpdesk_tickets')
       .update(
         input.decisao === 'aprovar'
@@ -137,13 +138,18 @@ export async function decidirHelpdeskPlano(input: {
           : { status: 'rejeitado', aprovado_por: user.id, aprovado_em: agora, concluido_em: agora },
       )
       .eq('id', input.ticketId)
+      .eq('status', 'plano_proposto')
+      .select('id')
     if (error) throw error
+    if (data?.length !== 1) throw new Error('O ticket mudou de status enquanto você decidia. Atualize a tela e confira.')
     revalidatePath('/helpdesk')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao registrar a decisão.' }
   }
 }
+
+const REJEITAVEIS = ['aberto', 'plano_proposto', 'aprovado', 'em_execucao']
 
 /** Rejeitar um ticket em qualquer estado anterior a concluído (aprovador). */
 export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ success: boolean; error?: string }> {
@@ -152,13 +158,16 @@ export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ succes
     const admin = await createAdminClient()
     const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status').eq('id', ticketId).maybeSingle()
     if (!ticket) throw new Error('Ticket não encontrado.')
-    if (ticket.status === 'concluido' || ticket.status === 'rejeitado') throw new Error('Ticket já encerrado.')
+    if (!REJEITAVEIS.includes(String(ticket.status))) throw new Error('Ticket já encerrado.')
     const agora = new Date().toISOString()
-    const { error } = await admin
+    const { data, error } = await admin
       .from('helpdesk_tickets')
       .update({ status: 'rejeitado', aprovado_por: user.id, aprovado_em: agora, concluido_em: agora })
       .eq('id', ticketId)
+      .in('status', REJEITAVEIS) // atômico: não rejeita o que foi concluído/rejeitado no meio
+      .select('id')
     if (error) throw error
+    if (data?.length !== 1) throw new Error('O ticket mudou de status (talvez já encerrado). Atualize a tela e confira.')
     revalidatePath('/helpdesk')
     return { success: true }
   } catch (err) {
