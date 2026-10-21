@@ -10,6 +10,7 @@ import {
   HELPDESK_PRIORIDADES,
   HELPDESK_SISTEMAS,
   HELPDESK_TIPOS,
+  type HelpdeskAba,
   type HelpdeskAnexoEntrada,
   type HelpdeskContextoTecnico,
   type HelpdeskPrioridade,
@@ -122,4 +123,42 @@ function limparContexto(v: unknown): HelpdeskContextoTecnico | null {
     if (valor) saida[k] = valor.slice(0, 500)
   }
   return Object.keys(saida).length ? saida : null
+}
+
+// ---------------------------------------------------------------------------
+// Fase 3: comentários, reabrir e filtro "Meus chamados"
+// ---------------------------------------------------------------------------
+export const HELPDESK_MAX_COMENTARIO = 4000
+export const HELPDESK_MAX_MOTIVO = 2000 // vira comentário "Reaberto: <motivo>"
+
+export function validarComentario(v: unknown): { ok: true; texto: string } | { ok: false; error: string } {
+  const t = texto(v)
+  if (!t) return { ok: false, error: 'Escreva o comentário.' }
+  if (t.length > HELPDESK_MAX_COMENTARIO) return { ok: false, error: `O comentário passa de ${HELPDESK_MAX_COMENTARIO} caracteres.` }
+  return { ok: true, texto: t }
+}
+
+export function validarMotivoReabertura(v: unknown): { ok: true; texto: string } | { ok: false; error: string } {
+  const t = texto(v)
+  if (!t) return { ok: false, error: 'Explique por que o ticket deve ser reaberto.' }
+  if (t.length > HELPDESK_MAX_MOTIVO) return { ok: false, error: `O motivo passa de ${HELPDESK_MAX_MOTIVO} caracteres.` }
+  return { ok: true, texto: t }
+}
+
+/** Reabrir: só ticket encerrado, e só o solicitante ou um aprovador. */
+export function podeReabrir(t: { status: string; aberto_por: string }, userId: string, podeAprovar: boolean): boolean {
+  if (t.status !== 'concluido' && t.status !== 'rejeitado') return false
+  return podeAprovar || (Boolean(userId) && t.aberto_por === userId)
+}
+
+/** Abas do topo. Só filtra a tela — todos continuam vendo todos os tickets. */
+export function filtrarPorAba<T extends { status: string; aberto_por: string }>(
+  tickets: T[],
+  aba: HelpdeskAba,
+  userId: string,
+  podeAprovar: boolean,
+): T[] {
+  if (aba === 'meus') return tickets.filter((t) => t.aberto_por === userId)
+  if (aba === 'aprovacao') return podeAprovar ? tickets.filter((t) => t.status === 'plano_proposto') : []
+  return tickets
 }

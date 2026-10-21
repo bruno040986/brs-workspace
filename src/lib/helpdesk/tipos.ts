@@ -78,3 +78,26 @@ export type HelpdeskTicket = {
   aprovado_em: string | null
   concluido_em: string | null
 }
+
+export type HelpdeskComentario = {
+  id: string
+  autor_tipo: 'usuario' | 'claude'
+  autor_id: string | null
+  autor_nome: string
+  texto: string
+  created_at: string
+}
+
+/** Uma linha por mudança de status (trigger no banco). `por` null = Claude/sistema. */
+export type HelpdeskHistorico = {
+  id: string
+  de: HelpdeskStatus | null
+  para: HelpdeskStatus
+  por: string | null
+  por_nome: string
+  plano_anterior: string | null
+  solucao_anterior: string | null
+  created_at: string
+}
+
+export type HelpdeskAba = 'todos' | 'meus' | 'aprovacao'

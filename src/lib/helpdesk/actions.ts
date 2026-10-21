@@ -13,8 +13,14 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { requireCurrentUser, requirePermission } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
 import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL } from '@/lib/chat/attachments'
-import type { HelpdeskAnexo, HelpdeskTicket } from './tipos'
-import { validarHelpdeskTicket, type HelpdeskTicketEntrada } from './validacao'
+import type { HelpdeskAnexo, HelpdeskComentario, HelpdeskHistorico, HelpdeskTicket } from './tipos'
+import {
+  podeReabrir,
+  validarComentario,
+  validarHelpdeskTicket,
+  validarMotivoReabertura,
+  type HelpdeskTicketEntrada,
+} from './validacao'
 
 type AnexoLinha = { id: string; path: string; nome: string; tamanho: number; tipo: string }
 
@@ -157,6 +163,97 @@ export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ succes
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao rejeitar.' }
+  }
+}
+
+/**
+ * Comentários + histórico de status de um ticket (linha do tempo do detalhe).
+ * Visibilidade: quem tem helpdesk-abrir vê todos os tickets (decisão do Bruno).
+ */
+export async function listarHelpdeskAtividade(ticketId: string): Promise<{
+  success: boolean
+  comentarios?: HelpdeskComentario[]
+  historico?: HelpdeskHistorico[]
+  error?: string
+}> {
+  try {
+    await requirePermission('helpdesk-abrir')
+    const admin = await createAdminClient()
+    const [c, h] = await Promise.all([
+      admin.from('helpdesk_comentarios').select('id, autor_tipo, autor_id, texto, created_at').eq('ticket_id', ticketId).order('created_at'),
+      admin
+        .from('helpdesk_historico')
+        .select('id, de, para, por, plano_anterior, solucao_anterior, created_at')
+        .eq('ticket_id', ticketId)
+        .order('created_at'),
+    ])
+    if (c.error) throw c.error
+    if (h.error) throw h.error
+
+    const ids = [...new Set([...(c.data || []).map((x) => x.autor_id), ...(h.data || []).map((x) => x.por)].filter(Boolean).map(String))]
+    const { data: usuarios } = ids.length
+      ? await admin.from('users').select('id, name').in('id', ids)
+      : { data: [] as Array<{ id: string; name: string | null }> }
+    const nome = new Map((usuarios || []).map((u) => [String(u.id), String(u.name || '')]))
+
+    return {
+      success: true,
+      comentarios: (c.data || []).map((x) => ({
+        ...(x as Omit<HelpdeskComentario, 'autor_nome'>),
+        autor_nome: x.autor_tipo === 'claude' ? 'Claude' : nome.get(String(x.autor_id)) || '—',
+      })),
+      historico: (h.data || []).map((x) => ({
+        ...(x as Omit<HelpdeskHistorico, 'por_nome'>),
+        por_nome: x.por ? nome.get(String(x.por)) || '—' : '',
+      })),
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao carregar a atividade.' }
+  }
+}
+
+/** Comentário de usuário (o do Claude entra direto no banco pela rotina). Trigger notifica. */
+export async function comentarHelpdeskTicket(ticketId: string, texto: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user } = await requirePermission('helpdesk-abrir')
+    const v = validarComentario(texto)
+    if (!v.ok) throw new Error(v.error)
+    const admin = await createAdminClient()
+    const { data: ticket } = await admin.from('helpdesk_tickets').select('id').eq('id', ticketId).maybeSingle()
+    if (!ticket) throw new Error('Ticket não encontrado.')
+    const { error } = await admin
+      .from('helpdesk_comentarios')
+      .insert({ ticket_id: ticketId, autor_tipo: 'usuario', autor_id: user.id, texto: v.texto })
+    if (error) throw error
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao comentar.' }
+  }
+}
+
+/**
+ * Reabrir ticket concluído/rejeitado (solicitante ou aprovador). A RPC faz
+ * tudo numa transação: motivo vira comentário, status volta a 'aberto' e
+ * plano/solução anteriores ficam no histórico.
+ */
+export async function reabrirHelpdeskTicket(ticketId: string, motivo: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user, permissions } = await requirePermission('helpdesk-abrir')
+    const v = validarMotivoReabertura(motivo)
+    if (!v.ok) throw new Error(v.error)
+    const admin = await createAdminClient()
+    const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status, aberto_por').eq('id', ticketId).maybeSingle()
+    if (!ticket) throw new Error('Ticket não encontrado.')
+    const aprovador = hasPermission(permissions, 'helpdesk-aprovar', 'can_edit')
+    if (!podeReabrir({ status: String(ticket.status), aberto_por: String(ticket.aberto_por) }, user.id, aprovador)) {
+      throw new Error('Só o solicitante ou um aprovador reabre, e só ticket concluído ou rejeitado.')
+    }
+    const { error } = await admin.rpc('helpdesk_reabrir', { p_ticket_id: ticketId, p_motivo: v.texto, p_por: user.id })
+    if (error) throw error
+    revalidatePath('/helpdesk')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao reabrir.' }
   }
 }
 
