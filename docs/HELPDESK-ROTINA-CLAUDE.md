@@ -5,7 +5,7 @@ logado). Tudo o que ela faz passa pelas tabelas abaixo; notificações do sino,
 e-mails e linha do tempo são gerados por **trigger**. A rotina NUNCA insere em
 `workspace_notifications`, `helpdesk_email_fila` nem `helpdesk_historico`.
 
-Migration de referência: `supabase/migrations/20261021172308_helpdesk_fase3.sql`.
+Migration de referência: `supabase/migrations/20261021211754_helpdesk_fase3.sql`.
 
 ## Máquina de estados
 
