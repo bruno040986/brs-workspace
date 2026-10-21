@@ -9,6 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Check, ExternalLink, LifeBuoy, Loader2, Plus, Search, X } from 'lucide-react'
+import AtividadeTicket from '@/components/helpdesk/AtividadeTicket'
 import NovoTicketModal from '@/components/helpdesk/NovoTicketModal'
 import {
   decidirHelpdeskPlano,
@@ -20,9 +21,11 @@ import {
   HELPDESK_PRIORIDADES,
   HELPDESK_SISTEMAS,
   HELPDESK_TIPOS,
+  type HelpdeskAba,
   type HelpdeskStatus,
   type HelpdeskTicket,
 } from '@/lib/helpdesk/tipos'
+import { filtrarPorAba } from '@/lib/helpdesk/validacao'
 
 const COLUNAS: Array<{ id: HelpdeskStatus; label: string; cor: string }> = [
   { id: 'aberto', label: 'Abertos', cor: '#0284c7' },
@@ -69,6 +72,7 @@ export default function HelpdeskPage() {
   const [decidindo, setDecidindo] = useState(false)
   const [ampliada, setAmpliada] = useState<{ url: string; nome: string } | null>(null)
   const [filtro, setFiltro] = useState({ busca: '', tipo: '', area: '', prioridade: '' })
+  const [aba, setAba] = useState<HelpdeskAba>('todos')
 
   async function carregar() {
     setErro('')
@@ -109,7 +113,7 @@ export default function HelpdeskPage() {
     const busca = filtro.busca.trim().toLowerCase()
     const mapa = new Map<HelpdeskStatus, HelpdeskTicket[]>()
     for (const c of COLUNAS) mapa.set(c.id, [])
-    for (const t of tickets) {
+    for (const t of filtrarPorAba(tickets, aba, meuId, podeAprovar)) {
       if (filtro.tipo && t.tipo !== filtro.tipo) continue
       if (filtro.area && t.area !== filtro.area) continue
       if (filtro.prioridade && t.prioridade !== filtro.prioridade) continue
@@ -117,7 +121,7 @@ export default function HelpdeskPage() {
       mapa.get(t.status)?.push(t)
     }
     return mapa
-  }, [tickets, filtro])
+  }, [tickets, filtro, aba, meuId, podeAprovar])
 
   async function decidir(ticket: HelpdeskTicket, decisao: 'aprovar' | 'rejeitar') {
     if (decidindo) return
@@ -153,6 +157,19 @@ export default function HelpdeskPage() {
         <button className="btn btn-primary" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setNovo(true)}>
           <Plus size={16} /> Novo Ticket
         </button>
+      </div>
+
+      <div role="tablist" aria-label="Quais tickets mostrar" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.7rem' }}>
+        {([
+          ['todos', 'Todos'],
+          ['meus', 'Meus chamados'],
+          ...(podeAprovar ? [['aprovacao', 'Aguardando minha aprovação']] : []),
+        ] as Array<[HelpdeskAba, string]>).map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={aba === id} className={aba === id ? 'btn btn-primary' : 'btn btn-outline'} onClick={() => setAba(id)}>
+            {label}
+            {id === 'aprovacao' && ` (${tickets.filter((t) => t.status === 'plano_proposto').length})`}
+          </button>
+        ))}
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
@@ -312,6 +329,17 @@ export default function HelpdeskPage() {
                 </button>
               </div>
             )}
+
+            <AtividadeTicket
+              key={`${detalhe.id}-${detalhe.status}`}
+              ticket={detalhe}
+              meuId={meuId}
+              podeAprovar={podeAprovar}
+              onReaberto={() => {
+                setDetalhe(null)
+                void carregar()
+              }}
+            />
           </div>
         </div>
       )}
