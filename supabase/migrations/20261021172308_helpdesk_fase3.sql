@@ -48,6 +48,9 @@ create table if not exists public.helpdesk_email_fila (
   enviado_em timestamptz,
   erro text
 );
+-- Falha passageira (429/5xx/rede/Resend inativo) devolve a linha à fila e
+-- conta aqui; o cron só grava erro definitivo na 5ª.
+alter table public.helpdesk_email_fila add column if not exists tentativas int not null default 0;
 create index if not exists idx_helpdesk_email_pendentes
   on public.helpdesk_email_fila (created_at) where enviado_em is null and erro is null;
 alter table public.helpdesk_email_fila enable row level security;
@@ -116,6 +119,10 @@ begin
 end;
 $$;
 
+-- Só os triggers (security definer, dono postgres) chamam estes helpers.
+revoke execute on function app_private.helpdesk_aprovadores() from public, anon, authenticated;
+revoke execute on function app_private.helpdesk_avisar(uuid[], text, text, uuid, text, uuid) from public, anon, authenticated;
+
 -- ---------------------------------------------------------------------------
 -- Notificações do ticket (substitui a da migration 20260903000000; mantém
 -- tipos e títulos antigos e acrescenta aprovado, em_execucao e reaberto)
@@ -146,7 +153,9 @@ begin
     perform app_private.helpdesk_avisar(app_private.helpdesk_aprovadores(), 'helpdesk_plano',
       'Plano proposto aguardando aprovação', new.id, new.titulo, v_ator);
   elsif new.status = 'aberto' and old.status in ('concluido', 'rejeitado') then
-    perform app_private.helpdesk_avisar(app_private.helpdesk_aprovadores(), 'helpdesk_reaberto',
+    -- Aprovador reabriu: avisa também o solicitante. Solicitante reabriu: ele
+    -- é o ator e helpdesk_avisar o exclui, então só os aprovadores recebem.
+    perform app_private.helpdesk_avisar(array[new.aberto_por] || app_private.helpdesk_aprovadores(), 'helpdesk_reaberto',
       'Ticket reaberto', new.id, new.titulo, v_ator);
   elsif new.status in ('aprovado', 'em_execucao', 'concluido', 'rejeitado') then
     perform app_private.helpdesk_avisar(array[new.aberto_por], 'helpdesk_' || new.status,
@@ -198,12 +207,16 @@ create trigger trg_helpdesk_historico
   for each row execute function app_private.helpdesk_registrar_historico();
 
 -- Tickets antigos: criação + estado atual (pelos carimbos), uma vez só.
+-- `por` = aprovado_por só onde a pessoa decidiu (aprovado/rejeitado); nos
+-- demais (plano, execução, conclusão) quem moveu foi a rotina: fica null.
 insert into public.helpdesk_historico (ticket_id, de, para, por, created_at)
 select t.id, null, 'aberto', t.aberto_por, t.created_at
 from public.helpdesk_tickets t
 where not exists (select 1 from public.helpdesk_historico h where h.ticket_id = t.id)
 union all
-select t.id, null, t.status, null, coalesce(t.concluido_em, t.aprovado_em, t.plano_em, t.created_at)
+select t.id, null, t.status,
+       case when t.status in ('aprovado', 'rejeitado') then t.aprovado_por end,
+       coalesce(t.concluido_em, t.aprovado_em, t.plano_em, t.created_at)
 from public.helpdesk_tickets t
 where t.status <> 'aberto'
   and not exists (select 1 from public.helpdesk_historico h where h.ticket_id = t.id);
