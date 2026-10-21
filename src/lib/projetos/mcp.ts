@@ -437,7 +437,11 @@ export async function responderMcp(admin: SupabaseClient, agente: Agente, msg: J
         return { jsonrpc: '2.0', id, result: await executarTool(admin, agente, nome, args) }
       } catch (err) {
         // Erro de execução vai como resultado com isError para a IA ler e corrigir.
-        const message = err instanceof Error ? err.message : String((err as { message?: unknown })?.message || 'Erro interno.')
+        // Só `new Error('...')` nosso (mensagem pt-BR pensada para a IA) volta como está; erro do
+        // PostgREST/Storage (objeto com code/details) ou de runtime fica no log do servidor.
+        const nosso = err instanceof Error && err.constructor === Error
+        if (!nosso) console.error('[projetos-mcp] erro interno em', nome, err)
+        const message = nosso ? err.message : 'Erro interno ao acessar os dados. Tente de novo; se persistir, avise o Bruno.'
         return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Erro: ${message}` }], isError: true } }
       }
     }
