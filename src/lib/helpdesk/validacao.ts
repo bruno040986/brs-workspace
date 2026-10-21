@@ -162,3 +162,22 @@ export function filtrarPorAba<T extends { status: string; aberto_por: string }>(
   if (aba === 'aprovacao') return podeAprovar ? tickets.filter((t) => t.status === 'plano_proposto') : []
   return tickets
 }
+
+// ---------------------------------------------------------------------------
+// Fila de e-mail (cron /api/cron/helpdesk-emails)
+// ---------------------------------------------------------------------------
+export const HELPDESK_EMAIL_MAX_TENTATIVAS = 5
+
+/**
+ * O que gravar na linha da fila quando o envio FALHA (ela estava reservada
+ * com enviado_em = agora; no sucesso nada muda). Falha definitiva, ou a 5ª
+ * passageira: `erro` e sai da fila. Passageira: volta à fila.
+ */
+export function desfechoEmailFila(
+  r: { detalhe: string; transitorio?: boolean },
+  tentativas: number,
+): { enviado_em: null; tentativas: number; erro?: string } {
+  const n = (Number(tentativas) || 0) + 1
+  if (r.transitorio && n < HELPDESK_EMAIL_MAX_TENTATIVAS) return { enviado_em: null, tentativas: n }
+  return { enviado_em: null, tentativas: n, erro: r.detalhe.slice(0, 500) }
+}

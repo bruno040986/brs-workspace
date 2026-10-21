@@ -37,16 +37,26 @@ export function resolverContatoParceiro(corbanData: Record<string, any>, nomeAge
   return { nome, email, telefone }
 }
 
-export async function enviarEmailOnboarding(input: {
-  to: string
-  subject: string
-  html: string
-}): Promise<{ ok: boolean; detalhe: string }> {
+type ResendConfig = { is_active?: boolean | null; api_key?: string | null; from_email?: string | null }
+
+export async function carregarResendConfig(): Promise<ResendConfig | null> {
+  const admin = await createAdminClient()
+  const { data } = await admin.from('resend_config').select('*').limit(1).maybeSingle()
+  return data
+}
+
+/**
+ * `opts.resend` evita reler resend_config a cada e-mail (cron em lote).
+ * `transitorio`: vale tentar de novo (Resend inativo, 429, 5xx, rede/timeout).
+ */
+export async function enviarEmailOnboarding(
+  input: { to: string; subject: string; html: string },
+  opts?: { resend: ResendConfig | null },
+): Promise<{ ok: boolean; detalhe: string; transitorio?: boolean }> {
   try {
-    const admin = await createAdminClient()
-    const { data: resend } = await admin.from('resend_config').select('*').limit(1).maybeSingle()
+    const resend = opts ? opts.resend : await carregarResendConfig()
     if (!resend || !resend.is_active || !resend.api_key) {
-      return { ok: false, detalhe: 'Resend inativo ou sem credenciais (Provedores e APIs › API E-mail).' }
+      return { ok: false, transitorio: true, detalhe: 'Resend inativo ou sem credenciais (Provedores e APIs › API E-mail).' }
     }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -57,11 +67,14 @@ export async function enviarEmailOnboarding(input: {
         subject: input.subject,
         html: input.html,
       }),
+      signal: AbortSignal.timeout(15_000),
     })
-    if (!res.ok) return { ok: false, detalhe: `Resend respondeu ${res.status}.` }
+    if (!res.ok) {
+      return { ok: false, transitorio: res.status === 429 || res.status >= 500, detalhe: `Resend respondeu ${res.status}.` }
+    }
     return { ok: true, detalhe: 'E-mail enviado.' }
   } catch (err) {
-    return { ok: false, detalhe: err instanceof Error ? err.message : 'Erro no envio de e-mail.' }
+    return { ok: false, transitorio: true, detalhe: err instanceof Error ? err.message : 'Erro no envio de e-mail.' }
   }
 }
 

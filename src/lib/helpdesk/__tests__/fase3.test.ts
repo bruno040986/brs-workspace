@@ -1,7 +1,7 @@
 /** HelpDesk fase 3: comentário, motivo de reabertura, permissão de reabrir e abas. Roda com: npm test */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { filtrarPorAba, podeReabrir, validarComentario, validarMotivoReabertura } from '../validacao.ts'
+import { desfechoEmailFila, filtrarPorAba, podeReabrir, validarComentario, validarMotivoReabertura } from '../validacao.ts'
 
 const EU = '11111111-2222-3333-4444-555555555555'
 const OUTRO = '99999999-8888-7777-6666-555555555555'
@@ -44,4 +44,12 @@ test('abas: meus e aguardando aprovação só filtram a tela', () => {
   assert.deepEqual(filtrarPorAba(tickets, 'meus', EU, false).map((t) => t.id), ['a', 'c'])
   assert.deepEqual(filtrarPorAba(tickets, 'aprovacao', EU, true).map((t) => t.id), ['b', 'c'])
   assert.equal(filtrarPorAba(tickets, 'aprovacao', EU, false).length, 0)
+})
+
+test('fila de e-mail: definitiva sai, passageira volta até a 5ª', () => {
+  assert.deepEqual(desfechoEmailFila({ detalhe: 'Usuário sem e-mail.' }, 0), { enviado_em: null, tentativas: 1, erro: 'Usuário sem e-mail.' })
+  assert.deepEqual(desfechoEmailFila({ detalhe: 'Resend respondeu 503.', transitorio: true }, 0), { enviado_em: null, tentativas: 1 })
+  assert.deepEqual(desfechoEmailFila({ detalhe: 'x', transitorio: true }, 3), { enviado_em: null, tentativas: 4 })
+  assert.deepEqual(desfechoEmailFila({ detalhe: 'x', transitorio: true }, 4), { enviado_em: null, tentativas: 5, erro: 'x' })
+  assert.equal(desfechoEmailFila({ detalhe: 'y'.repeat(900) }, 0).erro?.length, 500)
 })
