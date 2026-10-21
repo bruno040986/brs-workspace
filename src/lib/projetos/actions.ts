@@ -9,6 +9,8 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/server'
+import { hasPermission } from '@/lib/auth/permissions'
+import { HELPDESK_MCP_AGENTES } from '@/lib/helpdesk/validacao'
 import * as svc from './service'
 import { codigoProjeto, parseCodigoProjeto } from './puro'
 import type {
@@ -221,8 +223,15 @@ export async function removerCota(cotaId: string): Promise<ActionResult> {
 /** Gera (ou troca) o token MCP da IA e devolve a URL completa para colar no conector. */
 export async function gerarTokenAgente(agenteId: string): Promise<ActionResult<{ url: string }>> {
   try {
-    await requirePermission('projetos', 'can_delete')
-    const token = await svc.gerarTokenAgente(await createAdminClient(), agenteId)
+    const { permissions } = await requirePermission('projetos', 'can_delete')
+    const admin = await createAdminClient()
+    // O token das IAs do HelpDesk também mexe em tickets: exige ser aprovador do HelpDesk.
+    const { data: agente, error } = await admin.from('projeto_agentes').select('slug').eq('id', agenteId).maybeSingle()
+    if (error) throw error
+    if (agente && HELPDESK_MCP_AGENTES.includes(String(agente.slug)) && !hasPermission(permissions, 'helpdesk-aprovar', 'can_edit')) {
+      throw new Error('O token desta IA também libera as ferramentas do HelpDesk: só quem pode aprovar no HelpDesk (helpdesk-aprovar) gera ou troca.')
+    }
+    const token = await svc.gerarTokenAgente(admin, agenteId)
     const base = String(process.env.NEXT_PUBLIC_APP_URL || 'https://workspace.brspromotora.com.br').replace(/\/+$/, '')
     revalidatePath('/projetos')
     return { success: true, data: { url: `${base}/api/projetos/mcp/${token}` } }
