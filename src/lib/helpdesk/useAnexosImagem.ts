@@ -86,8 +86,16 @@ export function useAnexosImagem() {
     adicionar(files)
   }
 
+  /** Depois de enviar (ex.: comentário): esvazia a lista. */
+  function limpar() {
+    contagem.current = 0
+    ids.current.clear()
+    setAnexos([])
+  }
+
   return {
     anexos,
+    limpar,
     aviso,
     adicionar,
     remover,

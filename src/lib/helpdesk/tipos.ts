@@ -54,8 +54,23 @@ export type HelpdeskContextoTecnico = {
 
 export type HelpdeskStatus = 'aberto' | 'plano_proposto' | 'aprovado' | 'rejeitado' | 'em_execucao' | 'concluido'
 
+export const HELPDESK_ETAPA_STATUS = ['pendente', 'em_andamento', 'concluida'] as const
+export type HelpdeskEtapaStatus = (typeof HELPDESK_ETAPA_STATUS)[number]
+
+/** Etapa do plano (gravada pela IA via MCP helpdesk_definir_etapas). */
+export type HelpdeskEtapa = { id: string; ordem: number; titulo: string; status: HelpdeskEtapaStatus; concluida_em: string | null }
+
 export type HelpdeskTicket = {
   id: string
+  /** Número de controle; `codigo` é a forma exibida (HD-0001). */
+  controle_numero: number
+  codigo: string
+  /** Responsável: pessoa (responsavel_id) OU IA (responsavel_ia = slug). */
+  responsavel_id: string | null
+  responsavel_ia: string | null
+  responsavel_em: string | null
+  responsavel_nome: string
+  etapas: HelpdeskEtapa[]
   titulo: string
   descricao: string
   url: string
@@ -86,9 +101,13 @@ export type HelpdeskComentario = {
   autor_nome: string
   texto: string
   created_at: string
+  anexos: HelpdeskAnexo[]
 }
 
-/** Uma linha por mudança de status (trigger no banco). `por` null = Claude/sistema. */
+/**
+ * Uma linha por mudança de status (trigger no banco). `por` null = Claude/sistema.
+ * `evento` não nulo = evento sem mudança de status (responsável, etapa), texto em `detalhe`.
+ */
 export type HelpdeskHistorico = {
   id: string
   de: HelpdeskStatus | null
@@ -97,6 +116,8 @@ export type HelpdeskHistorico = {
   por_nome: string
   plano_anterior: string | null
   solucao_anterior: string | null
+  evento: 'responsavel' | 'etapa' | null
+  detalhe: string | null
   created_at: string
 }
 

@@ -13,16 +13,18 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { requireCurrentUser, requirePermission } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
 import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL } from '@/lib/chat/attachments'
-import type { HelpdeskAnexo, HelpdeskComentario, HelpdeskHistorico, HelpdeskTicket } from './tipos'
+import type { HelpdeskAnexo, HelpdeskAnexoEntrada, HelpdeskComentario, HelpdeskEtapa, HelpdeskHistorico, HelpdeskTicket } from './tipos'
 import {
+  codigoHelpdesk,
   podeReabrir,
+  validarAnexos,
   validarComentario,
   validarHelpdeskTicket,
   validarMotivoReabertura,
   type HelpdeskTicketEntrada,
 } from './validacao'
 
-type AnexoLinha = { id: string; path: string; nome: string; tamanho: number; tipo: string }
+type AnexoLinha = { id: string; path: string; nome: string; tamanho: number; tipo: string; comentario_id?: string | null }
 
 export async function listarHelpdeskTickets(): Promise<{
   success: boolean
@@ -35,20 +37,22 @@ export async function listarHelpdeskTickets(): Promise<{
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('helpdesk_tickets')
-      .select('*, helpdesk_anexos(id, path, nome, tamanho, tipo)')
+      .select('*, helpdesk_anexos(id, path, nome, tamanho, tipo, comentario_id), helpdesk_etapas(id, ordem, titulo, status, concluida_em)')
       .order('urgente', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(300)
     if (error) throw error
 
-    const autores = [...new Set((data || []).map((t) => String(t.aberto_por)))]
-    const { data: usuarios } = autores.length
-      ? await admin.from('users').select('id, name').in('id', autores)
+    const pessoas = [...new Set((data || []).flatMap((t) => [t.aberto_por, t.responsavel_id]).filter(Boolean).map(String))]
+    const { data: usuarios } = pessoas.length
+      ? await admin.from('users').select('id, name').in('id', pessoas)
       : { data: [] as Array<{ id: string; name: string | null }> }
     const nomePorId = new Map((usuarios || []).map((u) => [String(u.id), String(u.name || '')]))
 
+    // Imagens de comentário aparecem no próprio comentário (listarHelpdeskAtividade).
+    const anexosDo = (t: { helpdesk_anexos?: unknown }) => ((t.helpdesk_anexos || []) as AnexoLinha[]).filter((a) => !a.comentario_id)
     // Bucket privado: assina todos os anexos numa chamada só (a tela não vê o path).
-    const paths = (data || []).flatMap((t) => ((t.helpdesk_anexos || []) as AnexoLinha[]).map((a) => a.path))
+    const paths = (data || []).flatMap((t) => anexosDo(t).map((a) => a.path))
     const { data: assinadas } = paths.length
       ? await admin.storage.from(CHAT_ATTACHMENT_BUCKET).createSignedUrls(paths, CHAT_SIGNED_URL_TTL)
       : { data: [] }
@@ -58,10 +62,13 @@ export async function listarHelpdeskTickets(): Promise<{
     return {
       success: true,
       podeAprovar: hasPermission(permissions, 'helpdesk-aprovar', 'can_edit'),
-      data: (data || []).map(({ helpdesk_anexos, ...t }) => ({
-        ...(t as Omit<HelpdeskTicket, 'aberto_por_nome' | 'anexos'>),
+      data: (data || []).map(({ helpdesk_anexos, helpdesk_etapas, ...t }) => ({
+        ...(t as Omit<HelpdeskTicket, 'aberto_por_nome' | 'anexos' | 'codigo' | 'responsavel_nome' | 'etapas'>),
+        codigo: codigoHelpdesk(t.controle_numero),
         aberto_por_nome: nomePorId.get(String(t.aberto_por)) || '—',
-        anexos: ((helpdesk_anexos || []) as AnexoLinha[]).map(
+        responsavel_nome: t.responsavel_id ? nomePorId.get(String(t.responsavel_id)) || '—' : t.responsavel_ia ? `IA ${t.responsavel_ia}` : '',
+        etapas: ((helpdesk_etapas || []) as HelpdeskEtapa[]).sort((a, b) => a.ordem - b.ordem),
+        anexos: anexosDo({ helpdesk_anexos }).map(
           (a): HelpdeskAnexo => ({ id: a.id, nome: a.nome, tipo: a.tipo, tamanho: Number(a.tamanho) || 0, url: urlPorPath.get(a.path) || '' }),
         ),
       })) as HelpdeskTicket[],
@@ -188,16 +195,18 @@ export async function listarHelpdeskAtividade(ticketId: string): Promise<{
   try {
     await requirePermission('helpdesk-abrir')
     const admin = await createAdminClient()
-    const [c, h] = await Promise.all([
+    const [c, h, an] = await Promise.all([
       admin.from('helpdesk_comentarios').select('id, autor_tipo, autor_id, texto, created_at').eq('ticket_id', ticketId).order('created_at'),
       admin
         .from('helpdesk_historico')
-        .select('id, de, para, por, plano_anterior, solucao_anterior, created_at')
+        .select('id, de, para, por, plano_anterior, solucao_anterior, evento, detalhe, created_at')
         .eq('ticket_id', ticketId)
         .order('created_at'),
+      admin.from('helpdesk_anexos').select('id, path, nome, tamanho, tipo, comentario_id').eq('ticket_id', ticketId).not('comentario_id', 'is', null),
     ])
     if (c.error) throw c.error
     if (h.error) throw h.error
+    if (an.error) throw an.error
 
     const ids = [...new Set([...(c.data || []).map((x) => x.autor_id), ...(h.data || []).map((x) => x.por)].filter(Boolean).map(String))]
     const { data: usuarios } = ids.length
@@ -205,11 +214,24 @@ export async function listarHelpdeskAtividade(ticketId: string): Promise<{
       : { data: [] as Array<{ id: string; name: string | null }> }
     const nome = new Map((usuarios || []).map((u) => [String(u.id), String(u.name || '')]))
 
+    const linhas = (an.data || []) as AnexoLinha[]
+    const { data: assinadas } = linhas.length
+      ? await admin.storage.from(CHAT_ATTACHMENT_BUCKET).createSignedUrls(linhas.map((a) => a.path), CHAT_SIGNED_URL_TTL)
+      : { data: [] }
+    const urlPorPath = new Map((assinadas || []).map((a) => [String(a.path), a.signedUrl || '']))
+    const anexosPorComentario = new Map<string, HelpdeskAnexo[]>()
+    for (const a of linhas) {
+      const lista = anexosPorComentario.get(String(a.comentario_id)) || []
+      lista.push({ id: a.id, nome: a.nome, tipo: a.tipo, tamanho: Number(a.tamanho) || 0, url: urlPorPath.get(a.path) || '' })
+      anexosPorComentario.set(String(a.comentario_id), lista)
+    }
+
     return {
       success: true,
       comentarios: (c.data || []).map((x) => ({
-        ...(x as Omit<HelpdeskComentario, 'autor_nome'>),
+        ...(x as Omit<HelpdeskComentario, 'autor_nome' | 'anexos'>),
         autor_nome: x.autor_tipo === 'claude' ? 'Claude' : nome.get(String(x.autor_id)) || '—',
+        anexos: anexosPorComentario.get(String(x.id)) || [],
       })),
       historico: (h.data || []).map((x) => ({
         ...(x as Omit<HelpdeskHistorico, 'por_nome'>),
@@ -221,19 +243,37 @@ export async function listarHelpdeskAtividade(ticketId: string): Promise<{
   }
 }
 
-/** Comentário de usuário (o do Claude entra direto no banco pela rotina). Trigger notifica. */
-export async function comentarHelpdeskTicket(ticketId: string, texto: string): Promise<{ success: boolean; error?: string }> {
+/** Comentário de usuário, com imagens opcionais (o do Claude entra pelo MCP). Trigger notifica. */
+export async function comentarHelpdeskTicket(
+  ticketId: string,
+  texto: string,
+  anexos: HelpdeskAnexoEntrada[] = [],
+): Promise<{ success: boolean; error?: string }> {
   try {
     const { user } = await requirePermission('helpdesk-abrir')
     const v = validarComentario(texto)
     if (!v.ok) throw new Error(v.error)
+    const va = validarAnexos(anexos, user.id)
+    if (!va.ok) throw new Error(va.error)
     const admin = await createAdminClient()
     const { data: ticket } = await admin.from('helpdesk_tickets').select('id').eq('id', ticketId).maybeSingle()
     if (!ticket) throw new Error('Ticket não encontrado.')
-    const { error } = await admin
+    const { data: comentario, error } = await admin
       .from('helpdesk_comentarios')
       .insert({ ticket_id: ticketId, autor_tipo: 'usuario', autor_id: user.id, texto: v.texto })
+      .select('id')
+      .single()
     if (error) throw error
+    if (va.anexos.length) {
+      const { error: erroAnexos } = await admin
+        .from('helpdesk_anexos')
+        .insert(va.anexos.map((a) => ({ ...a, ticket_id: ticketId, comentario_id: comentario.id, enviado_por: user.id })))
+      if (erroAnexos) {
+        // comentário sem as imagens fica incompleto: desfaz e o usuário reenvia
+        await admin.from('helpdesk_comentarios').delete().eq('id', comentario.id)
+        throw new Error('Não foi possível salvar as imagens. Envie o comentário de novo.')
+      }
+    }
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao comentar.' }
@@ -263,6 +303,33 @@ export async function reabrirHelpdeskTicket(ticketId: string, motivo: string): P
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao reabrir.' }
+  }
+}
+
+/**
+ * Aprovador assume o ticket (vira responsável; a IA deixa de propor/executar)
+ * ou o libera. Trigger grava no histórico e avisa o solicitante.
+ */
+export async function assumirHelpdeskTicket(ticketId: string, assumir: boolean): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user } = await requirePermission('helpdesk-aprovar', 'can_edit')
+    const admin = await createAdminClient()
+    const { data, error } = await admin
+      .from('helpdesk_tickets')
+      .update(
+        assumir
+          ? { responsavel_id: user.id, responsavel_ia: null, responsavel_em: new Date().toISOString() }
+          : { responsavel_id: null, responsavel_ia: null, responsavel_em: null },
+      )
+      .eq('id', ticketId)
+      .not('status', 'in', '(concluido,rejeitado)')
+      .select('id')
+    if (error) throw error
+    if (data?.length !== 1) throw new Error('Ticket não encontrado ou já encerrado.')
+    revalidatePath('/helpdesk')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao mudar o responsável.' }
   }
 }
 

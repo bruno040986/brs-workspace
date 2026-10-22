@@ -1,14 +1,16 @@
 'use client'
 
 /**
- * Linha do tempo do ticket no modal de detalhe: mudanças de status
- * (helpdesk_historico, gravado por trigger) e comentários intercalados por
- * data, campo de comentário e o "Reabrir" (solicitante ou aprovador).
+ * Linha do tempo do ticket no modal de detalhe: mudanças de status, de
+ * responsável e de etapa (helpdesk_historico, gravado por trigger) e
+ * comentários (com imagens) intercalados por data, campo de comentário e o
+ * "Reabrir" (solicitante ou aprovador).
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, Loader2, RotateCcw, Send } from 'lucide-react'
+import { Bot, ImagePlus, Loader2, RotateCcw, Send, X } from 'lucide-react'
 import { comentarHelpdeskTicket, listarHelpdeskAtividade, reabrirHelpdeskTicket } from '@/lib/helpdesk/actions'
 import type { HelpdeskComentario, HelpdeskHistorico, HelpdeskStatus, HelpdeskTicket } from '@/lib/helpdesk/tipos'
+import { useAnexosImagem } from '@/lib/helpdesk/useAnexosImagem'
 import { HELPDESK_MAX_COMENTARIO, HELPDESK_MAX_MOTIVO, podeReabrir } from '@/lib/helpdesk/validacao'
 
 const STATUS_LABEL: Record<HelpdeskStatus, string> = {
@@ -26,6 +28,7 @@ const dataFmt = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 function textoEvento(h: HelpdeskHistorico): string {
+  if (h.evento) return h.detalhe || h.evento
   if (!h.de) return h.para === 'aberto' ? 'Ticket aberto' : `Status: ${STATUS_LABEL[h.para] || h.para}`
   if (h.para === 'aberto' && (h.de === 'concluido' || h.de === 'rejeitado')) return 'Ticket reaberto'
   return `${STATUS_LABEL[h.de] || h.de} → ${STATUS_LABEL[h.para] || h.para}`
@@ -49,6 +52,7 @@ export default function AtividadeTicket({
   const [enviando, setEnviando] = useState(false)
   const [reabrindo, setReabrindo] = useState(false)
   const [motivo, setMotivo] = useState('')
+  const imagens = useAnexosImagem()
 
   const carregar = useCallback(async () => {
     const res = await listarHelpdeskAtividade(ticket.id)
@@ -72,11 +76,14 @@ export default function AtividadeTicket({
 
   async function comentar() {
     if (enviando || !texto.trim()) return
+    if (imagens.enviando) return setErro('Aguarde o envio das imagens.')
+    if (imagens.comErro) return setErro('Remova as imagens que falharam.')
     setEnviando(true)
     setErro('')
-    const res = await comentarHelpdeskTicket(ticket.id, texto)
+    const res = await comentarHelpdeskTicket(ticket.id, texto, imagens.prontos)
     if (res.success) {
       setTexto('')
+      imagens.limpar()
       await carregar()
     } else setErro(res.error || 'Erro ao comentar.')
     setEnviando(false)
@@ -108,7 +115,7 @@ export default function AtividadeTicket({
             it.h ? (
               <li key={`h-${it.h.id}`} style={{ fontSize: '0.74rem', color: 'var(--brs-gray-400)' }}>
                 <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'var(--brs-gray-300, #cbd5e1)', marginRight: 6 }} />
-                <strong>{textoEvento(it.h)}</strong> · {it.h.por_nome || 'Claude/sistema'} · {dataFmt(it.at)}
+                <strong>{textoEvento(it.h)}</strong> · {it.h.por_nome || (it.h.evento ? '' : 'Claude/sistema')}{it.h.por_nome || !it.h.evento ? ' · ' : ''}{dataFmt(it.at)}
                 {(it.h.plano_anterior || it.h.solucao_anterior) && (
                   <details style={{ marginTop: 4, marginLeft: 13 }}>
                     <summary style={{ cursor: 'pointer' }}>Plano/solução do ciclo anterior</summary>
@@ -124,6 +131,16 @@ export default function AtividadeTicket({
                   <strong style={{ color: 'inherit' }}>{it.c.autor_id === meuId ? 'Você' : it.c.autor_nome}</strong> · {dataFmt(it.at)}
                 </div>
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem', lineHeight: 1.45 }}>{it.c.texto}</div>
+                {it.c.anexos.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    {it.c.anexos.map((a) => (
+                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Abrir ${a.nome || 'imagem'}`} style={{ width: 72, height: 72, border: '1px solid var(--brs-gray-200)', borderRadius: 6, overflow: 'hidden', display: 'block' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- URL assinada do bucket privado */}
+                        <img src={a.url} alt={a.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </li>
             ) : null,
           )}
@@ -142,12 +159,32 @@ export default function AtividadeTicket({
           maxLength={HELPDESK_MAX_COMENTARIO}
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
+          onPaste={imagens.onPaste}
           style={{ flex: 1, resize: 'vertical' }}
         />
-        <button className="btn btn-primary" onClick={() => void comentar()} disabled={enviando || !texto.trim()} aria-label="Enviar comentário">
+        <label className="btn btn-outline" style={{ cursor: 'pointer' }} aria-label="Anexar imagem ao comentário" title="Anexar imagem (ou cole com Ctrl+V)">
+          <ImagePlus size={14} />
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { imagens.adicionar(e.target.files); e.target.value = '' }} />
+        </label>
+        <button className="btn btn-primary" onClick={() => void comentar()} disabled={enviando || imagens.enviando || !texto.trim()} aria-label="Enviar comentário">
           <Send size={14} />
         </button>
       </div>
+      {(imagens.anexos.length > 0 || imagens.aviso) && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+          {imagens.anexos.map((a) => (
+            <div key={a.id} title={a.erro || a.nome} style={{ position: 'relative', width: 56, height: 56, borderRadius: 6, overflow: 'hidden', border: `2px solid ${a.status === 'erro' ? 'var(--brs-danger)' : 'var(--brs-gray-200)'}` }}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- object URL local */}
+              <img src={a.preview} alt={a.nome} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: a.status === 'ok' ? 1 : 0.5 }} />
+              {a.status === 'enviando' && <Loader2 size={14} className="animate-spin" aria-label="Enviando" style={{ position: 'absolute', inset: 0, margin: 'auto' }} />}
+              <button type="button" onClick={() => imagens.remover(a.id)} aria-label={`Remover ${a.nome}`} style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.65)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+          {imagens.aviso && <span role="status" style={{ fontSize: '0.72rem', color: 'var(--brs-danger)' }}>{imagens.aviso}</span>}
+        </div>
+      )}
 
       {podeReabrir(ticket, meuId, podeAprovar) && (
         <div style={{ marginTop: '0.7rem' }}>

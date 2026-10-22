@@ -8,10 +8,11 @@
  * (fora daqui); esta tela abre tickets e aprova/rejeita planos.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, ExternalLink, LifeBuoy, Loader2, Plus, Search, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, Circle, CircleDot, ExternalLink, LifeBuoy, Loader2, Plus, Search, UserCheck, X } from 'lucide-react'
 import AtividadeTicket from '@/components/helpdesk/AtividadeTicket'
 import NovoTicketModal from '@/components/helpdesk/NovoTicketModal'
 import {
+  assumirHelpdeskTicket,
   decidirHelpdeskPlano,
   getMeuIdHelpdesk,
   listarHelpdeskTickets,
@@ -117,7 +118,7 @@ export default function HelpdeskPage() {
       if (filtro.tipo && t.tipo !== filtro.tipo) continue
       if (filtro.area && t.area !== filtro.area) continue
       if (filtro.prioridade && t.prioridade !== filtro.prioridade) continue
-      if (busca && !`${t.titulo}\n${t.descricao}`.toLowerCase().includes(busca)) continue
+      if (busca && !`${t.codigo}\n${t.titulo}\n${t.descricao}`.toLowerCase().includes(busca)) continue
       mapa.get(t.status)?.push(t)
     }
     return mapa
@@ -140,6 +141,17 @@ export default function HelpdeskPage() {
     } finally {
       setDecidindo(false)
     }
+  }
+
+  async function assumir(ticket: HelpdeskTicket, sim: boolean) {
+    if (decidindo) return
+    setDecidindo(true)
+    setErro('')
+    const res = await assumirHelpdeskTicket(ticket.id, sim)
+    setDecidindo(false)
+    if (!res.success) return setErro(res.error || 'Erro ao mudar o responsável.')
+    setDetalhe(null)
+    await carregar()
   }
 
   const dataFmt = (iso?: string | null) =>
@@ -175,7 +187,7 @@ export default function HelpdeskPage() {
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
         <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 360 }}>
           <Search size={14} aria-hidden style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--brs-gray-400)' }} />
-          <input className="form-control" aria-label="Buscar tickets" placeholder="Buscar no título ou descrição…" value={filtro.busca} onChange={(e) => setFiltro({ ...filtro, busca: e.target.value })} style={{ paddingLeft: 30 }} />
+          <input className="form-control" aria-label="Buscar tickets" placeholder="Buscar por HD-0001, título ou descrição…" value={filtro.busca} onChange={(e) => setFiltro({ ...filtro, busca: e.target.value })} style={{ paddingLeft: 30 }} />
         </div>
         <select className="form-control" aria-label="Filtrar por tipo" value={filtro.tipo} onChange={(e) => setFiltro({ ...filtro, tipo: e.target.value })} style={{ width: 'auto' }}>
           <option value="">Todos os tipos</option>
@@ -222,6 +234,7 @@ export default function HelpdeskPage() {
                     >
                       <div style={{ fontSize: '0.8rem', fontWeight: 700, lineHeight: 1.3 }}>
                         {t.urgente && <AlertTriangle size={12} style={{ color: 'var(--brs-danger)', marginRight: 4, verticalAlign: -1 }} />}
+                        <span style={{ color: 'var(--brs-gray-400)', fontWeight: 800, marginRight: 5 }}>{t.codigo}</span>
                         {t.titulo}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginTop: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -232,6 +245,13 @@ export default function HelpdeskPage() {
                         <span style={{ fontSize: '0.66rem', color: 'var(--brs-gray-400)' }}>
                           {t.aberto_por === meuId ? 'você' : t.aberto_por_nome.split(' ')[0]} · {dataFmt(t.created_at)}
                         </span>
+                        {(t.responsavel_nome || t.etapas.length > 0) && (
+                          <span style={{ fontSize: '0.66rem', color: 'var(--brs-gray-400)', width: '100%' }}>
+                            {t.responsavel_nome && <>resp.: {t.responsavel_id === meuId ? 'você' : t.responsavel_nome.split(' ')[0]}</>}
+                            {t.responsavel_nome && t.etapas.length > 0 && ' · '}
+                            {t.etapas.length > 0 && <>etapas {t.etapas.filter((e) => e.status === 'concluida').length}/{t.etapas.length}</>}
+                          </span>
+                        )}
                       </div>
                     </button>
                   ))}
@@ -252,6 +272,7 @@ export default function HelpdeskPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: '0.6rem' }}>
               <strong style={{ fontSize: '1rem', lineHeight: 1.3 }}>
                 {detalhe.urgente && <AlertTriangle size={15} style={{ color: 'var(--brs-danger)', marginRight: 5, verticalAlign: -2 }} />}
+                <span style={{ color: 'var(--brs-gray-400)', marginRight: 6 }}>{detalhe.codigo}</span>
                 {detalhe.titulo}
               </strong>
               <button className="btn btn-ghost btn-icon" style={{ marginLeft: 'auto', flexShrink: 0 }} onClick={() => setDetalhe(null)} aria-label="Fechar"><X size={16} /></button>
@@ -268,6 +289,28 @@ export default function HelpdeskPage() {
                 </a>
               )}
             </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.8rem', fontSize: '0.78rem' }}>
+              <UserCheck size={14} aria-hidden />
+              <span>
+                Responsável: <strong>{detalhe.responsavel_nome ? (detalhe.responsavel_id === meuId ? 'você' : detalhe.responsavel_nome) : 'ninguém'}</strong>
+                {detalhe.responsavel_em && <span style={{ color: 'var(--brs-gray-400)' }}> · desde {dataFmt(detalhe.responsavel_em)}</span>}
+              </span>
+              {podeAprovar && !['concluido', 'rejeitado'].includes(detalhe.status) && (
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  {detalhe.responsavel_id !== meuId && (
+                    <button className="btn btn-outline" style={{ fontSize: '0.75rem' }} onClick={() => void assumir(detalhe, true)} disabled={decidindo} title="A IA deixa de propor plano e executar este ticket">
+                      Assumir
+                    </button>
+                  )}
+                  {(detalhe.responsavel_id || detalhe.responsavel_ia) && (
+                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => void assumir(detalhe, false)} disabled={decidindo}>
+                      Liberar
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
+
             <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem', lineHeight: 1.5, marginBottom: '1rem' }}>{detalhe.descricao || '(sem descrição)'}</div>
 
             {detalhe.anexos.length > 0 && (
@@ -301,6 +344,27 @@ export default function HelpdeskPage() {
                   Plano proposto {detalhe.plano_em ? `· ${dataFmt(detalhe.plano_em)}` : ''}
                 </div>
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.83rem', lineHeight: 1.5 }}>{detalhe.plano_proposto}</div>
+              </div>
+            )}
+            {detalhe.etapas.length > 0 && (
+              <div className="card" style={{ padding: '0.9rem', background: 'var(--brs-gray-50)', marginBottom: '0.9rem' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--brs-gray-400)', marginBottom: '0.4rem' }}>
+                  Etapas · {detalhe.etapas.filter((e) => e.status === 'concluida').length}/{detalhe.etapas.length}
+                </div>
+                <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.8rem' }}>
+                  {detalhe.etapas.map((e) => (
+                    <li key={e.id} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                      {e.status === 'concluida' ? (
+                        <CheckCircle2 size={14} aria-label="concluída" style={{ color: 'var(--brs-success)', flexShrink: 0, marginTop: 2 }} />
+                      ) : e.status === 'em_andamento' ? (
+                        <CircleDot size={14} aria-label="em andamento" style={{ color: '#2563eb', flexShrink: 0, marginTop: 2 }} />
+                      ) : (
+                        <Circle size={14} aria-label="pendente" style={{ color: 'var(--brs-gray-400)', flexShrink: 0, marginTop: 2 }} />
+                      )}
+                      <span>{e.ordem}. {e.titulo}{e.concluida_em && <span style={{ color: 'var(--brs-gray-400)' }}> · {dataFmt(e.concluida_em)}</span>}</span>
+                    </li>
+                  ))}
+                </ol>
               </div>
             )}
             {detalhe.comentario_solucao && (

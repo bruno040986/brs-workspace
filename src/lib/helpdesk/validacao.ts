@@ -5,6 +5,7 @@
  * um arquivo do PRÓPRIO usuário no bucket (o formato que /api/chat/upload gera).
  */
 import {
+  HELPDESK_ETAPA_STATUS,
   HELPDESK_IMAGEM_MIME,
   HELPDESK_MAX_ANEXOS,
   HELPDESK_PRIORIDADES,
@@ -13,6 +14,7 @@ import {
   type HelpdeskAba,
   type HelpdeskAnexoEntrada,
   type HelpdeskContextoTecnico,
+  type HelpdeskEtapaStatus,
   type HelpdeskPrioridade,
   type HelpdeskSistema,
   type HelpdeskStatus,
@@ -78,21 +80,9 @@ export function validarHelpdeskTicket(
   const prioridade = HELPDESK_PRIORIDADES.find((p) => p.id === input.prioridade)?.id
   if (!prioridade) return { ok: false, error: 'Escolha a prioridade.' }
 
-  const lista = Array.isArray(input.anexos) ? input.anexos : []
-  if (lista.length > HELPDESK_MAX_ANEXOS) return { ok: false, error: `No máximo ${HELPDESK_MAX_ANEXOS} imagens por ticket.` }
-  // Só o formato que /api/chat/upload gera, dentro da pasta do próprio usuário:
-  // impede apontar para arquivo de outra pessoa (ou "../") no bucket.
-  const pathValido = new RegExp(`^${userId.replace(/[^a-zA-Z0-9-]/g, '')}/\\d+-[a-z0-9]+\\.(png|jpg|gif|webp)$`)
-  const anexos: HelpdeskTicketValidado['anexos'] = []
-  for (const a of lista) {
-    const tipoMime = texto(a?.type).toLowerCase()
-    if (!HELPDESK_IMAGEM_MIME.includes(tipoMime)) return { ok: false, error: 'Só é possível anexar imagens (PNG, JPEG, GIF ou WebP).' }
-    const path = texto(a?.path)
-    if (!userId || !pathValido.test(path)) return { ok: false, error: 'Anexo inválido: envie a imagem de novo.' }
-    const tamanho = Number(a?.size) || 0
-    if (tamanho < 0 || tamanho > MAX_BYTES_ANEXO) return { ok: false, error: 'Imagem acima de 15MB.' }
-    anexos.push({ path, nome: texto(a?.name).slice(0, 200), tamanho, tipo: tipoMime })
-  }
+  const va = validarAnexos(input.anexos, userId)
+  if (!va.ok) return va
+  const anexos = va.anexos
 
   return {
     ok: true,
@@ -112,6 +102,35 @@ export function validarHelpdeskTicket(
       anexos,
     },
   }
+}
+
+/** Imagens já enviadas a /api/chat/upload (abertura do ticket e comentário). */
+export function validarAnexos(
+  entrada: unknown,
+  userId: string,
+): { ok: true; anexos: HelpdeskTicketValidado['anexos'] } | { ok: false; error: string } {
+  const lista = (Array.isArray(entrada) ? entrada : []) as Array<Partial<HelpdeskAnexoEntrada> | null>
+  if (lista.length > HELPDESK_MAX_ANEXOS) return { ok: false, error: `No máximo ${HELPDESK_MAX_ANEXOS} imagens por ticket.` }
+  // Só o formato que /api/chat/upload gera, dentro da pasta do próprio usuário:
+  // impede apontar para arquivo de outra pessoa (ou "../") no bucket.
+  const pathValido = new RegExp(`^${userId.replace(/[^a-zA-Z0-9-]/g, '')}/\\d+-[a-z0-9]+\\.(png|jpg|gif|webp)$`)
+  const anexos: HelpdeskTicketValidado['anexos'] = []
+  for (const a of lista) {
+    const tipoMime = texto(a?.type).toLowerCase()
+    if (!HELPDESK_IMAGEM_MIME.includes(tipoMime)) return { ok: false, error: 'Só é possível anexar imagens (PNG, JPEG, GIF ou WebP).' }
+    const path = texto(a?.path)
+    if (!userId || !pathValido.test(path)) return { ok: false, error: 'Anexo inválido: envie a imagem de novo.' }
+    const tamanho = Number(a?.size) || 0
+    if (tamanho < 0 || tamanho > MAX_BYTES_ANEXO) return { ok: false, error: 'Imagem acima de 15MB.' }
+    anexos.push({ path, nome: texto(a?.name).slice(0, 200), tamanho, tipo: tipoMime })
+  }
+  return { ok: true, anexos }
+}
+
+/** HD-0001 … HD-9999, depois HD-10000 (igual a app_private.helpdesk_codigo no banco). */
+export function codigoHelpdesk(numero: unknown): string {
+  const n = Number(numero)
+  return Number.isInteger(n) && n > 0 ? `HD-${String(n).padStart(4, '0')}` : 'HD-????'
 }
 
 /** Só as chaves conhecidas, como texto curto — o cliente não injeta JSON arbitrário. */
@@ -175,7 +194,7 @@ export const HELPDESK_MAX_RESUMO_PLANO = 500
 export const HELPDESK_MAX_RESULTADO = 4000
 export const HELPDESK_MCP_TTL_ANEXO = 15 * 60 // URL assinada do anexo: 15 min
 
-export type HelpdeskAcaoMcp = 'propor_plano' | 'comentar' | 'iniciar_execucao' | 'registrar_resultado'
+export type HelpdeskAcaoMcp = 'propor_plano' | 'comentar' | 'iniciar_execucao' | 'registrar_resultado' | 'definir_etapas'
 
 /** Únicas transições do MCP. O UPDATE filtra `status = de` (atômico contra a tela). */
 export const HELPDESK_TRANSICOES_MCP = {
@@ -184,11 +203,24 @@ export const HELPDESK_TRANSICOES_MCP = {
   registrar_resultado: { de: 'em_execucao', para: 'em_execucao' }, // concluido só o Bruno, ao publicar
 } as const
 
+/** Etapas do plano: a IA define depois de propor o plano e atualiza durante a execução. */
+export const HELPDESK_ETAPAS_STATUS_TICKET: readonly string[] = ['plano_proposto', 'aprovado', 'em_execucao']
+export const HELPDESK_MAX_ETAPAS = 20
+
 type Veredito = { ok: true } | { ok: false; error: string }
 
-/** A IA pode fazer `acao` neste ticket? Aprovar/rejeitar/concluir/reabrir nunca existem aqui. */
-export function podeAgirMcp(acao: HelpdeskAcaoMcp, t: { status: string; aprovado_por: string | null }): Veredito {
+/**
+ * A IA pode fazer `acao` neste ticket? Aprovar/rejeitar/concluir/reabrir nunca existem aqui.
+ * Ticket com PESSOA responsável (responsavel_id) é dela: a IA não propõe plano nem executa.
+ */
+export function podeAgirMcp(acao: HelpdeskAcaoMcp, t: { status: string; aprovado_por: string | null; responsavel_id?: string | null }): Veredito {
   if (acao === 'comentar') return t.status === 'rejeitado' ? { ok: false, error: 'Ticket rejeitado: não aceita comentário da IA.' } : { ok: true }
+  if (acao === 'definir_etapas') {
+    return HELPDESK_ETAPAS_STATUS_TICKET.includes(t.status) ? { ok: true } : { ok: false, error: `Ticket está em "${t.status}"; etapas só com plano proposto, aprovado ou em execução.` }
+  }
+  if ((acao === 'propor_plano' || acao === 'iniciar_execucao') && t.responsavel_id) {
+    return { ok: false, error: 'Ticket assumido por uma pessoa: a IA não propõe plano nem executa (pode comentar).' }
+  }
   const de = HELPDESK_TRANSICOES_MCP[acao]?.de
   if (!de) return { ok: false, error: 'Ação não permitida.' }
   if (t.status !== de) return { ok: false, error: `Ticket está em "${t.status}"; esta ação exige "${de}".` }
@@ -223,6 +255,23 @@ export function validarResultadoMcp(
   if (!resumo) return { ok: false, error: 'Escreva o resumo do que mudou.' }
   if (resumo.length > HELPDESK_MAX_RESULTADO) return { ok: false, error: `O resumo passa de ${HELPDESK_MAX_RESULTADO} caracteres.` }
   return { ok: true, branch, commit, resumo }
+}
+
+export type HelpdeskEtapaEntrada = { titulo: string; status: HelpdeskEtapaStatus }
+
+/** Lista completa de etapas, na ordem (substitui a anterior). */
+export function validarEtapasMcp(v: unknown): { ok: true; etapas: HelpdeskEtapaEntrada[] } | { ok: false; error: string } {
+  if (!Array.isArray(v) || !v.length) return { ok: false, error: 'Envie a lista de etapas (ao menos uma).' }
+  if (v.length > HELPDESK_MAX_ETAPAS) return { ok: false, error: `No máximo ${HELPDESK_MAX_ETAPAS} etapas.` }
+  const etapas: HelpdeskEtapaEntrada[] = []
+  for (const [i, e] of v.entries()) {
+    const titulo = texto((e as { titulo?: unknown })?.titulo)
+    const status = texto((e as { status?: unknown })?.status || 'pendente') as HelpdeskEtapaStatus
+    if (!titulo || titulo.length > 240) return { ok: false, error: `Etapa ${i + 1}: título de 1 a 240 caracteres.` }
+    if (!HELPDESK_ETAPA_STATUS.includes(status)) return { ok: false, error: `Etapa ${i + 1}: status deve ser pendente, em_andamento ou concluida.` }
+    etapas.push({ titulo, status })
+  }
+  return { ok: true, etapas }
 }
 
 /**
