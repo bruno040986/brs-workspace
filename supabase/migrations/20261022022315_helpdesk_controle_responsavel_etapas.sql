@@ -206,6 +206,8 @@ begin
        ('aberto', 'plano_proposto'), ('plano_proposto', 'aprovado'),
        ('aprovado', 'em_execucao'), ('em_execucao', 'concluido'))
      or (new.status = 'rejeitado' and old.status in ('aberto', 'plano_proposto', 'aprovado', 'em_execucao'))
+     -- ticket assumido por PESSOA pode ser concluído sem o ciclo da IA (o MCP não conclui)
+     or (new.status = 'concluido' and old.status in ('aberto', 'plano_proposto', 'aprovado') and new.responsavel_id is not null)
      or (new.status = 'aberto' and old.status in ('concluido', 'rejeitado')
          and coalesce(current_setting('app.helpdesk_reabrindo', true), '') = 'on') then
     return new;
@@ -297,6 +299,48 @@ begin
   return new;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 8. Reabrir (recriada da fase 3): igual, mas apaga as etapas do ciclo
+--    anterior para não aparecerem no ticket reaberto.
+-- ---------------------------------------------------------------------------
+create or replace function public.helpdesk_reabrir(p_ticket_id uuid, p_motivo text, p_por uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  select status into v_status from public.helpdesk_tickets where id = p_ticket_id for update;
+  if not found then
+    raise exception 'Ticket não encontrado.';
+  end if;
+  if v_status not in ('concluido', 'rejeitado') then
+    raise exception 'Só é possível reabrir ticket concluído ou rejeitado.';
+  end if;
+
+  perform set_config('app.helpdesk_por', p_por::text, true);
+  perform set_config('app.helpdesk_reabrindo', 'on', true);
+
+  insert into public.helpdesk_comentarios (ticket_id, autor_tipo, autor_id, texto)
+  values (p_ticket_id, 'usuario', p_por, 'Reaberto: ' || btrim(p_motivo));
+
+  delete from public.helpdesk_etapas where ticket_id = p_ticket_id;
+
+  update public.helpdesk_tickets
+     set status = 'aberto', plano_proposto = null, plano_em = null, comentario_solucao = null,
+         aprovado_por = null, aprovado_em = null, concluido_em = null
+   where id = p_ticket_id;
+
+  perform set_config('app.helpdesk_por', '', true);
+  perform set_config('app.helpdesk_reabrindo', '', true);
+end;
+$$;
+
+revoke all on function public.helpdesk_reabrir(uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.helpdesk_reabrir(uuid, text, uuid) to service_role;
 
 revoke execute on function app_private.helpdesk_codigo(bigint) from public, anon, authenticated;
 

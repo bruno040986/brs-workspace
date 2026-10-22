@@ -99,7 +99,7 @@ export const HELPDESK_MCP_TOOLS = [
   },
   {
     name: 'helpdesk_definir_etapas',
-    description: `Define/atualiza as etapas do plano (lista COMPLETA, na ordem; substitui a anterior; até ${HELPDESK_MAX_ETAPAS}). Vale com o ticket em plano_proposto, aprovado ou em_execucao. Etapa iniciada/concluída entra no histórico; não notifica ninguém.`,
+    description: `Define/atualiza as etapas do plano (lista COMPLETA, na ordem; substitui a anterior; até ${HELPDESK_MAX_ETAPAS}). As etapas são casadas pela POSIÇÃO: não reordene nem remova etapas já concluídas; só acrescente no fim ou renomeie sem trocar a posição. Vale com o ticket em plano_proposto, aprovado ou em_execucao. Etapa iniciada/concluída entra no histórico; não notifica ninguém.`,
     inputSchema: {
       type: 'object',
       properties: {

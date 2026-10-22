@@ -75,6 +75,23 @@ aplicada em nenhum banco.**
 5. Imagem em comentário exige texto no comentário (mesma validação de antes).
 6. A aba "Meus chamados" continua sendo só os que eu abri.
 
+## Ajustes da revisão (GO-COM-AJUSTES)
+
+- Ticket com PESSOA responsável pode ir de aberto/plano_proposto/aprovado
+  direto a `concluido` (SQL ou ação futura); o MCP continua sem concluir.
+- `helpdesk_reabrir` (recriada nesta migration) apaga as etapas do ciclo
+  anterior; o resto igual (só service role).
+- `helpdesk_definir_etapas` casa etapas pela posição: a descrição da
+  ferramenta manda não reordenar nem remover etapa concluída.
+
+## Limitações conhecidas
+
+- "Liberar" (e assumir/liberar em geral fora de RPC) aparece no histórico
+  sem autor: a server action grava com admin client e o trigger não sabe
+  quem foi. Sem RPC nova por ora.
+- O código HD vem de sequence: ticket excluído deixa um buraco na
+  numeração, o número não é reaproveitado.
+
 ## Retrocompatibilidade
 
 - Tickets existentes: só ganham número; nada é apagado nem reescrito.
