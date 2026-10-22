@@ -1,6 +1,6 @@
 # HelpDesk: combinação da linha-do-tempo com a produção (opção C)
 
-Data: 21/10/2026 · Branch `helpdesk/combinada` (a partir de `origin/main` b35a3246)
+Data: 21/10/2026 · Branch `helpdesk/combinada` (rebaseada em `origin/main` d3d82b26)
 · Worktree `../brs-workspace-helpdesk-combinada`.
 
 O que já estava em produção (fases 1-2, 3 e 3.1) é a base. Da branch
@@ -10,9 +10,9 @@ encaixado no modelo atual, sem tabela ou trigger duplicado.
 
 ## Migration
 
-`supabase/migrations/20261021235112_helpdesk_controle_responsavel_etapas.sql`
+`supabase/migrations/20261022022315_helpdesk_controle_responsavel_etapas.sql`
 (aditiva, idempotente). Ordem: depois de `20261021211754_helpdesk_fase3.sql`
-(e da `20261021202951`, de outra sessão, que não está no repo). **Não foi
+(e da `20261021202951`, de outra sessão, que não está no repo, e da `20261021235112_crm_solicitacoes_motivo_cancelamento.sql`, já aplicada em produção; a versão 20261021235112 é dela, por isso esta migration foi renomeada após o rebase). **Não foi
 aplicada em nenhum banco.**
 
 | Parte | Efeito |
@@ -105,7 +105,7 @@ aplicada em nenhum banco.**
 
 ## Para publicar (Bruno)
 
-1. Aplicar `20261021235112_helpdesk_controle_responsavel_etapas.sql`.
+1. Aplicar `20261022022315_helpdesk_controle_responsavel_etapas.sql`.
 2. Deploy da branch (a tela e o MCP leem as colunas novas: o deploy tem de
    vir **depois** da migration).
 3. Conferir: HD-0001..0003 nos 3 tickets; reabrir um concluído; rotina

@@ -6,7 +6,7 @@ O MCP valida tudo no servidor; notificações do sino, e-mails e histórico
 continuam por **trigger**.
 
 Migrations de referência: `supabase/migrations/20261021211754_helpdesk_fase3.sql` e
-`supabase/migrations/20261021235112_helpdesk_controle_responsavel_etapas.sql`
+`supabase/migrations/20261022022315_helpdesk_controle_responsavel_etapas.sql`
 (código HD, responsável, etapas, validação de transição; ver `docs/HELPDESK-COMBINADA.md`).
 Código: `src/lib/helpdesk/mcp.ts` (ferramentas) e `src/lib/helpdesk/validacao.ts`
 (regras puras, testadas em `src/lib/helpdesk/__tests__/mcp.test.ts`).
@@ -59,7 +59,7 @@ aberto → plano_proposto → aprovado → em_execucao → concluido
 | `em_execucao → concluido` | só quando o Bruno publicar (ele ou a pedido explícito dele) |
 | `concluido/rejeitado → aberto` | solicitante ou aprovador (botão "Reabrir") |
 
-Desde a migration `20261021235112`, o banco **recusa** qualquer outra
+Desde a migration `20261022022315`, o banco **recusa** qualquer outra
 transição (`trg_helpdesk_validar_transicao`), venha de onde vier (tela, MCP,
 SQL manual): `aprovado` exige `aprovado_por`, e voltar a `aberto` só pela
 RPC `public.helpdesk_reabrir`. Concluir direto de `aprovado` (sem passar por
