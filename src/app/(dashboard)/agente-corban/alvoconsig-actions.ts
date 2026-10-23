@@ -54,7 +54,7 @@ export async function getAlvoconsigConfig(agenteParceiroId: string) {
     const [configRes, usuariosRes, agenteRes] = await Promise.all([
       supabaseAdmin
         .from('crm_parceiro_config')
-        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em, ia_agente_status, ia_agente_ate, site_os_consig_status, site_os_consig_ate, maturacao_status, maturacao_ate')
+        .select('agente_parceiro_id, habilitado, max_atendentes, max_instancias_receptivas, max_instancias_disparo, disparo_min_instancias, disparo_min_templates_por_instancia, habilitado_em, ia_agente_status, ia_agente_ate, site_os_consig_status, site_os_consig_ate, maturacao_status, maturacao_ate, meta_conversoes_status, meta_conversoes_ate')
         .eq('agente_parceiro_id', agenteParceiroId)
         .maybeSingle(),
       supabaseAdmin
@@ -108,6 +108,9 @@ export async function salvarAlvoconsigConfig(payload: {
   /** Aquecimento de Números (nome interno maturação; tabelas crm_maturacao_*). */
   maturacaoStatus?: string
   maturacaoAte?: string | null
+  /** Conversões Meta (WhatsApp): check-in de anúncio + envio à API de Conversões. */
+  metaConversoesStatus?: string
+  metaConversoesAte?: string | null
 }) {
   try {
     const { user } = await requirePermission(PERMISSION_RESOURCE, 'can_edit')
@@ -148,6 +151,8 @@ export async function salvarAlvoconsigConfig(payload: {
     if (!fSite.ok) return { success: false, error: fSite.error }
     const fMat = funcionalidade(payload.maturacaoStatus, payload.maturacaoAte, 'Aquecimento de Números')
     if (!fMat.ok) return { success: false, error: fMat.error }
+    const fMeta = funcionalidade(payload.metaConversoesStatus, payload.metaConversoesAte, 'Conversões Meta (WhatsApp)')
+    if (!fMeta.ok) return { success: false, error: fMeta.error }
 
     if (payload.habilitado) {
       // Master = login único do parceiro (aba Acesso). Valida e vincula.
@@ -249,6 +254,10 @@ export async function salvarAlvoconsigConfig(payload: {
     if (fMat.cols) {
       row.maturacao_status = fMat.cols.status
       row.maturacao_ate = fMat.cols.ate
+    }
+    if (fMeta.cols) {
+      row.meta_conversoes_status = fMeta.cols.status
+      row.meta_conversoes_ate = fMeta.cols.ate
     }
     if (payload.habilitado && !atual?.habilitado) {
       row.habilitado_por = user.id
