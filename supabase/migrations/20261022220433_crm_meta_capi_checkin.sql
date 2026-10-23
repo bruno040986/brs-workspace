@@ -31,7 +31,7 @@
 -- Esta migration ANTES do Workspace (aba Alvo Consig lê/grava meta_conversoes_*) e do web do CRM.
 --
 -- ROLLBACK (manual; perde ciclos, histórico e fila):
---   drop function if exists public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text),
+--   drop function if exists public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text, boolean),
 --     public.crm_expediente_somar_horas(uuid, timestamptz, numeric),
 --     app_private.crm_anuncio_checkin_validar(), app_private.crm_meta_conversoes_ao_desligar() cascade;
 --   drop table if exists public.crm_meta_eventos, public.crm_anuncio_checkin_respostas, public.crm_anuncio_checkins;
@@ -193,7 +193,8 @@ comment on table public.crm_anuncio_checkins is
 comment on column public.crm_anuncio_checkins.venda_valor is
   'Valor do CONTRATO (base da comissão, não a comissão), em reais: vai no Purchase.';
 
--- Só conversa de instância YCloud do mesmo parceiro; clique inicial da mesma conversa.
+-- Só conversa de instância YCloud do mesmo parceiro; clique inicial da mesma conversa. Não dispara no update de
+-- ocorrencia_inicial_id: o "on delete set null" da ocorrência não pode falhar se a conversa foi movida para Baileys.
 create or replace function app_private.crm_anuncio_checkin_validar()
 returns trigger
 language plpgsql
@@ -217,7 +218,7 @@ begin
 end $$;
 drop trigger if exists crm_anuncio_checkin_validar_trg on public.crm_anuncio_checkins;
 create trigger crm_anuncio_checkin_validar_trg
-  before insert or update of agente_parceiro_id, chat_conversa_id, ocorrencia_inicial_id on public.crm_anuncio_checkins
+  before insert or update of agente_parceiro_id, chat_conversa_id on public.crm_anuncio_checkins
   for each row execute function app_private.crm_anuncio_checkin_validar();
 
 -- ---------------------------------------------------------------------------
@@ -300,10 +301,13 @@ grant select, insert on public.crm_anuncio_checkin_respostas to service_role;
 -- 7. RPC atômica de resposta (§1.6 + §3.2)
 -- ---------------------------------------------------------------------------
 -- Erros (message, para o TS traduzir): checkin_inexistente, checkin_desligado, resposta_invalida,
--- valor_obrigatorio, proposta_invalida, motivo_obrigatorio, prazo_correcao_vencido.
--- Correção = trocar uma resposta final (sim/nao, ou o valor/proposta da venda): exige motivo (>= 3) e até 7 dias
--- depois do encerramento (P9; QUEM pode corrigir é conferido no TS). em_andamento -> sim/nao não é correção.
--- !!! NUNCA conceder EXECUTE a authenticated/anon: p_parceiro vem do chamador (que já autorizou a conversa) !!!
+-- valor_obrigatorio, proposta_invalida, motivo_obrigatorio, prazo_correcao_vencido, correcao_nao_permitida.
+-- Correção = trocar uma resposta final (sim/nao, ou o valor/proposta da venda): exige motivo (>= 3), até 7 dias
+-- depois do encerramento e (P9) ser o autor da resposta atual OU p_pode_corrigir_qualquer (o TS passa true para
+-- quem tem atendimento.responder_qualquer). Conferido sob o lock. em_andamento -> sim/nao não é correção.
+-- !!! NUNCA conceder EXECUTE a authenticated/anon: p_parceiro e p_pode_corrigir_qualquer vêm do chamador !!!
+-- Rascunho anterior (8 argumentos) sai antes: com as duas, a chamada por nome do PostgREST fica ambígua.
+drop function if exists public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text);
 create or replace function public.crm_anuncio_checkin_responder(
   p_parceiro uuid,
   p_checkin uuid,
@@ -312,7 +316,8 @@ create or replace function public.crm_anuncio_checkin_responder(
   p_valor numeric default null,
   p_proposta uuid default null,
   p_usuario uuid default null,
-  p_motivo text default null)
+  p_motivo text default null,
+  p_pode_corrigir_qualquer boolean default false)
 returns jsonb
 language plpgsql
 security definer
@@ -371,6 +376,10 @@ begin
     if v_correcao then
       if length(trim(coalesce(p_motivo, ''))) < 3 then raise exception 'motivo_obrigatorio'; end if;
       if c.encerrado_em < now() - interval '7 days' then raise exception 'prazo_correcao_vencido'; end if;
+      if not coalesce(p_pode_corrigir_qualquer, false) and (p_usuario is null or p_usuario is distinct from
+           case p_pergunta when 'margem' then c.margem_por when 'refin' then c.refin_por else c.venda_por end) then
+        raise exception 'correcao_nao_permitida';
+      end if;
     end if;
 
     -- 4. Grava a resposta.
@@ -431,10 +440,11 @@ begin
                   now(), v_ev_valor, v_status, now() + interval '10 minutes')
           on conflict (checkin_id, evento) do nothing;
         end if;
-      elsif e.status in ('enviado', 'processando') then
-        -- Já saiu (ou está saindo): nunca desfaz nem reenvia (a Meta não deduplica). Só marca no histórico.
+      elsif e.status = 'enviado' or (e.status = 'processando' and v_desejado) then
+        -- Já saiu (ou está saindo e continua desejado): nunca desfaz nem reenvia (a Meta não deduplica). Só marca no histórico.
         if not v_desejado or e.valor is distinct from v_ev_valor then v_ja_enviado := true; end if;
       elsif not v_desejado then
+        -- Inclui 'processando' (linha travada acima): o cron só pode gravar 'enviado' se ainda estiver 'processando'.
         update public.crm_meta_eventos set status = 'cancelado' where id = e.id and status <> 'cancelado';
       elsif e.status = 'cancelado' then
         -- Nunca saiu: reativa com o MESMO event_id e nova janela de correção.
@@ -463,10 +473,10 @@ begin
     from public.crm_anuncio_checkins x where x.id = p_checkin);
 end $function$;
 
-comment on function public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text) is
+comment on function public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text, boolean) is
   'Grava 1 resposta do check-in e sincroniza crm_meta_eventos (atraso de 10 min). security definer: NUNCA conceder EXECUTE a authenticated/anon; só service_role.';
-revoke all on function public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text) from public, anon, authenticated;
-grant execute on function public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text) to service_role;
+revoke all on function public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text, boolean) from public, anon, authenticated;
+grant execute on function public.crm_anuncio_checkin_responder(uuid, uuid, text, text, numeric, uuid, uuid, text, boolean) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 8. Permissão nova do CRM: config.meta_capi (só master global)
