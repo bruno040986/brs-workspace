@@ -17,11 +17,11 @@
 --      - trocar sim<->nao é correção: motivo, autoria, prazo e cancelamento do evento pendente como antes.
 --      - 'margem'/'refin' continuam aceitos (web antigo durante a janela de deploy: esta migration sobe antes do
 --        web) e são a mesma pergunta 1: qualquer um 'sim' => oportunidade 'sim' (+ tipo); ambos 'nao' => 'nao';
---        senão nulo. Não misturar os dois caminhos no mesmo ciclo: o legado recalcula oportunidade só de margem/refin
---        (preserva só o tipo portabilidade).
+--        senão nulo. Depois que o caminho novo respondeu 'oportunidade' no ciclo (há linha no histórico), o legado
+--        só grava margem/refin: nunca muda nem apaga a oportunidade, os tipos ou o evento.
 --  * crm_meta_envios_log: histórico de CADA chamada à Meta (fila, botão de teste, descobrir dataset), só service_role
---    (select/insert), limpeza por crm_meta_envios_log_limpar(dias). NUNCA guarda token, ctwa_clid, telefone, CPF,
---    nome nem corpo do pedido: só códigos/HTTP, a mensagem de erro da Meta cortada em 300 e o fbtrace_id.
+--    (select/insert), limpeza por crm_meta_envios_log_limpar(dias). Sem token, ctwa_clid, telefone, CPF ou nome:
+--    só códigos/HTTP, a mensagem de erro da Meta cortada em 300 e o fbtrace_id.
 --
 -- Erros da RPC (message): os de antes (checkin_inexistente, checkin_desligado, resposta_invalida, valor_obrigatorio,
 -- proposta_invalida, motivo_obrigatorio, prazo_correcao_vencido, correcao_nao_permitida) + tipos_invalidos.
@@ -215,18 +215,20 @@ begin
         c.refin := p_resposta; c.refin_em := now(); c.refin_por := p_usuario;
       end if;
       -- Legado = a mesma pergunta 1: qualquer sim => sim; ambos nao => nao; senão ainda não respondida.
-      v_op := case when c.margem = 'sim' or c.refin = 'sim' then 'sim'
-                   when c.margem = 'nao' and c.refin = 'nao' then 'nao' end;
-      if v_op is distinct from c.oportunidade then
-        c.oportunidade := v_op;
-        c.oportunidade_em := case when v_op is not null then now() end;
-        c.oportunidade_por := case when v_op is not null then p_usuario end;
+      -- Só recalcula se o caminho novo nunca respondeu 'oportunidade' neste ciclo: uma oportunidade gravada pelo
+      -- web novo (com seus tipos e o evento) nunca é apagada por uma chamada legada; margem/refin ficam só no histórico.
+      if not exists (select 1 from public.crm_anuncio_checkin_respostas h where h.checkin_id = c.id and h.pergunta = 'oportunidade') then
+        v_op := case when c.margem = 'sim' or c.refin = 'sim' then 'sim'
+                     when c.margem = 'nao' and c.refin = 'nao' then 'nao' end;
+        if v_op is distinct from c.oportunidade then
+          c.oportunidade := v_op;
+          c.oportunidade_em := case when v_op is not null then now() end;
+          c.oportunidade_por := case when v_op is not null then p_usuario end;
+        end if;
+        c.oportunidade_tipos := case when v_op = 'sim' then array_remove(
+          array[case when c.margem = 'sim' then 'margem' end, case when c.refin = 'sim' then 'refin' end], null)::text[]
+          else '{}'::text[] end;
       end if;
-      c.oportunidade_tipos := case when v_op = 'sim' then array(
-        select t from unnest(array['margem', 'refin', 'portabilidade']::text[]) with ordinality u(t, n)
-         where (t = 'margem' and c.margem = 'sim') or (t = 'refin' and c.refin = 'sim')
-            or (t = 'portabilidade' and t = any (c.oportunidade_tipos))
-         order by n) else '{}'::text[] end;
     else
       c.venda := p_resposta; c.venda_em := now(); c.venda_por := p_usuario;
       c.venda_valor := v_valor; c.venda_proposta_id := v_proposta;
@@ -286,7 +288,8 @@ begin
         -- Já saiu (ou está saindo e continua desejado): nunca desfaz nem reenvia (a Meta não deduplica). Só marca no histórico.
         if not v_desejado or e.valor is distinct from v_ev_valor then v_ja_enviado := true; end if;
       elsif not v_desejado then
-        -- Inclui 'processando' (linha travada acima): o cron só pode gravar 'enviado' se ainda estiver 'processando'.
+        -- Inclui 'processando' (linha travada acima). Se o envio já tiver saído, o cron grava 'enviado' por cima deste
+        -- 'cancelado': o que aconteceu de fato prevalece.
         update public.crm_meta_eventos set status = 'cancelado' where id = e.id and status <> 'cancelado';
       elsif e.status = 'cancelado' then
         -- Nunca saiu: reativa com o MESMO event_id e nova janela de correção.
@@ -324,8 +327,8 @@ grant execute on function public.crm_anuncio_checkin_responder(uuid, uuid, text,
 -- ---------------------------------------------------------------------------
 -- 4. Histórico de envios à Meta (log da conexão)
 -- ---------------------------------------------------------------------------
--- SEM DADO PESSOAL NEM SEGREDO: nenhuma coluna guarda token, ctwa_clid, telefone, CPF, nome, WABA ou corpo do
--- pedido. Só o resultado: HTTP, códigos da Meta, a mensagem de erro dela cortada (<= 300) e o fbtrace_id.
+-- Sem token, ctwa_clid, telefone, CPF ou nome (nem o corpo do pedido). Só o resultado: HTTP, códigos da Meta, a
+-- mensagem de erro dela cortada (<= 300; pode citar ids técnicos como WABA/dataset) e o fbtrace_id.
 create table if not exists public.crm_meta_envios_log (
   id uuid primary key default gen_random_uuid(),
   agente_parceiro_id uuid not null references public.agentes_parceiros (id) on delete cascade,
@@ -339,7 +342,7 @@ create table if not exists public.crm_meta_envios_log (
   meta_tipo text null,                   -- error.type
   mensagem text null,                    -- error.message cortada pelo TS (nunca o corpo enviado)
   fbtrace_id text null,
-  evento text null,                      -- QualifiedLead | Purchase (nulo em descobrir_dataset)
+  evento text null,                      -- nome enviado à Meta (nulo em descobrir_dataset)
   criado_em timestamptz not null default now()
 );
 alter table public.crm_meta_envios_log drop constraint if exists crm_meta_envios_log_origem_check;
@@ -348,6 +351,13 @@ alter table public.crm_meta_envios_log add constraint crm_meta_envios_log_origem
 alter table public.crm_meta_envios_log drop constraint if exists crm_meta_envios_log_mensagem_check;
 alter table public.crm_meta_envios_log add constraint crm_meta_envios_log_mensagem_check
   check (length(mensagem) <= 300);
+-- Mesmos nomes de crm_meta_eventos.evento (o botão de teste também manda QualifiedLead) + TestEvent.
+alter table public.crm_meta_envios_log drop constraint if exists crm_meta_envios_log_evento_check;
+alter table public.crm_meta_envios_log add constraint crm_meta_envios_log_evento_check
+  check (evento in ('QualifiedLead', 'Purchase', 'TestEvent'));
+-- on delete set null de crm_meta_eventos (e "envios deste evento") sem varrer o log.
+create index if not exists crm_meta_envios_log_evento_idx
+  on public.crm_meta_envios_log (evento_id) where evento_id is not null;
 create index if not exists crm_meta_envios_log_parceiro_idx
   on public.crm_meta_envios_log (agente_parceiro_id, criado_em desc);
 
