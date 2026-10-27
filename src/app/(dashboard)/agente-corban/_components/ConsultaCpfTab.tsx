@@ -154,7 +154,7 @@ export default function ConsultaCpfTab({ agenteParceiroId }: { agenteParceiroId:
             <Wallet size={16} /> {brl(config.saldoCentavos / 100)}
           </span>
           {!config.temCarteira && (
-            <span style={{ fontSize: '0.75rem', color: '#92400E' }}>Parceiro ainda sem conta virtual (nasce no 1º crédito).</span>
+            <span style={{ fontSize: '0.75rem', color: '#92400E' }}>Parceiro ainda sem conta virtual (nasce ao provisionar o login na aba Acesso).</span>
           )}
         </div>
         <div style={statStyle}>

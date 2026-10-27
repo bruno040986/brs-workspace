@@ -87,14 +87,33 @@ export type ConsultaParceiroResult =
 
 type Carteira = { userId: string; saldoCentavos: number }
 
-async function carregarCarteira(admin: SupabaseClient, agenteParceiroId: string): Promise<Carteira | null> {
+/**
+ * Carteira do parceiro: pelo vínculo agente_parceiro_id (mantido pelo trigger
+ * do banco) e, se faltar, pelo login do parceiro (agentes_parceiros.auth_user_id),
+ * que é a identidade real da carteira (o portal lê por user_id). Login sem linha
+ * de carteira ainda = saldo 0 (a RPC cria a linha no 1º lançamento).
+ */
+export async function carregarCarteira(admin: SupabaseClient, agenteParceiroId: string): Promise<Carteira | null> {
   const { data } = await admin
     .from('parceiro_carteiras')
     .select('user_id, saldo_centavos')
     .eq('agente_parceiro_id', agenteParceiroId)
     .maybeSingle()
-  if (!data?.user_id) return null
-  return { userId: String(data.user_id), saldoCentavos: Number(data.saldo_centavos) || 0 }
+  if (data?.user_id) return { userId: String(data.user_id), saldoCentavos: Number(data.saldo_centavos) || 0 }
+
+  const { data: agente } = await admin
+    .from('agentes_parceiros')
+    .select('auth_user_id')
+    .eq('id', agenteParceiroId)
+    .maybeSingle()
+  if (!agente?.auth_user_id) return null
+  const userId = String(agente.auth_user_id)
+  const { data: porLogin } = await admin
+    .from('parceiro_carteiras')
+    .select('saldo_centavos')
+    .eq('user_id', userId)
+    .maybeSingle()
+  return { userId, saldoCentavos: Number(porLogin?.saldo_centavos) || 0 }
 }
 
 export async function carregarConsultaParceiroConfig(

@@ -11,6 +11,7 @@ import { requirePermission } from '@/lib/auth/server'
 import { getNvtiConfig } from '@/lib/nvti/config'
 import {
   calcularPrecoProximaConsulta,
+  carregarCarteira,
   carregarConsultaParceiroConfig,
   contarConsultasParceiroMes,
   type ConsultaFaixaModo,
@@ -72,14 +73,10 @@ export async function getConsultaCpfConfig(agenteParceiroId: string): Promise<
     if (!agenteParceiroId) return { success: false, error: 'Agente inválido.' }
 
     const since = incompletosDesde()
-    const [nvtiConfig, config, carteiraRes, consultasMes, incompletosRes, incompletosCpfRes] = await Promise.all([
+    const [nvtiConfig, config, carteira, consultasMes, incompletosRes, incompletosCpfRes] = await Promise.all([
       getNvtiConfig(),
       carregarConsultaParceiroConfig(supabaseAdmin, agenteParceiroId),
-      supabaseAdmin
-        .from('parceiro_carteiras')
-        .select('user_id, saldo_centavos')
-        .eq('agente_parceiro_id', agenteParceiroId)
-        .maybeSingle(),
+      carregarCarteira(supabaseAdmin, agenteParceiroId),
       contarConsultasParceiroMes(supabaseAdmin, agenteParceiroId),
       supabaseAdmin
         .from('crm_contatos')
@@ -117,8 +114,8 @@ export async function getConsultaCpfConfig(agenteParceiroId: string): Promise<
         faixaModo: config.faixaModo,
         cobraCache: config.cobraCache,
         cacheDays: nvtiConfig.cache_days,
-        temCarteira: Boolean(carteiraRes.data?.user_id),
-        saldoCentavos: Number(carteiraRes.data?.saldo_centavos) || 0,
+        temCarteira: Boolean(carteira),
+        saldoCentavos: carteira?.saldoCentavos ?? 0,
         consultasMes,
         precoProximaCentavos,
         incompletos7d: incompletosRes.count ?? 0,
