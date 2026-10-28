@@ -169,6 +169,8 @@ export default function HelpdeskPage() {
         : await concluirHelpdeskTicket(ticket.id, textoValidacao)
     setDecidindo(false)
     if (!res.success) return setErro(res.error || 'Erro ao registrar a validação.')
+    const aviso = (res as { aviso?: string }).aviso
+    if (aviso) setErro(aviso)
     setValidacao(null)
     setTextoValidacao('')
     setDetalhe(null)

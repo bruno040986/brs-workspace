@@ -191,19 +191,23 @@ export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ succes
  * (vira comentário + linha de histórico) e o responsável é mantido. Só aprovador.
  * A RPC faz comentário + status numa transação.
  */
-export async function solicitarAlteracaoHelpdesk(ticketId: string, motivo: string): Promise<{ success: boolean; error?: string }> {
+export async function solicitarAlteracaoHelpdesk(ticketId: string, motivo: string): Promise<{ success: boolean; error?: string; aviso?: string }> {
   try {
     const { user } = await requirePermission('helpdesk-aprovar', 'can_edit')
     const v = validarMotivoAlteracao(motivo)
     if (!v.ok) throw new Error(v.error)
     const admin = await createAdminClient()
-    const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status').eq('id', ticketId).maybeSingle()
+    const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status, responsavel_ia').eq('id', ticketId).maybeSingle()
     if (!ticket) throw new Error('Ticket não encontrado.')
     if (!podeTransicionarPessoa('solicitar_alteracao', String(ticket.status))) throw new Error('Só ticket em validação aceita pedido de alteração.')
     const { error } = await admin.rpc('helpdesk_solicitar_alteracao', { p_ticket_id: ticketId, p_motivo: v.texto, p_por: user.id })
     if (error) throw error
     revalidatePath('/helpdesk')
-    return { success: true }
+    // Sem IA responsável, a devolução não aparece em "pendentes" de nenhum agente.
+    return {
+      success: true,
+      ...(ticket.responsavel_ia ? {} : { aviso: 'Pedido enviado, mas este ticket não tem IA responsável: ninguém verá a devolução até o agente assumir o ticket de novo (ou uma pessoa tratar).' }),
+    }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao solicitar alteração.' }
   }

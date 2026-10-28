@@ -28,7 +28,7 @@ Código: `src/lib/helpdesk/mcp.ts` (ferramentas) e `src/lib/helpdesk/validacao.t
 | `helpdesk_propor_plano` | grava plano (≤ 8000) e vai a `plano_proposto`; comentário **só se houver** resumo (≤ 500) | `status = aberto`, sem pessoa responsável |
 | `helpdesk_comentar` | comentário `autor_tipo = 'claude'` (≤ 4000 com assinatura) | status ≠ `rejeitado` |
 | `helpdesk_iniciar_execucao` | `aprovado → em_execucao` e grava a IA como responsável (`responsavel_ia = <slug>`); sem comentário automático | `status = aprovado`, `aprovado_por` não nulo, sem pessoa responsável |
-| `helpdesk_registrar_resultado` | grava `comentario_solucao` (branch, commit, resumo ≤ 4000) + comentário e **move `em_execucao → em_validacao`** (avisa os aprovadores); o resultado anterior de uma rodada de alteração vai no comentário ("Resultado atualizado, anterior: …", truncado) | `status = em_execucao` |
+| `helpdesk_registrar_resultado` | grava `comentario_solucao` (branch, commit, resumo ≤ 4000) + comentário e **move `em_execucao → em_validacao`** (avisa os aprovadores); o resultado anterior de uma rodada de alteração vai no comentário ("Resultado atualizado, anterior: …", truncado) | `status = em_execucao`, `responsavel_ia` = você, sem pessoa responsável |
 | `helpdesk_definir_etapas` | lista COMPLETA de etapas (≤ 20; `titulo` ≤ 240, `status` pendente/em_andamento/concluida); substitui a anterior; etapa iniciada/concluída vai ao histórico, sem notificação | `status` em plano_proposto, aprovado ou em_execucao |
 
 Não existem no MCP: aprovar, rejeitar, concluir, solicitar alteração, reabrir, apagar, editar
@@ -36,8 +36,7 @@ descrição, SQL livre.
 
 **Responsável.** Um aprovador pode "Assumir" o ticket na tela: com pessoa
 responsável (`responsavel_id`), o ticket some da listagem padrão e a IA não
-propõe plano nem inicia execução (pode comentar e, se já estava executando,
-registrar resultado). "Liberar" devolve o ticket à fila. A IA vira
+propõe plano nem inicia execução (pode comentar; registrar resultado exige que a IA seja a responsável e que não haja pessoa responsável). "Liberar" devolve o ticket à fila. A IA vira
 responsável sozinha ao iniciar a execução.
 
 Comentário automático só quando agrega texto (resumo do plano, resultado): a
@@ -179,7 +178,8 @@ update public.helpdesk_tickets
 update public.helpdesk_tickets
    set comentario_solucao = 'Branch: ...' || E'\nCommit: ...' || E'\n\n' || :resumo,
        status = 'em_validacao'
- where id = :ticket_id and status = 'em_execucao';
+ where id = :ticket_id and status = 'em_execucao'
+   and responsavel_id is null and responsavel_ia = :slug;
 
 -- feito pelo aprovador na tela (fora do MCP): Concluir
 update public.helpdesk_tickets set status = 'concluido', concluido_em = now(), concluido_por = :aprovador

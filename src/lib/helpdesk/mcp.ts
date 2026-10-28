@@ -133,23 +133,24 @@ function idArg(a: Args): string {
   return a.ticket_id
 }
 
-type Estado = { status: string; aprovado_por: string | null; responsavel_id: string | null; comentario_solucao: string | null }
+type Estado = { status: string; aprovado_por: string | null; responsavel_id: string | null; responsavel_ia: string | null; comentario_solucao: string | null }
 
 async function estado(admin: SupabaseClient, id: string): Promise<Estado> {
-  const { data, error } = await admin.from('helpdesk_tickets').select('status, aprovado_por, responsavel_id, comentario_solucao').eq('id', id).maybeSingle()
+  const { data, error } = await admin.from('helpdesk_tickets').select('status, aprovado_por, responsavel_id, responsavel_ia, comentario_solucao').eq('id', id).maybeSingle()
   if (error) throw error
   if (!data) throw new Error('Ticket não encontrado.')
   return {
     status: String(data.status),
     aprovado_por: data.aprovado_por ? String(data.aprovado_por) : null,
     responsavel_id: data.responsavel_id ? String(data.responsavel_id) : null,
+    responsavel_ia: data.responsavel_ia ? String(data.responsavel_ia) : null,
     comentario_solucao: data.comentario_solucao ? String(data.comentario_solucao) : null,
   }
 }
 
-async function exigir(admin: SupabaseClient, acao: HelpdeskAcaoMcp, id: string): Promise<Estado> {
+async function exigir(admin: SupabaseClient, acao: HelpdeskAcaoMcp, id: string, agenteSlug?: string): Promise<Estado> {
   const e = await estado(admin, id)
-  const v = podeAgirMcp(acao, e)
+  const v = podeAgirMcp(acao, { ...e, agente_slug: agenteSlug })
   if (!v.ok) throw new Error(v.error)
   return e
 }
@@ -413,7 +414,7 @@ export async function executarHelpdeskTool(admin: SupabaseClient, agente: Agente
       const id = idArg(a)
       const v = validarResultadoMcp({ branch: a.branch, commit: a.commit, resumo: a.resumo })
       if (!v.ok) throw new Error(v.error)
-      const anterior = (await exigir(admin, 'registrar_resultado', id)).comentario_solucao
+      const anterior = (await exigir(admin, 'registrar_resultado', id, agente.slug)).comentario_solucao
       const { de, para } = HELPDESK_TRANSICOES_MCP.registrar_resultado
       const solucao = `Branch: ${v.branch}\nCommit: ${v.commit}\n\n${v.resumo}`
       const { data, error } = await admin
@@ -421,6 +422,8 @@ export async function executarHelpdeskTool(admin: SupabaseClient, agente: Agente
         .update({ comentario_solucao: solucao, status: para })
         .eq('id', id)
         .eq('status', de)
+        .is('responsavel_id', null) // pessoa assumiu no meio
+        .eq('responsavel_ia', agente.slug) // só a IA que executa move para validação
         .select('id')
       if (error) throw error
       if (data?.length !== 1) throw new Error(CORRIDA)

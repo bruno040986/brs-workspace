@@ -49,3 +49,11 @@ test('pedido de alteração vem só do comentário gravado pela RPC (id), não d
   assert.equal(textoAlteracaoSolicitada({ id: 'T1', alteracao_solicitada_comentario_id: null }, { id: 'C1', ticket_id: 'T1', texto: 'Alteração solicitada: x' }), null)
   assert.equal(textoAlteracaoSolicitada(t, null), null)
 })
+
+test('registrar_resultado: só a IA responsável, sem pessoa responsável', () => {
+  const base = { status: 'em_execucao', aprovado_por: 'p', responsavel_id: null, agente_slug: 'claude' }
+  assert.equal(podeAgirMcp('registrar_resultado', { ...base, responsavel_ia: 'claude' }).ok, true)
+  assert.equal(podeAgirMcp('registrar_resultado', { ...base, responsavel_ia: 'claude-code' }).ok, false)
+  assert.equal(podeAgirMcp('registrar_resultado', { ...base, responsavel_ia: null }).ok, false)
+  assert.equal(podeAgirMcp('registrar_resultado', { ...base, responsavel_ia: 'claude', responsavel_id: 'pessoa' }).ok, false)
+})

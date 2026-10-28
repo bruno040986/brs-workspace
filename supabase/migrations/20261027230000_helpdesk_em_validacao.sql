@@ -3,6 +3,8 @@
 -- valida: "Solicitar alteração" (em_validacao -> em_execucao, motivo vira comentário,
 -- responsável mantido) ou "Concluir" (em_validacao/em_execucao -> concluido, grava
 -- concluido_em e concluido_por). Idempotente.
+-- ATENÇÃO: o banco exige concluido_por (pessoa) para concluir a partir de em_execucao/
+-- em_validacao; conclusão manual por SQL precisa informar concluido_por.
 
 -- 1. CHECK de status: troca qualquer check do ticket que enumere os status.
 do $$
@@ -57,6 +59,9 @@ begin
   end if;
   if new.status = 'aprovado' and new.aprovado_por is null then
     raise exception 'HelpDesk: aprovar exige aprovado_por (pessoa).';
+  end if;
+  if new.status = 'concluido' and old.status in ('em_execucao', 'em_validacao') and new.concluido_por is null then
+    raise exception 'HelpDesk: concluir exige concluido_por (pessoa).';
   end if;
   if (old.status, new.status) in (
        ('aberto', 'plano_proposto'), ('plano_proposto', 'aprovado'),

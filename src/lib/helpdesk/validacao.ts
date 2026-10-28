@@ -254,13 +254,21 @@ type Veredito = { ok: true } | { ok: false; error: string }
  * A IA pode fazer `acao` neste ticket? Aprovar/rejeitar/concluir/reabrir nunca existem aqui.
  * Ticket com PESSOA responsável (responsavel_id) é dela: a IA não propõe plano nem executa.
  */
-export function podeAgirMcp(acao: HelpdeskAcaoMcp, t: { status: string; aprovado_por: string | null; responsavel_id?: string | null }): Veredito {
+export function podeAgirMcp(
+  acao: HelpdeskAcaoMcp,
+  t: { status: string; aprovado_por: string | null; responsavel_id?: string | null; responsavel_ia?: string | null; agente_slug?: string },
+): Veredito {
   if (acao === 'comentar') return t.status === 'rejeitado' ? { ok: false, error: 'Ticket rejeitado: não aceita comentário da IA.' } : { ok: true }
   if (acao === 'definir_etapas') {
     return HELPDESK_ETAPAS_STATUS_TICKET.includes(t.status) ? { ok: true } : { ok: false, error: `Ticket está em "${t.status}"; etapas só com plano proposto, aprovado ou em execução.` }
   }
   if ((acao === 'propor_plano' || acao === 'iniciar_execucao') && t.responsavel_id) {
     return { ok: false, error: 'Ticket assumido por uma pessoa: a IA não propõe plano nem executa (pode comentar).' }
+  }
+  if (acao === 'registrar_resultado') {
+    // só a IA que assumiu a execução move para validação (nem outra IA, nem ticket assumido por pessoa)
+    if (t.responsavel_id) return { ok: false, error: 'Ticket assumido por uma pessoa: a IA não registra resultado (pode comentar).' }
+    if (t.agente_slug !== undefined && t.responsavel_ia !== t.agente_slug) return { ok: false, error: 'Ticket em execução por outra IA (ou sem IA responsável): você não registra o resultado dele.' }
   }
   const de = HELPDESK_TRANSICOES_MCP[acao]?.de
   if (!de) return { ok: false, error: 'Ação não permitida.' }

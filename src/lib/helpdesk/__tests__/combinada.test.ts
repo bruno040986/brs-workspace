@@ -17,7 +17,7 @@ test('pessoa responsável: IA não propõe plano nem executa, mas comenta e regi
   assert.equal(podeAgirMcp('propor_plano', comPessoa('aberto')).ok, false)
   assert.equal(podeAgirMcp('iniciar_execucao', comPessoa('aprovado')).ok, false)
   assert.equal(podeAgirMcp('comentar', comPessoa('aberto')).ok, true)
-  assert.equal(podeAgirMcp('registrar_resultado', comPessoa('em_execucao')).ok, true)
+  assert.equal(podeAgirMcp('registrar_resultado', comPessoa('em_execucao')).ok, false)
   // sem responsável (ou só IA): regras de antes
   assert.equal(podeAgirMcp('propor_plano', { status: 'aberto', aprovado_por: null, responsavel_id: null }).ok, true)
   assert.equal(podeAgirMcp('iniciar_execucao', { status: 'aprovado', aprovado_por: PESSOA }).ok, true)
