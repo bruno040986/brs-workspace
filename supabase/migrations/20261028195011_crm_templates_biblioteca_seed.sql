@@ -1,6 +1,6 @@
 -- Seed da biblioteca padrão do sistema (templates de WhatsApp não oficial).
 -- Linhas globais: sistema = true, agente_parceiro_id NULL. Idempotente: reexecutar não duplica
--- (conflito na chave das linhas ativas do sistema). Não sobrescreve edições feitas depois.
+-- (conflito na chave das linhas ativas do sistema). Linhas arquivadas (arquivado_em) seguem ocupando a chave, então não são recriadas; o seed nunca atualiza linhas existentes.
 -- Compliance: todo texto de primeiro contato tem saída SAIR; sem promessa de aprovação nem valor fixo.
 
 insert into public.crm_templates_mensagem

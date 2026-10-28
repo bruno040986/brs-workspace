@@ -21,7 +21,7 @@ export type TemplateSistema = {
   midia_tipo: 'imagem' | 'audio' | null
   midiaUrl: string | null
   ativo: boolean
-  deleted_at: string | null
+  arquivado_em: string | null
   updated_at: string
 }
 
@@ -34,7 +34,7 @@ export async function listarTemplatesSistema(): Promise<Res<{ templates: Templat
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('crm_templates_mensagem')
-      .select('id, chave, nome, categoria, corpo, midia_path, midia_tipo, ativo, deleted_at, updated_at')
+      .select('id, chave, nome, categoria, corpo, midia_path, midia_tipo, ativo, arquivado_em, updated_at')
       .eq('sistema', true)
       .order('nome')
     if (error) throw error
@@ -125,7 +125,7 @@ export async function novaVersaoTemplateSistema(formData: FormData): Promise<Res
     const { data: atual, error: eAtual } = await admin
       .from('crm_templates_mensagem')
       .select('id, chave, midia_path, midia_tipo')
-      .eq('id', idAtual).eq('sistema', true).is('deleted_at', null).maybeSingle()
+      .eq('id', idAtual).eq('sistema', true).is('deleted_at', null).is('arquivado_em', null).maybeSingle()
     if (eAtual) throw eAtual
     if (!atual) return { success: false, error: 'Template não encontrado ou já arquivado.' }
 
@@ -154,14 +154,16 @@ export async function novaVersaoTemplateSistema(formData: FormData): Promise<Res
     })
     if (eIns) { await limpar(); throw eIns }
 
-    const { error: eArq } = await admin
+    const { data: arq, error: eArq } = await admin
       .from('crm_templates_mensagem')
-      .update({ deleted_at: new Date().toISOString(), ativo: false })
-      .eq('id', idAtual).is('deleted_at', null)
-    if (eArq) {
+      .update({ arquivado_em: new Date().toISOString() })
+      .eq('id', idAtual).is('arquivado_em', null)
+      .select('id')
+    if (eArq || !arq?.length) {
       await admin.from('crm_templates_mensagem').delete().eq('id', id)
       await limpar()
-      throw eArq
+      if (eArq) throw eArq
+      return { success: false, error: 'Esta versão já foi alterada por outra edição; recarregue.' }
     }
     revalidatePath('/alvoconsig/templates')
     return { success: true, id }
@@ -170,15 +172,15 @@ export async function novaVersaoTemplateSistema(formData: FormData): Promise<Res
   }
 }
 
-/** Arquivar = soft delete (nunca delete físico: FK RESTRICT de campanhas). */
+/** Arquivar = só arquivado_em (ativo/deleted_at intactos: fila e campanhas em andamento seguem usando). */
 export async function arquivarTemplateSistema(id: string): Promise<Res> {
   try {
     await requirePermission(RECURSO, 'can_edit')
     const admin = await createAdminClient()
     const { data, error } = await admin
       .from('crm_templates_mensagem')
-      .update({ deleted_at: new Date().toISOString(), ativo: false })
-      .eq('id', id).eq('sistema', true).is('deleted_at', null)
+      .update({ arquivado_em: new Date().toISOString() })
+      .eq('id', id).eq('sistema', true).is('deleted_at', null).is('arquivado_em', null)
       .select('id')
     if (error) throw error
     if (!data?.length) return { success: false, error: 'Template não encontrado ou já arquivado.' }

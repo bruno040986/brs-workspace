@@ -100,7 +100,7 @@ export const MIDIAS = {
   m4a: { mime: 'audio/mp4', tipo: 'audio' },
 } as const
 export type FormatoMidia = keyof typeof MIDIAS
-const LIMITE_MIDIA = { imagem: 5 * 1024 * 1024, audio: 16 * 1024 * 1024 }
+const LIMITE_MIDIA = { imagem: 5 * 1024 * 1024, audio: 9 * 1024 * 1024 }
 
 /** Tipo pelos BYTES (mesma regra do CRM), nunca pela extensão. */
 export function detectarMidia(b: Uint8Array): FormatoMidia | null {
@@ -117,6 +117,6 @@ export function validarMidia(cabecalho: Uint8Array, tamanho: number): { ok: true
   const formato = detectarMidia(cabecalho)
   if (!formato) return { ok: false, error: 'Formato não aceito. Imagem: PNG/JPG/WebP. Áudio: OGG (opus), MP3 ou M4A.' }
   const tipo = MIDIAS[formato].tipo
-  if (tamanho > LIMITE_MIDIA[tipo]) return { ok: false, error: `Arquivo acima do limite (${tipo === 'imagem' ? '5' : '16'}MB).` }
+  if (tamanho > LIMITE_MIDIA[tipo]) return { ok: false, error: `Arquivo acima do limite (${tipo === 'imagem' ? '5' : '9'}MB).` }
   return { ok: true, formato }
 }

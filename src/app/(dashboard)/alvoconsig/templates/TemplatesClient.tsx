@@ -46,8 +46,8 @@ export default function TemplatesClient() {
     const q = busca.trim().toLowerCase()
     return lista.filter((t) => (!categoria || t.categoria === categoria) && (!q || `${t.nome} ${t.corpo}`.toLowerCase().includes(q)))
   }, [lista, busca, categoria])
-  const ativos = filtrados.filter((t) => !t.deleted_at)
-  const arquivados = filtrados.filter((t) => t.deleted_at)
+  const ativos = filtrados.filter((t) => !t.arquivado_em)
+  const arquivados = filtrados.filter((t) => t.arquivado_em)
 
   function salvar() {
     if (!form) return
@@ -66,7 +66,7 @@ export default function TemplatesClient() {
   }
 
   function arquivar(t: TemplateSistema) {
-    if (!confirm(`Arquivar "${t.nome}"? Campanhas em andamento que já o usam não são afetadas.`)) return
+    if (!confirm(`Arquivar "${t.nome}"? Campanhas em andamento continuam usando esta versão; só novas campanhas deixam de enxergá-la.`)) return
     start(async () => {
       const r = await arquivarTemplateSistema(t.id)
       setMsg(r.success ? { type: 'success', text: 'Template arquivado.' } : { type: 'error', text: r.error })
@@ -152,7 +152,7 @@ export default function TemplatesClient() {
                 <label>Mensagem ({form.corpo.length}/{LIMITES.corpo})<textarea className="form-input" rows={8} maxLength={LIMITES.corpo} value={form.corpo} onChange={(e) => setForm({ ...form, corpo: e.target.value })} /></label>
                 <div style={{ fontSize: '0.75rem', color: 'var(--brs-gray-500)' }}>Variáveis: {Object.keys(VARIAVEIS_BIBLIOTECA).map((k) => `{{${k}}}`).join(' ')}</div>
                 {desconhecidas.length > 0 && <div style={{ color: '#991B1B', fontSize: '0.82rem' }}>Variável desconhecida: {desconhecidas.map((v) => `{{${v}}}`).join(', ')} (não vai salvar).</div>}
-                <label>Mídia (opcional: PNG/JPG/WebP até 5MB, OGG/MP3/M4A até 16MB)
+                <label>Mídia (opcional: PNG/JPG/WebP até 5MB, OGG/MP3/M4A até 9MB)
                   <input type="file" accept="image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,audio/mp4,.m4a" onChange={(e) => setForm({ ...form, arquivo: e.target.files?.[0] ?? null })} />
                 </label>
                 {form.id && form.midiaAtual?.midia_tipo && !form.arquivo && (

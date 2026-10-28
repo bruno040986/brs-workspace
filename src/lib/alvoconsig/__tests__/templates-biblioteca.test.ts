@@ -37,4 +37,7 @@ test('validarMidia: png ok, texto recusado, imagem grande recusada', () => {
   assert.equal(validarMidia(png, 100).ok, true)
   assert.equal(validarMidia(png, 6 * 1024 * 1024).ok, false)
   assert.equal(validarMidia(new Uint8Array(12), 100).ok, false)
+  const ogg = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0, 0, 0, 0, 0, 0, 0, 0])
+  assert.equal(validarMidia(ogg, 9 * 1024 * 1024).ok, true)
+  assert.equal(validarMidia(ogg, 9 * 1024 * 1024 + 1).ok, false)
 })

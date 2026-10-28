@@ -6,16 +6,22 @@
 -- O QUE TESTAR (banco):
 --  1. insert com sistema=true e agente_parceiro_id NOT NULL  -> viola crm_templates_mensagem_sistema_parceiro_chk
 --  2. insert com sistema=false e agente_parceiro_id NULL     -> viola o mesmo check
---  3. dois sistema=true com a mesma chave (deleted_at nulo)  -> viola crm_templates_mensagem_chave_sistema_idx;
+--  3. dois sistema=true com a mesma chave (deleted_at nulo, arquivado ou não) -> viola crm_templates_mensagem_chave_sistema_idx;
 --     com um deles deleted_at preenchido, passa
 --  4. categoria com > 60 caracteres                          -> viola o check de categoria
 --  5. linhas existentes de parceiro seguem válidas (sistema=false, parceiro preenchido)
+-- arquivado_em: arquivar template do SISTEMA grava só isto (ativo=true e deleted_at NULL).
+-- Linhas do sistema em uso por fila/composição/campanhas em andamento não podem ficar
+-- inativas nem excluídas (cron/worker/voz recusam ativo=false ou deleted_at). Arquivada =
+-- some da biblioteca para novas cópias, mas segue enviável. Continua ocupando a chave no
+-- índice único (deleted_at nulo), então o seed reaplicado não a duplica.
 -- RLS: policy SELECT existente (alvoconsig-gestao/can_view) não filtra por parceiro, então já
 -- enxerga as linhas globais; o CRM usa service role. Nenhum ajuste de policy necessário.
 
 alter table public.crm_templates_mensagem
   add column if not exists categoria text null,
   add column if not exists sistema boolean not null default false,
+  add column if not exists arquivado_em timestamptz null,
   add column if not exists chave text null,
   add column if not exists origem_template_id uuid null
     references public.crm_templates_mensagem (id) on delete set null;
