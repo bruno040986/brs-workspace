@@ -3,20 +3,25 @@
 /**
  * HelpDesk do grupo (Tecnologia) — registro central de bugs/pedidos de
  * qualquer sistema, substituindo a planilha. Kanban pela máquina de estados:
- * aberto → plano_proposto → aprovado → em_execucao → concluido (rejeitado a
- * qualquer momento). Quem investiga e executa é a sessão Claude agendada
- * (fora daqui); esta tela abre tickets e aprova/rejeita planos.
+ * aberto → plano_proposto → aprovado → em_execucao → em_validacao → concluido
+ * (rejeitado a qualquer momento antes de concluído). Quem investiga e executa é
+ * a sessão Claude agendada (fora daqui), que ao terminar deixa o ticket em
+ * validação; esta tela abre tickets, aprova/rejeita planos e valida: o aprovador
+ * pede alteração (volta a em_execucao, motivo obrigatório) ou conclui (também
+ * direto de em_execucao, para tickets antigos).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, Circle, CircleDot, ExternalLink, LifeBuoy, Loader2, Plus, Search, UserCheck, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, Circle, CircleDot, ExternalLink, LifeBuoy, Loader2, Plus, RotateCcw, Search, UserCheck, X } from 'lucide-react'
 import AtividadeTicket from '@/components/helpdesk/AtividadeTicket'
 import NovoTicketModal from '@/components/helpdesk/NovoTicketModal'
 import {
   assumirHelpdeskTicket,
+  concluirHelpdeskTicket,
   decidirHelpdeskPlano,
   getMeuIdHelpdesk,
   listarHelpdeskTickets,
   rejeitarHelpdeskTicket,
+  solicitarAlteracaoHelpdesk,
 } from '@/lib/helpdesk/actions'
 import {
   HELPDESK_PRIORIDADES,
@@ -26,13 +31,14 @@ import {
   type HelpdeskStatus,
   type HelpdeskTicket,
 } from '@/lib/helpdesk/tipos'
-import { filtrarPorAba } from '@/lib/helpdesk/validacao'
+import { HELPDESK_MAX_MOTIVO, filtrarPorAba } from '@/lib/helpdesk/validacao'
 
 const COLUNAS: Array<{ id: HelpdeskStatus; label: string; cor: string }> = [
   { id: 'aberto', label: 'Abertos', cor: '#0284c7' },
   { id: 'plano_proposto', label: 'Plano proposto', cor: '#d97706' },
   { id: 'aprovado', label: 'Aprovados', cor: '#7c3aed' },
   { id: 'em_execucao', label: 'Em execução', cor: '#2563eb' },
+  { id: 'em_validacao', label: 'Em validação', cor: '#0d9488' },
   { id: 'concluido', label: 'Concluídos', cor: '#16a34a' },
   { id: 'rejeitado', label: 'Rejeitados', cor: '#6b7280' },
 ]
@@ -74,6 +80,9 @@ export default function HelpdeskPage() {
   const [ampliada, setAmpliada] = useState<{ url: string; nome: string } | null>(null)
   const [filtro, setFiltro] = useState({ busca: '', tipo: '', area: '', prioridade: '' })
   const [aba, setAba] = useState<HelpdeskAba>('todos')
+  // validação no detalhe: qual formulário está aberto e o texto digitado
+  const [validacao, setValidacao] = useState<null | 'alteracao' | 'concluir'>(null)
+  const [textoValidacao, setTextoValidacao] = useState('')
 
   async function carregar() {
     setErro('')
@@ -108,6 +117,12 @@ export default function HelpdeskPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [ampliada])
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fecha o formulário de validação ao trocar/fechar o ticket
+    setValidacao(null)
+    setTextoValidacao('')
+  }, [detalhe?.id])
+
   const areas = useMemo(() => [...new Set(tickets.map((t) => t.area).filter(Boolean))].sort(), [tickets])
 
   const porColuna = useMemo(() => {
@@ -141,6 +156,23 @@ export default function HelpdeskPage() {
     } finally {
       setDecidindo(false)
     }
+  }
+
+  async function validar(ticket: HelpdeskTicket) {
+    if (decidindo || !validacao) return
+    if (validacao === 'alteracao' && !textoValidacao.trim()) return setErro('Explique o que precisa ser alterado.')
+    setDecidindo(true)
+    setErro('')
+    const res =
+      validacao === 'alteracao'
+        ? await solicitarAlteracaoHelpdesk(ticket.id, textoValidacao)
+        : await concluirHelpdeskTicket(ticket.id, textoValidacao)
+    setDecidindo(false)
+    if (!res.success) return setErro(res.error || 'Erro ao registrar a validação.')
+    setValidacao(null)
+    setTextoValidacao('')
+    setDetalhe(null)
+    await carregar()
   }
 
   async function assumir(ticket: HelpdeskTicket, sim: boolean) {
@@ -386,7 +418,36 @@ export default function HelpdeskPage() {
                 </button>
               </div>
             )}
-            {podeAprovar && ['aberto', 'aprovado', 'em_execucao'].includes(detalhe.status) && (
+            {podeAprovar && ['em_validacao', 'em_execucao'].includes(detalhe.status) && (
+              <div style={{ marginBottom: '0.6rem' }}>
+                {validacao ? (
+                  <div className="card" style={{ padding: '0.8rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <label htmlFor="validacao-texto" style={{ fontSize: '0.78rem', fontWeight: 700 }}>
+                      {validacao === 'alteracao' ? 'O que precisa ser alterado? (obrigatório; o agente vê este pedido)' : 'Comentário de solução (opcional)'}
+                    </label>
+                    <textarea id="validacao-texto" className="form-control" rows={3} maxLength={HELPDESK_MAX_MOTIVO} value={textoValidacao} onChange={(e) => setTextoValidacao(e.target.value)} autoFocus />
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost" onClick={() => { setValidacao(null); setTextoValidacao('') }} disabled={decidindo}>Cancelar</button>
+                      <button className="btn btn-primary" onClick={() => void validar(detalhe)} disabled={decidindo || (validacao === 'alteracao' && !textoValidacao.trim())}>
+                        {validacao === 'alteracao' ? 'Enviar pedido de alteração' : 'Confirmar conclusão'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    {detalhe.status === 'em_validacao' && (
+                      <button className="btn btn-outline" onClick={() => setValidacao('alteracao')} disabled={decidindo}>
+                        <RotateCcw size={14} /> Solicitar alteração
+                      </button>
+                    )}
+                    <button className="btn btn-primary" onClick={() => setValidacao('concluir')} disabled={decidindo}>
+                      <Check size={14} /> Concluir
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {podeAprovar && ['aberto', 'aprovado', 'em_execucao', 'em_validacao'].includes(detalhe.status) && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button className="btn btn-outline" onClick={() => decidir(detalhe, 'rejeitar')} disabled={decidindo} style={{ color: 'var(--brs-danger)' }}>
                   <X size={14} /> Rejeitar ticket

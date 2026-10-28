@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<HelpdeskStatus, string> = {
   plano_proposto: 'Plano proposto',
   aprovado: 'Aprovado',
   em_execucao: 'Em execução',
+  em_validacao: 'Em validação',
   concluido: 'Concluído',
   rejeitado: 'Rejeitado',
 }
