@@ -5,11 +5,13 @@
  * dashboard). Abre o mesmo formulário da página /helpdesk em modo rápido:
  * sistema 'workspace', tela atual e contexto técnico do navegador já
  * capturados. Some na própria /helpdesk e para quem não tem helpdesk-abrir.
- * Fica acima do trilho do Messenger (respeita --brs-messenger-dock-reserve).
+ * Fica ao lado do trilho do Messenger (respeita --brs-messenger-dock-reserve) e
+ * some enquanto o Messenger está aberto (HD-0004: cobria a caixa de digitação).
  */
 import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { LifeBuoy } from 'lucide-react'
+import { useMessengerDock } from '@/components/layout/MessengerDockContext'
 import NovoTicketModal, { areaDaRota } from '@/components/helpdesk/NovoTicketModal'
 import { carregarMinhasPermissoes } from '@/lib/auth/permissions-client-cache'
 import { hasPermission } from '@/lib/auth/permissions'
@@ -21,6 +23,17 @@ export default function BotaoReportarProblema() {
   const [aberto, setAberto] = useState<{ contexto: HelpdeskContextoTecnico; menu: string; area: string } | null>(null)
   const [enviado, setEnviado] = useState(false)
   const botao = useRef<HTMLButtonElement>(null)
+  const dock = useMessengerDock()
+  // mesmo breakpoint do MessengerDockShell (768px)
+  const [mobile, setMobile] = useState(false)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 768px)')
+    const atualizar = () => setMobile(media.matches)
+    atualizar()
+    media.addEventListener('change', atualizar)
+    return () => media.removeEventListener('change', atualizar)
+  }, [])
+  const messengerAberto = mobile ? dock.isMobileOpen : !dock.isCollapsed
 
   useEffect(() => {
     let ativo = true
@@ -53,6 +66,9 @@ export default function BotaoReportarProblema() {
     setAberto(null)
     botao.current?.focus()
   }
+
+  // só o botão some; o modal já aberto continua
+  if (messengerAberto) return aberto ? <NovoTicketModal rapido={aberto} onFechar={fechar} onCriado={() => setEnviado(true)} /> : null
 
   return (
     <>
