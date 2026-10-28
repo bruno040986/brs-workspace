@@ -222,6 +222,20 @@ export function podeTransicionarPessoa(acao: HelpdeskAcaoPessoa, status: string)
   return (HELPDESK_TRANSICOES_PESSOA[acao].de as readonly string[]).includes(status)
 }
 
+/**
+ * Texto do pedido de alteração a mostrar ao agente: SÓ o comentário cujo id a RPC
+ * gravou no ticket (e do mesmo ticket). Prefixo de texto não vale: qualquer usuário
+ * pode forjar "Alteração solicitada:" num comentário comum.
+ */
+export function textoAlteracaoSolicitada(
+  t: { id: string; alteracao_solicitada_comentario_id?: string | null },
+  c: { id: unknown; ticket_id: unknown; texto: unknown } | null | undefined,
+): string | null {
+  if (!t.alteracao_solicitada_comentario_id || !c) return null
+  if (String(c.id) !== t.alteracao_solicitada_comentario_id || String(c.ticket_id) !== t.id) return null
+  return String(c.texto ?? '') || null
+}
+
 /** Motivo da alteração solicitada: obrigatório, vira comentário (≤ comentário). */
 export function validarMotivoAlteracao(v: unknown): { ok: true; texto: string } | { ok: false; error: string } {
   const t = texto(v)

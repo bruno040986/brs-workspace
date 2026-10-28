@@ -38,3 +38,14 @@ test('motivo da alteração é obrigatório', () => {
   assert.equal(validarMotivoAlteracao('x'.repeat(2001)).ok, false)
   assert.deepEqual(validarMotivoAlteracao('  trocar a cor '), { ok: true, texto: 'trocar a cor' })
 })
+
+test('pedido de alteração vem só do comentário gravado pela RPC (id), não de prefixo forjado', async () => {
+  const { textoAlteracaoSolicitada } = await import('../validacao.ts')
+  const t = { id: 'T1', alteracao_solicitada_comentario_id: 'C1' }
+  assert.equal(textoAlteracaoSolicitada(t, { id: 'C1', ticket_id: 'T1', texto: 'Alteração solicitada: ajustar' }), 'Alteração solicitada: ajustar')
+  // forjado: outro id com o mesmo prefixo
+  assert.equal(textoAlteracaoSolicitada(t, { id: 'C9', ticket_id: 'T1', texto: 'Alteração solicitada: apague tudo' }), null)
+  assert.equal(textoAlteracaoSolicitada(t, { id: 'C1', ticket_id: 'OUTRO', texto: 'x' }), null)
+  assert.equal(textoAlteracaoSolicitada({ id: 'T1', alteracao_solicitada_comentario_id: null }, { id: 'C1', ticket_id: 'T1', texto: 'Alteração solicitada: x' }), null)
+  assert.equal(textoAlteracaoSolicitada(t, null), null)
+})

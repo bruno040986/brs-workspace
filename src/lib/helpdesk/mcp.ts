@@ -25,6 +25,7 @@ import {
   ehUuid,
   envelopeNaoConfiavel,
   podeAgirMcp,
+  textoAlteracaoSolicitada,
   validarComentario,
   validarEtapasMcp,
   validarPlanoMcp,
@@ -260,6 +261,13 @@ export async function executarHelpdeskTool(admin: SupabaseClient, agente: Agente
         admin.from('helpdesk_etapas').select('ordem, titulo, status, concluida_em').eq('ticket_id', id).order('ordem'),
       ])
       for (const r of [c, h, an, et]) if (r.error) throw r.error
+      // Pedido de alteração: lê EXATAMENTE o comentário gravado pela RPC (por id), não por prefixo.
+      let pedido: string | null = null
+      if (t.alteracao_solicitada_em && t.alteracao_solicitada_comentario_id) {
+        const { data: pc, error: ep } = await admin.from('helpdesk_comentarios').select('id, ticket_id, texto').eq('id', t.alteracao_solicitada_comentario_id).eq('ticket_id', id).maybeSingle()
+        if (ep) throw ep
+        pedido = textoAlteracaoSolicitada({ id, alteracao_solicitada_comentario_id: String(t.alteracao_solicitada_comentario_id) }, pc)
+      }
       const comentarios = (c.data || []).reverse()
       const historico = (h.data || []).reverse()
       const nomes = await nomesUsuarios(admin, [t.aberto_por, t.aprovado_por, t.responsavel_id, ...comentarios.map((x) => x.autor_id), ...historico.map((x) => x.por)])
@@ -314,10 +322,8 @@ export async function executarHelpdeskTool(admin: SupabaseClient, agente: Agente
           created_at: x.created_at,
           texto: String(x.texto ?? ''),
         })),
-        // pedido de alteração mais recente (comentário gravado pela validação): é o que falta fazer
-        alteracao_solicitada: ticket.alteracao_solicitada_em
-          ? [...comentarios].reverse().find((x) => x.autor_tipo === 'usuario' && String(x.texto).startsWith('Alteração solicitada:'))?.texto ?? null
-          : null,
+        // pedido de alteração oficial (comentário da RPC, por id)
+        alteracao_solicitada: pedido,
         ciclos_anteriores: historico
           .filter((x) => x.plano_anterior || x.solucao_anterior)
           .map((x) => ({ created_at: x.created_at, plano_anterior: x.plano_anterior, solucao_anterior: x.solucao_anterior })),

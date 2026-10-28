@@ -27,7 +27,9 @@ alter table public.helpdesk_tickets
 --    para o agente achar o que voltou para ele).
 alter table public.helpdesk_tickets
   add column if not exists concluido_por uuid references public.users (id) on delete set null,
-  add column if not exists alteracao_solicitada_em timestamptz;
+  add column if not exists alteracao_solicitada_em timestamptz,
+  -- comentário EXATO criado pela RPC (o MCP lê por este id, nunca por prefixo de texto)
+  add column if not exists alteracao_solicitada_comentario_id uuid references public.helpdesk_comentarios (id) on delete set null;
 
 -- 3. Ator do histórico: inclui quem concluiu.
 create or replace function app_private.helpdesk_ator(n public.helpdesk_tickets, o public.helpdesk_tickets)
@@ -68,6 +70,7 @@ begin
          and coalesce(current_setting('app.helpdesk_reabrindo', true), '') = 'on') then
     if new.status <> 'em_execucao' then
       new.alteracao_solicitada_em := null;
+      new.alteracao_solicitada_comentario_id := null;
     end if;
     if new.status <> 'concluido' then
       new.concluido_por := null;
@@ -143,6 +146,7 @@ set search_path = public
 as $$
 declare
   v_status text;
+  v_comentario uuid;
 begin
   select status into v_status from public.helpdesk_tickets where id = p_ticket_id for update;
   if not found then
@@ -158,10 +162,11 @@ begin
   perform set_config('app.helpdesk_por', p_por::text, true);
 
   insert into public.helpdesk_comentarios (ticket_id, autor_tipo, autor_id, texto)
-  values (p_ticket_id, 'usuario', p_por, 'Alteração solicitada: ' || btrim(p_motivo));
+  values (p_ticket_id, 'usuario', p_por, 'Alteração solicitada: ' || btrim(p_motivo))
+  returning id into v_comentario;
 
   update public.helpdesk_tickets
-     set status = 'em_execucao', alteracao_solicitada_em = now()
+     set status = 'em_execucao', alteracao_solicitada_em = now(), alteracao_solicitada_comentario_id = v_comentario
    where id = p_ticket_id;
 
   perform set_config('app.helpdesk_por', '', true);

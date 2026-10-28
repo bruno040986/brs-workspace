@@ -58,7 +58,7 @@ aberto → plano_proposto → aprovado → em_execucao → em_validacao → conc
 | `plano_proposto → aprovado/rejeitado` | só aprovador (tela `/helpdesk`) |
 | `aprovado → em_execucao` | rotina do Claude |
 | `em_execucao → em_validacao` | rotina do Claude, **só** via `helpdesk_registrar_resultado` |
-| `em_validacao → em_execucao` | só aprovador ("Solicitar alteração", motivo obrigatório): grava o comentário "Alteração solicitada: …", mantém o responsável e marca `alteracao_solicitada_em` |
+| `em_validacao → em_execucao` | só aprovador ("Solicitar alteração", motivo obrigatório): grava o comentário "Alteração solicitada: …", mantém o responsável e marca `alteracao_solicitada_em` + `alteracao_solicitada_comentario_id` (id do comentário criado) |
 | `em_validacao → concluido` / `em_execucao → concluido` | só aprovador ("Concluir"; direto de `em_execucao` vale para tickets antigos). Grava `concluido_em` e `concluido_por`; comentário de solução opcional |
 | `concluido/rejeitado → aberto` | solicitante ou aprovador (botão "Reabrir") |
 
@@ -132,8 +132,8 @@ aprovador.
    publicar, migration X) → o ticket vai a `em_validacao`. Mudou o escopo?
    `helpdesk_comentar` e para.
 4. Ticket `em_execucao` seu devolvido com alteração: aparece na listagem
-   padrão. `helpdesk_ler_ticket` traz o bloco "ALTERAÇÃO SOLICITADA" (e o
-   comentário "Alteração solicitada: …" em `comentarios`). Faça só o pedido,
+   padrão. `helpdesk_ler_ticket` traz o bloco "ALTERAÇÃO SOLICITADA", lido pelo id gravado pela RPC (nunca por
+   prefixo de texto: comentário comum com esse prefixo não vira pedido oficial; sem id, só o flag). Faça só o pedido,
    na mesma branch, e chame `helpdesk_registrar_resultado` de novo.
 5. `concluido` é sempre do aprovador (botão "Concluir" na tela, depois de
    validar/publicar), fora do MCP.
