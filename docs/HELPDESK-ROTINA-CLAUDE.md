@@ -23,15 +23,15 @@ Código: `src/lib/helpdesk/mcp.ts` (ferramentas) e `src/lib/helpdesk/validacao.t
 
 | Ferramenta | O que faz | Exige |
 |---|---|---|
-| `helpdesk_listar_tickets` | lista com código `HD-0001` e responsável (padrão: abertos sem plano + aprovados aguardando execução, **sem pessoa responsável**; limite 20, máx. 50) | — |
+| `helpdesk_listar_tickets` | lista com código `HD-0001` e responsável (padrão "pendentes": abertos sem plano + aprovados aguardando execução + tickets `em_execucao` **seus** devolvidos com alteração solicitada (`alteracao_solicitada_em` preenchido e `responsavel_ia` = seu slug), tudo **sem pessoa responsável**; filtros `em_execucao` e `em_validacao` também valem; limite 20, máx. 50) | — |
 | `helpdesk_ler_ticket` | detalhe com código HD, responsável, etapas, os 60 comentários e 60 linhas de histórico mais recentes (em ordem cronológica), plano/solução, URLs assinadas (15 min) das imagens (inclusive as de comentário) | — |
 | `helpdesk_propor_plano` | grava plano (≤ 8000) e vai a `plano_proposto`; comentário **só se houver** resumo (≤ 500) | `status = aberto`, sem pessoa responsável |
 | `helpdesk_comentar` | comentário `autor_tipo = 'claude'` (≤ 4000 com assinatura) | status ≠ `rejeitado` |
 | `helpdesk_iniciar_execucao` | `aprovado → em_execucao` e grava a IA como responsável (`responsavel_ia = <slug>`); sem comentário automático | `status = aprovado`, `aprovado_por` não nulo, sem pessoa responsável |
-| `helpdesk_registrar_resultado` | grava `comentario_solucao` (branch, commit, resumo ≤ 4000) + comentário; chamada repetida sobrescreve e o comentário traz "Resultado atualizado, anterior: …" (truncado); **mantém `em_execucao`** | `status = em_execucao` |
+| `helpdesk_registrar_resultado` | grava `comentario_solucao` (branch, commit, resumo ≤ 4000) + comentário e **move `em_execucao → em_validacao`** (avisa os aprovadores); o resultado anterior de uma rodada de alteração vai no comentário ("Resultado atualizado, anterior: …", truncado) | `status = em_execucao` |
 | `helpdesk_definir_etapas` | lista COMPLETA de etapas (≤ 20; `titulo` ≤ 240, `status` pendente/em_andamento/concluida); substitui a anterior; etapa iniciada/concluída vai ao histórico, sem notificação | `status` em plano_proposto, aprovado ou em_execucao |
 
-Não existem no MCP: aprovar, rejeitar, concluir, reabrir, apagar, editar
+Não existem no MCP: aprovar, rejeitar, concluir, solicitar alteração, reabrir, apagar, editar
 descrição, SQL livre.
 
 **Responsável.** Um aprovador pode "Assumir" o ticket na tela: com pessoa
@@ -47,7 +47,8 @@ sem conteúdo duplicaria a notificação.
 ## Máquina de estados
 
 ```
-aberto → plano_proposto → aprovado → em_execucao → concluido
+aberto → plano_proposto → aprovado → em_execucao → em_validacao → concluido
+                                          ↑______________|  (alteração solicitada)
    (rejeitado a qualquer momento antes de concluído; concluido/rejeitado → aberto = reaberto)
 ```
 
@@ -56,13 +57,17 @@ aberto → plano_proposto → aprovado → em_execucao → concluido
 | `aberto → plano_proposto` | rotina do Claude |
 | `plano_proposto → aprovado/rejeitado` | só aprovador (tela `/helpdesk`) |
 | `aprovado → em_execucao` | rotina do Claude |
-| `em_execucao → concluido` | só quando o Bruno publicar (ele ou a pedido explícito dele) |
+| `em_execucao → em_validacao` | rotina do Claude, **só** via `helpdesk_registrar_resultado` |
+| `em_validacao → em_execucao` | só aprovador ("Solicitar alteração", motivo obrigatório): grava o comentário "Alteração solicitada: …", mantém o responsável e marca `alteracao_solicitada_em` |
+| `em_validacao → concluido` / `em_execucao → concluido` | só aprovador ("Concluir"; direto de `em_execucao` vale para tickets antigos). Grava `concluido_em` e `concluido_por`; comentário de solução opcional |
 | `concluido/rejeitado → aberto` | solicitante ou aprovador (botão "Reabrir") |
 
 Desde a migration `20261022022315`, o banco **recusa** qualquer outra
 transição (`trg_helpdesk_validar_transicao`), venha de onde vier (tela, MCP,
 SQL manual): `aprovado` exige `aprovado_por`, e voltar a `aberto` só pela
-RPC `public.helpdesk_reabrir`. Concluir direto de `aprovado` (sem passar por
+RPC `public.helpdesk_reabrir`. "Solicitar alteração" é a RPC `public.helpdesk_solicitar_alteracao`
+(comentário + status numa transação; só service_role). Migration do `em_validacao`:
+`supabase/migrations/20261027230000_helpdesk_em_validacao.sql`. Concluir direto de `aprovado` (sem passar por
 `em_execucao`) também é recusado.
 
 ## Regras de segurança (obrigatórias)
@@ -124,9 +129,14 @@ aprovador.
    aprovador) → `helpdesk_iniciar_execucao` → implementar em branch própria,
    só o que o plano aprovado diz → commit local/PR →
    `helpdesk_registrar_resultado` (branch, commit, resumo + o que falta:
-   publicar, migration X). Mudou o escopo? `helpdesk_comentar` e para: o
-   ticket continua `em_execucao` até o Bruno decidir.
-4. `concluido` só quando o Bruno publicar (pela tela/banco, fora do MCP).
+   publicar, migration X) → o ticket vai a `em_validacao`. Mudou o escopo?
+   `helpdesk_comentar` e para.
+4. Ticket `em_execucao` seu devolvido com alteração: aparece na listagem
+   padrão. `helpdesk_ler_ticket` traz o bloco "ALTERAÇÃO SOLICITADA" (e o
+   comentário "Alteração solicitada: …" em `comentarios`). Faça só o pedido,
+   na mesma branch, e chame `helpdesk_registrar_resultado` de novo.
+5. `concluido` é sempre do aprovador (botão "Concluir" na tela, depois de
+   validar/publicar), fora do MCP.
 
 ## Referência do schema (SQL equivalente — a rotina NÃO executa)
 
@@ -165,14 +175,15 @@ update public.helpdesk_tickets
 -- helpdesk_definir_etapas: upsert em helpdesk_etapas (ticket_id, ordem 1..n)
 -- e apaga ordem > n
 
--- helpdesk_registrar_resultado (status continua em_execucao)
+-- helpdesk_registrar_resultado (vai para em_validacao)
 update public.helpdesk_tickets
-   set comentario_solucao = 'Branch: ...' || E'\nCommit: ...' || E'\n\n' || :resumo
+   set comentario_solucao = 'Branch: ...' || E'\nCommit: ...' || E'\n\n' || :resumo,
+       status = 'em_validacao'
  where id = :ticket_id and status = 'em_execucao';
 
--- feito pelo Bruno depois do deploy (fora do MCP)
-update public.helpdesk_tickets set status = 'concluido', concluido_em = now()
- where id = :ticket_id and status = 'em_execucao';
+-- feito pelo aprovador na tela (fora do MCP): Concluir
+update public.helpdesk_tickets set status = 'concluido', concluido_em = now(), concluido_por = :aprovador
+ where id = :ticket_id and status in ('em_validacao', 'em_execucao');
 ```
 
 ## O que os triggers fazem sozinhos
@@ -183,7 +194,7 @@ update public.helpdesk_tickets set status = 'concluido', concluido_em = now()
 - `trg_helpdesk_historico_etapa`: etapa iniciada/concluída (`evento = 'etapa'`).
 - `trg_helpdesk_validar_transicao`: recusa transição fora da máquina de estados.
 - `trg_helpdesk_notificar`: sino + e-mail em ticket novo, plano proposto,
-  aprovado, em execução, concluído, rejeitado e reaberto (reaberto: avisa os
+  aprovado, em execução, em validação (avisa os aprovadores), concluído, rejeitado e reaberto (reaberto: avisa os
   aprovadores e, se quem reabriu foi um aprovador, também o solicitante), e
   quando uma pessoa assume o ticket (avisa o solicitante). O corpo leva
   `HD-0001 · <título>`.
