@@ -15,8 +15,12 @@ import { hasPermission } from '@/lib/auth/permissions'
 import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL } from '@/lib/chat/attachments'
 import type { HelpdeskAnexo, HelpdeskAnexoEntrada, HelpdeskComentario, HelpdeskEtapa, HelpdeskHistorico, HelpdeskTicket } from './tipos'
 import {
+  HELPDESK_MAX_COMENTARIO,
+  HELPDESK_TRANSICOES_PESSOA,
   codigoHelpdesk,
   podeReabrir,
+  podeTransicionarPessoa,
+  validarMotivoAlteracao,
   validarAnexos,
   validarComentario,
   validarHelpdeskTicket,
@@ -156,7 +160,7 @@ export async function decidirHelpdeskPlano(input: {
   }
 }
 
-const REJEITAVEIS = ['aberto', 'plano_proposto', 'aprovado', 'em_execucao']
+const REJEITAVEIS: string[] = [...HELPDESK_TRANSICOES_PESSOA.rejeitar.de]
 
 /** Rejeitar um ticket em qualquer estado anterior a concluído (aprovador). */
 export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ success: boolean; error?: string }> {
@@ -165,7 +169,7 @@ export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ succes
     const admin = await createAdminClient()
     const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status').eq('id', ticketId).maybeSingle()
     if (!ticket) throw new Error('Ticket não encontrado.')
-    if (!REJEITAVEIS.includes(String(ticket.status))) throw new Error('Ticket já encerrado.')
+    if (!podeTransicionarPessoa('rejeitar', String(ticket.status))) throw new Error('Ticket já encerrado.')
     const agora = new Date().toISOString()
     const { data, error } = await admin
       .from('helpdesk_tickets')
@@ -179,6 +183,61 @@ export async function rejeitarHelpdeskTicket(ticketId: string): Promise<{ succes
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erro ao rejeitar.' }
+  }
+}
+
+/**
+ * Validação: devolve o ticket em_validacao ao agente com um motivo obrigatório
+ * (vira comentário + linha de histórico) e o responsável é mantido. Só aprovador.
+ * A RPC faz comentário + status numa transação.
+ */
+export async function solicitarAlteracaoHelpdesk(ticketId: string, motivo: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user } = await requirePermission('helpdesk-aprovar', 'can_edit')
+    const v = validarMotivoAlteracao(motivo)
+    if (!v.ok) throw new Error(v.error)
+    const admin = await createAdminClient()
+    const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status').eq('id', ticketId).maybeSingle()
+    if (!ticket) throw new Error('Ticket não encontrado.')
+    if (!podeTransicionarPessoa('solicitar_alteracao', String(ticket.status))) throw new Error('Só ticket em validação aceita pedido de alteração.')
+    const { error } = await admin.rpc('helpdesk_solicitar_alteracao', { p_ticket_id: ticketId, p_motivo: v.texto, p_por: user.id })
+    if (error) throw error
+    revalidatePath('/helpdesk')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao solicitar alteração.' }
+  }
+}
+
+/**
+ * Concluir (aprovador): de em_validacao ou direto de em_execucao (tickets
+ * antigos). Grava concluido_em/concluido_por; o comentário de solução é
+ * opcional e se soma ao resultado que o agente registrou.
+ */
+export async function concluirHelpdeskTicket(ticketId: string, comentario?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { user } = await requirePermission('helpdesk-aprovar', 'can_edit')
+    const extra = String(comentario ?? '').trim()
+    if (extra.length > HELPDESK_MAX_COMENTARIO) throw new Error(`O comentário passa de ${HELPDESK_MAX_COMENTARIO} caracteres.`)
+    const admin = await createAdminClient()
+    const { data: ticket } = await admin.from('helpdesk_tickets').select('id, status, comentario_solucao').eq('id', ticketId).maybeSingle()
+    if (!ticket) throw new Error('Ticket não encontrado.')
+    if (!podeTransicionarPessoa('concluir', String(ticket.status))) throw new Error('Só ticket em validação ou em execução pode ser concluído.')
+    const anterior = ticket.comentario_solucao ? String(ticket.comentario_solucao) : ''
+    const campos: Record<string, unknown> = { status: 'concluido', concluido_em: new Date().toISOString(), concluido_por: user.id }
+    if (extra) campos.comentario_solucao = anterior ? `${anterior}\n\nConclusão: ${extra}` : extra
+    const { data, error } = await admin
+      .from('helpdesk_tickets')
+      .update(campos)
+      .eq('id', ticketId)
+      .eq('status', ticket.status) // atômico: o agente/outro aprovador pode ter mudado no meio
+      .select('id')
+    if (error) throw error
+    if (data?.length !== 1) throw new Error('O ticket mudou de status enquanto você concluía. Atualize a tela e confira.')
+    revalidatePath('/helpdesk')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erro ao concluir.' }
   }
 }
 

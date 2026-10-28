@@ -188,7 +188,7 @@ export function filtrarPorAba<T extends { status: string; aberto_por: string }>(
 // ---------------------------------------------------------------------------
 /** Só estas IAs (slug em projeto_agentes) veem e usam as ferramentas do HelpDesk. */
 export const HELPDESK_MCP_AGENTES: readonly string[] = ['claude', 'claude-code']
-export const HELPDESK_STATUS: readonly HelpdeskStatus[] = ['aberto', 'plano_proposto', 'aprovado', 'rejeitado', 'em_execucao', 'concluido']
+export const HELPDESK_STATUS: readonly HelpdeskStatus[] = ['aberto', 'plano_proposto', 'aprovado', 'rejeitado', 'em_execucao', 'em_validacao', 'concluido']
 export const HELPDESK_MAX_PLANO = 8000
 export const HELPDESK_MAX_RESUMO_PLANO = 500
 export const HELPDESK_MAX_RESULTADO = 4000
@@ -200,8 +200,35 @@ export type HelpdeskAcaoMcp = 'propor_plano' | 'comentar' | 'iniciar_execucao' |
 export const HELPDESK_TRANSICOES_MCP = {
   propor_plano: { de: 'aberto', para: 'plano_proposto' },
   iniciar_execucao: { de: 'aprovado', para: 'em_execucao' },
-  registrar_resultado: { de: 'em_execucao', para: 'em_execucao' }, // concluido só o Bruno, ao publicar
+  registrar_resultado: { de: 'em_execucao', para: 'em_validacao' }, // validar/concluir é de pessoa (aprovador)
 } as const
+
+/**
+ * Transições de PESSOA (aprovador, tela /helpdesk). Fonte única das actions;
+ * o banco (trg_helpdesk_validar_transicao) repete a regra. O MCP não usa nenhuma.
+ * - solicitar_alteracao: validação devolve ao agente (mantém o responsável).
+ * - concluir: de em_validacao, ou direto de em_execucao (tickets antigos).
+ * - rejeitar: qualquer estado antes de concluído.
+ */
+export const HELPDESK_TRANSICOES_PESSOA = {
+  solicitar_alteracao: { de: ['em_validacao'], para: 'em_execucao' },
+  concluir: { de: ['em_validacao', 'em_execucao'], para: 'concluido' },
+  rejeitar: { de: ['aberto', 'plano_proposto', 'aprovado', 'em_execucao', 'em_validacao'], para: 'rejeitado' },
+} as const
+
+export type HelpdeskAcaoPessoa = keyof typeof HELPDESK_TRANSICOES_PESSOA
+
+export function podeTransicionarPessoa(acao: HelpdeskAcaoPessoa, status: string): boolean {
+  return (HELPDESK_TRANSICOES_PESSOA[acao].de as readonly string[]).includes(status)
+}
+
+/** Motivo da alteração solicitada: obrigatório, vira comentário (≤ comentário). */
+export function validarMotivoAlteracao(v: unknown): { ok: true; texto: string } | { ok: false; error: string } {
+  const t = texto(v)
+  if (!t) return { ok: false, error: 'Explique o que precisa ser alterado.' }
+  if (t.length > HELPDESK_MAX_MOTIVO) return { ok: false, error: `O motivo passa de ${HELPDESK_MAX_MOTIVO} caracteres.` }
+  return { ok: true, texto: t }
+}
 
 /** Etapas do plano: a IA define depois de propor o plano e atualiza durante a execução. */
 export const HELPDESK_ETAPAS_STATUS_TICKET: readonly string[] = ['plano_proposto', 'aprovado', 'em_execucao']

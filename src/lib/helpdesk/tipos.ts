@@ -52,7 +52,7 @@ export type HelpdeskContextoTecnico = {
   timestamp_cliente?: string
 }
 
-export type HelpdeskStatus = 'aberto' | 'plano_proposto' | 'aprovado' | 'rejeitado' | 'em_execucao' | 'concluido'
+export type HelpdeskStatus = 'aberto' | 'plano_proposto' | 'aprovado' | 'rejeitado' | 'em_execucao' | 'em_validacao' | 'concluido'
 
 export const HELPDESK_ETAPA_STATUS = ['pendente', 'em_andamento', 'concluida'] as const
 export type HelpdeskEtapaStatus = (typeof HELPDESK_ETAPA_STATUS)[number]
@@ -92,6 +92,9 @@ export type HelpdeskTicket = {
   plano_em: string | null
   aprovado_em: string | null
   concluido_em: string | null
+  concluido_por: string | null
+  /** Preenchido quando a validação devolveu o ticket ao agente (limpo ao sair de em_execucao). */
+  alteracao_solicitada_em: string | null
 }
 
 export type HelpdeskComentario = {
