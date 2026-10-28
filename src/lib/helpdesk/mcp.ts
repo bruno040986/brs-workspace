@@ -37,6 +37,8 @@ type Agente = { id: string; slug: string; nome: string }
 type Args = Record<string, unknown>
 export type HelpdeskToolSaida = { text: string; structured?: Record<string, unknown> }
 
+// Desde a migration em_validacao há 2 FKs entre tickets e comentários: o embed precisa nomear a FK (PGRST201).
+export const EMBED_COMENTARIOS = 'helpdesk_comentarios!helpdesk_comentarios_ticket_id_fkey(count)'
 const MAX_LISTA = 50
 const MAX_ATIVIDADE = 60 // comentários / histórico por leitura (os mais recentes)
 
@@ -203,7 +205,7 @@ export async function executarHelpdeskTool(admin: SupabaseClient, agente: Agente
 
       let q = admin
         .from('helpdesk_tickets')
-        .select('id, controle_numero, titulo, tipo, area, prioridade, sistema, status, urgente, responsavel_id, responsavel_ia, created_at, plano_em, aprovado_em, concluido_em, helpdesk_anexos(count), helpdesk_comentarios(count)')
+        .select(`id, controle_numero, titulo, tipo, area, prioridade, sistema, status, urgente, responsavel_id, responsavel_ia, created_at, plano_em, aprovado_em, concluido_em, helpdesk_anexos(count), ${EMBED_COMENTARIOS}`)
       q =
         status === 'pendentes'
           ? q
