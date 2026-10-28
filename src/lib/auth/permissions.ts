@@ -158,6 +158,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   '/coeficientes': any([view('sistema-config-credito')]),
   '/alvoconsig': any([view('alvoconsig-gestao')]),
   '/alvoconsig/certificacao': any([view('alvoconsig-certificacao')]),
+  '/alvoconsig/templates': any([view('alvoconsig-gestao')]),
   '/gestao-leads/higienizacao-amigoz': any([view('alvoconsig-higienizacao-amigoz')]),
   '/api/if-higienizacao/upload': any([include('alvoconsig-higienizacao-amigoz')]),
   '/api/if-higienizacao/lotes': any([view('alvoconsig-higienizacao-amigoz')]),

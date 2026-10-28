@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
   FolderKanban,
   Gift,
+  FileText,
   GraduationCap,
   Landmark,
   Megaphone,
@@ -254,6 +255,7 @@ export const NAV_DIVISOES: NavDivisao[] = [
           { label: 'Leads Alocados', href: '/alvoconsig/contatos', perms: [view('alvoconsig-gestao')], desc: 'Leads e contatos já alocados aos parceiros — cópia de trabalho sincronizada.', icon: UserCog },
           { label: 'Carteira de Parceiros', href: '/alvoconsig/certificacao', perms: [view('alvoconsig-certificacao')], desc: 'Certificação de parceiros para receber leads.', icon: GraduationCap },
           { label: 'Perfis de Usuário', href: '/alvoconsig/perfis', perms: [view('alvoconsig-gestao')], desc: 'Perfis e permissões dos usuários do AlvoConsig.', icon: Shield },
+          { label: 'Biblioteca de Templates', href: '/alvoconsig/templates', perms: [view('alvoconsig-gestao')], desc: 'Modelos de mensagem padrão do sistema que os parceiros copiam — editar cria nova versão.', icon: FileText },
         ],
       },
       {
