@@ -10,6 +10,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/seguranca-dispatcher",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/messenger-agendamentos",
       "schedule": "1-59/2 * * * *"
     },
