@@ -14,6 +14,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/seguranca-expurgo",
+      "schedule": "23 5 * * *"
+    },
+    {
       "path": "/api/cron/messenger-agendamentos",
       "schedule": "1-59/2 * * * *"
     },

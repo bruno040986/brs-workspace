@@ -5,3 +5,4 @@ create table if not exists auth.mfa_factors (id uuid primary key, user_id uuid n
 create table if not exists auth.mfa_amr_claims (id uuid primary key default gen_random_uuid(), session_id uuid not null, authentication_method text not null);
 grant select on auth.sessions, auth.mfa_factors, auth.mfa_amr_claims to authenticated, service_role;
 alter table auth.users add column if not exists encrypted_password text;
+alter table auth.users add column if not exists email_confirmed_at timestamptz;

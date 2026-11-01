@@ -22,6 +22,7 @@ app/api/cron/nvti-batches/route.ts
 app/api/cron/process-jobs/route.ts
 app/api/cron/seguranca-monitor/route.ts
 app/api/cron/seguranca-dispatcher/route.ts
+app/api/cron/seguranca-expurgo/route.ts
 app/api/cron/wa-campaigns/route.ts
 app/api/cron/ycloud-sync/route.ts
 app/api/if-credito/fydigital/webhook/route.ts
