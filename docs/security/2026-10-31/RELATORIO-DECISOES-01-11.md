@@ -20,3 +20,11 @@ Migration única: `supabase/migrations/20261101060000_security_decisoes_01_11.sq
 ## Testes
 - `supabase/tests/run-decisoes.sh` (base run-m04 + M05/M06 + migration 2x + `security_decisoes_01_11.sql`): casos de A (inclui sessão liberada real, e-mail não confirmado, sem vínculo) e C (preserva/apaga, privilégios).
 - `node --test`: 561 pass, 0 fail, 3 skip; `npx tsc --noEmit` limpo.
+
+## Tabelas e RPCs do Portal e do CRM
+Migration `supabase/migrations/20261101070000_security_tabelas_portal_crm.sql` (idempotente; nada aplicado fora do banco descartável).
+- `cadastro_rate_limit_eventos` (Portal, `src/lib/security/rate-limit.ts`): RLS ligado, sem policies, `anon`/`authenticated` sem privilégio; `service_role` com select/insert/delete (o Portal usa `createAdminClient()` com a service role).
+- `auth_throttle` + `auth_throttle_status` / `auth_throttle_registrar` (CRM, `trocar-senha/actions.ts` com `createAdminClient()`): funções SECURITY DEFINER com `search_path = public, pg_temp`, `revoke ... from public, anon, authenticated`, execute só para `service_role`. Ajuste ao SQL proposto: expoente de `2 ^ reincidencias` limitado (evita overflow do `int`).
+- Índice `chat_envios_operacoes_presas_idx`: a tabela real do ledger é `chat_envios_operacoes` (não existe `chat_envios`). Bloco `DO` cria só se a tabela e `updated_at` existirem; senão avisa e pula.
+- A limpeza diária de `cadastro_rate_limit_eventos` (> 2 dias) continua sugerida, não criada.
+- Teste: `supabase/tests/run-tabelas.sh` (migration 2x, RLS, privilégios, search_path, comportamento do throttle, índice pulado sem a coluna).
