@@ -10,6 +10,7 @@
  * concluir a Análise — aqui só se mostra a situação por tipo.
  */
 import { useMemo, useState } from 'react'
+import { urlDocumentoParceiro } from '@/lib/agente-corban-documento'
 import { Check, Copy, ExternalLink, Loader2, Plus, Trash2 } from 'lucide-react'
 import { formatCpfOrCnpjDisplay } from '@/lib/agente-corban'
 import { avaliarObrigatorios, diasParaVencer } from '@/lib/certificacoes'
@@ -32,8 +33,10 @@ type LinhaResposta = {
 }
 
 /** Só links https entram como href: a resposta vem do parceiro (link público de correção). */
-function linkSeguro(url: string): string | null {
-  return /^https:\/\//i.test(String(url || '')) ? url : null
+function linkSeguro(url: string, agenteId?: string | null): string | null {
+  // Path/URL antiga de partner-documents -> rota autenticada (bucket privado).
+  const u = urlDocumentoParceiro(agenteId, url)
+  return /^https:\/\//i.test(u) || u.startsWith('/api/agente-corban/documento?') ? u : null
 }
 
 function fmtData(iso: string | null | undefined) {
@@ -193,7 +196,7 @@ export default function CertificacoesCard({
                     <div>
                       Arquivos:{' '}
                       {l.arquivos.map((a, j) => {
-                        const href = linkSeguro(a.url)
+                        const href = linkSeguro(a.url, agenteParceiroId)
                         return href ? (
                           <a key={j} href={href} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>
                             {a.fileName || `arquivo ${j + 1}`}

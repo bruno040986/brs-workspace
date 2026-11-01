@@ -836,7 +836,7 @@ export default function ProcessoOnboardingClient({ initialData }: { initialData:
                         </span>
                       </div>
 
-                      <DocumentViewer files={toDocumentFiles(item.valor)} />
+                      <DocumentViewer files={toDocumentFiles(item.valor)} agenteId={data.processo.agente_parceiro_id} />
 
                       {item.status === 'reprovado' && item.motivo_reprovacao && (
                         <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#b91c1c' }}>

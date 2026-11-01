@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { urlDocumentoParceiro } from '@/lib/agente-corban-documento'
 import { ChevronLeft, ChevronRight, Download, FileText, X, ZoomIn, ZoomOut } from 'lucide-react'
 
 export type DocumentViewerFile = { fileName?: string | null; url: string }
@@ -22,8 +23,9 @@ function isPdfFile(file: DocumentViewerFile) {
  * só renderizamos schemes http(s). Qualquer outra coisa (javascript:, data:)
  * vira string vazia e o viewer mostra o aviso de documento indisponível.
  */
-function safeHttpUrl(url: string | null | undefined): string {
-  const raw = String(url || '').trim()
+function safeHttpUrl(url: string | null | undefined, agenteId?: string | null): string {
+  // Path/URL antiga de partner-documents (bucket privado) -> rota autenticada do Workspace.
+  const raw = urlDocumentoParceiro(agenteId, url).trim()
   if (!raw) return ''
   try {
     const parsed = new URL(raw, window.location.origin)
@@ -32,7 +34,7 @@ function safeHttpUrl(url: string | null | undefined): string {
   return ''
 }
 
-function ImageZoomModal({ file, onClose }: { file: DocumentViewerFile; onClose: () => void }) {
+function ImageZoomModal({ file, agenteId, onClose }: { file: DocumentViewerFile; agenteId?: string | null; onClose: () => void }) {
   const [zoom, setZoom] = useState(1)
 
   return (
@@ -83,7 +85,7 @@ function ImageZoomModal({ file, onClose }: { file: DocumentViewerFile; onClose: 
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={safeHttpUrl(file.url)}
+          src={safeHttpUrl(file.url, agenteId)}
           alt={file.fileName || 'Documento'}
           onClick={() => setZoom((z) => (z === ZOOM_MIN ? ZOOM_MIN + 1 : ZOOM_MIN))}
           style={{
@@ -98,7 +100,7 @@ function ImageZoomModal({ file, onClose }: { file: DocumentViewerFile; onClose: 
   )
 }
 
-export default function DocumentViewer({ files }: { files: DocumentViewerFile[] }) {
+export default function DocumentViewer({ files, agenteId }: { files: DocumentViewerFile[]; agenteId?: string | null }) {
   const [index, setIndex] = useState(0)
   const [zoomOpen, setZoomOpen] = useState(false)
 
@@ -150,7 +152,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={safeHttpUrl(current.url)}
+              src={safeHttpUrl(current.url, agenteId)}
               alt={current.fileName || 'Documento'}
               onClick={() => setZoomOpen(true)}
               style={{ width: '100%', height: 640, objectFit: 'contain', display: 'block', cursor: 'zoom-in' }}
@@ -167,7 +169,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
             </button>
           </>
         ) : isPdfFile(current) ? (
-          <iframe src={safeHttpUrl(current.url)} title={current.fileName || 'Documento'} style={{ width: '100%', height: 640, border: 'none' }} />
+          <iframe src={safeHttpUrl(current.url, agenteId)} title={current.fileName || 'Documento'} style={{ width: '100%', height: 640, border: 'none' }} />
         ) : (
           <div
             style={{
@@ -187,7 +189,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
       </div>
 
       <a
-        href={safeHttpUrl(current.url)}
+        href={safeHttpUrl(current.url, agenteId)}
         download={current.fileName || undefined}
         target="_blank"
         rel="noopener noreferrer"
@@ -198,7 +200,7 @@ export default function DocumentViewer({ files }: { files: DocumentViewerFile[] 
         Baixar {current.fileName || 'arquivo'}
       </a>
 
-      {zoomOpen && isImageFile(current) && <ImageZoomModal file={current} onClose={() => setZoomOpen(false)} />}
+      {zoomOpen && isImageFile(current) && <ImageZoomModal file={current} agenteId={agenteId} onClose={() => setZoomOpen(false)} />}
     </div>
   )
 }

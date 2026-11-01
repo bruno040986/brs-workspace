@@ -89,4 +89,13 @@ Migration nova `20261101025000_security_m03a_complemento.sql` (as duas anteriore
 - Resultados: `run-m03a.sh` TUDO OK (0 migrações anteriores com erro, reaplicação idempotente); `npm test` 494 testes, 491 pass, 0 fail, 3 skipped; `npx tsc --noEmit` exit 0.
 - Pendente: confirmar as 2 contas acima; decisão sobre avatar público; `feriados` sem RLS e demais tabelas sem RLS (M03-0/M03-C); laço de SECURITY DEFINER revogou 0 no teste (conferir NOTICE no remoto); gerar senha no servidor se faltar (M03-B, opcional). Nada aplicado no remoto.
 
+## B-1 leitor de documentos do parceiro
+
+- Rota: `src/app/api/agente-corban/documento/route.ts` (GET `?agente=<uuid>&ref=<path ou URL antiga>`). `requireAnyPermission` (herda `requireCurrentUser`/M04) com `can_view` em `agente-corban-cadastros-recebidos` ou `agente-corban`; lê `corban_data` do agente com service_role, baixa de `partner-documents` e faz stream com `Cache-Control: private, no-store`, `nosniff`, `CSP: sandbox`, `Content-Disposition: inline; filename="<nome seguro>"`. Nunca devolve URL do Storage.
+- Regras puras: `src/lib/agente-corban-documento.ts` (`extrairPathDocumento` aceita path puro ou `/storage/v1/object/(public|sign|authenticated)/partner-documents/<path>`; `resolverDocumentoDoAgente`, `nomeArquivoSeguro`, `urlDocumentoParceiro`).
+- Desvio do pedido: em vez de `campo`/`socio`, o parametro e `ref` (o valor gravado). Os leitores da UI nao conhecem o campo (listas `arquivos_por_documento`, sócios e certificacoes). `ref` nunca e confiado: so e servido se constar em qualquer ponto do `corban_data` do agente (inclui `socios[]`) ou for `correcao/<agente>/...`. Path de outro agente, outro bucket, `..`, scheme ou https externo: 404.
+- Leitores: `DocumentViewer.tsx:26,103` (nova prop `agenteId`; `safeHttpUrl` converte path/URL de partner-documents para a rota, https externo segue igual), `CertificacoesCard.tsx:36,199`, `ProcessoOnboardingClient.tsx:839`. `signedUrl` de evidencias/docs de analise (outros buckets) nao muda.
+- Testes: `src/lib/__tests__/agente-corban-documento.test.ts` (3: URL antiga -> path e recusas, autorizacao por agente/socio/correcao, nome seguro). `npm test` 512 testes, 509 pass, 0 fail, 3 skipped; `npx tsc --noEmit` exit 0.
+- Pendencias: sem teste de ponta a ponta com objeto real; arquivos com URL antiga so abrem depois que o bucket virar privado se a rota estiver publicada antes (publicar o Workspace antes de privar o bucket); sem rate limit na rota.
+
 ENTREGUE PARA REVISAO
