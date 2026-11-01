@@ -12,7 +12,7 @@ fail() { echo "FALHOU: $*" >&2; exit 1; }
 for i in 1 2; do
   echo "== migrations M04 (passada $i)"
   for f in "$MIG"/20261101*.sql; do
-    [[ "$(basename "$f")" > "20261101029999" ]] || continue
+    case "$f" in *20261101030000*) ;; *) continue;; esac
     "${PSQL[@]}" -d "$DB" < "$f" 2>&1 | grep -E 'NOTICE:.*M04|ERROR' ; [ "${PIPESTATUS[0]}" -eq 0 ] || fail "$(basename "$f")"
   done
 done
