@@ -241,4 +241,40 @@ begin
   if not has_function_privilege('authenticated', 'app_private.sessao_interna_liberada()', 'EXECUTE') then raise exception 'FALHA: RLS precisa do gate'; end if;
   raise notice 'OK tabelas deny-all e RPCs so service_role';
 end $$;
+-- 15. policies M03-A (is_active_internal_user) tambem exigem a sessao liberada: leitura direta como authenticated
+insert into public.comunicados (id, titulo, texto_html, status, data_inicio_veiculacao, data_fim_veiculacao)
+  values ('00000004-0000-4000-8000-0000000000c1','m04','<p>x</p>','ativo', now()-interval '1 day', now()+interval '1 day');
+insert into public.workspace_chat_user_profiles (user_id, nickname, status) values ('00000004-0000-4000-8000-000000000001','a','online');
+create function pg_temp.conta(uid uuid, sid uuid, aal text, tabela text) returns int language plpgsql as $$
+declare n int;
+begin
+  perform set_config('request.jwt.claims', jsonb_build_object('role','authenticated','sub',uid,'session_id',sid,'aal',aal)::text, true);
+  execute 'set local role authenticated';
+  execute format('select count(*) from public.%I where true', tabela) into n;
+  execute 'reset role';
+  return n;
+end $$;
+do $$
+declare a uuid := '00000004-0000-4000-8000-000000000001'; e1 uuid := '00000004-0000-4000-8000-0000000000e1';
+  e2 uuid := '00000004-0000-4000-8000-0000000000e2'; r jsonb; t text; h text := repeat('f', 64); n int;
+begin
+  foreach t in array array['comunicados','workspace_chat_user_profiles'] loop
+    if pg_temp.conta(a, e1, 'aal1', t) <> 0 then raise exception 'FALHA: AAL1 (so senha) le %', t; end if;
+    if pg_temp.conta(a, e2, 'aal2', t) <> 0 then raise exception 'FALHA: senha+TOTP sem e-mail le %', t; end if;
+  end loop;
+  delete from public.auth_sessao_liberacoes where session_id = e2; delete from public.auth_desafios_email where session_id = e2;
+  r := public.auth_criar_desafio(a, e2, 'acesso_workspace', h);
+  r := public.auth_verificar_desafio(a, e2, 'acesso_workspace', h);
+  if r->>'status' <> 'liberado' then raise exception 'FALHA: liberar para teste RLS: %', r; end if;
+  foreach t in array array['comunicados','workspace_chat_user_profiles'] loop
+    if pg_temp.conta(a, e2, 'aal2', t) < 1 then raise exception 'FALHA: sessao liberada nao le %', t; end if;
+    if pg_temp.conta(a, e1, 'aal1', t) <> 0 then raise exception 'FALHA: liberacao de e2 abriu % em e1', t; end if;
+  end loop;
+  -- service_role segue lendo (nao passa pelo gate)
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  set local role service_role;
+  select count(*) into n from public.comunicados; reset role;
+  if n < 1 then raise exception 'FALHA: service_role nao le comunicados'; end if;
+  raise notice 'OK RLS M03-A: AAL1 e senha+TOTP leem 0 de comunicados/chat; sessao liberada le; service_role intacto';
+end $$;
 rollback;

@@ -153,6 +153,21 @@ RETURNS int LANGUAGE sql IMMUTABLE SET search_path = '' AS $$
               WHEN p_pausas = 3 THEN 30 WHEN p_pausas = 4 THEN 60 WHEN p_pausas = 5 THEN 120 ELSE 240 END;
 $$;
 
+-- Corpo ORIGINAL de is_active_internal_user (M03-A): identidade interna = linha ativa em public.users,
+-- fora do dominio de parceiro e sem marca external. NAO inclui o gate de sessao.
+CREATE OR REPLACE FUNCTION app_private.is_active_internal_user_base()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users u
+    WHERE u.id = auth.uid()
+      AND COALESCE(u.active, true) = true
+      AND COALESCE(u.email, '') NOT ILIKE '%@parceiro.brspromotora.com.br'
+  )
+  AND COALESCE(auth.jwt() -> 'app_metadata' ->> 'external', '') = '';
+$$;
+REVOKE ALL ON FUNCTION app_private.is_active_internal_user_base() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.is_active_internal_user_base() TO authenticated, service_role;
+
 -- Núcleo (service_role): a sessão (user, session, aal) está liberada para o Workspace?
 -- Exige: liberação válida e não revogada; sessão existente e não vencida no Auth; usuário ativo e
 -- sem bloqueio administrativo; método de senha E de TOTP no histórico da sessão (magic link/OTP/OAuth
@@ -183,7 +198,7 @@ $$;
 -- interno (use sessao_interna_ok() quando "não interno" deve passar).
 CREATE OR REPLACE FUNCTION app_private.sessao_interna_liberada()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT app_private.is_active_internal_user()
+  SELECT app_private.is_active_internal_user_base()
     AND app_private.sessao_liberada_para(
       auth.uid(),
       CASE WHEN auth.jwt() ->> 'session_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -195,7 +210,7 @@ $$;
 -- (continua sujeita ao resto da política); interna precisa de sessão liberada.
 CREATE OR REPLACE FUNCTION app_private.sessao_interna_ok()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT NOT app_private.is_active_internal_user() OR app_private.sessao_interna_liberada();
+  SELECT NOT app_private.is_active_internal_user_base() OR app_private.sessao_interna_liberada();
 $$;
 
 -- has_permission: mesmo corpo da 20260601132916 + gate no final.
@@ -280,6 +295,16 @@ AS $$
   )
   AND (SELECT app_private.sessao_interna_ok());
 $$;
+
+-- is_active_internal_user() passa a incluir o gate: as politicas do M03-A (comunicados,
+-- workspace_chat_user_profiles, comunicado_reads) que o chamam deixam de responder a sessao so com
+-- senha ou senha+TOTP. Nao interno continua FALSE (como antes); service_role nao passa por RLS.
+CREATE OR REPLACE FUNCTION app_private.is_active_internal_user()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT app_private.is_active_internal_user_base() AND app_private.sessao_interna_liberada();
+$$;
+REVOKE ALL ON FUNCTION app_private.is_active_internal_user() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.is_active_internal_user() TO authenticated;
 
 REVOKE ALL ON FUNCTION app_private.auth_pausa_minutos(int) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION app_private.sessao_liberada_para(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
@@ -544,6 +569,25 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
     'interno_ativo', EXISTS (SELECT 1 FROM public.users u WHERE u.id = p_user AND coalesce(u.active, true)));
 $$;
 
+-- Leitura leve para proxy/helper do servidor: a sessao (user, session, aal do JWT verificado) esta liberada?
+CREATE OR REPLACE FUNCTION public.auth_sessao_liberada(p_user uuid, p_session uuid, p_aal text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT app_private.sessao_liberada_para(p_user, p_session, p_aal);
+$$;
+
+-- Logout "desta sessao": revoga so a liberacao (e desafios pendentes) dessa sessao.
+CREATE OR REPLACE FUNCTION public.auth_revogar_sessao(p_user uuid, p_session uuid, p_motivo text)
+RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE n int;
+BEGIN
+  UPDATE public.auth_sessao_liberacoes SET revogada_em = now(), motivo_revogacao = left(coalesce(p_motivo, 'revogada'), 60)
+   WHERE user_id = p_user AND session_id = p_session AND revogada_em IS NULL;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  UPDATE public.auth_desafios_email SET invalidado_em = now(), motivo_invalidacao = left(coalesce(p_motivo, 'revogada'), 60)
+   WHERE user_id = p_user AND session_id = p_session AND consumido_em IS NULL AND invalidado_em IS NULL;
+  RETURN n;
+END $$;
+
 -- Bloqueio administrativo (única forma de bloqueio longo). p_ate NULL = até desbloqueio manual.
 CREATE OR REPLACE FUNCTION public.auth_bloquear_usuario(p_user uuid, p_ate timestamptz, p_motivo text, p_por uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
@@ -611,6 +655,7 @@ BEGIN
     'public.auth_verificar_desafio(uuid,uuid,text,text)', 'public.auth_pode_ativar_fator(uuid,uuid)',
     'public.auth_aprovar_fator(uuid,uuid,uuid)', 'public.auth_revogar_liberacoes(uuid,text,uuid)',
     'public.auth_remover_fator(uuid,text)', 'public.auth_estado_sessao(uuid,uuid,text)',
+    'public.auth_sessao_liberada(uuid,uuid,text)', 'public.auth_revogar_sessao(uuid,uuid,text)',
     'public.auth_bloquear_usuario(uuid,timestamptz,text,uuid)', 'public.auth_desbloquear_usuario(uuid,uuid,text)'
   ] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
