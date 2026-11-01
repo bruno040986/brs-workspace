@@ -14,11 +14,13 @@ CREATE INDEX IF NOT EXISTS auth_tentativas_identificador_idx ON public.auth_tent
 
 -- Falha com limiar configuravel.
 --  p_pausa_fixa_min NULL  : pausa escalonada (5,15,30,60,120,240) como auth_registrar_falha.
+--  p_teto_min             : limita a pausa escalonada (ex.: 15 min no tier duro por identificador).
 --  p_pausa_fixa_min = N   : pausa SEMPRE de N min, sem escalada (pausas fica em 1) e com alerta ligado
 --                           (limiar estourado e sinal de ataque; M05 consome). Decai: janela de falhas 15 min,
 --                           contador de pausas zera apos 24 h sem falha. Em pausa nada soma.
+DROP FUNCTION IF EXISTS public.auth_registrar_falha_limiar(text, text, int, int, text);
 CREATE OR REPLACE FUNCTION public.auth_registrar_falha_limiar(
-  p_chave text, p_etapa text, p_limite int, p_pausa_fixa_min int DEFAULT NULL, p_identificador text DEFAULT NULL)
+  p_chave text, p_etapa text, p_limite int, p_pausa_fixa_min int DEFAULT NULL, p_identificador text DEFAULT NULL, p_teto_min int DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE r public.auth_tentativas%ROWTYPE; novo_alerta boolean := false; minutos int;
 BEGIN
@@ -41,6 +43,7 @@ BEGIN
     IF p_pausa_fixa_min IS NULL THEN
       r.pausas := r.pausas + 1;
       minutos := app_private.auth_pausa_minutos(r.pausas);
+      IF p_teto_min IS NOT NULL THEN minutos := least(minutos, p_teto_min); END IF;
       novo_alerta := r.pausas >= 2;
     ELSE
       r.pausas := 1; minutos := p_pausa_fixa_min; novo_alerta := true;
@@ -100,7 +103,7 @@ CREATE TRIGGER m04_authusers_revogar_liberacoes AFTER UPDATE OF email, banned_un
 DO $$
 DECLARE fn text;
 BEGIN
-  FOREACH fn IN ARRAY ARRAY['public.auth_registrar_falha_limiar(text,text,int,int,text)', 'public.auth_desbloquear_usuario(uuid,uuid,text,text)'] LOOP
+  FOREACH fn IN ARRAY ARRAY['public.auth_registrar_falha_limiar(text,text,int,int,text,int)', 'public.auth_desbloquear_usuario(uuid,uuid,text,text)'] LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', fn);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
   END LOOP;

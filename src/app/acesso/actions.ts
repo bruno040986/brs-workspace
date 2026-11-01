@@ -10,9 +10,10 @@ import {
   MENSAGEM_GENERICA, MENSAGEM_INSTABILIDADE,
 } from '@/lib/auth/etapas'
 import {
-  CODIGO_MAX_TENTATIVAS, CODIGO_TTL_SEG, LIMITE_IDENTIFICADOR, LIMITE_IP, LIMITE_PAR, PAUSA_FIXA_MIN, chavesSenha, formatoCodigoValido, gerarCodigo, hashCodigo, segredoCodigo,
+  CODIGO_MAX_TENTATIVAS, CODIGO_TTL_SEG, LIMITE_DURO, LIMITE_IDENTIFICADOR, LIMITE_IP, TETO_DURO_MIN, LIMITE_PAR, PAUSA_FIXA_MIN, chavesSenha, formatoCodigoValido, gerarCodigo, hashCodigo, segredoCodigo,
 } from '@/lib/auth/codigo-email'
 import { obterMailer } from '@/lib/auth/mailer'
+import { decidirPausaSenha } from '@/lib/auth/pausa-senha'
 import { verificarTurnstile } from '@/lib/auth/turnstile'
 import { contextoRequisicao, lerClaimsVerificados, obterEstadoBanco, registrarAcesso } from '@/lib/auth/sessao-interna'
 
@@ -58,17 +59,14 @@ export async function entrar(input: { email: string; password: string; turnstile
   const pausaPar = await rpc<number>('auth_pausa_atual', { p_chave: k.par, p_etapa: 'senha' })
   const pausaIp = k.ip ? await rpc<number>('auth_pausa_atual', { p_chave: k.ip, p_etapa: 'senha' }) : { data: 0, erro: false }
   const pausaId = await rpc<number>('auth_pausa_atual', { p_chave: k.id, p_etapa: 'senha' })
-  if (pausaPar.erro || pausaIp.erro || pausaId.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
-  const pausaOrigem = Math.max(pausaPar.data ?? 0, pausaIp.data ?? 0)
-  if (pausaOrigem > 0) {
-    await registrarAcesso({ etapa: 'senha', resultado: 'pausa', motivo: 'pausa_ativa', identidadeInformada: email })
-    return { ok: false, pausaSeg: pausaOrigem, mensagem: mensagemPausa(pausaOrigem) }
-  }
-
+  const pausaDuro = await rpc<number>('auth_pausa_atual', { p_chave: k.duro, p_etapa: 'senha' })
+  if (pausaPar.erro || pausaIp.erro || pausaId.erro || pausaDuro.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
+  const origemSeg = Math.max(pausaPar.data ?? 0, pausaIp.data ?? 0)
   const ts = await verificarTurnstile(input?.turnstileToken, ctx.ip)
-  if ((pausaId.data ?? 0) > 0 && !(ts.aplicado && ts.ok)) {
-    await registrarAcesso({ etapa: 'senha', resultado: 'pausa', motivo: 'pausa_ativa_identificador', identidadeInformada: email })
-    return { ok: false, pausaSeg: pausaId.data!, mensagem: mensagemPausa(pausaId.data!) }
+  const dec = decidirPausaSenha({ origemSeg, duroSeg: pausaDuro.data ?? 0, leveSeg: pausaId.data ?? 0, turnstileAplicadoEValido: ts.aplicado && ts.ok })
+  if (dec.bloqueia) {
+    await registrarAcesso({ etapa: 'senha', resultado: 'pausa', motivo: dec.motivo!, identidadeInformada: email })
+    return { ok: false, pausaSeg: dec.pausaSeg, mensagem: mensagemPausa(dec.pausaSeg) }
   }
   if (!ts.ok) {
     await registrarAcesso({ etapa: 'senha', resultado: 'negado', motivo: 'captcha_invalido', identidadeInformada: email })
@@ -80,8 +78,9 @@ export async function entrar(input: { email: string; password: string; turnstile
     const par = await rpc<{ pausa_seg: number; alerta: boolean }>('auth_registrar_falha_limiar', { p_chave: k.par, p_etapa: 'senha', p_limite: LIMITE_PAR, p_identificador: k.identificador })
     const ip = k.ip ? await rpc<{ pausa_seg: number; alerta: boolean }>('auth_registrar_falha_limiar', { p_chave: k.ip, p_etapa: 'senha', p_limite: LIMITE_IP, p_pausa_fixa_min: PAUSA_FIXA_MIN }) : null
     const id = await rpc<{ pausa_seg: number; alerta: boolean }>('auth_registrar_falha_limiar', { p_chave: k.id, p_etapa: 'senha', p_limite: LIMITE_IDENTIFICADOR, p_pausa_fixa_min: PAUSA_FIXA_MIN, p_identificador: k.identificador })
-    const pausaSeg = Math.max(par.data?.pausa_seg ?? 0, ip?.data?.pausa_seg ?? 0)
-    const alerta = Boolean(par.data?.alerta || ip?.data?.alerta || id.data?.alerta)
+    const duro = await rpc<{ pausa_seg: number; alerta: boolean }>('auth_registrar_falha_limiar', { p_chave: k.duro, p_etapa: 'senha', p_limite: LIMITE_DURO, p_identificador: k.identificador, p_teto_min: TETO_DURO_MIN })
+    const pausaSeg = Math.max(par.data?.pausa_seg ?? 0, ip?.data?.pausa_seg ?? 0, duro.data?.pausa_seg ?? 0)
+    const alerta = Boolean(par.data?.alerta || ip?.data?.alerta || id.data?.alerta || duro.data?.alerta)
     await registrarAcesso({
       etapa: 'senha', resultado: pausaSeg > 0 ? 'pausa' : 'falha', motivo: pausaSeg > 0 ? 'pausa_aplicada' : id.data?.alerta ? 'limite_identificador' : motivo,
       identidadeInformada: email, userId: userId ?? null, pausaAte: pausaSeg > 0 ? new Date(Date.now() + pausaSeg * 1000) : null, alerta,

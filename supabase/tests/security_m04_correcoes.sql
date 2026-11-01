@@ -64,11 +64,59 @@ begin
   if (select revogada_em from public.auth_sessao_liberacoes where session_id = s1) is null then raise exception 'FALHA: troca de senha nao revogou liberacao'; end if;
   raise notice 'OK I3 troca de senha no Auth revoga liberacoes';
 
+  -- teto do tier duro: escalonada mas limitada a 15 min (nao vira bloqueio longo acionavel por terceiro)
+  for i in 1..30 loop r := public.auth_registrar_falha_limiar('sh:A', 'senha', 30, null, 'idA', 15); end loop;
+  if (r->>'pausa_seg')::int not between 295 and 300 then raise exception 'FALHA: tier duro 1a pausa: %', r; end if;
+  for i in 1..5 loop
+    update public.auth_tentativas set pausa_ate = now() - interval '1 second', ultima_falha = now() where chave='sh:A';
+    for n in 1..30 loop r := public.auth_registrar_falha_limiar('sh:A', 'senha', 30, null, 'idA', 15); end loop;
+    if (r->>'pausa_seg')::int > 900 then raise exception 'FALHA: tier duro passou do teto de 15 min: %', r; end if;
+  end loop;
+  if (r->>'pausa_seg')::int not between 895 and 900 then raise exception 'FALHA: tier duro nao escalou ate o teto: %', r; end if;
+  raise notice 'OK I2 tier duro por identificador (30 falhas, escala 5->15 min, teto 15 min)';
+
   -- ACL: so service_role
-  if has_function_privilege('authenticated', 'public.auth_registrar_falha_limiar(text,text,int,int,text)', 'execute')
+  if has_function_privilege('authenticated', 'public.auth_registrar_falha_limiar(text,text,int,int,text,int)', 'execute')
      or has_function_privilege('anon', 'public.auth_desbloquear_usuario(uuid,uuid,text,text)', 'execute')
-     or not has_function_privilege('service_role', 'public.auth_registrar_falha_limiar(text,text,int,int,text)', 'execute') then
+     or not has_function_privilege('service_role', 'public.auth_registrar_falha_limiar(text,text,int,int,text,int)', 'execute') then
     raise exception 'FALHA: ACL das novas RPCs'; end if;
   raise notice 'OK ACL das novas RPCs (so service_role)';
+end $$;
+rollback;
+
+-- I5 policies por dono: interno em AAL1 nao le nem escreve o proprio registro; nao interno (parceiro) segue a regra antiga
+begin;
+create function pg_temp.como(uid uuid, sid uuid, aal text, ext boolean) returns void language sql as $$
+  select set_config('request.jwt.claims', jsonb_build_object('role','authenticated','sub',uid,'session_id',sid,'aal',aal,
+    'app_metadata', case when ext then '{"external":true}'::jsonb else '{}'::jsonb end)::text, true) $$;
+do $$
+declare a uuid := '00000004-0000-4000-8000-0000000000a1'; p uuid := '00000004-0000-4000-8000-0000000000a2';
+  s uuid := '00000004-0000-4000-8000-0000000000a3'; t text; n int; ok boolean;
+begin
+  insert into auth.users (id, aud, role, email, created_at, updated_at) values
+    (a,'authenticated','authenticated','m04.i5@brspromotora.com.br',now(),now()), (p,'authenticated','authenticated','m04.i5p@gmail.com',now(),now());
+  insert into public.users (id, name, email, role, active) values (a,'I5','m04.i5@brspromotora.com.br','consulta',true);
+  insert into public.users (id, name, email, role, active) values (p,'I5P','m04.i5p@gmail.com','consulta',true);
+  insert into public.workspace_notifications (user_id, type, title) values (a,'t','x'), (p,'t','y');
+  foreach t in array array['comunicado_reads','praise_notifications','record_comments','user_google_auth','workspace_notifications',
+    'workspace_chat_conversations','workspace_chat_messages','workspace_chat_participants','workspace_chat_user_profiles','hub_banners','marketing_arte_associacoes'] loop
+    if not exists (select 1 from pg_policies where schemaname='public' and tablename=t and policyname='m04_gate_sessao_interna' and permissive='RESTRICTIVE') then
+      raise exception 'FALHA: sem policy restritiva em %', t; end if;
+  end loop;
+  -- interno AAL1: 0 linhas e insert negado
+  perform pg_temp.como(a, s, 'aal1', false); execute 'set local role authenticated';
+  select count(*) into n from public.workspace_notifications; 
+  begin insert into public.workspace_notifications (user_id, type, title) values (a,'t','z'); ok := true; exception when others then ok := false; end;
+  execute 'reset role';
+  if n <> 0 then raise exception 'FALHA: AAL1 interno leu % notificacoes proprias', n; end if;
+  if ok then raise exception 'FALHA: AAL1 interno inseriu notificacao'; end if;
+  -- parceiro (nao interno): continua lendo o proprio registro pela regra antiga
+  perform pg_temp.como(p, s, 'aal1', true); execute 'set local role authenticated';
+  select count(*) into n from public.workspace_notifications; execute 'reset role';
+  if n <> 1 then raise exception 'FALHA: nao interno deveria ler o proprio (n=%)', n; end if;
+  raise notice 'OK I5 policies por dono: AAL1 interno negado (leitura e escrita); nao interno intacto; policy restritiva em todas';
+  if not exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='avatars_select_authenticated' and qual like '%sessao_interna_ok%') then
+    raise exception 'FALHA: avatars SELECT sem gate'; end if;
+  raise notice 'OK I5 avatars SELECT com gate';
 end $$;
 rollback;

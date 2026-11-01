@@ -41,6 +41,8 @@ export const LIMITE_PAR = 3 // falhas em 15 min => pausa escalonada 5..240 min, 
 export const LIMITE_IP = 20 // falhas (qualquer e-mail) em 15 min => pausa fixa
 export const LIMITE_IDENTIFICADOR = 10 // falhas de qualquer origem em 15 min => pausa fixa
 export const PAUSA_FIXA_MIN = 5
+export const LIMITE_DURO = 30 // teto por identificador que o Turnstile NAO dispensa: pausa escalonada com teto de 15 min
+export const TETO_DURO_MIN = 15
 
 export function chavesSenha(segredo: string, emailNormalizado: string, ip: string | null) {
   const h = (s: string) => createHmac('sha256', segredo).update(s).digest('hex')
@@ -48,6 +50,7 @@ export function chavesSenha(segredo: string, emailNormalizado: string, ip: strin
     identificador: h(emailNormalizado),
     par: chaveSenha(segredo, `${emailNormalizado}|${ip || 'sem-ip'}`),
     id: 'si:' + h(emailNormalizado),
+    duro: 'sh:' + h(emailNormalizado),
     ip: ip ? 'ip:' + h('ip|' + ip) : null,
   }
 }

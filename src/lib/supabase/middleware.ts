@@ -163,6 +163,8 @@ export async function updateSession(request: NextRequest) {
     '/cadastro-parceiro',
     '/cartao',
     '/api/lookups',
+    // Publica POR DESENHO: o onboarding de parceiros (/cadastro-parceiro) consulta CPF sem sessao, com x-onboarding-token.
+    // O ramo autenticado do handler usa requireApiUser (sessao nao liberada cai no ramo anonimo e exige o token).
     '/api/cpfhub',
     // Autenticam por segredo no próprio handler (Vercel Cron / webhook Assinafy).
     '/api/cron',

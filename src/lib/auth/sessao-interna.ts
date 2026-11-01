@@ -3,6 +3,7 @@ import { cache } from 'react'
 import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { ipConfiavel } from './ip-confiavel'
 import { calcularEtapa, type ClaimsSessao, type EstadoBanco } from './etapas'
 import { registrarEventoSeguranca } from '@/lib/seguranca/registrar'
 
@@ -66,9 +67,8 @@ export type EntradaLog = {
 
 export async function contextoRequisicao() {
   const h = await headers()
-  const fwd = h.get('x-forwarded-for')
   return {
-    ip: (fwd ? fwd.split(',')[0].trim() : h.get('x-real-ip') || '').slice(0, 64) || null, // observado, sem atribuição
+    ip: ipConfiavel((n) => h.get(n)), // só cabeçalho definido pela plataforma (Vercel); observado, sem atribuição
     ua: (h.get('user-agent') || '').slice(0, 300) || null,
     requestId: (h.get('x-vercel-id') || h.get('x-request-id') || randomUUID()).slice(0, 80),
   }
