@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 import { canAccessRoute, getRouteAccessDecision } from '@/lib/auth/permissions'
 import { getEffectivePermissionsForUserId } from '@/lib/auth/effectivePermissions'
+import { isActiveInternalUser } from '@/lib/auth/internal-user'
 import { WORKSPACE_AUTH_COOKIE_NAME, isWorkspaceAuthCookie } from '@/lib/supabase/authCookie'
 
 function isApiRequest(pathname: string) {
@@ -25,8 +26,8 @@ function isPublicAssetRequest(pathname: string) {
 }
 
 function isAuthenticatedOpenApi(pathname: string) {
-  // Rotas de API liberadas a qualquer usuário autenticado (sem permissão específica).
-  // A validação real da sessão é feita no handler via getUser().
+  // Rotas de API sem permissão de ROTA no proxy (cada handler confere a sua).
+  // O proxy valida a sessão (getClaims) e exige usuário interno ativo; ver updateSession.
   // /api/central-conversas e /api/conversas validam permissões no próprio handler.
   return pathname.startsWith('/api/comunicados') || pathname.startsWith('/api/cnpjws') || pathname.startsWith('/api/central-conversas') || pathname.startsWith('/api/conversas')
 }
@@ -202,9 +203,10 @@ export async function updateSession(request: NextRequest) {
     return expireLegacyAuthCookies(request, NextResponse.redirect(url))
   }
 
-  if (isAuthenticatedOpenApi(pathname)) {
-    return NextResponse.next({ request })
-  }
+  // Estas famílias de /api dispensam permissão de ROTA (cada handler confere a sua),
+  // mas NÃO dispensam sessão: o cookie sozinho (qualquer valor) não basta. Seguem
+  // pelo fluxo abaixo (getClaims, bloqueio de externo, usuário interno ativo).
+  const exigeSessaoInterna = isAuthenticatedOpenApi(pathname)
 
   let supabaseResponse = NextResponse.next({ request })
 
@@ -311,6 +313,26 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect('https://parceiro.brspromotora.com.br/')
   }
 
+  // Famílias "authenticated open": além de não ser parceiro por domínio/flag,
+  // precisa ser usuário interno ATIVO (linha em public.users). Fail-closed.
+  if (user && exigeSessaoInterna) {
+    let interno = false
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (serviceRoleKey) {
+      try {
+        const admin = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+        interno = await isActiveInternalUser(admin, user.id)
+      } catch (error) {
+        console.error('Erro ao validar usuario interno no proxy:', error)
+      }
+    }
+    if (!interno) {
+      return NextResponse.json({ error: 'Acesso restrito a usuários internos.' }, { status: 403 })
+    }
+  }
+
   // Troca de senha obrigatória no primeiro acesso (flag no app_metadata).
   const mustChangePassword = Boolean(
     (user as { app_metadata?: { temp_password_reset_required?: boolean } } | null)
@@ -341,7 +363,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && !isPublicRoute && !isServerActionRequest(request)) {
+  if (user && !isPublicRoute && !exigeSessaoInterna && !isServerActionRequest(request)) {
     const decision = getRouteAccessDecision(pathname, request.nextUrl.searchParams)
 
     if (decision.type === 'deny') {

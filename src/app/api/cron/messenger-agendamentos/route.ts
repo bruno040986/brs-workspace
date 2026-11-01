@@ -7,15 +7,13 @@
  */
 import { NextRequest } from 'next/server'
 import { rodarWorkerAgendamentos } from '@/lib/central-conversas/agendamento-worker'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return false
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 async function handle(req: NextRequest) {

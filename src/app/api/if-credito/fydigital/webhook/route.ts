@@ -16,6 +16,7 @@
 import { NextRequest } from 'next/server'
 import { createHash } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/server'
+import { safeEqual } from '@/lib/security/safe-compare'
 import { decifrarTexto } from '@/lib/central-conversas/cofre'
 import { obterInstituicaoFyDigital, verificarAssinaturaFyDigital } from '@/lib/if-credito/fydigital/client'
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     const esperado = String(cfgRow?.webhook_key || '')
     if (!esperado) return Response.json({ ok: false, error: 'webhook key not configured' }, { status: 503 })
     const recebido = req.nextUrl.searchParams.get('key') || ''
-    if (recebido !== esperado) return Response.json({ ok: false, error: 'invalid key' }, { status: 401 })
+    if (!safeEqual(recebido, esperado)) return Response.json({ ok: false, error: 'invalid key' }, { status: 401 })
 
     const bruto = await req.text()
     let payload: any = null

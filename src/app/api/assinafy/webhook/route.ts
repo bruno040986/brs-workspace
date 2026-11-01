@@ -10,6 +10,7 @@
  * houver segredo configurado, aceitamos (mas o ideal é configurar um).
  */
 
+import { safeEqual } from '@/lib/security/safe-compare'
 import { NextRequest } from 'next/server'
 import { getAssinafyConfig, processAssinafyWebhook } from '@/lib/assinafy'
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ ok: false, error: 'webhook secret not configured' }, { status: 503 })
     }
     const provided = req.nextUrl.searchParams.get('secret') || ''
-    if (provided !== expectedSecret) {
+    if (!safeEqual(provided, expectedSecret)) {
       return Response.json({ ok: false, error: 'invalid secret' }, { status: 401 })
     }
 

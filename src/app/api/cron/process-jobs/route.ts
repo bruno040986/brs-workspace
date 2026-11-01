@@ -8,16 +8,13 @@
 
 import { NextRequest } from 'next/server'
 import { runDueJobs } from '@/lib/scp-engine'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  // Segurança (M-1): fail-closed. Sem CRON_SECRET configurado, ninguém dispara o motor.
-  if (!secret) return false
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 async function handle(req: NextRequest) {

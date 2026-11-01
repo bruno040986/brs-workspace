@@ -8,15 +8,13 @@
  */
 import { NextRequest, after } from 'next/server'
 import { kickHigienizacaoWorker, runHigienizacaoAmigozWorker } from '@/lib/if-credito/amigoz/lote'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return false
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 async function handle(req: NextRequest) {

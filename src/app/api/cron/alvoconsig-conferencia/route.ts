@@ -25,7 +25,6 @@
  * Agendado pelo Vercel Cron (ver vercel.json). Protegido por CRON_SECRET.
  */
 
-import { timingSafeEqual } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { codigoErroWesales, customFieldValue, getContact, findOpportunitiesByContactDetalhadas, mensagemErroWesales, opportunityFieldValue, resolveCustomField, WesalesHttpError } from '@/lib/wesales/client'
@@ -33,6 +32,7 @@ import { deveInterromperLote } from '@/lib/alvoconsig/conferencia-lote'
 import { codigoConvenioChave, indexarConveniosPorCodigo, WESALES_FIELD_KEYS } from '@/lib/alvoconsig/campos-sync'
 import { MARGEM_FIELD_KEYS, OFERTA_FIELD_KEYS, resolverPipelineOfertas } from '@/lib/alvoconsig/ofertas-wesales'
 import { calcularOfertas, resolverOfertasRefin, type RawOfertaRefin } from '@/lib/alvoconsig/ofertas'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -40,11 +40,7 @@ export const maxDuration = 120
 const LOTE = 150
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return false
-  const a = Buffer.from(req.headers.get('authorization') || '')
-  const b = Buffer.from(`Bearer ${secret}`)
-  return a.length === b.length && timingSafeEqual(a, b)
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 function digits(value: unknown) {

@@ -17,6 +17,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import { carregarResendConfig, enviarEmailOnboarding } from '@/lib/onboarding-comunicacao'
 import { desfechoEmailFila } from '@/lib/helpdesk/validacao'
 import { escapeHtml } from '@/lib/mensagens/render'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -27,9 +28,7 @@ const LOTE = 20
 const ORCAMENTO_MS = 35_000
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return false
-  return (req.headers.get('authorization') || '') === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 function linkHelpdesk(): string {

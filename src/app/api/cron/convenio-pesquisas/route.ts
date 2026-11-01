@@ -6,6 +6,7 @@
  */
 import { NextRequest } from 'next/server'
 import { rodarWorkerPesquisas } from '@/lib/convenios/pesquisa/motor'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 // Mesma folga da rota /avancar — cada avancarPesquisa() pode levar até ~55s
@@ -13,10 +14,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 90
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return false
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 async function handle(req: NextRequest) {

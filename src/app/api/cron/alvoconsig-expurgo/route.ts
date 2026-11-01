@@ -14,14 +14,13 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { marcarOfertasPerdidas, reverterTagsDaCampanha } from '@/lib/alvoconsig/campanha-encerramento'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.CRON_SECRET || '')
-  if (!secret) return false
-  return (req.headers.get('authorization') || '') === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'))
 }
 
 export async function GET(request: NextRequest) {
