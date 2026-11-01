@@ -446,10 +446,11 @@ export default function UsuariosPage() {
 
   const generateTempPassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'
+    // crypto.getRandomValues (CSPRNG); Math.random é previsível. 12 caracteres.
+    const bytes = new Uint32Array(12)
+    crypto.getRandomValues(bytes)
     let password = ''
-    for (let i = 0; i < 10; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
+    for (const n of bytes) password += chars.charAt(n % chars.length)
     return password
   }
 

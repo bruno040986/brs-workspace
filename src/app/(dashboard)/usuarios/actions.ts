@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { getVisibleEffectivePermissions, requireAnyPermission } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
+import { perfilPermitido, podeAdministrarPrivilegios, resolverRole, validarSenhaTemporaria } from '@/lib/usuarios/seguranca'
 
 // Criamos um cliente com a Service Role para operações administrativas
 const supabaseAdmin = createClient(
@@ -169,7 +170,14 @@ export async function deleteUser(userId: string) {
       await cleanupAuthUsersByEmail(currentEmail, userId)
     }
 
-    // Mantém o histórico no cadastro interno, mas limpa o acesso no Auth
+    // Bloqueia o login no Auth ANTES de marcar inativo: se o ban falhar, a
+    // exclusão falha de forma visível (antes a conta Auth continuava ativa).
+    const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      ban_duration: '876000h',
+    } as any)
+    if (banError) throw new Error(`Não foi possível bloquear o acesso no Auth: ${banError.message}`)
+
+    // Mantém o histórico no cadastro interno
     const { error } = await supabaseAdmin
       .from('users')
       .update({ active: false })
@@ -191,21 +199,20 @@ export async function setUserActive(userId: string, active: boolean) {
       { resource: 'sistema-usuarios-cadastro', action: 'can_delete' },
     ])
 
+    // Bloqueia/libera o login no Auth sem apagar a conta (ban reversível, senha
+    // preservada). Falha de ban é erro visível: não deixa o usuário "inativo" com
+    // login ainda funcionando.
+    const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      ban_duration: active ? 'none' : '876000h',
+    } as any)
+    if (banError) throw new Error(`Não foi possível atualizar o bloqueio no Auth: ${banError.message}`)
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({ active })
       .eq('id', userId)
 
     if (error) throw error
-
-    // Bloqueia/libera o login no Auth sem apagar a conta (ban reversível, senha preservada)
-    try {
-      await supabaseAdmin.auth.admin.updateUserById(userId, {
-        ban_duration: active ? 'none' : '876000h',
-      } as any)
-    } catch (authError) {
-      console.warn('Não foi possível atualizar o bloqueio no Auth:', authError)
-    }
 
     // Cascata: inativar o usuário também inativa as entidades comerciais vinculadas a ele
     let inactivatedEntities = 0
@@ -259,14 +266,36 @@ export async function saveUserDirectly(userData: {
     // Segurança (A-1): gravar permissões individuais é uma operação privilegiada
     // (permitia a um usuário com "cadastro" conceder root a si mesmo). Exige perfil
     // de administrador de perfis ou root.
-    if (Array.isArray(userData.permissions) && userData.permissions.length > 0) {
-      const canManagePrivileges =
-        hasPermission(myPermissions, 'sistema-usuarios-perfis', 'can_edit') ||
-        hasPermission(myPermissions, 'sistema-usuarios-root', 'can_edit')
-      if (!canManagePrivileges) {
-        throw new Error('Sem permissão para definir permissões individuais de usuário.')
-      }
+    // Role, perfil de acesso (profile_id) e permissões individuais são privilégios:
+    // só quem administra perfis/root os define. O que vem do cliente não vale por si.
+    const canManagePrivileges = podeAdministrarPrivilegios((resource, action) =>
+      hasPermission(myPermissions, resource, action),
+    )
+    if (Array.isArray(userData.permissions) && userData.permissions.length > 0 && !canManagePrivileges) {
+      throw new Error('Sem permissão para definir permissões individuais de usuário.')
     }
+
+    // Estado atual (edição) para decidir role/perfil sem confiar no cliente.
+    let atualRole: string | null = null
+    let atualProfileId: string | null = null
+    if (userData.id) {
+      const { data: atual, error: atualErr } = await supabaseAdmin
+        .from('users')
+        .select('role, profile_id')
+        .eq('id', userData.id)
+        .single()
+      if (atualErr) throw atualErr
+      atualRole = (atual as { role?: string | null } | null)?.role ?? null
+      atualProfileId = (atual as { profile_id?: string | null } | null)?.profile_id ?? null
+    }
+    if (!perfilPermitido({ pedido: userData.profile_id, atual: atualProfileId, privilegiado: canManagePrivileges })) {
+      throw new Error('Sem permissão para definir o perfil de acesso do usuário.')
+    }
+    const roleFinal = resolverRole({ pedido: userData.role, atual: atualRole, privilegiado: canManagePrivileges })
+    // Senha provisória: obrigatória na criação, nunca um valor padrão.
+    const senhaTemporaria = userData.id
+      ? (userData.temp_password ? validarSenhaTemporaria(userData.temp_password) : undefined)
+      : validarSenhaTemporaria(userData.temp_password)
 
     const now = new Date().toISOString()
     let userId = userData.id
@@ -308,11 +337,12 @@ export async function saveUserDirectly(userData: {
       // (o form só a envia ao gerar uma nova). Editar o próprio usuário sem trocar senha
       // não invalida a sessão. Segurança: a senha NÃO é mais gravada em claro na tabela;
       // marcamos no app_metadata que o usuário deve trocá-la no primeiro acesso.
-      if (userData.temp_password) {
-        await supabaseAdmin.auth.admin.updateUserById(userId, {
-          password: userData.temp_password,
+      if (senhaTemporaria) {
+        const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          password: senhaTemporaria,
           app_metadata: { temp_password_reset_required: true },
         })
+        if (pwErr) throw pwErr
       }
 
       const { data: currentUser, error: currentUserErr } = await supabaseAdmin
@@ -344,8 +374,8 @@ export async function saveUserDirectly(userData: {
           email: userData.email,
           cpf: userData.cpf,
           birth_date: userData.birth_date || null,
-          role: userData.role,
-          profile_id: userData.profile_id || null,
+          role: roleFinal,
+          profile_id: canManagePrivileges ? (userData.profile_id || null) : atualProfileId,
           session_timeout: userData.session_timeout,
           avatar_url: finalAvatarUrl,
           commercial_role: userData.commercial_role || null,
@@ -363,7 +393,7 @@ export async function saveUserDirectly(userData: {
       // trocar a senha provisória no primeiro acesso (flag no app_metadata).
       const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
         email: userData.email,
-        password: userData.temp_password || 'brs123456',
+        password: senhaTemporaria!,
         email_confirm: true,
         app_metadata: { temp_password_reset_required: true }
       })
@@ -380,8 +410,8 @@ export async function saveUserDirectly(userData: {
           email: userData.email,
           cpf: userData.cpf,
           birth_date: userData.birth_date || null,
-          role: userData.role,
-          profile_id: userData.profile_id || null,
+          role: roleFinal,
+          profile_id: canManagePrivileges ? (userData.profile_id || null) : atualProfileId,
           session_timeout: userData.session_timeout,
           avatar_url: finalAvatarUrl,
           active: true,
