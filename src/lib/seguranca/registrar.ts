@@ -17,7 +17,8 @@ export async function registrarEventoSeguranca(evento: EventoSeguranca): Promise
     const admin = await createAdminClient()
     let fora: boolean | null = null
     if (ev.tipo === 'login.concluido' && ev.identidade_validada_user_id) {
-      const { data } = await admin.from('user_schedules').select('day_of_week, enabled, start_time_1, end_time_1, start_time_2, end_time_2').eq('user_id', ev.identidade_validada_user_id)
+      const { data, error: errHor } = await admin.from('user_schedules').select('day_of_week, enabled, start_time_1, end_time_1, start_time_2, end_time_2').eq('user_id', ev.identidade_validada_user_id)
+      if (errHor) console.error('[seguranca] falha ao ler user_schedules (regra fora_do_expediente desativada neste evento)', errHor.message?.slice(0, 200))
       const h = (data || []) as HorarioDia[]
       const dentro = dentroDoExpediente(h, new Date(ev.ocorrido_em))
       fora = dentro === null ? null : !dentro

@@ -8,13 +8,18 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="$HERE/../migrations"
 PSQL=(docker exec -i "$CT" psql -U postgres -v ON_ERROR_STOP=1 -q)
 fail() { echo "FALHOU: $*" >&2; exit 1; }
 "$HERE/run-m03a.sh" "$CT" "$DB" >/dev/null || fail "base M03-A"
-f="$MIG/20261101040000_security_m05_incidentes.sql"
-for i in 1 2; do echo "== migration M05 (passada $i)"; "${PSQL[@]}" -d "$DB" < "$f" 2>&1 | grep -E 'NOTICE:.*M05|ERROR'; [ "${PIPESTATUS[0]}" -eq 0 ] || fail "migration M05"; done
+for f in "$MIG/20261101040000_security_m05_incidentes.sql" "$MIG/20261101045000_security_m05_complemento.sql"; do
+  for i in 1 2; do echo "== migration $(basename "$f") (passada $i)"; "${PSQL[@]}" -d "$DB" < "$f" 2>&1 | grep -E 'NOTICE:.*M05|ERROR'; [ "${PIPESTATUS[0]}" -eq 0 ] || fail "migration $f"; done
+done
 LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
 echo "== teste SQL M05"
 "${PSQL[@]}" -d "$DB" < "$HERE/security_m05_incidentes.sql" > "$LOG" 2>&1; rc=$?
 grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
 [ "$rc" -eq 0 ] || fail "security_m05_incidentes.sql"
+echo "== teste SQL do complemento M05"
+"${PSQL[@]}" -d "$DB" < "$HERE/security_m05_complemento.sql" > "$LOG" 2>&1; rc=$?
+grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
+[ "$rc" -eq 0 ] || fail "security_m05_complemento.sql"
 
 echo "== concorrencia: 6 sessoes, mesma chave, 1 incidente"
 EV() { echo "select public.seg_registrar_evento('{\"fonte\":\"teste\",\"id_origem\":\"conc-$1\",\"tipo\":\"login.falha\"}','[{\"regra\":\"conc_regra\",\"contexto\":\"mesma\",\"gravidade\":\"alta\"}]');"; }

@@ -21,7 +21,7 @@ export function extrairPathDocumento(valor: unknown): string | null {
   } else {
     path = s.replace(/^\/+/, '')
   }
-  if (!path || path.includes('..') || path.includes('\\') || path.includes('\0') || path.includes('?') || path.includes('#')) return null
+  if (!path || path.includes('..') || path.includes('\\') || path.includes('\0') || (!/^https:/i.test(s) && path.includes('%')) || path.includes('?') || path.includes('#')) return null
   return path
 }
 

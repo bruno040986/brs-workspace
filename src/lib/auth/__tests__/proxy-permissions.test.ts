@@ -94,3 +94,12 @@ describe('Unit Tests: Proxy Route Access Decision Rules & Simulated Flow', () =>
     assert.strictEqual(res.status, 200)
   })
 })
+
+describe('rota de detalhe de incidente (M05 I-5)', () => {
+  it('prefixo /usuarios/seguranca/incidentes/<id> segue a permissão da listagem', () => {
+    const d = getRouteAccessDecision('/usuarios/seguranca/incidentes/abc')
+    assert.strictEqual(d.type, 'permission')
+    assert.strictEqual(canAccessRoute([{ resource_name: 'seguranca-incidentes', can_view: true }], (d as any).rule), true)
+    assert.strictEqual(canAccessRoute([{ resource_name: 'conversas', can_view: true }], (d as any).rule), false)
+  })
+})

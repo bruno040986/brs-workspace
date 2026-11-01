@@ -33,6 +33,26 @@ export function hashCurto(v: string): string {
   return createHash('sha256').update(v.trim().toLowerCase()).digest('hex').slice(0, 16)
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const CPF = /^(\d{11}|\d{3}\.\d{3}\.\d{3}-\d{2})$/
+const MAX_PAYLOAD_BYTES = 16384
+
+/** Só guarda o que parece e-mail/CPF; o resto (ex.: senha digitada no campo errado) vira marcador + hash curto. Espelha o SQL. */
+export function identidadeInformadaSegura(v: string | null | undefined): string | null {
+  const s = corta(v, 254)
+  if (!s) return null
+  return EMAIL.test(s) || CPF.test(s) ? s.toLowerCase() : `formato_invalido:${hashCurto(s)}`
+}
+
+/** Corta por tamanho ANTES de sanitizar (custo de CPU limitado). */
+function payloadSeguro(p: unknown): Record<string, unknown> {
+  const bruto = p ?? {}
+  const bytes = Buffer.byteLength(JSON.stringify(bruto) ?? '', 'utf8')
+  if (bytes > MAX_PAYLOAD_BYTES) return { truncado: true, bytes }
+  const s = sanitizarPayload(bruto)
+  return s && typeof s === 'object' && !Array.isArray(s) ? (s as Record<string, unknown>) : { valor: s }
+}
+
 export function normalizarEvento(e: EventoSeguranca): EventoNormalizado {
   const fonte = String(e.fonte || '').toLowerCase()
   const tipo = String(e.tipo || '').toLowerCase()
@@ -41,13 +61,13 @@ export function normalizarEvento(e: EventoSeguranca): EventoNormalizado {
   const ocorrido = e.ocorridoEm ? new Date(e.ocorridoEm) : new Date()
   const ip = corta(e.ipObservado, 64)
   const validado = corta(e.identidadeValidadaUserId, 40)
-  const payload = (sanitizarPayload(e.payload ?? {}) as Record<string, unknown>) ?? {}
+  const payload = payloadSeguro(e.payload)
   return {
     fonte,
     tipo,
     id_origem: corta(e.idOrigem, 120),
     ocorrido_em: (Number.isNaN(ocorrido.getTime()) ? new Date() : ocorrido).toISOString(),
-    identidade_informada: corta(e.identidadeInformada, 254)?.toLowerCase() ?? null,
+    identidade_informada: identidadeInformadaSegura(e.identidadeInformada),
     identidade_validada_user_id: validado && UUID.test(validado) ? validado : null,
     request_id: corta(e.requestId, 120),
     ip_observado: ip && isIP(ip) ? ip : null,

@@ -62,3 +62,19 @@ test('expediente: fuso de Brasília, dois turnos, dia desabilitado, sem horário
   assert.equal(dentroDoExpediente(h, new Date('2026-11-03T02:30:00Z')), false) // domingo->segunda: 23:30 BRT de segunda
   assert.equal(dentroDoExpediente([], new Date()), null)
 })
+
+test('I-3: identidade informada só vale se parecer e-mail/CPF; senão hash + marcador', () => {
+  const a = normalizarEvento({ fonte: 'x', tipo: 'login.falha', identidadeInformada: 'MinhaSenha@123!' })
+  assert.match(a.identidade_informada!, /^formato_invalido:[0-9a-f]{16}$/)
+  assert.equal(normalizarEvento({ fonte: 'x', tipo: 'a', identidadeInformada: 'Fulano@BRS.com' }).identidade_informada, 'fulano@brs.com')
+  assert.equal(normalizarEvento({ fonte: 'x', tipo: 'a', identidadeInformada: '123.456.789-01' }).identidade_informada, '123.456.789-01')
+})
+
+test('I-4: payload grande é cortado antes de sanitizar e termina rápido', () => {
+  const grande: Record<string, unknown> = {}
+  for (let a = 0; a < 40; a++) { const m: Record<string, unknown> = {}; for (let b = 0; b < 40; b++) m['j' + b] = 'valor'.repeat(5); grande['k' + a] = m }
+  const t = Date.now()
+  const e = normalizarEvento({ fonte: 'x', tipo: 'a', payload: grande })
+  assert.equal((e.payload as { truncado?: boolean }).truncado, true)
+  assert.ok(Date.now() - t < 500)
+})

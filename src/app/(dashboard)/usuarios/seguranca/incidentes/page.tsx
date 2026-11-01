@@ -33,7 +33,7 @@ export default async function IncidentesPage({ searchParams }: { searchParams: P
     <div style={{ padding: '1.5rem' }}>
       <h1>Segurança › Incidentes</h1>
       <p style={{ fontSize: '0.8rem', opacity: 0.8 }}>
-        Monitor de configuração: {ultima.data ? `última execução ${fmt(ultima.data.atualizado_em)}` : 'nunca executou'}.
+        Monitor de configuração: {ultima.data ? `última execução ${fmt(ultima.data.atualizado_em)}` : 'nunca executou'}.{ultima.data && (ultima.data.valor as { baseline?: boolean })?.baseline === false ? ' Sem baseline: modo absoluto (só violações; nada "novo" é detectado até definir a baseline).' : ''}
         IP e user-agent são dados observados, sem atribuição de autoria. Identidade informada não é identidade validada.
       </p>
       <form method="get" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '1rem 0' }}>

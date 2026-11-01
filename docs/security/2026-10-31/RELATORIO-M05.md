@@ -58,4 +58,15 @@ Código: reverter os dois commits. Banco (só se aplicada): `DROP VIEW seg_v_*; 
 ## 11. Pendências
 Ligar os ganchos no M04/M03-B; M06 (dispatcher, orçamento atômico, resumo); retenção de `seg_eventos`; inventário remoto das policies antes da baseline; decisão de horário de expediente e feriados (hoje `user_schedules` sem exceções/feriados); coleta de `auth.audit_log_entries`; monitor independente.
 
+## Correções pós-revisão (2026-11-01, REVISAO-M05.md)
+Migration nova `20261101045000_security_m05_complemento.sql` (reaplica 4 funções; a 040000 não foi editada). Testes: `supabase/tests/security_m05_complemento.sql`, chamado por `run-m05.sh`.
+- I-1: `seg_monitor_itens` agora lê `pg_proc` (public, SECURITY DEFINER, não-trigger, fora de extensão) com EXECUTE para PUBLIC/anon/authenticated => `funcao`/`alta`; grant a `authenticated` em tabela sem RLS => `alta` (leitura) ou `critica` (escrita).
+- I-2: com baseline, desvio novo/alterado de policy/grant/bucket/funcao tem gravidade mínima `alta` (gera incidente e intenção).
+- I-3: `identidade_informada` só é gravada se parecer e-mail ou CPF; senão `formato_invalido:<sha256 16 hex>` (TS `normalizar.ts` e SQL, mesmo hash).
+- I-4: payload > 16 KB é cortado antes de sanitizar (`{truncado,bytes}`) em TS e em `seg_sanitizar` (nível 0); teste SQL: payload de ~1,6 MB em 0,1 s (antes 7 s para 20 MB).
+- I-5: `prefixRouteRules` ganhou `/usuarios/seguranca/incidentes` (teste).
+- Menores feitos: M-1 contexto iniciado por `__` é normalizado para `_` (não colide com o agregado); M-8 erro de `user_schedules` logado; M-9 painel avisa "sem baseline"; B-1 `%` no path cru rejeitado e UUID do agente validado antes da consulta.
+- Menores só documentados (não feitos): M-2 (classificações do excedente de cardinalidade sem `incidente_id`: guardar contexto original antes da troca), M-3 (ordem dos locks por regra: ordenar classificações), M-4 (`preparada` morto), M-5 (teto de claims/`esgotada`, contrato do M06), M-6 (formato da allowlist de buckets), M-7 (pré-requisito verificar leitura de `storage.buckets`/`auth.users`), M-10 (`profile_permissions` sem uso), M-11 (`idOrigem` obrigatório em `login.*`).
+- Resultados reais: `bash supabase/tests/run-m05.sh` => `M05 TUDO OK` (migrações 040000 e 045000 aplicadas 2x; complemento 10 OK); `npm test` 545 testes, 542 pass, 0 fail, 3 skipped; `npx tsc --noEmit` rc=0.
+
 ENTREGUE PARA REVISAO

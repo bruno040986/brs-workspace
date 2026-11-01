@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   const agenteId = request.nextUrl.searchParams.get('agente') ?? ''
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agenteId)) return NextResponse.json({ error: 'documento indisponível' }, { status: 404 })
   const admin = await createAdminClient()
   const { data: agente } = await admin.from('agentes_parceiros').select('corban_data').eq('id', agenteId).maybeSingle()
   const path = agente ? resolverDocumentoDoAgente(agente.corban_data, agenteId, request.nextUrl.searchParams.get('ref')) : null

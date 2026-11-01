@@ -226,6 +226,7 @@ const authenticatedOpenRoutes = new Set([
 ])
 
 const prefixRouteRules: Array<[string, RouteAccessRule]> = [
+  ['/usuarios/seguranca/incidentes', any([view('seguranca-incidentes')])],
   ['/rh/vale-transporte/novo', any([include('rh-vale-transporte')])],
   ['/rh/vale-transporte/opcao', any([include('rh-vale-transporte')])],
   ['/rh/vale-transporte/recusa', any([include('rh-vale-transporte')])],

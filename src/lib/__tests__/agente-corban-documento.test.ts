@@ -13,7 +13,7 @@ const cd = {
 describe('documento do parceiro', () => {
   it('extrai path de URL antiga e recusa externos/bucket errado', () => {
     assert.equal(extrairPathDocumento(cd.documents.bank_proof_url), '123/bank/1_a b.pdf')
-    for (const ruim of ['https://evil.example/x.pdf', 'https://p.supabase.co/storage/v1/object/public/outro/x.pdf', 'javascript:alert(1)', 'data:text/html,x', 'a/../b.pdf', '//evil/x', '']) {
+    for (const ruim of ['https://evil.example/x.pdf', 'https://p.supabase.co/storage/v1/object/public/outro/x.pdf', 'javascript:alert(1)', 'data:text/html,x', 'a/../b.pdf', 'a/%2e%2e/b.pdf', '//evil/x', '']) {
       assert.equal(extrairPathDocumento(ruim), null, ruim)
     }
   })
