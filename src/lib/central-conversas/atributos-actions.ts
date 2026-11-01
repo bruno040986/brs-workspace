@@ -8,7 +8,8 @@
 
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { clienteChatwootBrs, getContatoMetaReadOnly } from './actions'
+import { getContatoMetaReadOnly } from './actions'
+import { clienteChatwootBrs } from './conta-brs'
 import { corpoDefinicao, DEFINICOES, mesclarAtributos, MOTIVOS_PADRAO, normalizarLista, type DefinicaoAtributo, type ModeloAtributo } from './atributos'
 import { espelharVinculoContato, gravarAtributosContato, lerAtributosContato } from './atributos-espelho'
 

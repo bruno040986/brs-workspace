@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { contaBrs } from '@/lib/central-conversas/actions'
+import { contaBrs } from '@/lib/central-conversas/conta-brs'
 import { engine, engineConfigurado, mensagemErroEngine } from '@/lib/central-conversas/engine'
 import { novoOperationId } from '@/lib/central-conversas/envio-intencao'
 import { enviarWhatsappPromocao } from './whatsapp'

@@ -8,7 +8,7 @@
  */
 import { createAdminClient } from '@/lib/supabase/server'
 import { cifrarTexto, cofreConfigurado, decifrarTexto } from '@/lib/central-conversas/cofre'
-import { contaBrs } from '@/lib/central-conversas/actions'
+import { contaBrs } from '@/lib/central-conversas/conta-brs'
 import { engine } from '@/lib/central-conversas/engine'
 import { EVENTOS_WEBHOOK_V1, ErroYcloudApi, somenteDigitos, ycloudApi, type YcloudPhoneNumber } from './client'
 

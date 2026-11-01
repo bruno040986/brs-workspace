@@ -9,7 +9,7 @@
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { lerJanelaConversa, listarTemplates, type JanelaConversa, type TemplateYcloud } from '@/lib/ycloud/leitura'
-import { contaBrs } from './actions'
+import { contaBrs } from './conta-brs'
 import { engine, EngineEnvioIncertoError, mensagemErroEngine } from './engine'
 import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
 

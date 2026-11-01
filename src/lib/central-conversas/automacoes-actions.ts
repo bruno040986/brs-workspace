@@ -8,7 +8,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { clienteChatwootBrs } from './actions'
+import { clienteChatwootBrs } from './conta-brs'
 import { montarCorpoRegra, type RegraEntrada } from './automacoes'
 
 export type RegraChatwoot = {

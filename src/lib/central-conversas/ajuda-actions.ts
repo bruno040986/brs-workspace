@@ -8,7 +8,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { clienteChatwootBrs } from './actions'
+import { clienteChatwootBrs } from './conta-brs'
 import { corpoArtigo, corpoCategoria, corpoPortal, linkArtigo, type ArtigoEntrada } from './ajuda'
 
 type Falha = { ok: false; error: string }

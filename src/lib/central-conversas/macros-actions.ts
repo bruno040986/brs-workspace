@@ -9,7 +9,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { clienteChatwootBrs } from './actions'
+import { clienteChatwootBrs } from './conta-brs'
 import { montarCorpoMacro, type MacroEntrada } from './macros'
 
 export type MacroChatwoot = {

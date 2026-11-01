@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { gerarXlsx, type ItemRemessa } from '@/lib/promocoes/remessa-logic'
-import { registrarExportacao } from '@/lib/promocoes/remessa-actions'
+import { registrarExportacao } from '@/lib/promocoes/remessa-exportacao'
 
 export const runtime = 'nodejs'
 

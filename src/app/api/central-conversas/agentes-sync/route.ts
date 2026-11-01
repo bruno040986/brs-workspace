@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/auth/server'
-import { createAdminClient } from '@/lib/supabase/server'
-import { ChatwootConta } from '@/lib/central-conversas/chatwoot'
-import { decifrarTexto } from '@/lib/central-conversas/cofre'
+import { clienteChatwootBrs } from '@/lib/central-conversas/conta-brs'
 import { sincronizarAgentesBrs } from '@/lib/central-conversas/provisionar-agentes'
-
-async function clienteChatwootBrs(): Promise<ChatwootConta | null> {
-  const admin = await createAdminClient()
-  const { data } = await admin.from('chat_contas').select('chatwoot_account_id, token_cifrado').eq('owner_tipo', 'brs').maybeSingle()
-  if (!data) return null
-  return new ChatwootConta(Number(data.chatwoot_account_id), decifrarTexto(String(data.token_cifrado)))
-}
 
 export const dynamic = 'force-dynamic'
 

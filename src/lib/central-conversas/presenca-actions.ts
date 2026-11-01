@@ -10,7 +10,7 @@
 
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { contaBrs } from './actions'
+import { contaBrs } from './conta-brs'
 import { engine } from './engine'
 
 /**

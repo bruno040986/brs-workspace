@@ -1,11 +1,16 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { requireAnyPermission, requirePermission } from '@/lib/auth/server'
 import { DEFAULT_BANK_RULES, DEFAULT_GENERAL_RULES, DEFAULT_PORT_COEFF } from '@/lib/portability/evaluator'
 import { RegraBancoPortabilidade } from '@/lib/portability/types'
 import { revalidatePath } from 'next/cache'
 
 // Padrões de bancos que existem no HTML
+// Server Actions não passam pelo proxy: cada função confere a permissão aqui.
+// A RLS (migration 20261101010000) é a segunda barreira.
+const RECURSO = 'operacional-simulador-portabilidade'
+
 const HTML_BANK_PATTERNS = [
   'FACTA',
   'BMG',
@@ -37,6 +42,7 @@ function matchesHtmlBank(name: string): boolean {
 
 export async function getPortabilidadeData() {
   try {
+    await requirePermission(RECURSO, 'can_view')
     const supabase = await createClient()
 
     // 1. Buscar TODAS as IFs ativas no Workspace (Sem restrição de exibição no dropdown)
@@ -214,6 +220,7 @@ export async function getPortabilidadeData() {
 
 export async function saveRegraIfPortabilidade(payload: Partial<RegraBancoPortabilidade>) {
   try {
+    await requireAnyPermission([{ resource: RECURSO, action: 'can_include' }, { resource: RECURSO, action: 'can_edit' }])
     const supabase = await createClient()
 
     if (!payload.institutionId) {
@@ -286,6 +293,7 @@ export async function saveRegraIfPortabilidade(payload: Partial<RegraBancoPortab
 
 export async function deleteRegraIfPortabilidade(id: string) {
   try {
+    await requirePermission(RECURSO, 'can_delete')
     const supabase = await createClient()
 
     // Se for uma regra temporária de semente (seed-...), apenas limpa da tela sem erro
@@ -305,6 +313,7 @@ export async function deleteRegraIfPortabilidade(id: string) {
 
 export async function saveCoeficienteGlobalPortabilidade(defaultPortCoeff: number) {
   try {
+    await requirePermission(RECURSO, 'can_edit')
     const supabase = await createClient()
 
     const { error } = await supabase.from('regras_portabilidade_globais').insert({
@@ -325,6 +334,7 @@ export async function saveCoeficienteGlobalPortabilidade(defaultPortCoeff: numbe
 
 export async function parsePdfExtratoAction(formData: FormData) {
   try {
+    await requirePermission(RECURSO, 'can_view')
     const file = formData.get('file') as File | null
     if (!file) {
       return { success: false, error: 'Nenhum arquivo PDF selecionado.' }

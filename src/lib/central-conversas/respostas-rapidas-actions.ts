@@ -8,7 +8,8 @@
 import { revalidatePath } from 'next/cache'
 import { requireCurrentUser, requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { assinaturaDoUsuario, clienteChatwootBrs, contaBrs, meusDepartamentos } from './actions'
+import { assinaturaDoUsuario, meusDepartamentos } from './actions'
+import { clienteChatwootBrs, contaBrs } from './conta-brs'
 
 // Mesma allowlist do composer (ANEXO_MIMES_PERMITIDOS em actions.ts) — o
 // anexo da resposta rápida sai pelo mesmo caminho de envio.

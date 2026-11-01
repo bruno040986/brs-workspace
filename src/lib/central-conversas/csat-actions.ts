@@ -7,7 +7,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
-import { clienteChatwootBrs } from './actions'
+import { clienteChatwootBrs } from './conta-brs'
 import { CSAT_BOTAO_PADRAO, CSAT_MENSAGEM_PADRAO, montarConfigCsat, resumirCsat, type CsatEntrada, type RespostaCsat, type ResumoCsat } from './csat'
 
 type Falha = { ok: false; error: string }

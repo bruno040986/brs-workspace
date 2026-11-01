@@ -5,7 +5,8 @@
  * pela UI.
  */
 import { createAdminClient } from '@/lib/supabase/server'
-import { contaBrs, clienteChatwootBrs, assinaturaDoUsuario } from './actions'
+import { assinaturaDoUsuario } from './actions'
+import { contaBrs, clienteChatwootBrs } from './conta-brs'
 
 function assinar(assinatura: string, texto: string): string {
   return assinatura ? `*${assinatura}:*\n${texto}` : texto

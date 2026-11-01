@@ -19,7 +19,8 @@ export async function podeAtenderConversas(): Promise<boolean> {
   }
 }
 import { createAdminClient } from '@/lib/supabase/server'
-import { cifrarJson, cofreConfigurado, decifrarTexto } from './cofre'
+import { contaBrs, clienteChatwootBrs } from './conta-brs'
+import { cifrarJson, cofreConfigurado } from './cofre'
 import type { ProvedorChat } from './capacidades'
 import { engine, engineConfigurado, EngineEnvioIncertoError, mensagemErroEngine } from './engine'
 import { ehOperationId, normalizarTelefoneDestino, type ResultadoEnvio } from './envio-intencao'
@@ -71,18 +72,6 @@ export type InstanciaView = {
 }
 
 const COLS_VIEW = 'id, nome, papel, provedor, permite_grupos, status, numero, numero_informado, tipo_numero, operadora_id, tipo_plano, nome_perfil, ultimo_qr, qr_atualizado_em, ultimo_erro, conectada_em, chatwoot_inbox_id, ordem, departamento_id'
-
-export async function contaBrs() {
-  const admin = await createAdminClient()
-  const { data } = await admin.from('chat_contas').select('id, nome, chatwoot_account_id, token_cifrado').eq('owner_tipo', 'brs').maybeSingle()
-  return data
-}
-
-export async function clienteChatwootBrs(): Promise<ChatwootConta | null> {
-  const conta = await contaBrs()
-  if (!conta) return null
-  return new ChatwootConta(Number(conta.chatwoot_account_id), decifrarTexto(String(conta.token_cifrado)))
-}
 
 async function enrichInstancias(instancias: any[]): Promise<InstanciaView[]> {
   if (!instancias.length) return []
@@ -2010,7 +1999,7 @@ export async function getBootstrapData(): Promise<BootstrapData> {
   const { user, permissions } = await requirePermission('conversas', 'can_view')
 
   const conta = await contaBrs()
-  const cli = conta ? new ChatwootConta(Number(conta.chatwoot_account_id), decifrarTexto(String(conta.token_cifrado))) : null
+  const cli = conta ? await clienteChatwootBrs() : null
 
   const ehSupervisor = permissions.some((p) => p.resource_name === 'central-conversas' && Boolean(p.can_view))
   let departamentos: DepartamentoResumo[] = []

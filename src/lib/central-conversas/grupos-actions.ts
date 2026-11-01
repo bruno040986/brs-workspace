@@ -12,7 +12,7 @@
 
 import { requirePermission, requireCurrentUser } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { clienteChatwootBrs, contaBrs } from './actions'
+import { clienteChatwootBrs, contaBrs } from './conta-brs'
 import { capacidadesDe } from './capacidades'
 import { engine, engineGrupos, EngineEnvioIncertoError, mensagemErroEngine, type MembroGrupo, type ContatoConexao } from './engine'
 import { parseIdentifier } from '@/components/conversas/atendimento/types'

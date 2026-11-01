@@ -10,7 +10,7 @@
 import { revalidatePath } from 'next/cache'
 import { requireCurrentUser, requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { contaBrs } from './actions'
+import { contaBrs } from './conta-brs'
 
 export type AcaoAgendada = {
   id: string

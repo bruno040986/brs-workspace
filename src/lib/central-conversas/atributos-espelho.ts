@@ -20,7 +20,7 @@ export async function gravarAtributosContato(cli: { req<T>(path: string, init?: 
 
 export async function espelharVinculoContato(contactId: number, tipo: TipoEntidade | null, nome: string): Promise<boolean> {
   try {
-    const { clienteChatwootBrs } = await import('./actions')
+    const { clienteChatwootBrs } = await import('./conta-brs')
     const cli = await clienteChatwootBrs()
     if (!cli) return false
     await gravarAtributosContato(cli, contactId, atributosDoVinculo(tipo, nome))

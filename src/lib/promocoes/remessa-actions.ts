@@ -128,15 +128,6 @@ export async function gerarRemessa(slug: string, dataReferencia?: string): Promi
   }
 }
 
-/** gerada → exportada (idempotente: se já passou disso, não mexe). Usada pela rota do Excel. */
-export async function registrarExportacao(remessaId: string, userId: string) {
-  const sb: any = await createAdminClient()
-  const { data } = await sb.from('promocao_remessas')
-    .update({ status: 'exportada', exportada_por: userId, exportada_em: new Date().toISOString() })
-    .eq('id', remessaId).eq('status', 'gerada').select('campanha_id').maybeSingle()
-  if (data) await sb.from('promocao_eventos').insert({ campanha_id: data.campanha_id, entidade: 'remessa', entidade_id: remessaId, tipo: 'remessa_exportada', ator_user_id: userId })
-}
-
 export async function marcarEnviadaPagamento(slug: string, remessaId: string): Promise<Res<{ avisos: number }>> {
   try {
     const { user } = await requirePermission(PERM, 'can_edit')

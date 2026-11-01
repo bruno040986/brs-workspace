@@ -11,7 +11,7 @@
 import { revalidatePath } from 'next/cache'
 import { requirePermission } from '@/lib/auth/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { contaBrs, clienteChatwootBrs } from './actions'
+import { contaBrs, clienteChatwootBrs } from './conta-brs'
 
 export type DepartamentoRow = {
   id: string
