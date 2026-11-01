@@ -28,3 +28,7 @@ Migration `supabase/migrations/20261101070000_security_tabelas_portal_crm.sql` (
 - Índice `chat_envios_operacoes_presas_idx`: a tabela real do ledger é `chat_envios_operacoes` (não existe `chat_envios`). Bloco `DO` cria só se a tabela e `updated_at` existirem; senão avisa e pula.
 - A limpeza diária de `cadastro_rate_limit_eventos` (> 2 dias) continua sugerida, não criada.
 - Teste: `supabase/tests/run-tabelas.sh` (migration 2x, RLS, privilégios, search_path, comportamento do throttle, índice pulado sem a coluna).
+
+## Aplicação em produção
+
+As migrations `20261101010000` a `20261101070000` foram aplicadas no projeto de produção em 01/11/2026 (21:50–22:40 UTC) via MCP do Supabase, em lotes transacionais, com confirmação do dono a cada lote e conferência por leitura depois de cada um. Hash das políticas igual ao banco de testes local; hash das funções igual ignorando comentários/espaços. Detalhes em `SEGURANCA-BRS-DECISOES-2026-11-01.md` (raiz "BRS GESTÃO"), seção "Passo 1 aplicado em produção".
