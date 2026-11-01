@@ -37,6 +37,7 @@ echo "== copia pre-seguranca para o teste de aborto"
 echo "== migrations de seguranca (ON_ERROR_STOP)"
 # M03A_SKIP_SECURITY=1 pula as migrations de seguranca: os testes DEVEM falhar (prova de que nao passam vazios).
 for f in "$MIG"/20261101*.sql; do
+  [[ "$(basename "$f")" > "20261101029999" ]] && continue # M04 tem runner proprio (run-m04.sh)
   [ "${M03A_SKIP_SECURITY:-0}" = 1 ] && break
   echo "  $(basename "$f")"
   "${PSQL[@]}" -d "$DB" < "$f" > "$LOG" 2>&1; rc=$?
@@ -44,10 +45,10 @@ for f in "$MIG"/20261101*.sql; do
   [ "$rc" -eq 0 ] || fail "$(basename "$f")"
 done
 echo "== reaplicar (idempotencia)"
-[ "${M03A_SKIP_SECURITY:-0}" = 1 ] || for f in "$MIG"/20261101*.sql; do "${PSQL[@]}" -d "$DB" < "$f" >/dev/null 2>&1 || fail "reaplicar $(basename "$f")"; done
+[ "${M03A_SKIP_SECURITY:-0}" = 1 ] || for f in "$MIG"/20261101*.sql; do [[ "$(basename "$f")" > "20261101029999" ]] && continue; "${PSQL[@]}" -d "$DB" < "$f" >/dev/null 2>&1 || fail "reaplicar $(basename "$f")"; done
 
 echo "== testes SQL"
-for t in "$HERE"/security_initial_rls_hardening.sql "$HERE"/security_m03a_workspace_containment.sql; do
+for t in "$HERE"/security_initial_rls_hardening.sql "$HERE"/security_m03a_workspace_containment.sql "$HERE"/security_m03a_complemento.sql; do
   echo "  $(basename "$t")"
   "${PSQL[@]}" -d "$DB" < "$t" > "$LOG" 2>&1; rc=$?
   grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
