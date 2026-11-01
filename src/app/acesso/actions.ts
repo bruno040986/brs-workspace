@@ -227,7 +227,11 @@ async function verificarTotpComContador(factorId: string, code: string, sess: No
       await registrarAcesso({ etapa: 'totp', resultado: 'erro_infra', motivo: 'erro_infraestrutura', userId: sess.userId, sessionId: sess.sessionId })
       return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
     }
-    const f = await rpc<{ pausa_seg: number; alerta: boolean }>('auth_registrar_falha', { p_chave: chave, p_etapa: 'totp' })
+    // Com o hook MFA do Auth ligado (AUTH_HOOK_MFA_ATIVO=true) a falha ja foi contada la (caminho unico para
+    // o servidor e para o GoTrue direto): aqui so le a pausa, para nao contar duas vezes.
+    const f = process.env.AUTH_HOOK_MFA_ATIVO === 'true'
+      ? { data: { pausa_seg: (await rpc<number>('auth_pausa_atual', { p_chave: chave, p_etapa: 'totp' })).data ?? 0, alerta: false } }
+      : await rpc<{ pausa_seg: number; alerta: boolean }>('auth_registrar_falha', { p_chave: chave, p_etapa: 'totp' })
     const pausaSeg = f.data?.pausa_seg ?? 0
     await registrarAcesso({
       etapa: 'totp', resultado: pausaSeg ? 'pausa' : 'falha', motivo: pausaSeg ? 'pausa_aplicada' : 'totp_invalido', userId: sess.userId, sessionId: sess.sessionId,

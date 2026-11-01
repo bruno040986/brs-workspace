@@ -9,7 +9,8 @@ import { join, relative } from 'node:path'
 // A lista so pode ENCOLHER: arquivo novo sem gate falha o teste.
 const RAIZ = join(import.meta.dirname, '..', '..', '..')
 // exige CHAMADA (nome seguido de parenteses) fora de comentarios; mencionar o nome num comentario/import nao conta
-const GATE = /\b(requireCurrentUser|requirePermission|requireAnyPermission|requireSessaoInternaCompleta|requireApiUser|requireServerPermission|getCurrentUserEffectivePermissions|getVisibleEffectivePermissions|getMyEffectivePermissions)\s*\(/
+// processarHookMfa: Auth Hook autenticado por assinatura HMAC (falha fechado), sem sessao de usuario.
+const GATE = /\b(requireCurrentUser|requirePermission|requireAnyPermission|requireSessaoInternaCompleta|requireApiUser|requireServerPermission|processarHookMfa|getCurrentUserEffectivePermissions|getVisibleEffectivePermissions|getMyEffectivePermissions)\s*\(/
 const semComentarios = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 const ISENTOS = new Set<string>(readFileSync(join(RAIZ, 'lib/auth/__tests__/gate-lacunas.txt'), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')))
 

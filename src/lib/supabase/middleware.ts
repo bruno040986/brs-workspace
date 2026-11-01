@@ -157,6 +157,8 @@ export async function updateSession(request: NextRequest) {
     '/login',
     '/auth/callback',
     '/api/auth/google',
+    // Auth Hook (chamado pelo GoTrue, sem cookie): autentica por assinatura HMAC no handler, falha fechado.
+    '/api/auth/hooks',
     '/acesso-negado',
     '/cadastro-parceiro',
     '/cartao',
