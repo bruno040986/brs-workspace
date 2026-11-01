@@ -123,6 +123,7 @@ const SYSTEM_MODULES = [
   { id: 'sistema-usuarios-cadastro', name: 'Cadastro de Usuários', parentId: 'sistema-usuarios-root', level: 2 },
   { id: 'sistema-usuarios-perfis', name: 'Perfis de Acesso', parentId: 'sistema-usuarios-root', level: 2 },
   { id: 'sistema-logs-acessos', name: 'Logs de acessos (somente leitura)', parentId: 'sistema-usuarios-root', level: 2 },
+  { id: 'seguranca-incidentes', name: 'Segurança › Incidentes (somente leitura)', parentId: 'sistema-usuarios-root', level: 2 },
   { id: 'sistema-config-ia', name: 'IA do Workspace (configurar o Jarvis)', parentId: 'cat-div-configuracoes', level: 1 },
   { id: 'sistema-links', name: 'Links (gerenciar o menu da topbar)', parentId: 'cat-div-configuracoes', level: 1 },
   { id: 'sistema-config-root', name: 'Provedores e APIs', parentId: 'cat-div-configuracoes', level: 1 },

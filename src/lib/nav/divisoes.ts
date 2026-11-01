@@ -346,10 +346,11 @@ export const NAV_DIVISOES: NavDivisao[] = [
       {
         label: 'Usuários e Permissões',
         href: '/usuarios',
-        perms: [view('sistema-usuarios-cadastro'), view('sistema-usuarios-root'), view('sistema-usuarios-perfis'), view('sistema-logs-acessos')],
+        perms: [view('sistema-usuarios-cadastro'), view('sistema-usuarios-root'), view('sistema-usuarios-perfis'), view('sistema-logs-acessos'), view('seguranca-incidentes')],
         children: [
           { label: 'Usuários', href: '/usuarios', perms: [view('sistema-usuarios-cadastro'), view('sistema-usuarios-root'), view('sistema-usuarios-perfis')] },
           { label: 'Logs de acessos', href: '/usuarios/logs-acessos', perms: [view('sistema-logs-acessos')] },
+          { label: 'Segurança › Incidentes', href: '/usuarios/seguranca/incidentes', perms: [view('seguranca-incidentes')] },
           { label: 'Perfis de Acesso', href: '/usuarios?tab=perfis', perms: [view('sistema-usuarios-perfis'), view('sistema-usuarios-root')] },
         ],
       },

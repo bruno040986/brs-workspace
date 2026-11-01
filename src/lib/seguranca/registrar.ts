@@ -1,0 +1,31 @@
+import { createAdminClient } from '@/lib/supabase/server'
+import { normalizarEvento } from './normalizar'
+import { classificarEvento, dentroDoExpediente, type HorarioDia } from './regras'
+import type { EventoSeguranca } from './tipos'
+
+export type ResultadoRegistro = { ok: boolean; eventoId?: string; incidentes?: { regra: string; codigo?: string; novo?: boolean }[]; erro?: string }
+
+/**
+ * Hook de eventos de segurança. NUNCA lança: falha de registro não pode derrubar login/ação.
+ * Chamar DEPOIS de decidir o resultado de negócio (o evento descreve o que aconteceu, não o decide).
+ * Devolve código INC-n só para log interno: não anunciar a ninguém (o canal é o M06, após COMMIT).
+ */
+export async function registrarEventoSeguranca(evento: EventoSeguranca): Promise<ResultadoRegistro> {
+  try {
+    const ev = normalizarEvento(evento)
+    const admin = await createAdminClient()
+    let fora: boolean | null = null
+    if (ev.tipo === 'login.concluido' && ev.identidade_validada_user_id) {
+      const { data } = await admin.from('user_schedules').select('day_of_week, enabled, start_time_1, end_time_1, start_time_2, end_time_2').eq('user_id', ev.identidade_validada_user_id)
+      const h = (data || []) as HorarioDia[]
+      const dentro = dentroDoExpediente(h, new Date(ev.ocorrido_em))
+      fora = dentro === null ? null : !dentro
+    }
+    const { data, error } = await admin.rpc('seg_registrar_evento', { p_evento: ev, p_classificacoes: classificarEvento(ev, { foraDoExpediente: fora }) })
+    if (error) throw error
+    return { ok: true, eventoId: data?.evento_id, incidentes: data?.incidentes }
+  } catch (e) {
+    console.error('[seguranca] falha ao registrar evento', evento?.tipo, e instanceof Error ? e.message.slice(0, 200) : 'erro')
+    return { ok: false, erro: 'registro_indisponivel' }
+  }
+}

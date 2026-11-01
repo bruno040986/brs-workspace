@@ -6,6 +6,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/seguranca-monitor",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/messenger-agendamentos",
       "schedule": "1-59/2 * * * *"
     },
