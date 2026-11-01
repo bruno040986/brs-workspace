@@ -1,7 +1,8 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { entrar } from '@/app/acesso/actions'
+import { MENSAGEM_INSTABILIDADE as MSG_INSTAVEL } from '@/lib/auth/etapas'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, LogIn, AlertTriangle } from 'lucide-react'
 import Image from 'next/image'
@@ -26,7 +27,6 @@ function LoginForm() {
   const [avisoInstabilidade, setAvisoInstabilidade] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const supabase = createClient()
 
   useEffect(() => {
     if (searchParams.get('motivo') === 'instabilidade') {
@@ -40,23 +40,16 @@ function LoginForm() {
     setError('')
     setAvisoInstabilidade(false)
     try {
-      const { error } = await Promise.race([
-        supabase.auth.signInWithPassword({ email, password }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
-      ])
-      if (error) {
-        // status 400 = credencial realmente inválida; qualquer outra coisa
-        // (timeout, 5xx, erro de rede) é instabilidade do serviço, não senha errada.
-        if (error.status === 400) {
-          setError('E-mail ou senha inválidos.')
-        } else {
-          setAvisoInstabilidade(true)
-        }
-        setLoading(false)
-      } else {
-        router.push('/')
+      // Etapas 1 e 2 no servidor (dominio exato, senha, usuario interno ativo, pausa/contadores no banco).
+      const r = await entrar({ email, password })
+      if (r.ok) {
+        router.push(r.proximo === 'nenhum' ? '/' : '/acesso')
         router.refresh()
+        return
       }
+      setError(r.mensagem || 'Não foi possível concluir o acesso.')
+      if (r.mensagem === MSG_INSTAVEL) { setError(''); setAvisoInstabilidade(true) }
+      setLoading(false)
     } catch {
       setAvisoInstabilidade(true)
       setLoading(false)

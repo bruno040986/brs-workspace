@@ -1,5 +1,6 @@
 'use client'
 
+import { sair as sairDaSessao } from '@/app/acesso/actions'
 import { useState, useEffect, useRef } from 'react'
 import { 
   Bell, Grid, User, LogOut, Settings, X,
@@ -352,8 +353,7 @@ export default function HubHeader({ user }: HubHeaderProps) {
 
   async function handleLogout() {
     try {
-      const supabase = createClient()
-      await supabase.auth.signOut()
+      await sairDaSessao('esta') // revoga a liberacao no servidor e encerra so esta sessao
     } catch (err) {
       console.error('Erro ao sair:', err)
     } finally {

@@ -14,6 +14,11 @@ export async function clearPasswordResetFlag() {
       app_metadata: { temp_password_reset_required: false },
     })
     if (error) throw error
+    // M04: troca de senha propria revoga as liberacoes das OUTRAS sessoes e mantem a atual.
+    const { error: revErr } = await admin.rpc('auth_revogar_liberacoes', {
+      p_user: user.id, p_motivo: 'troca_senha', p_exceto_session: user.session_id ?? null,
+    })
+    if (revErr) throw new Error('Nao foi possivel revogar as outras sessoes.')
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error?.message || 'Falha ao concluir a troca de senha.' }

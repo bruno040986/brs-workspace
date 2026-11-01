@@ -1,5 +1,6 @@
 'use client'
 
+import { sair as sairDaSessao } from '@/app/acesso/actions'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -49,7 +50,7 @@ export default function TrocarSenhaPage() {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut()
+    await sairDaSessao('esta')
     router.push('/login')
     router.refresh()
   }
