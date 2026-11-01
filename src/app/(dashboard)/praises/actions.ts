@@ -1,6 +1,7 @@
 'use server'
 
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireCurrentUser } from '@/lib/auth/server'
 
 type PraiseStatus = 'pending' | 'accepted' | 'denied'
 
@@ -36,12 +37,8 @@ function sanitizeColor(input: unknown, fallback: string) {
 }
 
 async function requireUserId() {
-  const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error) throw error
-  const userId = data?.user?.id
-  if (!userId) throw new Error('Usuário não autenticado.')
-  return userId
+  // M04: passa pelo gate da sessao interna completa (5 etapas).
+  return (await requireCurrentUser()).id
 }
 
 export async function getPraiseFeed(params?: { limit?: number }) {

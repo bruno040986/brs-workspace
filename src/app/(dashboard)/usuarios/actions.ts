@@ -343,6 +343,9 @@ export async function saveUserDirectly(userData: {
           app_metadata: { temp_password_reset_required: true },
         })
         if (pwErr) throw pwErr
+        // M04: senha redefinida pelo administrador invalida TODAS as liberacoes do usuario.
+        const { error: revErr } = await supabaseAdmin.rpc('auth_revogar_liberacoes', { p_user: userId, p_motivo: 'senha_redefinida_admin' })
+        if (revErr) throw new Error('Nao foi possivel revogar as liberacoes de acesso do usuario.')
       }
 
       const { data: currentUser, error: currentUserErr } = await supabaseAdmin

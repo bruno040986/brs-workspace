@@ -1,6 +1,7 @@
 'use server'
 
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { requireCurrentUser } from '@/lib/auth/server'
 import type { ThemePreference } from '@/types'
 
 function isThemePreference(value: unknown): value is ThemePreference {
@@ -11,11 +12,7 @@ export async function setMyThemePreference(preference: ThemePreference) {
   try {
     if (!isThemePreference(preference)) return { success: false, error: 'Preferência inválida.' }
 
-    const supabase = await createClient()
-    const { data, error } = await supabase.auth.getUser()
-    if (error) throw error
-    const userId = data?.user?.id
-    if (!userId) return { success: false, error: 'Usuário não autenticado.' }
+    const userId = (await requireCurrentUser()).id // M04: gate da sessao interna completa
 
     const admin = await createAdminClient()
     const { error: uErr } = await admin.from('users').update({ theme_preference: preference }).eq('id', userId)

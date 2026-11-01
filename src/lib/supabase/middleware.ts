@@ -263,6 +263,8 @@ export async function updateSession(request: NextRequest) {
           id: claims.sub,
           email: typeof claims.email === 'string' ? claims.email : undefined,
           app_metadata: (claims.app_metadata as Record<string, unknown>) ?? {},
+          session_id: typeof claims.session_id === 'string' ? claims.session_id : undefined,
+          aal: typeof claims.aal === 'string' ? claims.aal : '',
         }
       : null
     authCircuit.consecutiveFailures = 0
@@ -311,6 +313,46 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.json({ error: 'Acesso restrito a usuários internos.' }, { status: 403 })
     }
     return NextResponse.redirect('https://parceiro.brspromotora.com.br/')
+  }
+
+  // M04 (UX de navegacao, NAO e o controle de seguranca: a barreira real esta em has_permission/RLS e em
+  // requireCurrentUser). Sessao sem as 5 etapas so alcanca /acesso e as rotas de auth; Server Actions
+  // passam (cada uma chama requireCurrentUser, que nega sem liberacao).
+  const rotaDeEtapa = pathname === '/acesso' || pathname.startsWith('/acesso/')
+  if (user && rotaDeEtapa) {
+    return expireLegacyAuthCookies(request, supabaseResponse)
+  }
+  if (user && !isPublicRoute && !isServerActionRequest(request) && !pathname.startsWith('/api/auth')) {
+    let liberada: boolean | 'erro' = false
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const sid = (user as { session_id?: string }).session_id
+    if (!serviceRoleKey) {
+      liberada = 'erro'
+    } else if (sid) {
+      try {
+        const adminGate = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+        const { data, error } = await adminGate.rpc('auth_sessao_liberada', {
+          p_user: user.id, p_session: sid, p_aal: (user as { aal?: string }).aal ?? '',
+        })
+        liberada = error ? 'erro' : data === true
+      } catch {
+        liberada = 'erro'
+      }
+    }
+    if (liberada !== true) {
+      if (isApiRequest(pathname)) {
+        return NextResponse.json(
+          { error: liberada === 'erro' ? 'Servico de autenticacao instavel. Tente novamente em instantes.' : 'Sessao nao liberada.' },
+          { status: liberada === 'erro' ? 503 : 401 },
+        )
+      }
+      const url = request.nextUrl.clone()
+      url.pathname = '/acesso'
+      url.search = liberada === 'erro' ? '?motivo=instabilidade' : ''
+      return NextResponse.redirect(url)
+    }
   }
 
   // Famílias "authenticated open": além de não ser parceiro por domínio/flag,

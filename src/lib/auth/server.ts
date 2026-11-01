@@ -7,6 +7,7 @@ import {
   type PermissionRequirement,
 } from './permissions'
 import { getEffectivePermissionsForUserId } from './effectivePermissions'
+import { requireSessaoInternaCompleta } from './sessao-interna'
 
 import { cache } from 'react'
 
@@ -19,6 +20,9 @@ export type AuthenticatedUser = {
   email?: string
   app_metadata: Record<string, unknown>
   user_metadata: Record<string, unknown>
+  // claims verificados do JWT (M04): vinculam a liberação da etapa 5 a ESTA sessão
+  session_id?: string
+  aal?: string
 }
 
 // getClaims() valida o JWT localmente (assinatura + expiracao) em vez de
@@ -41,12 +45,17 @@ export const getCurrentUser = cache(async (): Promise<AuthenticatedUser | null> 
     email: typeof claims.email === 'string' ? claims.email : undefined,
     app_metadata: (claims.app_metadata as Record<string, unknown>) ?? {},
     user_metadata: (claims.user_metadata as Record<string, unknown>) ?? {},
+    session_id: typeof claims.session_id === 'string' ? claims.session_id : undefined,
+    aal: typeof claims.aal === 'string' ? claims.aal : undefined,
   }
 })
 
 export async function requireCurrentUser(): Promise<AuthenticatedUser> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Usuario nao autenticado.')
+  // M04: ponto central das Server Actions/handlers. Sem sessao liberada nas 5 etapas, nada passa
+  // (requirePermission e requireAnyPermission herdam). As actions das proprias etapas NAO usam isto.
+  await requireSessaoInternaCompleta({ userId: user.id, sessionId: user.session_id, aal: user.aal })
   return user
 }
 
