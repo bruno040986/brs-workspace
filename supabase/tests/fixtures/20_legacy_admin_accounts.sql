@@ -27,3 +27,14 @@ insert into public.users (id, name, email, role, cpf, profile_id) values
 on conflict (id) do update set name = excluded.name, email = excluded.email, role = excluded.role,
   cpf = excluded.cpf, profile_id = excluded.profile_id;
 insert into public.user_permissions (user_id, resource_name, can_view) values ('00000003-0000-4000-8000-00000000000c', 'rh-painel', true);
+
+-- Estado remoto (inventario M03-0, 01/11): politicas {public}/true que a migration complemento remove.
+create policy "Permitir leitura de horários de perfil" on public.profile_schedules for select to public using (true);
+create policy "Permitir leitura de horários de usuário" on public.user_schedules for select to public using (true);
+create policy "Permitir leitura para todos" on public.sector_links for select to public using (true);
+-- Storage: no Supabase real anon/authenticated tem GRANT em storage.objects; a RLS e que barra.
+grant usage on schema storage to anon, authenticated;
+grant select, insert, update, delete on storage.objects to anon, authenticated;
+insert into storage.buckets (id, name, public) values ('avatars', 'avatars', false) on conflict do nothing;
+create policy "Avatares Públicos" on storage.objects for select to public using (bucket_id = 'avatars');
+create policy "Sistema gerencia avatares" on storage.objects for all to public using (bucket_id = 'avatars') with check (bucket_id = 'avatars');

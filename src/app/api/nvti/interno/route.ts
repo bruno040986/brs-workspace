@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { higienizarCpf } from '@/lib/nvti/service'
+import { isCronAuthorized } from '@/lib/security/safe-compare'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -18,10 +19,7 @@ export const maxDuration = 300
 const MAX_CPFS_PER_CALL = 200
 
 function isAuthorized(req: NextRequest): boolean {
-  const secret = String(process.env.NVTI_SERVICE_TOKEN || '')
-  if (!secret) return false
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
+  return isCronAuthorized(req.headers.get('authorization'), process.env.NVTI_SERVICE_TOKEN)
 }
 
 export async function POST(request: NextRequest) {

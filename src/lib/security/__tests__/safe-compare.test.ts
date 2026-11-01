@@ -19,3 +19,9 @@ test('cron: fail-closed sem segredo e exige o prefixo Bearer', () => {
   assert.equal(isCronAuthorized('Bearer s3', 's3'), true)
   assert.equal(isCronAuthorized('bearer s3', 's3'), false)
 })
+
+test('NVTI interno: usa o token próprio, não o CRON_SECRET', () => {
+  assert.equal(isCronAuthorized('Bearer nvti', 'nvti'), true)
+  assert.equal(isCronAuthorized('Bearer nvti', 'outro'), false)
+  assert.equal(isCronAuthorized('Bearer nvti', undefined), false)
+})
