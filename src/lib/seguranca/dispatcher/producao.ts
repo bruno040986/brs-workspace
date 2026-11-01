@@ -21,7 +21,8 @@ export function criarDb(admin: Admin): DispatcherDb {
   return {
     claim: (owner, limite) => rpc('seg_intencao_claim', { p_owner: owner, p_limite: limite }),
     async incidente(id) {
-      const { data } = await admin.from('seg_v_incidentes').select('codigo, regra, gravidade, versao_alerta, eventos_total, eventos_suprimidos, agregado, janela_inicio, janela_fim').eq('id', id).maybeSingle()
+      const { data, error } = await admin.from('seg_v_incidentes').select('codigo, regra, gravidade, versao_alerta, eventos_total, eventos_suprimidos, agregado, janela_inicio, janela_fim').eq('id', id).maybeSingle()
+      if (error) throw new Error('incidente') // I1: erro de leitura NUNCA vira 'cancelada'; o catch registra falha e o lease devolve a intenção
       return (data as never) ?? null
     },
     async tentativas(id) {
@@ -31,7 +32,7 @@ export function criarDb(admin: Admin): DispatcherDb {
     },
     preparar: (intencao, owner, canal, ref, op) => rpc('seg_tentativa_preparar', { p_intencao: intencao, p_owner: owner, p_canal: canal, p_config_ref: ref, p_operation_id: op }),
     async atualizarTentativa(id, patch) {
-      const { error } = await admin.from('seg_notificacao_tentativas').update({ ...patch, atualizado_em: new Date().toISOString() }).eq('id', id)
+      const { error } = await admin.from('seg_notificacao_tentativas').update({ ...patch, atualizado_em: new Date().toISOString() }).eq('id', id).in('estado', ['preparada', 'enviando', 'limitada']) // M3: não sobrescreve 'incerta' gravada pela varredura
       if (error) throw new Error('atualizar_tentativa')
     },
     finish: (id, owner, estado, retry) => rpc('seg_intencao_finish', { p_id: id, p_owner: owner, p_estado: estado, p_retry_apos: retry?.toISOString() ?? null }),
@@ -53,6 +54,12 @@ async function segredos(admin: Admin, canal: string): Promise<Record<string, str
     try { out[r.chave] = decifrarTexto(r.valor_cifrado) } catch { /* cofre ausente/chave errada: canal fica sem adapter */ }
   }
   return out
+}
+
+/** I7: o engine ainda não expõe o modo durável da conta; só aceita se o status trouxer `durable: true`. Sem isso o adapter falha fechado. */
+const duravel = async (id: string) => {
+  const st = (await engine.status(id)) as { durable?: unknown; detalhe?: { durable?: unknown } | null }
+  return st?.durable === true || st?.detalhe?.durable === true
 }
 
 /** Carrega configuração + segredos. Canal só ganha adapter se habilitado E completo. Instância WhatsApp só entra se existir, for da conta BRS e o número conferir. */
@@ -83,7 +90,7 @@ export async function carregarCanais(admin: Admin, falha: (c: string, d?: string
       else await falha('whatsapp_instancia_invalida', `ordem ${i.ordem}`)
     }
     if (ok.length && s.destino) {
-      canais.whatsapp = { habilitado: true, instancias: ok, adapter: new EngineWhatsAppAdapter((id, dest, texto, op) => engine.enviar(id, dest, texto, op), s.destino) }
+      canais.whatsapp = { habilitado: true, instancias: ok, adapter: new EngineWhatsAppAdapter((id, dest, texto, op) => engine.enviar(id, dest, texto, op), s.destino, duravel) }
     }
   }
   if (por.email?.habilitado) {
@@ -95,9 +102,9 @@ export async function carregarCanais(admin: Admin, falha: (c: string, d?: string
 }
 
 /** Um ciclo completo em produção. Idempotente e seguro para chamadas concorrentes (lease no banco). */
-export async function rodarDispatcher(owner = `disp-${Math.random().toString(36).slice(2, 10)}`) {
+export async function rodarDispatcher(owner = `disp-${Math.random().toString(36).slice(2, 10)}`, limite = 2) {
   const admin = await createAdminClient()
   const db = criarDb(admin)
   const canais = await carregarCanais(admin, (c, d) => db.falha(c, d))
-  return executarCiclo({ db, canais, owner })
+  return executarCiclo({ db, canais, owner }, limite)
 }

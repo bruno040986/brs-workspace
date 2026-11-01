@@ -53,7 +53,8 @@ export function classificarEvento(e: EventoNormalizado, ctx: { foraDoExpediente?
       break
     case 'login.pausa':
     case 'login.bloqueio':
-      out.push({ regra: 'login_reincidencia', contexto: ident ? `ident:${ident}` : 'sem_identidade', gravidade: 'alta', limiar: 1 })
+      // B1: UMA notificação por janela de 10 min (contexto global); as demais ocorrências entram como eventos_total do mesmo incidente.
+      out.push({ regra: 'login_reincidencia', contexto: 'global', gravidade: 'alta', limiar: 1, janela_min: 10 })
       break
     case 'login.concluido':
       if (ctx.foraDoExpediente === true && e.identidade_validada_user_id) {

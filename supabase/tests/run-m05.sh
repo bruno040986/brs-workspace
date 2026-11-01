@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="$HERE/../migrations"
 PSQL=(docker exec -i "$CT" psql -U postgres -v ON_ERROR_STOP=1 -q)
 fail() { echo "FALHOU: $*" >&2; exit 1; }
 "$HERE/run-m03a.sh" "$CT" "$DB" >/dev/null || fail "base M03-A"
-for f in "$MIG/20261101040000_security_m05_incidentes.sql" "$MIG/20261101045000_security_m05_complemento.sql"; do
+for f in "$MIG/20261101040000_security_m05_incidentes.sql" "$MIG/20261101045000_security_m05_complemento.sql" "$MIG/20261101046000_security_m05_complemento2.sql"; do
   for i in 1 2; do echo "== migration $(basename "$f") (passada $i)"; "${PSQL[@]}" -d "$DB" < "$f" 2>&1 | grep -E 'NOTICE:.*M05|ERROR'; [ "${PIPESTATUS[0]}" -eq 0 ] || fail "migration $f"; done
 done
 LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT

@@ -38,3 +38,16 @@ end $$;
 -- M-1: contexto reservado nao colide com o agregado
 select public.seg_registrar_evento('{"fonte":"t","id_origem":"m1","tipo":"login.falha"}','[{"regra":"m1_regra","contexto":"__agregado__","gravidade":"alta","janela_min":60}]') \gset
 select pg_temp.ok(not exists(select 1 from seg_incidentes where regra='m1_regra' and chave_correlacao like '%|__agregado__|%'), 'M-1 contexto __agregado__ nao vira chave do agregado');
+
+-- Complemento 2: item REMOVIDO de policy/bucket sai com gravidade minima alta; RESTRICTIVE removida = critica
+create table public.zz_rem(id int);
+alter table public.zz_rem enable row level security;
+create policy zz_restr on public.zz_rem as restrictive for select to authenticated using (id > 0);
+create policy zz_perm on public.zz_rem for select to authenticated using (id > 0);
+select public.seg_monitor_baseline_definir(true) \gset
+drop policy zz_restr on public.zz_rem;
+drop policy zz_perm on public.zz_rem;
+select public.seg_monitor_snapshot() \gset
+select pg_temp.ok(exists(select 1 from seg_monitor_desvios where item_chave='public.zz_rem.zz_restr' and tipo_desvio='removido' and gravidade='critica' and incidente_id is not null), 'C2 policy RESTRICTIVE removida = critica com incidente');
+select pg_temp.ok(exists(select 1 from seg_monitor_desvios where item_chave='public.zz_rem.zz_perm' and tipo_desvio='removido' and gravidade='alta' and incidente_id is not null), 'C2 policy comum removida = alta com incidente');
+select pg_temp.ok(exists(select 1 from seg_notificacao_intencoes n join seg_monitor_desvios d on d.incidente_id=n.incidente_id where d.item_chave='public.zz_rem.zz_restr'), 'C2 remocao gera intencao');

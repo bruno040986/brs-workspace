@@ -9,7 +9,7 @@ import type { Incidente } from './tipos.ts'
 const FRASES: Record<string, (n: number) => string> = {
   login_falhas_identificador: (n) => `${n} falha(s) de login para um mesmo identificador na janela.`,
   login_falhas_origem: (n) => `${n} falha(s) de login vindas de uma mesma origem na janela.`,
-  login_reincidencia: (n) => `Pausa ou bloqueio de acesso aplicado após tentativas repetidas (${n} evento(s)).`,
+  login_reincidencia: (n) => `Pausa ou bloqueio de acesso após tentativas repetidas: ${n} ocorrência(s) nesta janela, de um ou mais identificadores (agrupadas em um único alerta).`,
   login_fora_expediente: () => 'Login concluído fora do expediente cadastrado.',
   permissao_alterada: (n) => `Permissões de usuário alteradas (${n} evento(s)).`,
   perfil_alterado: (n) => `Perfil de acesso alterado (${n} evento(s)).`,
@@ -35,7 +35,7 @@ export function montarTexto(d: DadosMensagem): string {
   const i = d.incidente
   const cod = limparToken(i.codigo, 20)
   const grav = limparToken(i.gravidade, 10)
-  const frase = (FRASES[i.regra] ?? ((n: number) => `Regra "${limparToken(i.regra)}" acionada (${n} evento(s)).`))(num(i.eventos_total))
+  const frase = (Object.hasOwn(FRASES, i.regra) ? FRASES[i.regra] : ((n: number) => `Regra "${limparToken(i.regra)}" acionada (${n} evento(s)).`))(num(i.eventos_total))
   const linhas = [`BRS Segurança — ${cod} — ${grav}`, '']
   if (d.possivelDuplicata) linhas.push(`Possível duplicata do alerta ${cod} v.${num(d.possivelDuplicata.versao)} (contingência após envio incerto).`, '')
   linhas.push(frase)

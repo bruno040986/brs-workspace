@@ -69,4 +69,7 @@ Migration nova `20261101045000_security_m05_complemento.sql` (reaplica 4 funçõ
 - Menores só documentados (não feitos): M-2 (classificações do excedente de cardinalidade sem `incidente_id`: guardar contexto original antes da troca), M-3 (ordem dos locks por regra: ordenar classificações), M-4 (`preparada` morto), M-5 (teto de claims/`esgotada`, contrato do M06), M-6 (formato da allowlist de buckets), M-7 (pré-requisito verificar leitura de `storage.buckets`/`auth.users`), M-10 (`profile_permissions` sem uso), M-11 (`idOrigem` obrigatório em `login.*`).
 - Resultados reais: `bash supabase/tests/run-m05.sh` => `M05 TUDO OK` (migrações 040000 e 045000 aplicadas 2x; complemento 10 OK); `npm test` 545 testes, 542 pass, 0 fail, 3 skipped; `npx tsc --noEmit` rc=0.
 
+## Correções pós-revisão (2) (2026-11-01)
+Migration nova `20261101046000_security_m05_complemento2.sql` (reaplica só `seg_monitor_snapshot`; 040000 e 045000 não foram editadas). Item REMOVIDO de policy/grant/bucket/função agora sai com gravidade mínima `alta` (gera incidente e intenção); policy RESTRICTIVE removida = `critica`. Antes saía `baixa` e nunca notificava. Teste SQL em `security_m05_complemento.sql` (3 asserts "C2"). `run-m05.sh` aplica a nova migration 2x. Resultado real: `M05 TUDO OK`.
+
 ENTREGUE PARA REVISAO

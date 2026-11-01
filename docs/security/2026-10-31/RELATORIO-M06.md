@@ -62,4 +62,16 @@ Código: reverter os commits M06 e remover a entrada do cron. Banco (se aplicada
 ## 9. Pendências
 Bot/chat_id; ids das instâncias 2 e 3 e destino WhatsApp; modo durável no engine; job de reconciliação de incertas; monitor independente; webhook de recibos; retenção de `seg_orcamento` (limpeza de 3 dias já embutida) e `seg_eventos`; teste real controlado só com autorização do Bruno.
 
+## Correções pós-revisão (2) (2026-11-01, REVISAO-M06.md)
+Migration nova `20261101055000_security_m06_complemento.sql` (a 050000 não foi editada); runner `run-m06.sh` aplica as duas, 2x cada.
+- B1: `seg_orcamento_consumir` reserva slot crítico também em `global_dia` e `canal_dia` (`orcamento.slot_critico_dia`=5, limitado a 1/3 do teto para tetos pequenos) e ganhou o escopo `regra_dia` (`orcamento.regra_dia`=10/dia; a regra é lida do incidente, assinatura inalterada). `login_reincidencia` agora usa contexto `global` e janela de 10 min: um incidente/alerta por janela, as demais ocorrências entram em `eventos_total` (texto: "N ocorrência(s) nesta janela"). Teste SQL: 60 incidentes de login param em 10 e uma intenção crítica de `signup_tentativa` e um alerta de `permissao_alterada` ainda passam; reserva diária testada. Não precisou alterar `seg_registrar_evento`. Valores numéricos novos são PROPOSTA.
+- I1: `producao.ts` lança em erro de leitura do incidente (não vira `cancelada`). I2: negação por limite `*_hora` volta a `pendente` com próxima tentativa na próxima hora cheia (até 6 h de idade; depois `suprimida_orcamento`); limite diário/instância/regra é terminal. A tentativa negada fica `rejeitada_comprovada/orcamento` e `decidir` a ignora.
+- I3: `executarCiclo` limite padrão 2 e orçamento de tempo de 40 s (tempo real); caminho `after()` usa 1. `maxDuration` mantido em 60.
+- I4: `OPERATION_CONTENT_CONFLICT` => `incerta/engine_conflito_chave` (não avança de instância) + `db.falha('whatsapp_conflito_chave')` para reconciliação.
+- I5: e-mail 429 espera `retry_after` (prazo 10 min) e reenvia; só depois `falhou`.
+- I6: com Telegram desabilitado/incompleto, alta/crítica NÃO vai ao WhatsApp: só e-mail (se habilitado); sem e-mail fica `pendente` (motivo `canal_primario_desabilitado`, nova checagem a cada 10 min, `falhou` após 24 h). Itens não urgentes mantêm o caminho antigo. Consequência: até o Telegram ser habilitado, o WhatsApp não é usado.
+- I7: `EngineWhatsAppAdapter` recebe verificador de modo durável; sem verificação positiva retorna `rejeitada/engine_nao_duravel` e não chama o engine. O engine hoje NÃO expõe o flag (`/status` não traz `durable`), então em produção o WhatsApp fica fechado até o engine expor `durable: true`; é condição de habilitação.
+- Menores: M1 `Object.hasOwn(FRASES)`; M3 UPDATE da tentativa só em `preparada/enviando/limitada` (não sobrescreve `incerta`); M4 orçamento depois de `preparar`; M5 eventos `login.falha/pausa/bloqueio` não disparam `after()` (cron cobre) e `after()` usa limite 1. M2 (validação de formato de bot_token/chat_id/destino na tela) e M6 (relatório desatualizado: os 2 fails citados no §6 não ocorrem mais) ficam apenas documentados; a tela de canais não foi alterada.
+- Resultados reais: `run-m05.sh` => `M05 TUDO OK`; `run-m06.sh` => `M06 TUDO OK` (12 sessões 5/7/5; 1 resumo); `npm test` 561 testes, 558 pass, 0 fail, 3 skipped; `npx tsc --noEmit` rc=0.
+
 ENTREGUE PARA REVISAO

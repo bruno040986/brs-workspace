@@ -89,17 +89,63 @@ test('§12-10 todos os canais falham: e-mail tentado, intenção falhou, falha r
   assert.ok(db.falhas.includes('todos_canais_falharam')); assert.ok(!db.tents.some((t) => t.estado === 'aceita'))
 })
 
-test('canal desabilitado nunca envia: registra canal_desabilitado e não consome orçamento', async () => {
-  const { db, deps } = cenario(); const tg = new FakeCanal([OK])
-  await executarCiclo({ ...deps({}), canais: canaisFake({}) })
-  assert.equal(tg.chamadas.length, 0); assert.equal(estado(db), 'falhou'); assert.equal(db.orcChamadas.length, 0)
-  assert.deepEqual([...new Set(db.tents.map((t) => t.categoria_erro))], ['canal_desabilitado'])
-  assert.deepEqual(db.tents.map((t) => t.canal), ['telegram', 'whatsapp', 'email'])
+test('I6 Telegram desabilitado: WhatsApp NÃO vira primário; e-mail recebe; sem e-mail fica pendente com motivo', async () => {
+  const { db, deps } = cenario(); const wa = new FakeCanal([OK]), em = new FakeCanal([OK])
+  await executarCiclo(deps({ wa, em }))
+  assert.equal(wa.chamadas.length, 0); assert.equal(em.chamadas.length, 1); assert.equal(estado(db), 'aceita')
+  const c2 = cenario(); const wa2 = new FakeCanal([OK])
+  await executarCiclo(c2.deps({ wa: wa2 }))
+  assert.equal(wa2.chamadas.length, 0); assert.equal(estado(c2.db), 'pendente'); assert.ok(c2.db.falhas.includes('canal_primario_desabilitado')); assert.equal(c2.db.tents.length, 0)
 })
 
-test('orçamento negado: suprimida_orcamento e nada é enviado', async () => {
+test('canal desabilitado nunca envia (não urgente): registra canal_desabilitado e não consome orçamento', async () => {
+  const { db, deps } = cenario('critica'); db.add('r', 'media', 'resumo'); db.intencoes.get('a')!.estado = 'cancelada'
+  await executarCiclo({ ...deps({}), canais: canaisFake({}) })
+  assert.equal(estado(db, 'r'), 'falhou'); assert.equal(db.orcChamadas.length, 0)
+  assert.deepEqual([...new Set(db.tents.map((t) => t.categoria_erro))], ['canal_desabilitado'])
+})
+
+test('I2/M4 orçamento HORÁRIO negado: volta a pendente na próxima hora, sem envio e sem marcar falha do canal; depois envia', async () => {
   const { db, deps } = cenario(); db.orcamento = { permitido: false, motivo: 'global_hora' }; const tg = new FakeCanal([OK])
+  await executarCiclo(deps({ tg }))
+  assert.equal(estado(db), 'pendente'); assert.equal(tg.chamadas.length, 0)
+  assert.equal(db.finals['a'].retry!.toISOString(), '2026-11-01T13:00:00.000Z')
+  assert.equal(db.tents[0].categoria_erro, 'orcamento') // preparada antes de consumir (M4)
+  t0 = Date.parse('2026-11-01T13:00:01Z'); db.orcamento = { permitido: true, motivo: null }
+  await executarCiclo(deps({ tg })); assert.equal(tg.chamadas.length, 1); assert.equal(estado(db), 'aceita')
+})
+
+test('I2 orçamento DIÁRIO negado é terminal (suprimida_orcamento)', async () => {
+  const { db, deps } = cenario(); db.orcamento = { permitido: false, motivo: 'regra_dia' }; const tg = new FakeCanal([OK])
   await executarCiclo(deps({ tg })); assert.equal(estado(db), 'suprimida_orcamento'); assert.equal(tg.chamadas.length, 0)
+})
+
+test('I5 e-mail 429: espera retry_after e reenvia; não vira todos_canais_falharam', async () => {
+  const { db, deps } = cenario('alta'); const rej = { tipo: 'rejeitada' as const, categoria: 'http_403' }
+  const tg = new FakeCanal([rej]), wa = new FakeCanal([REJ]), em = new FakeCanal([{ tipo: 'limitada', retryAfterSeg: 30 }, OK])
+  await executarCiclo(deps({ tg, wa, em }))
+  assert.equal(estado(db), 'pendente'); assert.ok(!db.falhas.includes('todos_canais_falharam')); assert.equal(em.chamadas.length, 1)
+  avanca(31); await executarCiclo(deps({ tg, wa, em }))
+  assert.equal(em.chamadas.length, 2); assert.equal(estado(db), 'aceita')
+})
+
+test('I4 conflito de chave no WhatsApp é incerto: não avança de instância, registra para reconciliação', async () => {
+  const { db, deps } = cenario('alta'); const tg = new FakeCanal([{ tipo: 'rejeitada', categoria: 'http_403' }])
+  const wa = new FakeCanal([{ tipo: 'incerta', categoria: 'engine_conflito_chave' }])
+  await executarCiclo(deps({ tg, wa }))
+  assert.equal(wa.chamadas.length, 1); assert.equal(estado(db), 'incerta'); assert.ok(db.falhas.includes('whatsapp_conflito_chave'))
+})
+
+test('I3 ciclo respeita o orçamento de tempo e o limite padrão de 2 intenções', async () => {
+  const { db, deps } = cenario(); db.add('b'); db.add('c'); const tg = new FakeCanal([OK])
+  const r = await executarCiclo(deps({ tg })); assert.equal(r.reivindicadas, 2)
+  const c2 = cenario(); c2.db.add('b'); const tg2 = new FakeCanal([OK])
+  const r2 = await executarCiclo(c2.deps({ tg: tg2 }), 5, -1); assert.equal(r2.processadas, 0); assert.equal(tg2.chamadas.length, 0)
+})
+
+test('M1 template: regra com nome de Object.prototype não usa o protótipo', () => {
+  const i = { codigo: 'INC-1', regra: 'constructor', gravidade: 'alta' as const, versao_alerta: 1, eventos_total: 3, eventos_suprimidos: 0, agregado: false, janela_inicio: '', janela_fim: '' }
+  assert.match(montarTexto({ incidente: i, tipo: 'alerta' }), /Regra "constructor" acionada \(3 evento/)
 })
 
 test('§12-13 lease perdido: o provedor não é chamado', async () => {

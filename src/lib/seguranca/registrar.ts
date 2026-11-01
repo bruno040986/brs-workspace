@@ -25,7 +25,8 @@ export async function registrarEventoSeguranca(evento: EventoSeguranca): Promise
     }
     const { data, error } = await admin.rpc('seg_registrar_evento', { p_evento: ev, p_classificacoes: classificarEvento(ev, { foraDoExpediente: fora }) })
     if (error) throw error
-    if (data?.incidentes?.some((i: { novo?: boolean }) => i.novo)) acionarDispatcher()
+    // M5: eventos de login anônimos (falha/pausa/bloqueio) não disparam after(); o cron de 1 min cobre.
+    if (data?.incidentes?.some((i: { novo?: boolean }) => i.novo) && !/^login\.(falha|pausa|bloqueio)$/.test(ev.tipo)) acionarDispatcher()
     return { ok: true, eventoId: data?.evento_id, incidentes: data?.incidentes }
   } catch (e) {
     console.error('[seguranca] falha ao registrar evento', evento?.tipo, e instanceof Error ? e.message.slice(0, 200) : 'erro')
@@ -40,7 +41,7 @@ export async function registrarEventoSeguranca(evento: EventoSeguranca): Promise
 function acionarDispatcher() {
   try {
     after(async () => {
-      try { await (await import('./dispatcher/producao')).rodarDispatcher() } catch { /* o cron de 1 min é a rede de segurança */ }
+      try { await (await import('./dispatcher/producao')).rodarDispatcher(undefined, 1) } catch { /* o cron de 1 min é a rede de segurança */ }
     })
   } catch { /* fora de escopo de request */ }
 }

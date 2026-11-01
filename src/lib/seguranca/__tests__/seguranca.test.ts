@@ -78,3 +78,9 @@ test('I-4: payload grande é cortado antes de sanitizar e termina rápido', () =
   assert.equal((e.payload as { truncado?: boolean }).truncado, true)
   assert.ok(Date.now() - t < 500)
 })
+
+test('B1 login_reincidencia agrega por janela: contexto global (não por identificador), 10 min', () => {
+  const c = (tipo: string, id: string) => classificarEvento(normalizarEvento({ fonte: 'w', tipo, identidadeInformada: id }))[0]
+  const a = c('login.pausa', 'a@b.com'), b = c('login.bloqueio', 'c@d.com')
+  assert.equal(a.contexto, 'global'); assert.equal(b.contexto, a.contexto); assert.equal(a.janela_min, 10)
+})

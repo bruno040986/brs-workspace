@@ -32,12 +32,24 @@ test('email: idempotency-key = operationId; 4xx rejeita; 5xx e timeout são ince
   assert.equal((await new ResendEmailAdapter('k', 'a', 'b', { fetchImpl: resp(503, {}) }).enviar({ assunto: 's', html: 'h', operationId: 'OP' })).tipo, 'incerta')
 })
 test('whatsapp: mapeia erros do cliente do engine e repassa operationId', async () => {
-  const mk = (e: Error) => new EngineWhatsAppAdapter(async () => { throw e }, '5561')
+  const mk = (e: Error) => new EngineWhatsAppAdapter(async () => { throw e }, '5561', async () => true)
   const nomeado = (nome: string, extra: object) => Object.assign(new Error('x'), { name: nome }, extra)
   assert.equal((await mk(nomeado('EngineErro', { codigo: 'INSTANCIA_INELEGIVEL', status: 409 })).enviar({ instanciaId: 'i', texto: 't', operationId: 'o' })).tipo, 'rejeitada')
   assert.equal((await mk(nomeado('EngineEnvioIncertoError', { motivo: 'uncertain' })).enviar({ instanciaId: 'i', texto: 't', operationId: 'o' })).tipo, 'incerta')
   let visto = ''
-  const ok = new EngineWhatsAppAdapter(async (_i, d, _t, o) => { visto = d + o.operationId; return { ok: true, id: 'm' } }, '5561')
+  const ok = new EngineWhatsAppAdapter(async (_i, d, _t, o) => { visto = d + o.operationId; return { ok: true, id: 'm' } }, '5561', async () => true)
   assert.deepEqual(await ok.enviar({ instanciaId: 'i', texto: 't', operationId: 'o' }), { tipo: 'aceita', messageId: 'm' })
   assert.equal(visto, '5561o')
+})
+
+test('whatsapp I4/I7: conflito de chave = incerta; sem verificação durável falha fechado sem chamar o engine', async () => {
+  const nomeado = (nome: string, extra: object) => Object.assign(new Error('x'), { name: nome }, extra)
+  const a = new EngineWhatsAppAdapter(async () => { throw nomeado('EngineErro', { codigo: 'OPERATION_CONTENT_CONFLICT', status: 409 }) }, '5561', async () => true)
+  assert.deepEqual(await a.enviar({ instanciaId: 'i', texto: 't', operationId: 'o' }), { tipo: 'incerta', categoria: 'engine_conflito_chave' })
+  let chamou = false
+  for (const v of [null, async () => false, async () => { throw new Error('x') }]) {
+    const b = new EngineWhatsAppAdapter(async () => { chamou = true; return { ok: true, id: 'm' } }, '5561', v)
+    assert.deepEqual(await b.enviar({ instanciaId: 'i', texto: 't', operationId: 'o' }), { tipo: 'rejeitada', categoria: 'engine_nao_duravel' })
+  }
+  assert.equal(chamou, false)
 })

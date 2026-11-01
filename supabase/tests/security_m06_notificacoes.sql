@@ -115,3 +115,34 @@ select pg_temp.ok(not (:'c2'::jsonb->>'criado')::boolean and (select count(*) fr
 select pg_temp.ok(not (public.seg_resumo_pendente()->>'pendente')::boolean, 'marca avancou: nada pendente depois do resumo');
 select pg_temp.ok((public.seg_resumo_dados((select incidente_id from seg_notificacao_intencoes where tipo='resumo'))->>'suprimidas_orcamento')::int=2, 'seg_resumo_dados devolve as contagens do periodo do resumo');
 select pg_temp.ok((select prioridade from seg_notificacao_intencoes where tipo='resumo')='media', 'resumo tem prioridade media (nunca aciona contingencia WhatsApp)');
+
+-- B1 (complemento M06): flood de uma regra nao impede alerta critico de outra; reserva diaria; escopo regra_dia
+delete from seg_orcamento;
+update seg_config set valor='100' where chave in ('orcamento.global_hora','orcamento.incidente_hora');
+update seg_config set valor='60' where chave='orcamento.global_dia';
+update seg_config set valor='5' where chave='orcamento.slot_critico_dia';
+update seg_config set valor='10' where chave='orcamento.regra_dia';
+delete from seg_notificacao_tentativas; delete from seg_notificacao_intencoes; delete from seg_incidentes where regra in ('login_reincidencia','signup_tentativa','permissao_alterada');
+do $$ declare k int; v_inc uuid; ok_n int := 0; r jsonb; begin
+  for k in 1..60 loop -- 60 incidentes de login (atacante variando identificador)
+    insert into seg_incidentes(regra,contexto,chave_correlacao,janela_inicio,janela_fim,gravidade) values ('login_reincidencia','ident:'||k,'lr|'||k,now(),now(),'alta') returning id into v_inc;
+    r := public.seg_orcamento_consumir('telegram', v_inc, '', 'alta');
+    if (r->>'permitido')::boolean then ok_n := ok_n + 1; elsif r->>'motivo' <> 'regra_dia' then raise exception 'FALHA: motivo inesperado %', r; end if;
+  end loop;
+  if ok_n <> 10 then raise exception 'FALHA: login_reincidencia deveria parar em 10/dia, passou %', ok_n; end if;
+  insert into seg_incidentes(regra,contexto,chave_correlacao,janela_inicio,janela_fim,gravidade) values ('signup_tentativa','global','su|1',now(),now(),'critica') returning id into v_inc;
+  if not (public.seg_orcamento_consumir('telegram', v_inc, '', 'critica')->>'permitido')::boolean then raise exception 'FALHA: 60 incidentes de login impediram intencao critica de outra regra'; end if;
+  insert into seg_incidentes(regra,contexto,chave_correlacao,janela_inicio,janela_fim,gravidade) values ('permissao_alterada','global','pa|1',now(),now(),'alta') returning id into v_inc;
+  if not (public.seg_orcamento_consumir('telegram', v_inc, '', 'alta')->>'permitido')::boolean then raise exception 'FALHA: flood de login impediu alerta de privilegio'; end if;
+  raise notice 'OK B1 60 incidentes de login nao impedem critica nem privilegio de outras regras (login parou em 10)';
+end $$;
+-- reserva diaria: nao critico para em (global_dia - slot_dia); critico usa a reserva
+delete from seg_orcamento;
+update seg_config set valor='3' where chave='orcamento.global_dia';
+update seg_config set valor='1' where chave='orcamento.slot_critico_dia';
+select pg_temp.ok((public.seg_orcamento_consumir('telegram', null, '', 'alta')->>'permitido')::boolean, 'B1 dia: 1o nao-critico');
+select pg_temp.ok((public.seg_orcamento_consumir('telegram', null, '', 'alta')->>'permitido')::boolean, 'B1 dia: 2o nao-critico');
+select public.seg_orcamento_consumir('telegram', null, '', 'alta') as negd \gset
+select pg_temp.ok(not (:'negd'::jsonb->>'permitido')::boolean and :'negd'::jsonb->>'motivo'='global_dia', 'B1 dia: nao-critico para em global_dia - slot (2)');
+select pg_temp.ok((public.seg_orcamento_consumir('telegram', null, '', 'critica')->>'permitido')::boolean, 'B1 dia: critico usa o slot diario reservado');
+update seg_config set valor='60' where chave='orcamento.global_dia';

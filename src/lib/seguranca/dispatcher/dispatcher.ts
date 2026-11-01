@@ -26,20 +26,32 @@ export function operationIdDerivado(intencaoId: string, canal: Canal, configRef:
 type Acao =
   | { acao: 'enviar'; canal: Canal; configRef: string; instanciaId?: string; possivelDuplicata?: boolean }
   | { acao: 'finalizar'; estado: EstadoFinal; falha?: string }
-  | { acao: 'aguardar'; ate: Date }
+  | { acao: 'aguardar'; ate: Date; motivo?: string }
 
 const ms = (iso: string) => new Date(iso).getTime()
 
 /** Decisão PURA a partir do histórico de tentativas. Sem rede, sem banco. */
-export function decidir(it: Intencao, tents: Tentativa[], canais: Canais, cfg: Record<string, number>, agora: Date): Acao {
+export function decidir(it: Intencao, todas: Tentativa[], canais: Canais, cfg: Record<string, number>, agora: Date): Acao {
+  let tents = todas
   const urgente = (it.prioridade === 'alta' || it.prioridade === 'critica') && it.tipo !== 'resumo'
   const crit = it.prioridade === 'critica' && it.tipo !== 'resumo'
+  tents = tents.filter((t) => t.categoria_erro !== 'orcamento') // negada por orçamento: nada saiu, não conta como falha do canal
   const doCanal = (c: Canal) => tents.filter((t) => t.canal === c).sort((a, b) => a.n - b.n)
   const fimAceito = tents.some((t) => t.estado === 'aceita')
   if (fimAceito) return { acao: 'finalizar', estado: 'aceita' }
   const incertaQualquer = tents.some((t) => t.estado === 'incerta' || t.estado === 'enviando' || t.estado === 'preparada')
   const sobra = (): Acao => ({ acao: 'finalizar', estado: incertaQualquer ? 'incerta' : 'falhou', falha: incertaQualquer ? undefined : 'todos_canais_falharam' })
   const criado = ms(it.criado_em)
+
+  // ---- I6: Telegram desabilitado/incompleto NÃO transforma o WhatsApp em primário (decisão 9: WhatsApp só após falha do Telegram).
+  // Alta/crítica: só o e-mail (se habilitado) recebe; sem e-mail fica pendente (motivo canal_primario_desabilitado) até 24 h.
+  if (urgente && (!canais.telegram.habilitado || !canais.telegram.adapter)) {
+    const em0 = doCanal('email')
+    if (canais.email.habilitado && canais.email.adapter && em0.length === 0) return { acao: 'enviar', canal: 'email', configRef: '' }
+    if (em0.length > 0) return sobra()
+    if (agora.getTime() - criado >= 24 * 3600_000) return { acao: 'finalizar', estado: 'falhou', falha: 'canal_primario_desabilitado' }
+    return { acao: 'aguardar', ate: new Date(agora.getTime() + 10 * 60_000), motivo: 'canal_primario_desabilitado' }
+  }
 
   // ---- Telegram
   const tg = doCanal('telegram')
@@ -95,6 +107,12 @@ export function decidir(it: Intencao, tents: Tentativa[], canais: Canais, cfg: R
   // ---- E-mail (último canal)
   const em = doCanal('email')
   if (em.length === 0) return { acao: 'enviar', canal: 'email', configRef: '', possivelDuplicata: possivelDuplicata || incertaQualquer }
+  const ue = em[em.length - 1]
+  if (ue.estado === 'limitada') { // I5: 429 do e-mail espera retry_after (prazo 10 min desde a 1a tentativa) em vez de desistir
+    const prazo = ms(em[0].criado_em) + 10 * 60_000
+    const retry = ue.retry_after_ate ? ms(ue.retry_after_ate) : agora.getTime()
+    if (agora.getTime() < prazo) return agora.getTime() < retry ? { acao: 'aguardar', ate: new Date(Math.min(retry, prazo)) } : { acao: 'enviar', canal: 'email', configRef: '', possivelDuplicata: possivelDuplicata || incertaQualquer }
+  }
   return sobra()
 }
 
@@ -125,7 +143,10 @@ export async function processarIntencao(d: Deps, it: Intencao): Promise<void> {
 
     for (let passo = 0; passo < 10; passo++) {
       const a = decidir(it, tents, d.canais, cfg, agora())
-      if (a.acao === 'aguardar') { await d.db.finish(it.id, d.owner, 'pendente', a.ate); return }
+      if (a.acao === 'aguardar') {
+        if (a.motivo) await d.db.falha(a.motivo, `intencao pendente (${inc.codigo})`).catch(() => {})
+        await d.db.finish(it.id, d.owner, 'pendente', a.ate); return
+      }
       if (a.acao === 'finalizar') {
         if (a.falha) await d.db.falha(a.falha, `intencao sem canal funcional (${inc.codigo})`).catch(() => {})
         await d.db.finish(it.id, d.owner, a.estado)
@@ -137,12 +158,22 @@ export async function processarIntencao(d: Deps, it: Intencao): Promise<void> {
       // ---- enviar
       const canalCfg = d.canais[a.canal]
       const funciona = canalCfg.habilitado && canalCfg.adapter !== null && (a.canal !== 'whatsapp' || a.configRef !== '')
-      if (funciona) {
-        const orc = await d.db.consumirOrcamento(a.canal, it.incidente_id, a.configRef, it.prioridade)
-        if (!orc.permitido) { await d.db.finish(it.id, d.owner, 'suprimida_orcamento'); log('orcamento_negado', { motivo: orc.motivo }); return }
-      }
       const opId = operationIdDerivado(it.id, a.canal, a.configRef, it.versao_alerta)
       const t = await d.db.preparar(it.id, d.owner, a.canal, a.configRef, opId) // lança 'seg_lease_perdido': sai sem efeito
+      if (funciona) { // M4: orçamento só depois de preparar (lease perdido não gasta cota)
+        const orc = await d.db.consumirOrcamento(a.canal, it.incidente_id, a.configRef, it.prioridade)
+        if (!orc.permitido) {
+          await comRetry(() => d.db.atualizarTentativa(t.id, { estado: 'rejeitada_comprovada', categoria_erro: 'orcamento' })).catch(() => {})
+          log('orcamento_negado', { motivo: orc.motivo })
+          const agoraD = agora()
+          // I2: limite HORÁRIO volta a pendente na próxima hora (até 6 h de idade); só limite diário/instância é terminal.
+          if (String(orc.motivo ?? '').endsWith('_hora') && agoraD.getTime() - ms(it.criado_em) < 6 * 3600_000) {
+            const prox = new Date(Math.floor(agoraD.getTime() / 3600_000) * 3600_000 + 3600_000)
+            await d.db.finish(it.id, d.owner, 'pendente', prox)
+          } else await d.db.finish(it.id, d.owner, 'suprimida_orcamento')
+          return
+        }
+      }
       let r: ResultadoEnvio
       if (!funciona) {
         r = { tipo: 'rejeitada', categoria: 'canal_desabilitado' }
@@ -156,6 +187,7 @@ export async function processarIntencao(d: Deps, it: Intencao): Promise<void> {
           r = { tipo: 'incerta', categoria: 'excecao_adapter' } // o adapter não deveria lançar; depois da chamada, assume-se incerto
         }
       }
+      if (r.tipo === 'incerta' && r.categoria === 'engine_conflito_chave') await d.db.falha('whatsapp_conflito_chave', `reconciliar ${inc.codigo}`).catch(() => {})
       const patch = r.tipo === 'aceita' ? { estado: 'aceita' as const, provider_message_id: r.messageId ?? null }
         : r.tipo === 'limitada' ? { estado: 'limitada' as const, categoria_erro: 'http_429', http_status: 429, retry_after_ate: new Date(agora().getTime() + 1000 * r.retryAfterSeg).toISOString() }
         : r.tipo === 'rejeitada' ? { estado: 'rejeitada_comprovada' as const, categoria_erro: r.categoria, http_status: r.http ?? null }
@@ -176,11 +208,16 @@ export async function processarIntencao(d: Deps, it: Intencao): Promise<void> {
   }
 }
 
-export type Estatisticas = { reivindicadas: number }
+export type Estatisticas = { reivindicadas: number; processadas?: number }
 /** Um ciclo do worker: claim com lease e processamento sequencial. */
-export async function executarCiclo(d: Deps, limite = 5): Promise<Estatisticas> {
+export async function executarCiclo(d: Deps, limite = 2, orcamentoMs = 40_000): Promise<Estatisticas> {
+  const inicio = Date.now() // I3: tempo real (não o relógio injetado); o que sobrar volta ao lote pelo vencimento do lease
   let lote: Intencao[]
   try { lote = await d.db.claim(d.owner, limite) } catch { await d.db.falha('claim').catch(() => {}); return { reivindicadas: 0 } }
-  for (const it of lote) await processarIntencao(d, it)
-  return { reivindicadas: lote.length }
+  let n = 0
+  for (const it of lote) {
+    if (Date.now() - inicio > orcamentoMs) break
+    await processarIntencao(d, it); n++
+  }
+  return { reivindicadas: lote.length, processadas: n }
 }
