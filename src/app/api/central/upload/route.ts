@@ -12,8 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
-import { createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { orchestratorFetch, OrchestratorApiError } from '@/lib/central/orchestrators'
 
 export const dynamic = 'force-dynamic'
@@ -88,8 +87,7 @@ function parseRows(buffer: Buffer, fileName: string): Array<Record<string, strin
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
     const allowed = await hasPermissionForUser(user.id, 'central-integracoes', 'can_include')

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { getPlainTextLength } from '@/lib/comunicados'
 import { loadComunicadosCatalog } from '@/lib/comunicados-service'
-import { requirePermission } from '@/lib/auth/server'
+import { requirePermission, requireApiUser } from '@/lib/auth/server'
 import { sanitizeRichHtml } from '@/lib/sanitize-html'
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -14,10 +14,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 async function getCurrentUserId() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await requireApiUser()
   if (!user) return null
   return user.id
 }

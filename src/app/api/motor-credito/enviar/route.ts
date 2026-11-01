@@ -16,8 +16,8 @@
  * Exige alvoconsig-motor-credito (can_include).
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { comConcorrenciaLimitada, CONCORRENCIA_WESALES, gravarFotoMargemWesales, numeradorImportacaoHoje, slugSegmento, type LinhaMargem } from '@/lib/alvoconsig/margem-wesales'
 import { findContactByCpf } from '@/lib/wesales/client'
 
@@ -49,8 +49,7 @@ function dataDaFoto(consultadoEm: string | null, hojeBr: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
     if (!(await hasPermissionForUser(user.id, 'alvoconsig-motor-credito', 'can_include'))) {
       return NextResponse.json({ error: 'Sem permissão.' }, { status: 403 })

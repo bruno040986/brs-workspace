@@ -8,8 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { cleanCpf, isValidCpf } from '@/lib/nvti/normalize'
 import { kickNvtiWorker } from '@/lib/nvti/worker'
 
@@ -51,8 +51,7 @@ function extractCpfsFromWorkbook(buffer: Buffer): { valid: string[]; invalid: nu
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
     const allowed = await hasPermissionForUser(user.id, 'operacional-nvti', 'can_include')

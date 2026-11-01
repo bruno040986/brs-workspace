@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { requireApiUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL } from '@/lib/chat/attachments'
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024
@@ -32,11 +33,8 @@ const EXT_BY_MIME: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
     const admin = await createAdminClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const formData = await request.formData()

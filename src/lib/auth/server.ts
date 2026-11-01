@@ -69,11 +69,39 @@ export async function getCurrentUserEffectivePermissions(): Promise<EffectivePer
   return getEffectivePermissionsForUser(user.id)
 }
 
+// Sessao corrente liberada nas 5 etapas? Falha (inclusive infra/ausencia de sessao) => false.
+async function sessaoCorrenteLiberada(user: AuthenticatedUser): Promise<boolean> {
+  try {
+    await requireSessaoInternaCompleta({ userId: user.id, sessionId: user.session_id, aal: user.aal })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Para route handlers /api: devolve o usuario da sessao LIBERADA ou null (o handler responde 401).
+ * Mesmo gate de requireCurrentUser, sem lancar. Nao confie no proxy: o header next-action e forjavel.
+ */
+export async function requireApiUser(): Promise<AuthenticatedUser | null> {
+  try {
+    const user = await getCurrentUser()
+    if (!user) return null
+    return (await sessaoCorrenteLiberada(user)) ? user : null
+  } catch {
+    return null
+  }
+}
+
 export async function hasPermissionForUser(
   userId: string,
   resource: string,
   action: PermissionAction = 'can_view',
 ) {
+  // M04 B1: quando o userId e o da sessao corrente, exige sessao liberada (handlers /api com service_role).
+  let atual: AuthenticatedUser | null = null
+  try { atual = await getCurrentUser() } catch { atual = null }
+  if (atual && atual.id === userId && !(await sessaoCorrenteLiberada(atual))) return false
   const permissions = await getEffectivePermissionsForUser(userId)
   return hasPermission(permissions, resource, action)
 }

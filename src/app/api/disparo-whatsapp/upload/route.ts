@@ -5,8 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { MEDIA_BUCKET } from '@/lib/disparo-whatsapp/worker'
 
 export const dynamic = 'force-dynamic'
@@ -50,9 +50,8 @@ function kindOf(mime: string): 'image' | 'document' | 'audio' | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
     const admin = await createAdminClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const allowed = await hasPermissionForUser(user.id, 'comercial-disparo-whatsapp', 'can_include')
     if (!allowed) return NextResponse.json({ error: 'Sem permissão.' }, { status: 403 })

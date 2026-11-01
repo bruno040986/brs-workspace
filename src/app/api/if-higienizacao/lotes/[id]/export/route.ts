@@ -4,7 +4,7 @@
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { gerarPlanilhaLote } from '@/lib/if-credito/amigoz/saidas'
 
 export const dynamic = 'force-dynamic'
@@ -15,10 +15,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
   const loteId = String(params?.id || '')
   if (!loteId) return NextResponse.json({ error: 'Lote inválido.' }, { status: 400 })
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await requireApiUser()
   if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
   const allowed = await hasPermissionForUser(user.id, 'alvoconsig-higienizacao-amigoz', 'can_view')

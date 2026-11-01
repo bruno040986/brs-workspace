@@ -5,8 +5,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { csvHeaderLine, flattenForCsv } from '@/lib/nvti/normalize'
 import type { NvtiResultado } from '@/lib/nvti/types'
 
@@ -20,8 +20,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
   const batchId = String(params?.id || '')
   if (!batchId) return NextResponse.json({ error: 'Lote inválido.' }, { status: 400 })
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await requireApiUser()
   if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
   const allowed = await hasPermissionForUser(user.id, 'operacional-nvti', 'can_view')
   if (!allowed) return NextResponse.json({ error: 'Sem permissão.' }, { status: 403 })

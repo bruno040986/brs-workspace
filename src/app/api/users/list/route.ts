@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
+import { requireAnyPermission, requireApiUser } from '@/lib/auth/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAnyPermission } from '@/lib/auth/server'
 
 export async function GET() {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
 
     if (!user) {
       return NextResponse.json([], { status: 401 })

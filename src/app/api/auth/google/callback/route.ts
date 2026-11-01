@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { requireApiUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -21,8 +22,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const adminSupabase = await createAdminClient()
-    const supabase = await createClient()
-    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    const currentUser = await requireApiUser()
 
     if (!currentUser) {
       return NextResponse.redirect(new URL('/login', request.url))

@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import { normalizeCpf, validateCpf } from '@/lib/import/columnMap'
 import { listarVariantesPorConvenio } from '@/lib/if-credito/amigoz/convenios'
 import { adicionarItens, criarLote, iniciarLote, type ItemEntrada } from '@/lib/if-credito/amigoz/lote'
@@ -59,10 +59,7 @@ function procurarCpfNaLinha(row: unknown[]): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
     const allowed = await hasPermissionForUser(user.id, 'alvoconsig-higienizacao-amigoz', 'can_include')

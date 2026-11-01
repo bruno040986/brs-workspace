@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { requireApiUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { getCpfHubApiKey } from '@/lib/cpfhub-config'
 import { verifyOnboardingToken } from '@/lib/onboarding-token'
 
@@ -69,10 +70,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ cpf: string
   let rateLimit = RATE_LIMIT_ANON
   let authenticated = false
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (user) {
       authenticated = true
       rateKey = `u:${user.id}`

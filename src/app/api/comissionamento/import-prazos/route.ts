@@ -20,8 +20,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import {
   candidatasDaLinha,
   explicarTabelaNaoEncontrada,
@@ -383,8 +383,7 @@ async function analisar(buffer: Buffer, resolucoes: Resolucoes, admin: Awaited<R
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
     const allowed = await hasPermissionForUser(user.id, 'sistema-config-credito', 'can_include')

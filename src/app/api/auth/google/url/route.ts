@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { requireApiUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { googleScopes } from '@/lib/google/config'
 
 export async function GET(request: Request) {
   try {
-    const authClient = await createClient()
-    const { data: { user } } = await authClient.auth.getUser()
+    const user = await requireApiUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autorizado.' }, { status: 401 })
     }

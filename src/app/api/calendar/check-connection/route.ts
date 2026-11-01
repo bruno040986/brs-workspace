@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
+import { requireApiUser } from '@/lib/auth/server'
 import { createClient } from '@/lib/supabase/server'
 import { getValidGoogleToken } from '@/lib/google/oauth'
 
 export async function GET() {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
 
     if (!user) {
       return NextResponse.json({ connected: false }, { status: 401 })

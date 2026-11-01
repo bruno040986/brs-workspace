@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 import { canAccessRoute, getRouteAccessDecision } from '@/lib/auth/permissions'
 import { getEffectivePermissionsForUserId } from '@/lib/auth/effectivePermissions'
+import { isServerActionRequest as isServerActionPath } from '@/lib/auth/gate-requisicao'
 import { isActiveInternalUser } from '@/lib/auth/internal-user'
 import { WORKSPACE_AUTH_COOKIE_NAME, isWorkspaceAuthCookie } from '@/lib/supabase/authCookie'
 
@@ -11,7 +12,7 @@ function isApiRequest(pathname: string) {
 }
 
 function isServerActionRequest(request: NextRequest) {
-  return request.headers.has('next-action')
+  return isServerActionPath(request.nextUrl.pathname, request.headers.has('next-action'))
 }
 
 function isPublicAssetRequest(pathname: string) {
@@ -322,7 +323,7 @@ export async function updateSession(request: NextRequest) {
   if (user && rotaDeEtapa) {
     return expireLegacyAuthCookies(request, supabaseResponse)
   }
-  if (user && !isPublicRoute && !isServerActionRequest(request) && !pathname.startsWith('/api/auth')) {
+  if (user && !isPublicRoute && !isServerActionRequest(request)) {
     let liberada: boolean | 'erro' = false
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     const sid = (user as { session_id?: string }).session_id
@@ -389,7 +390,7 @@ export async function updateSession(request: NextRequest) {
 
   // Enquanto a flag estiver ligada, bloqueia o resto do app. Server actions passam
   // (a action que limpa a flag precisa rodar); rotas de auth também.
-  if (user && mustChangePassword && !isServerActionRequest(request) && !pathname.startsWith('/api/auth')) {
+  if (user && mustChangePassword && !isServerActionRequest(request)) {
     if (isApiRequest(pathname)) {
       return NextResponse.json({ error: 'Troca de senha obrigatória.' }, { status: 403 })
     }

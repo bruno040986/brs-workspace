@@ -23,8 +23,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
-import { hasPermissionForUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
+import { hasPermissionForUser, requireApiUser } from '@/lib/auth/server'
 import {
   findOpportunitiesByContactDetalhadas,
   opportunityFieldValue,
@@ -202,8 +202,7 @@ function parseIntField(value: string | null): number | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     if (!user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
     const allowed = await hasPermissionForUser(user.id, 'alvoconsig-gestao', 'can_include')

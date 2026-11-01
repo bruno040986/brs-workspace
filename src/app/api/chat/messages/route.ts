@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient, createClient } from '@/lib/supabase/server'
+import { requireApiUser } from '@/lib/auth/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import { CHAT_ATTACHMENT_BUCKET, CHAT_SIGNED_URL_TTL, chatAttachmentPath, type ChatAttachment } from '@/lib/chat/attachments'
 
 import { PerformanceTimer } from '@/lib/performance/timing'
@@ -7,13 +8,10 @@ import { PerformanceTimer } from '@/lib/performance/timing'
 export async function GET(request: NextRequest) {
   const timer = new PerformanceTimer()
   try {
-    const supabase = await createClient()
     const admin = await createAdminClient()
 
     timer.start('auth')
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const user = await requireApiUser()
     timer.end('auth')
 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -154,11 +152,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
     const admin = await createAdminClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const user = await requireApiUser()
 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
