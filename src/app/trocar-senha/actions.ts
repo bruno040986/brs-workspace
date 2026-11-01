@@ -36,6 +36,7 @@ export async function trocarSenha(senhaAtual: string, novaSenha: string): Promis
       await registrarAcesso({ etapa: 'senha', resultado: 'falha', motivo: 'troca_senha_atual_invalida', userId: user.id, sessionId: user.session_id })
       return { success: false, error: 'Senha atual incorreta.' }
     }
+    await verificador.auth.signOut({ scope: 'local' }).catch(() => {}) // C4: encerra a sessao AAL1 orfa do verificador
     await admin.rpc('auth_registrar_sucesso', { p_chave: chave, p_etapa: 'senha' })
 
     const { error } = await admin.auth.admin.updateUserById(user.id, {

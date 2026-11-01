@@ -4,13 +4,15 @@
 // cliente: user/sessão vêm do JWT verificado no servidor; o destino do e-mail vem do banco.
 // Estas actions NÃO usam requireCurrentUser (a sessão ainda está incompleta por definição).
 
+import { cookies } from 'next/headers'
+import { COOKIE_DISPOSITIVO, DISPOSITIVO_TTL_SEG, dispositivoValido, emitirDispositivo } from '@/lib/auth/dispositivo-confiavel'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import {
   calcularEtapa, classificarErroAuth, emailDominioInterno, mensagemPausa, normalizarEmail,
   MENSAGEM_GENERICA, MENSAGEM_INSTABILIDADE,
 } from '@/lib/auth/etapas'
 import {
-  CODIGO_MAX_TENTATIVAS, CODIGO_TTL_SEG, LIMITE_DURO, LIMITE_IDENTIFICADOR, LIMITE_IP, TETO_DURO_MIN, LIMITE_PAR, PAUSA_FIXA_MIN, chavesSenha, formatoCodigoValido, gerarCodigo, hashCodigo, segredoCodigo,
+  CODIGO_MAX_TENTATIVAS, CODIGO_TTL_SEG, LIMITE_DURO, identificadorSenha, LIMITE_IDENTIFICADOR, LIMITE_IP, TETO_DURO_MIN, LIMITE_PAR, PAUSA_FIXA_MIN, chavesSenha, formatoCodigoValido, gerarCodigo, hashCodigo, segredoCodigo,
 } from '@/lib/auth/codigo-email'
 import { obterMailer } from '@/lib/auth/mailer'
 import { decidirPausaSenha } from '@/lib/auth/pausa-senha'
@@ -40,6 +42,7 @@ async function negarSessao(userId: string, sessionId: string) {
   await rpc('auth_revogar_sessao', { p_user: userId, p_session: sessionId, p_motivo: 'negada' })
   const supabase = await createClient()
   await supabase.auth.signOut({ scope: 'local' })
+  try { (await cookies()).delete(COOKIE_DISPOSITIVO) } catch { /* ignora */ } // sessao negada/bloqueada: apaga o cookie do dispositivo
 }
 
 // ---------------------------------------------------------------- etapas 1 e 2
@@ -63,7 +66,8 @@ export async function entrar(input: { email: string; password: string; turnstile
   if (pausaPar.erro || pausaIp.erro || pausaId.erro || pausaDuro.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
   const origemSeg = Math.max(pausaPar.data ?? 0, pausaIp.data ?? 0)
   const ts = await verificarTurnstile(input?.turnstileToken, ctx.ip)
-  const dec = decidirPausaSenha({ origemSeg, duroSeg: pausaDuro.data ?? 0, leveSeg: pausaId.data ?? 0, turnstileAplicadoEValido: ts.aplicado && ts.ok })
+  const dec = decidirPausaSenha({ origemSeg, duroSeg: pausaDuro.data ?? 0, leveSeg: pausaId.data ?? 0, turnstileAplicadoEValido: ts.aplicado && ts.ok,
+    dispositivoConfiavel: dispositivoValido(segredo, k.identificador, (await cookies()).get(COOKIE_DISPOSITIVO)?.value) }) // cookie invalido/expirado: ignorado
   if (dec.bloqueia) {
     await registrarAcesso({ etapa: 'senha', resultado: 'pausa', motivo: dec.motivo!, identidadeInformada: email })
     return { ok: false, pausaSeg: dec.pausaSeg, mensagem: mensagemPausa(dec.pausaSeg) }
@@ -175,6 +179,14 @@ async function verificarCodigo(codigo: string, finalidade: 'acesso_workspace' | 
   const { status, pausa_seg, restantes, alerta } = r.data
   if (status === 'liberado') {
     await registrarAcesso({ etapa, resultado: 'sucesso', motivo: finalidade === 'ativacao_fator' ? 'prova_ativacao_ok' : 'liberado', userId: sess.userId, sessionId: sess.sessionId })
+    if (finalidade === 'acesso_workspace' && sess.claims.email) { // C1: etapa 5 concluida => dispositivo confiavel (logout NAO apaga)
+      try {
+        const segredo = segredoCodigo()
+        ;(await cookies()).set(COOKIE_DISPOSITIVO, emitirDispositivo(segredo, identificadorSenha(segredo, normalizarEmail(sess.claims.email))), {
+          httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: DISPOSITIVO_TTL_SEG,
+        })
+      } catch { /* sem cookie: so perde a dispensa */ }
+    }
     return { ok: true, proximo: finalidade === 'ativacao_fator' ? 'ativar_totp' : 'nenhum' }
   }
   const motivo = ({ incorreto: 'codigo_incorreto', expirado: 'codigo_expirado', esgotado: 'codigo_esgotado', inexistente: 'codigo_inexistente', pausa: 'pausa_ativa', etapa_anterior: 'etapa_anterior' } as Record<string, string>)[status] ?? 'negado'
