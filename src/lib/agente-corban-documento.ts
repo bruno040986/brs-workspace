@@ -7,7 +7,15 @@
 export const BUCKET_DOCUMENTOS = 'partner-documents'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** URL antiga do Storage ou path puro -> path do bucket. Outra coisa (https externo, scheme, `..`) -> null. */
+// Allowlist do path final (já decodificado UMA vez): letras/números Unicode, espaço e `._()-`, segmentos separados por `/`.
+// Paths reais: `<id>/<tipo>/<ts>_<nome>.pdf` (legado, pode ter espaço/acento) e `<rascunhos|correcao>/<uuid>/<chave>/<uuid>.<ext>`.
+const PATH_OK_RE = /^[\p{L}\p{N}][\p{L}\p{N}._ ()-]*(?:\/[\p{L}\p{N}._ ()-]+)*$/u
+
+/**
+ * URL antiga do Storage ou path puro -> path do bucket. Outra coisa (https externo, scheme, `..`) -> null.
+ * Regra: decodifica no máximo UMA vez (só no ramo https); o resultado, em QUALQUER ramo, não pode ter `%`
+ * (barra dupla codificação), nem segmento vazio/`.`/`..`, e deve casar com PATH_OK_RE (sem `\`, `\0`, `?`, `#`).
+ */
 export function extrairPathDocumento(valor: unknown): string | null {
   const s = typeof valor === 'string' ? valor.trim() : ''
   if (!s || s.length > 1000) return null
@@ -21,7 +29,8 @@ export function extrairPathDocumento(valor: unknown): string | null {
   } else {
     path = s.replace(/^\/+/, '')
   }
-  if (!path || path.includes('..') || path.includes('\\') || path.includes('\0') || (!/^https:/i.test(s) && path.includes('%')) || path.includes('?') || path.includes('#')) return null
+  if (!path || path.includes('%') || !PATH_OK_RE.test(path)) return null
+  if (path.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')) return null
   return path
 }
 

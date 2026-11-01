@@ -17,11 +17,23 @@ describe('documento do parceiro', () => {
       assert.equal(extrairPathDocumento(ruim), null, ruim)
     }
   })
+  it('rejeita traversal/percent-encoding em qualquer ramo e aceita nome real', () => {
+    const base = 'https://p.supabase.co/storage/v1/object/public/partner-documents/'
+    for (const ruim of [base + 'a/%252e%252e/b.pdf', base + 'a/%2e%2e/b.pdf', base + 'a%2f..%2fb.pdf', base + 'a/b%25.pdf', base + 'a//b.pdf', base + 'a/./b.pdf', base + 'a/%2e/b.pdf',
+      './a/b.pdf', 'a/./b.pdf', 'a//b.pdf', 'a/b/', 'a/b%20c.pdf', 'a/%252e%252e/b.pdf', 'a/b\\c.pdf', 'a/b?x.pdf', 'a/b#x.pdf', 'a/b\0.pdf', '../a.pdf', 'a/<b>.pdf']) {
+      assert.equal(extrairPathDocumento(ruim), null, ruim)
+    }
+    assert.equal(extrairPathDocumento(base + '123/bank/1_Comprovante%20de%20Endere%C3%A7o%20(2).pdf'), '123/bank/1_Comprovante de Endereço (2).pdf')
+    assert.equal(extrairPathDocumento('123/bank/1_Comprovante de Endereço (2).pdf'), '123/bank/1_Comprovante de Endereço (2).pdf')
+    assert.equal(extrairPathDocumento(`/correcao/${A}/k/${U}.pdf`), `correcao/${A}/k/${U}.pdf`)
+  })
   it('só serve o que o próprio agente referencia', () => {
     assert.equal(resolverDocumentoDoAgente(cd, A, cd.documents.bank_proof_url), '123/bank/1_a b.pdf')
     assert.equal(resolverDocumentoDoAgente(cd, A, `rascunhos/${B}/socio/${U}.png`), `rascunhos/${B}/socio/${U}.png`) // sócio
     assert.equal(resolverDocumentoDoAgente(cd, A, `correcao/${A}/k/${U}.pdf`), `correcao/${A}/k/${U}.pdf`)
     assert.equal(resolverDocumentoDoAgente(cd, A, `correcao/${B}/k/${U}.pdf`), null) // correção de outro agente
+    assert.equal(resolverDocumentoDoAgente(cd, A, `correcao/${A}/../${B}/k/x.pdf`), null) // traversal no atalho
+    assert.equal(resolverDocumentoDoAgente(cd, A, `correcao/${A}/%2e%2e/x.pdf`), null)
     assert.equal(resolverDocumentoDoAgente(cd, A, '999/outro/x.pdf'), null) // fora do corban_data
     assert.equal(resolverDocumentoDoAgente(cd, 'nao-uuid', cd.documents.front_photo_url), null)
   })
