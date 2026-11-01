@@ -22,3 +22,12 @@ test('B1: hasPermissionForUser exige sessao liberada da sessao corrente', () => 
   assert.match(s, /export async function hasPermissionForUser[\s\S]*sessaoCorrenteLiberada/)
   assert.match(s, /export async function requireApiUser[\s\S]*sessaoCorrenteLiberada/)
 })
+
+test('I3: troca de senha no servidor com sessao liberada e senha atual; nada de updateUser({ password }) no navegador', () => {
+  const raiz = join(import.meta.dirname, '..', '..', '..')
+  const a = readFileSync(join(raiz, 'app', 'trocar-senha', 'actions.ts'), 'utf8')
+  assert.match(a, /requireCurrentUser\(\)/)
+  assert.match(a, /signInWithPassword/)
+  const p = readFileSync(join(raiz, 'app', 'trocar-senha', 'page.tsx'), 'utf8')
+  assert.doesNotMatch(p, /updateUser\(/)
+})

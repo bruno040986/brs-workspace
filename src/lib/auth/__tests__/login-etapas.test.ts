@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { emailDominioInterno, pausaMinutos, calcularEtapa, classificarErroAuth, mensagemPausa, type EstadoBanco } from '../etapas.ts'
-import { gerarCodigo, hashCodigo, formatoCodigoValido, segredoCodigo, chaveSenha } from '../codigo-email.ts'
+import { gerarCodigo, hashCodigo, formatoCodigoValido, segredoCodigo, chaveSenha, chavesSenha, identificadorSenha } from '../codigo-email.ts'
 
 test('domínio: exatamente brspromotora.com.br', () => {
   assert.equal(emailDominioInterno('Ana@BRSPromotora.com.br'), true)
@@ -74,4 +74,18 @@ test('turnstile: desligado sem env; ligado sem segredo/token falha fechado; suce
   assert.equal((await verificarTurnstile('t', null, env, f({ success: false }))).ok, false)
   assert.equal((await verificarTurnstile('t', null, env, f({}, false))).ok, false)
   assert.equal((await verificarTurnstile('t', null, env, (async () => { throw new Error('x') }) as unknown as typeof fetch)).ok, false)
+})
+
+test('I2: chaves de senha = (identificador, origem) + IP + so-identificador; identificador estavel para o desbloqueio', () => {
+  const seg = 'x'.repeat(40)
+  const a = chavesSenha(seg, 'ana@brspromotora.com.br', '1.1.1.1')
+  const b = chavesSenha(seg, 'ana@brspromotora.com.br', '2.2.2.2')
+  assert.notEqual(a.par, b.par) // origem diferente => chave diferente (terceiro nao tranca o titular)
+  assert.equal(a.id, b.id)
+  assert.equal(a.identificador, b.identificador)
+  assert.equal(a.identificador, identificadorSenha(seg, 'ana@brspromotora.com.br'))
+  assert.notEqual(a.ip, b.ip)
+  assert.equal(chavesSenha(seg, 'ana@brspromotora.com.br', null).ip, null)
+  assert.ok(a.par.startsWith('s:') && a.id.startsWith('si:') && a.ip!.startsWith('ip:'))
+  assert.ok(![a.par, a.id, a.ip!].some((k) => k.includes('ana@')))
 })

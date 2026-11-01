@@ -28,3 +28,26 @@ export function hashCodigo(segredo: string, userId: string, sessionId: string, f
 export function chaveSenha(segredo: string, emailNormalizado: string): string {
   return 's:' + createHmac('sha256', segredo).update(emailNormalizado).digest('hex')
 }
+
+/** Hash do identificador (e-mail normalizado): guardado em auth_tentativas.identificador para o desbloqueio administrativo. */
+export function identificadorSenha(segredo: string, emailNormalizado: string): string {
+  return createHmac('sha256', segredo).update(emailNormalizado).digest('hex')
+}
+
+// I2: pausa de senha. Terceiro que digita o e-mail da vitima NAO a tranca: a pausa escalonada vale por
+// (identificador, origem); por IP ha limitador proprio; so por identificador e pausa fixa curta (sem escalada) que
+// Turnstile valido dispensa. Limiares abaixo; a pausa fixa nunca passa de 5 min.
+export const LIMITE_PAR = 3 // falhas em 15 min => pausa escalonada 5..240 min, so para a origem que errou
+export const LIMITE_IP = 20 // falhas (qualquer e-mail) em 15 min => pausa fixa
+export const LIMITE_IDENTIFICADOR = 10 // falhas de qualquer origem em 15 min => pausa fixa
+export const PAUSA_FIXA_MIN = 5
+
+export function chavesSenha(segredo: string, emailNormalizado: string, ip: string | null) {
+  const h = (s: string) => createHmac('sha256', segredo).update(s).digest('hex')
+  return {
+    identificador: h(emailNormalizado),
+    par: chaveSenha(segredo, `${emailNormalizado}|${ip || 'sem-ip'}`),
+    id: 'si:' + h(emailNormalizado),
+    ip: ip ? 'ip:' + h('ip|' + ip) : null,
+  }
+}

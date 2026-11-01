@@ -5,6 +5,8 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/server'
+import { identificadorSenha, segredoCodigo } from '@/lib/auth/codigo-email'
+import { normalizarEmail } from '@/lib/auth/etapas'
 import { registrarAcesso } from '@/lib/auth/sessao-interna'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -31,7 +33,12 @@ export async function desbloquearAcessoUsuario(userId: string, motivo: string) {
     const { user } = await requirePermission('sistema-usuarios-cadastro', 'can_edit')
     if (!UUID.test(userId)) throw new Error('Usuario invalido.')
     const admin = await createAdminClient()
-    const { error } = await admin.rpc('auth_desbloquear_usuario', { p_user: userId, p_por: user.id, p_motivo: String(motivo || '').slice(0, 300) })
+    // I2: zera tambem as chaves de SENHA do usuario (calculadas no servidor a partir do e-mail cadastrado).
+    const { data: alvo } = await admin.from('users').select('email').eq('id', userId).maybeSingle()
+    const email = alvo?.email ? normalizarEmail(String(alvo.email)) : null
+    let identificador: string | null = null
+    try { if (email) identificador = identificadorSenha(segredoCodigo(), email) } catch { /* sem segredo: o gate de login ja falha fechado */ }
+    const { error } = await admin.rpc('auth_desbloquear_usuario', { p_user: userId, p_por: user.id, p_motivo: String(motivo || '').slice(0, 300), p_identificador: identificador })
     if (error) throw error
     await registrarAcesso({ etapa: 'admin', resultado: 'sucesso', motivo: 'bloqueio_removido', userId, desbloqueadoPor: user.id })
     revalidatePath('/usuarios/logs-acessos')

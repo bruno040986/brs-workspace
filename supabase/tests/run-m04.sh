@@ -12,7 +12,7 @@ fail() { echo "FALHOU: $*" >&2; exit 1; }
 for i in 1 2; do
   echo "== migrations M04 (passada $i)"
   for f in "$MIG"/20261101*.sql; do
-    case "$f" in *20261101030000*) ;; *) continue;; esac
+    case "$f" in *20261101030000*|*20261101035000*) ;; *) continue;; esac
     "${PSQL[@]}" -d "$DB" < "$f" 2>&1 | grep -E 'NOTICE:.*M04|ERROR' ; [ "${PIPESTATUS[0]}" -eq 0 ] || fail "$(basename "$f")"
   done
 done
@@ -21,4 +21,8 @@ LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
 "${PSQL[@]}" -d "$DB" < "$HERE/security_m04_login_cinco_etapas.sql" > "$LOG" 2>&1; rc=$?
 grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
 [ "$rc" -eq 0 ] || fail "security_m04_login_cinco_etapas.sql"
+echo "== teste SQL das correcoes pos-revisao"
+"${PSQL[@]}" -d "$DB" < "$HERE/security_m04_correcoes.sql" > "$LOG" 2>&1; rc=$?
+grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
+[ "$rc" -eq 0 ] || fail "security_m04_correcoes.sql"
 echo "M04 TUDO OK"

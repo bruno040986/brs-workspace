@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, KeyRound, LogOut } from 'lucide-react'
 import Image from 'next/image'
-import { clearPasswordResetFlag } from './actions'
+import { trocarSenha } from './actions'
 
 export default function TrocarSenhaPage() {
+  const [atual, setAtual] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPass, setShowPass] = useState(false)
@@ -31,21 +32,16 @@ export default function TrocarSenhaPage() {
     }
 
     setLoading(true)
-    const { error: updateError } = await supabase.auth.updateUser({ password })
-    if (updateError) {
-      setError('Não foi possível atualizar a senha. Tente novamente.')
-      setLoading(false)
-      return
-    }
-
-    const res = await clearPasswordResetFlag()
+    const res = await trocarSenha(atual, password)
     if (!res.success) {
-      setError(res.error || 'Senha atualizada, mas houve um erro ao liberar o acesso. Faça login novamente.')
+      setError(res.error || 'Não foi possível atualizar a senha. Tente novamente.')
       setLoading(false)
       return
     }
 
-    router.push('/')
+    // O banco revoga as liberações ao trocar a senha: entra de novo com a senha nova (todas as etapas).
+    await supabase.auth.signOut()
+    router.push('/login')
     router.refresh()
   }
 
@@ -83,6 +79,18 @@ export default function TrocarSenhaPage() {
               {error}
             </div>
           )}
+
+          <div className="form-group">
+            <label className="form-label">Senha atual</label>
+            <input
+              type={showPass ? 'text' : 'password'}
+              className="form-control"
+              value={atual}
+              onChange={e => setAtual(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </div>
 
           <div className="form-group">
             <label className="form-label">Nova senha</label>
