@@ -4,8 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 // Preso ao estado da conta: `epoch` = credencial_epoch do banco (sobe em troca de senha, bloqueio administrativo, logout "todas", sessao negada).
 // Um terceiro nao o tem, entao as pausas so-por-identificador (leve/duro) nao trancam o titular; par e ip continuam valendo.
 export const COOKIE_DISPOSITIVO = 'brs_dc'
-export const DISPOSITIVO_TTL_SEG = 90 * 24 * 3600 // PROPOSTA: 90 dias
-export const DISPOSITIVO_TETO_DURO_SEG = 30 * 24 * 3600 // PROPOSTA: acima de 30 dias o cookie nao dispensa o teto duro sem Turnstile valido
+export const DISPOSITIVO_TTL_SEG = 30 * 24 * 3600 // decisao 12 (01/11): 30 dias; cookie valido ja e < 30 dias, entao dispensa leve e duro
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const mac = (segredo: string, identificador: string, userId: string, epoch: number, iat: number) =>

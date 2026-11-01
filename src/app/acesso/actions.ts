@@ -71,7 +71,7 @@ export async function entrar(input: { email: string; password: string; turnstile
   if (dcEpoch?.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
   const dcIdade = dispositivoValido(segredo, k.identificador, dcEpoch?.data, dcValor)
   const dec = decidirPausaSenha({ origemSeg, duroSeg: pausaDuro.data ?? 0, leveSeg: pausaId.data ?? 0, turnstileAplicadoEValido: ts.aplicado && ts.ok,
-    dispositivoConfiavel: dcIdade != null, dispositivoIdadeSeg: dcIdade ?? undefined }) // cookie invalido/expirado/epoch divergente/usuario inexistente: ignorado
+    dispositivoConfiavel: dcIdade != null }) // cookie invalido/expirado/epoch divergente/usuario inexistente: ignorado
   if (dec.bloqueia) {
     await registrarAcesso({ etapa: 'senha', resultado: 'pausa', motivo: dec.motivo!, identidadeInformada: email })
     return { ok: false, pausaSeg: dec.pausaSeg, mensagem: mensagemPausa(dec.pausaSeg) }
