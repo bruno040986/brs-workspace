@@ -25,7 +25,7 @@ export function limparToken(s: unknown, max = 60): string {
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.trunc(Number(v))) : 0)
 
 export type DadosMensagem = { incidente: Incidente; tipo: 'alerta' | 'resumo' | 'analise'; iaMotivo?: string | null; controles?: string[]; possivelDuplicata?: { versao: number } | null }
-export type ResumoRecuperacao = { suprimidas_orcamento: number; incertas: number; falhas: number; por_contingencia: number }
+export type ResumoRecuperacao = { suprimidas_orcamento: number; incertas: number; falhas: number; por_contingencia: number; adiadas_regra?: number }
 
 export function escaparHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
@@ -53,6 +53,7 @@ export function montarResumo(r: ResumoRecuperacao): string {
     'BRS Segurança — resumo após recuperação do canal',
     '',
     `Sem aceite pelo Telegram no período: ${num(r.por_contingencia)} entregue(s) por outro canal, ${num(r.suprimidas_orcamento)} suprimida(s) por orçamento, ${num(r.incertas)} com resultado incerto, ${num(r.falhas)} com falha.`,
+    ...(num(r.adiadas_regra) > 0 ? [`${num(r.adiadas_regra)} alerta(s) adiado(s) para o próximo dia por excesso de alertas da mesma regra (serão enviados depois).`] : []),
     'Nada será reenviado. Consulte os incidentes pelo painel autenticado ou pelo MCP de segurança.',
   ].join('\n')
 }

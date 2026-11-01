@@ -35,7 +35,7 @@ export function decidir(it: Intencao, todas: Tentativa[], canais: Canais, cfg: R
   let tents = todas
   const urgente = (it.prioridade === 'alta' || it.prioridade === 'critica') && it.tipo !== 'resumo'
   const crit = it.prioridade === 'critica' && it.tipo !== 'resumo'
-  tents = tents.filter((t) => t.categoria_erro !== 'orcamento') // negada por orçamento: nada saiu, não conta como falha do canal
+  tents = tents.filter((t) => !String(t.categoria_erro ?? '').startsWith('orcamento')) // negada por orçamento: nada saiu, não conta como falha do canal
   const doCanal = (c: Canal) => tents.filter((t) => t.canal === c).sort((a, b) => a.n - b.n)
   const fimAceito = tents.some((t) => t.estado === 'aceita')
   if (fimAceito) return { acao: 'finalizar', estado: 'aceita' }
@@ -163,12 +163,17 @@ export async function processarIntencao(d: Deps, it: Intencao): Promise<void> {
       if (funciona) { // M4: orçamento só depois de preparar (lease perdido não gasta cota)
         const orc = await d.db.consumirOrcamento(a.canal, it.incidente_id, a.configRef, it.prioridade)
         if (!orc.permitido) {
-          await comRetry(() => d.db.atualizarTentativa(t.id, { estado: 'rejeitada_comprovada', categoria_erro: 'orcamento' })).catch(() => {})
+          await comRetry(() => d.db.atualizarTentativa(t.id, { estado: 'rejeitada_comprovada', categoria_erro: orc.motivo === 'regra_dia' ? 'orcamento_regra_dia' : 'orcamento' })).catch(() => {})
           log('orcamento_negado', { motivo: orc.motivo })
           const agoraD = agora()
           // I2: limite HORÁRIO volta a pendente na próxima hora (até 6 h de idade); só limite diário/instância é terminal.
           if (String(orc.motivo ?? '').endsWith('_hora') && agoraD.getTime() - ms(it.criado_em) < 6 * 3600_000) {
             const prox = new Date(Math.floor(agoraD.getTime() / 3600_000) * 3600_000 + 3600_000)
+            await d.db.finish(it.id, d.owner, 'pendente', prox)
+          } else if (orc.motivo === 'regra_dia' && agoraD.getTime() - ms(it.criado_em) < 36 * 3600_000) {
+            // Pos-revisao (3): regra_dia (so alta; critica e isenta) ADIA para o inicio do proximo dia (America/Sao_Paulo, UTC-3 fixo);
+            // o resumo unico (seg_resumo_contar.adiadas_regra) informa o adiamento. Depois de 36 h vira suprimida.
+            const prox = new Date(Math.floor((agoraD.getTime() - 3 * 3600_000) / 86400_000) * 86400_000 + 86400_000 + 3 * 3600_000)
             await d.db.finish(it.id, d.owner, 'pendente', prox)
           } else await d.db.finish(it.id, d.owner, 'suprimida_orcamento')
           return

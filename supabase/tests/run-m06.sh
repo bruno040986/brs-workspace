@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="$HERE/../migrations"
 PSQL=(docker exec -i "$CT" psql -U postgres -v ON_ERROR_STOP=1 -q)
 fail() { echo "FALHOU: $*" >&2; exit 1; }
 "$HERE/run-m05.sh" "$CT" "$DB" >/dev/null || fail "base M03-A/M05"
-for f in "$MIG/20261101050000_security_m06_notificacoes.sql" "$MIG/20261101055000_security_m06_complemento.sql"; do
+for f in "$MIG/20261101050000_security_m06_notificacoes.sql" "$MIG/20261101055000_security_m06_complemento.sql" "$MIG/20261101056000_security_m06_complemento2.sql"; do
   for i in 1 2; do echo "== migration $(basename "$f") (passada $i)"; "${PSQL[@]}" -d "$DB" < "$f" 2>&1 | grep -E 'NOTICE:.*M06|ERROR'; [ "${PIPESTATUS[0]}" -eq 0 ] || fail "migration $f"; done
 done
 LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
@@ -16,6 +16,10 @@ echo "== teste SQL M06"
 "${PSQL[@]}" -d "$DB" < "$HERE/security_m06_notificacoes.sql" > "$LOG" 2>&1; rc=$?
 grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
 [ "$rc" -eq 0 ] || fail "security_m06_notificacoes.sql"
+echo "== teste SQL M06 complemento 2 (regra_dia por incidente, critica isenta, adiamento)"
+"${PSQL[@]}" -d "$DB" < "$HERE/security_m06_complemento2.sql" > "$LOG" 2>&1; rc=$?
+grep -E 'NOTICE:  OK|ERROR|FALHA' "$LOG" || true
+[ "$rc" -eq 0 ] || fail "security_m06_complemento2.sql"
 
 echo "== concorrencia: 12 sessoes disputam global_hora=5 (todas criticas) => exatamente 5 permitidas"
 "${PSQL[@]}" -d "$DB" -q -c "update seg_config set valor='5' where chave='orcamento.global_hora'; delete from seg_orcamento;"

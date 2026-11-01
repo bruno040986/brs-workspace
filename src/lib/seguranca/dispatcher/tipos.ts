@@ -48,7 +48,7 @@ export interface DispatcherDb {
   consumirOrcamento(canal: Canal, incidenteId: string, configRef: string, prioridade: Prioridade): Promise<{ permitido: boolean; motivo: string | null }>
   config(): Promise<Record<string, number>>
   resumoCriar(): Promise<{ criado: boolean }>
-  resumoDados(incidenteId: string): Promise<{ suprimidas_orcamento: number; incertas: number; falhas: number; por_contingencia: number } | null>
+  resumoDados(incidenteId: string): Promise<{ suprimidas_orcamento: number; incertas: number; falhas: number; por_contingencia: number; adiadas_regra?: number } | null>
   falha(categoria: string, detalhe?: string): Promise<void>
 }
 

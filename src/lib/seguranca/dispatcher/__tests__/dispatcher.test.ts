@@ -115,9 +115,19 @@ test('I2/M4 orçamento HORÁRIO negado: volta a pendente na próxima hora, sem e
   await executarCiclo(deps({ tg })); assert.equal(tg.chamadas.length, 1); assert.equal(estado(db), 'aceita')
 })
 
-test('I2 orçamento DIÁRIO negado é terminal (suprimida_orcamento)', async () => {
-  const { db, deps } = cenario(); db.orcamento = { permitido: false, motivo: 'regra_dia' }; const tg = new FakeCanal([OK])
+test('I2 orçamento DIÁRIO (canal_dia) negado é terminal (suprimida_orcamento)', async () => {
+  const { db, deps } = cenario(); db.orcamento = { permitido: false, motivo: 'canal_dia' }; const tg = new FakeCanal([OK])
   await executarCiclo(deps({ tg })); assert.equal(estado(db), 'suprimida_orcamento'); assert.equal(tg.chamadas.length, 0)
+})
+
+test('Pós-revisão (3): regra_dia negada ADIA para o próximo dia (SP), sem envio, categoria própria; depois envia', async () => {
+  const { db, deps } = cenario(); db.orcamento = { permitido: false, motivo: 'regra_dia' }; const tg = new FakeCanal([OK])
+  await executarCiclo(deps({ tg }))
+  assert.equal(estado(db), 'pendente'); assert.equal(tg.chamadas.length, 0)
+  assert.equal(db.finals['a'].retry!.toISOString(), '2026-11-02T03:00:00.000Z')
+  assert.equal(db.tents[0].categoria_erro, 'orcamento_regra_dia')
+  t0 = Date.parse('2026-11-02T03:00:01Z'); db.orcamento = { permitido: true, motivo: null }
+  await executarCiclo(deps({ tg })); assert.equal(tg.chamadas.length, 1); assert.equal(estado(db), 'aceita')
 })
 
 test('I5 e-mail 429: espera retry_after e reenvia; não vira todos_canais_falharam', async () => {

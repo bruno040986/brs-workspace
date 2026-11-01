@@ -5,7 +5,7 @@
 // Estas actions NÃO usam requireCurrentUser (a sessão ainda está incompleta por definição).
 
 import { cookies } from 'next/headers'
-import { COOKIE_DISPOSITIVO, DISPOSITIVO_TTL_SEG, dispositivoValido, emitirDispositivo } from '@/lib/auth/dispositivo-confiavel'
+import { COOKIE_DISPOSITIVO, DISPOSITIVO_TTL_SEG, dispositivoValido, emitirDispositivo, userIdDoDispositivo } from '@/lib/auth/dispositivo-confiavel'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import {
   calcularEtapa, classificarErroAuth, emailDominioInterno, mensagemPausa, normalizarEmail,
@@ -66,8 +66,12 @@ export async function entrar(input: { email: string; password: string; turnstile
   if (pausaPar.erro || pausaIp.erro || pausaId.erro || pausaDuro.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
   const origemSeg = Math.max(pausaPar.data ?? 0, pausaIp.data ?? 0)
   const ts = await verificarTurnstile(input?.turnstileToken, ctx.ip)
+  const dcValor = (await cookies()).get(COOKIE_DISPOSITIVO)?.value, dcUser = userIdDoDispositivo(dcValor)
+  const dcEpoch = dcUser ? await rpc<number>('auth_credencial_epoch', { p_user: dcUser }) : null
+  if (dcEpoch?.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
+  const dcIdade = dispositivoValido(segredo, k.identificador, dcEpoch?.data, dcValor)
   const dec = decidirPausaSenha({ origemSeg, duroSeg: pausaDuro.data ?? 0, leveSeg: pausaId.data ?? 0, turnstileAplicadoEValido: ts.aplicado && ts.ok,
-    dispositivoConfiavel: dispositivoValido(segredo, k.identificador, (await cookies()).get(COOKIE_DISPOSITIVO)?.value) }) // cookie invalido/expirado: ignorado
+    dispositivoConfiavel: dcIdade != null, dispositivoIdadeSeg: dcIdade ?? undefined }) // cookie invalido/expirado/epoch divergente/usuario inexistente: ignorado
   if (dec.bloqueia) {
     await registrarAcesso({ etapa: 'senha', resultado: 'pausa', motivo: dec.motivo!, identidadeInformada: email })
     return { ok: false, pausaSeg: dec.pausaSeg, mensagem: mensagemPausa(dec.pausaSeg) }
@@ -182,7 +186,9 @@ async function verificarCodigo(codigo: string, finalidade: 'acesso_workspace' | 
     if (finalidade === 'acesso_workspace' && sess.claims.email) { // C1: etapa 5 concluida => dispositivo confiavel (logout NAO apaga)
       try {
         const segredo = segredoCodigo()
-        ;(await cookies()).set(COOKIE_DISPOSITIVO, emitirDispositivo(segredo, identificadorSenha(segredo, normalizarEmail(sess.claims.email))), {
+        const ep = await rpc<number>('auth_credencial_epoch', { p_user: sess.userId })
+        if (ep.data == null) throw new Error('sem epoch')
+        ;(await cookies()).set(COOKIE_DISPOSITIVO, emitirDispositivo(segredo, identificadorSenha(segredo, normalizarEmail(sess.claims.email)), sess.userId, ep.data), {
           httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: DISPOSITIVO_TTL_SEG,
         })
       } catch { /* sem cookie: so perde a dispensa */ }
@@ -292,7 +298,10 @@ export async function verificarTotp(code: string): Promise<ResultadoAcesso> {
 export async function sair(escopo: 'esta' | 'todas' = 'esta'): Promise<void> {
   const sess = await sessaoAtual()
   if (sess) {
-    if (escopo === 'todas') await rpc('auth_revogar_liberacoes', { p_user: sess.userId, p_motivo: 'logout_todas' })
+    if (escopo === 'todas') { // bump do epoch invalida o cookie brs_dc em qualquer navegador; este aqui tambem e apagado
+      await rpc('auth_revogar_liberacoes', { p_user: sess.userId, p_motivo: 'logout_todas' })
+      try { (await cookies()).delete(COOKIE_DISPOSITIVO) } catch { /* ignora */ }
+    }
     else await rpc('auth_revogar_sessao', { p_user: sess.userId, p_session: sess.sessionId, p_motivo: 'logout' })
     await registrarAcesso({ etapa: 'logout', resultado: 'sucesso', motivo: escopo === 'todas' ? 'logout_todas' : 'logout', userId: sess.userId, sessionId: sess.sessionId })
   }

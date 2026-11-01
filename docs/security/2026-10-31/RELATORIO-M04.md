@@ -90,4 +90,12 @@ Commits locais: 1f78706e (B1), d6901ff1 (I2, I3), 09a7f5f1 (I1), 4970354a (I5, t
 - **C3 (checklist, ordem obrigatoria do hook MFA)**: 1) gerar o segredo e guardar `AUTH_HOOK_MFA_SECRET` na Vercel (com deploy/env ativo); 2) so entao cadastrar o hook no painel Auth; 3) por fim `AUTH_HOOK_MFA_ATIVO=true`. Hook cadastrado sem o segredo no ambiente => 503 e NINGUEM passa o TOTP.
 - C2 nao tratado nesta rodada.
 
+## Correções pós-revisão (3) (2026-11-01)
+
+Cookie `brs_dc` preso ao estado da conta (achados da revisão automática do commit 338821ce):
+- Nova migration `20261101037000_security_m04_dispositivo_epoch.sql`: tabela `auth_credencial_epoch` (deny-all), `auth_credencial_epoch(user)` (service_role; NULL se o usuário não existe no Auth). O epoch sobe em `auth_revogar_liberacoes` (troca de senha/e-mail/ban via trigger do Auth, bloqueio administrativo, logout "todas", remoção de fator) e em `auth_revogar_sessao` com motivo diferente de `logout` (sessão negada). Logout comum NÃO sobe (decisão do revisor: confiança do dispositivo).
+- Cookie agora `iat.user_id.epoch.HMAC(identificador|user_id|epoch|iat)`. `entrar` lê o user_id do cookie, consulta o epoch por RPC e ignora o cookie se o usuário não existe ou o epoch diverge (falha de infra = mensagem de instabilidade). `sair('todas')` também apaga o cookie do navegador.
+- PROPOSTA (marcada no código): o cookie dispensa a pausa leve; dispensa o teto duro SOMENTE se Turnstile ligado e válido OU cookie emitido há menos de 30 dias. Turnstile sem cookie continua não dispensando o duro.
+- Testes: `dispositivo-confiavel.test.ts` (epoch divergente, usuário inexistente, user_id trocado, idade 30 dias) e `security_m04_dispositivo_epoch.sql` em `run-m04.sh`.
+
 ENTREGUE PARA REVISAO

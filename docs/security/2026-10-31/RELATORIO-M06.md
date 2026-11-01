@@ -74,4 +74,11 @@ Migration nova `20261101055000_security_m06_complemento.sql` (a 050000 não foi 
 - Menores: M1 `Object.hasOwn(FRASES)`; M3 UPDATE da tentativa só em `preparada/enviando/limitada` (não sobrescreve `incerta`); M4 orçamento depois de `preparar`; M5 eventos `login.falha/pausa/bloqueio` não disparam `after()` (cron cobre) e `after()` usa limite 1. M2 (validação de formato de bot_token/chat_id/destino na tela) e M6 (relatório desatualizado: os 2 fails citados no §6 não ocorrem mais) ficam apenas documentados; a tela de canais não foi alterada.
 - Resultados reais: `run-m05.sh` => `M05 TUDO OK`; `run-m06.sh` => `M06 TUDO OK` (12 sessões 5/7/5; 1 resumo); `npm test` 561 testes, 558 pass, 0 fail, 3 skipped; `npx tsc --noEmit` rc=0.
 
+## Correções pós-revisão (3) (2026-11-01)
+
+Nova migration `20261101056000_security_m06_complemento2.sql` (recria `seg_orcamento_consumir`; a 055000 não foi editada):
+- `regra_dia` isenta gravidade `critica` (nem checa nem conta) e conta por INCIDENTE (escopo auxiliar `regra_dia_inc`): fallback telegram->whatsapp->email do mesmo incidente consome 1; incidente já admitido segue passando no dia.
+- Negação por `regra_dia` devolve `adiado: true`. O dispatcher ADIA a intenção para 00:00 do dia seguinte (America/Sao_Paulo, UTC-3 fixo; após 36 h de idade vira `suprimida_orcamento`), com tentativa de categoria `orcamento_regra_dia` (não conta como falha do canal). `seg_resumo_contar/pendente` ganharam `adiadas_regra` e o resumo único menciona o adiamento (nada é descartado em silêncio).
+- Testes: `security_m06_complemento2.sql` (11 incidentes alta: 10 notificam + 1 adiado; crítico da mesma regra passa; 3 tentativas = 1 de regra_dia; resumo único) em `run-m06.sh`; teste TS do adiamento no dispatcher.
+
 ENTREGUE PARA REVISAO
