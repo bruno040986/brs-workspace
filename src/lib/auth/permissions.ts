@@ -96,6 +96,7 @@ const exactRouteRules: Record<string, RouteAccessRule> = {
   ]),
   '/usuarios/logs-acessos': any([view('sistema-logs-acessos')]),
   '/usuarios/seguranca/incidentes': any([view('seguranca-incidentes')]),
+  '/usuarios/seguranca/canais': any([view('sistema-usuarios-root')]),
   '/links': any([view('sistema-links')]),
   '/comunicados': any([view('sistema-comunicados')]),
   '/rh': any([view('rh-painel')]),
