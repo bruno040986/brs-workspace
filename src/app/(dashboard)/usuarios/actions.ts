@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { getVisibleEffectivePermissions, requireAnyPermission } from '@/lib/auth/server'
 import { hasPermission } from '@/lib/auth/permissions'
+import { registrarEventoSeguranca } from '@/lib/seguranca/registrar'
 import { perfilPermitido, podeAdministrarPrivilegios, resolverRole, validarSenhaTemporaria } from '@/lib/usuarios/seguranca'
 
 // Criamos um cliente com a Service Role para operações administrativas
@@ -73,7 +74,7 @@ export async function saveProfile(profileData: {
   schedules?: any[]
 }) {
   try {
-    await requireAnyPermission([
+    const { user: ator } = await requireAnyPermission([
       {
         resource: 'sistema-usuarios-perfis',
         action: profileData.id ? 'can_edit' : 'can_include',
@@ -124,6 +125,7 @@ export async function saveProfile(profileData: {
     }
 
     if (permErr) throw permErr
+    await registrarEventoSeguranca({ fonte: 'workspace_usuarios', tipo: 'perfil.alterado', identidadeValidadaUserId: ator.id, payload: { perfil_id: profileId, permissoes: permsToSave.length } })
 
     // 3. Salvar horários (Upsert)
     if (profileData.schedules && profileData.schedules.length > 0) {
@@ -256,7 +258,7 @@ export async function saveUserDirectly(userData: {
   employee_id?: string | null
 }) {
   try {
-    const { permissions: myPermissions } = await requireAnyPermission([
+    const { permissions: myPermissions, user: ator } = await requireAnyPermission([
       {
         resource: 'sistema-usuarios-cadastro',
         action: userData.id ? 'can_edit' : 'can_include',
@@ -446,6 +448,8 @@ export async function saveUserDirectly(userData: {
       .upsert(permsToSave, { onConflict: 'user_id,resource_name' })
 
     if (permErr) throw permErr
+    if (permsToSave.length > 0) await registrarEventoSeguranca({ fonte: 'workspace_usuarios', tipo: 'permissao.alterada', identidadeValidadaUserId: ator.id, payload: { alvo_user_id: userId, permissoes: permsToSave.length } })
+    if (canManagePrivileges && (userData.profile_id || null) !== atualProfileId) await registrarEventoSeguranca({ fonte: 'workspace_usuarios', tipo: 'perfil.alterado', identidadeValidadaUserId: ator.id, payload: { alvo_user_id: userId, perfil_id: userData.profile_id || null } })
 
     // 3. Salvar horários customizados (Upsert)
     if (userData.schedules && userData.schedules.length > 0) {

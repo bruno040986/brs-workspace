@@ -1,3 +1,4 @@
+import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { normalizarEvento } from './normalizar'
 import { classificarEvento, dentroDoExpediente, type HorarioDia } from './regras'
@@ -23,9 +24,22 @@ export async function registrarEventoSeguranca(evento: EventoSeguranca): Promise
     }
     const { data, error } = await admin.rpc('seg_registrar_evento', { p_evento: ev, p_classificacoes: classificarEvento(ev, { foraDoExpediente: fora }) })
     if (error) throw error
+    if (data?.incidentes?.some((i: { novo?: boolean }) => i.novo)) acionarDispatcher()
     return { ok: true, eventoId: data?.evento_id, incidentes: data?.incidentes }
   } catch (e) {
     console.error('[seguranca] falha ao registrar evento', evento?.tipo, e instanceof Error ? e.message.slice(0, 200) : 'erro')
     return { ok: false, erro: 'registro_indisponivel' }
   }
+}
+
+/**
+ * M06: aciona o dispatcher logo após o COMMIT de um incidente novo (alto/crítico não espera o cron de 1 min nem a IA).
+ * Best-effort: `after()` roda depois da resposta; fora de um request (ou se falhar) o cron cobre. Nunca lança nem bloqueia.
+ */
+function acionarDispatcher() {
+  try {
+    after(async () => {
+      try { await (await import('./dispatcher/producao')).rodarDispatcher() } catch { /* o cron de 1 min é a rede de segurança */ }
+    })
+  } catch { /* fora de escopo de request */ }
 }

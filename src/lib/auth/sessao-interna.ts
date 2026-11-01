@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { calcularEtapa, type ClaimsSessao, type EstadoBanco } from './etapas'
+import { registrarEventoSeguranca } from '@/lib/seguranca/registrar'
 
 // Leitura da sessão a partir do JWT VERIFICADO (getClaims) e do estado no banco. Nunca aceita
 // userId/sessionId/e-mail de parâmetro de cliente.
@@ -73,20 +74,39 @@ export async function contextoRequisicao() {
   }
 }
 
+function tipoEventoSeguranca(e: EntradaLog): string | null {
+  if (e.etapa === 'email' && e.resultado === 'sucesso' && e.motivo === 'liberado') return 'login.concluido' // 5 etapas concluídas
+  if (e.resultado === 'negado' && (e.motivo === 'sem_prova_ativacao' || e.motivo === 'fator_nao_aprovado')) return 'fator.desconhecido'
+  if (e.etapa === 'admin') return null // bloqueio/desbloqueio administrativo é ação deliberada, não ataque
+  if (e.resultado === 'falha') return 'login.falha'
+  if (e.resultado === 'pausa') return 'login.pausa'
+  if (e.resultado === 'bloqueado') return 'login.bloqueio'
+  return null
+}
+
 /** Grava em acessos_log. Nunca lança e nunca recebe senha, código, segredo, cookie ou token. */
 export async function registrarAcesso(e: EntradaLog): Promise<void> {
   try {
     const ctx = await contextoRequisicao()
     const admin = await createAdminClient()
-    const { error } = await admin.from('acessos_log').insert({
+    const { data: linha, error } = await admin.from('acessos_log').insert({
       etapa: e.etapa, resultado: e.resultado, motivo: e.motivo,
       identidade_informada: e.identidadeInformada ? e.identidadeInformada.slice(0, 254) : null,
       user_id_validado: e.userId ?? null, session_id: e.sessionId ?? null,
       request_id: ctx.requestId, ip_observado: ctx.ip, user_agent_observado: ctx.ua,
       pausa_ate: e.pausaAte ? e.pausaAte.toISOString() : null, bloqueio_id: e.bloqueioId ?? null,
       desbloqueado_por: e.desbloqueadoPor ?? null, alerta: e.alerta ?? false,
-    })
+    }).select('id').single()
     if (error) console.error('acessos_log: falha ao gravar', error.code)
+    // M05/M06: mesmo fato vira evento de segurança (idempotente por acessos_log:<id>; nunca lança, não recebe senha/código).
+    const tipo = tipoEventoSeguranca(e)
+    if (tipo) {
+      await registrarEventoSeguranca({
+        fonte: 'workspace_login', tipo, idOrigem: linha?.id ? `acessos_log:${linha.id}` : null, requestId: ctx.requestId,
+        identidadeInformada: e.identidadeInformada ?? null, identidadeValidadaUserId: tipo === 'login.concluido' ? e.userId ?? null : null,
+        ipObservado: ctx.ip, userAgentObservado: ctx.ua, payload: { etapa: e.etapa, resultado: e.resultado, motivo: e.motivo },
+      })
+    }
   } catch {
     console.error('acessos_log: falha ao gravar')
   }
