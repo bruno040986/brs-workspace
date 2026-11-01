@@ -25,6 +25,7 @@ describe('documento do parceiro', () => {
     }
     assert.equal(extrairPathDocumento(base + '123/bank/1_Comprovante%20de%20Endere%C3%A7o%20(2).pdf'), '123/bank/1_Comprovante de Endereço (2).pdf')
     assert.equal(extrairPathDocumento('123/bank/1_Comprovante de Endereço (2).pdf'), '123/bank/1_Comprovante de Endereço (2).pdf')
+    assert.equal(extrairPathDocumento('123/bank/2_RG, CPF.pdf'), '123/bank/2_RG, CPF.pdf')
     assert.equal(extrairPathDocumento(`/correcao/${A}/k/${U}.pdf`), `correcao/${A}/k/${U}.pdf`)
   })
   it('só serve o que o próprio agente referencia', () => {

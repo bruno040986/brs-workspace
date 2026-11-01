@@ -7,9 +7,9 @@
 export const BUCKET_DOCUMENTOS = 'partner-documents'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Allowlist do path final (já decodificado UMA vez): letras/números Unicode, espaço e `._()-`, segmentos separados por `/`.
+// Allowlist do path final (já decodificado UMA vez): letras/números Unicode, espaço e `._(),-`, segmentos separados por `/`.
 // Paths reais: `<id>/<tipo>/<ts>_<nome>.pdf` (legado, pode ter espaço/acento) e `<rascunhos|correcao>/<uuid>/<chave>/<uuid>.<ext>`.
-const PATH_OK_RE = /^[\p{L}\p{N}][\p{L}\p{N}._ ()-]*(?:\/[\p{L}\p{N}._ ()-]+)*$/u
+const PATH_OK_RE = /^[\p{L}\p{N}][\p{L}\p{N}._ (),-]*(?:\/[\p{L}\p{N}._ (),-]+)*$/u
 
 /**
  * URL antiga do Storage ou path puro -> path do bucket. Outra coisa (https externo, scheme, `..`) -> null.
