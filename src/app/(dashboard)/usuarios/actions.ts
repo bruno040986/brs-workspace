@@ -6,7 +6,7 @@ import { getVisibleEffectivePermissions, requireAnyPermission } from '@/lib/auth
 import { hasPermission } from '@/lib/auth/permissions'
 import { registrarEventoSeguranca } from '@/lib/seguranca/registrar'
 import { perfilPermitido, podeAdministrarPrivilegios, resolverRole, validarSenhaTemporaria } from '@/lib/usuarios/seguranca'
-import { avatarPathParaUrl } from '@/lib/auth/avatar-url'
+import { avatarPathParaUrl, normalizarAvatarUrl } from '@/lib/auth/avatar-url'
 
 // Criamos um cliente com a Service Role para operações administrativas
 const supabaseAdmin = createClient(
@@ -304,7 +304,7 @@ export async function saveUserDirectly(userData: {
     let userId = userData.id
     
     // 1. Salvar ou atualizar dados básicos do usuário
-    let finalAvatarUrl = userData.avatar_url
+    let finalAvatarUrl = normalizarAvatarUrl(userData.avatar_url) ?? userData.avatar_url
     
     // Se a imagem for uma string Base64 (nova imagem), fazemos o upload
     if (userData.avatar_url && userData.avatar_url.startsWith('data:image')) {
