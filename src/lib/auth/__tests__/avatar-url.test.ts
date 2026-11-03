@@ -18,3 +18,11 @@ test('avatarPathDoValor rejeita traversal e não-avatar', () => {
   assert.equal(avatarPathDoValor('/api/avatar/a%2e.png'), null)
   assert.equal(avatarPathDoValor('https://externa.com/a.png'), null)
 })
+
+// middleware.ts usa alias '@/' (não carrega no node:test): checagem estática, como gate-estatico.
+test('proxy trata /api/avatar/ como API aberta para sessão interna', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../../supabase/middleware.ts', import.meta.url), 'utf8')
+  const fn = /function isAuthenticatedOpenApi[\s\S]*?\n}\n/.exec(src)?.[0] ?? ''
+  assert.ok(fn.includes("pathname.startsWith('/api/avatar/')"))
+})

@@ -20,6 +20,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ path: 
     headers: {
       'Content-Type': data.type || 'application/octet-stream',
       'Cache-Control': 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 }
