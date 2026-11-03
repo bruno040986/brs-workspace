@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import type { CommercialCompanyLinksProfile } from '@/lib/commercial-card'
+import { avatarPathDoValor } from '@/lib/auth/avatar-url'
 import type { ComercialRole } from '@/lib/comerciais-hierarquia'
 
 type PublicCommercialEntityRow = {
@@ -211,6 +212,21 @@ function buildCommercialEntityRelations(
   return { parent, superior }
 }
 
+// Bucket `avatars` é privado e o cartão é público: converte /api/avatar/<path> (ou URL pública antiga) em URL assinada (1h).
+// Falha na assinatura => null (sem foto), nunca quebra a página.
+async function assinarAvatar(valor: string | null | undefined): Promise<string | null> {
+  if (!valor) return null
+  const path = avatarPathDoValor(valor)
+  if (!path) return valor.startsWith('/api/avatar/') ? null : valor
+  try {
+    const admin = await createAdminClient()
+    const { data, error } = await admin.storage.from('avatars').createSignedUrl(path, 3600)
+    return error ? null : data?.signedUrl ?? null
+  } catch {
+    return null
+  }
+}
+
 async function buildPublicCardData(
   entity: PublicCommercialEntityRow,
   entities: PublicCommercialEntityRow[],
@@ -234,13 +250,21 @@ async function buildPublicCardData(
 
   const { parent, superior } = await buildCommercialEntityRelations(entities, entity, users)
 
+  const linkedUser = entity.user_id ? activeUsersMap.get(entity.user_id) || null : null
+  const [photoUrl, linkedAvatar, parentAvatar, superiorAvatar] = await Promise.all([
+    assinarAvatar(entity.photo_url),
+    assinarAvatar(linkedUser?.avatar_url),
+    assinarAvatar(parent?.avatar_url),
+    assinarAvatar(superior?.avatar_url),
+  ])
+
   return {
-    entity: sanitizeEntityForPublic(entity),
+    entity: { ...sanitizeEntityForPublic(entity), photo_url: photoUrl },
     companyProfile,
-    linkedUser: entity.user_id ? activeUsersMap.get(entity.user_id) || null : null,
+    linkedUser: linkedUser && { ...linkedUser, avatar_url: linkedAvatar },
     cardLinks,
-    parent,
-    superior,
+    parent: parent && { ...parent, avatar_url: parentAvatar },
+    superior: superior && { ...superior, avatar_url: superiorAvatar },
   }
 }
 

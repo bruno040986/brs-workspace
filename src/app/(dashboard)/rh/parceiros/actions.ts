@@ -32,6 +32,7 @@ import { normalizeNfseEmissionTypeName, type NfseEmissionTypeRecord } from '@/li
 import { normalizeReceiptMethodName, type ReceiptMethodRecord } from '@/lib/receipt-methods'
 import { normalizeRemunerationTypeName, type RemunerationTypeRecord } from '@/lib/remuneration-types'
 import { normalizeSystemTypeName, type SystemTypeRecord } from '@/lib/system-types'
+import { avatarPathParaUrl } from '@/lib/auth/avatar-url'
 
 // Inicialização do cliente Supabase Admin para operações privilegiadas
 const supabaseAdmin = createClient(
@@ -1231,7 +1232,7 @@ async function resolveCommercialPhotoUrl(entityId: string | undefined, value: st
   const fileName = `comerciais/${entityId || 'novo'}-${Date.now()}.${ext}`
   const { error } = await supabaseAdmin.storage.from('avatars').upload(fileName, buffer, { contentType: match[1], upsert: true })
   if (error) throw new Error(`Erro ao enviar a foto: ${error.message}`)
-  return supabaseAdmin.storage.from('avatars').getPublicUrl(fileName).data.publicUrl
+  return avatarPathParaUrl(fileName)
 }
 
 export async function getCommercialVehicleRentalRates() {

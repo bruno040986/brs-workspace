@@ -6,6 +6,7 @@ import { getVisibleEffectivePermissions, requireAnyPermission } from '@/lib/auth
 import { hasPermission } from '@/lib/auth/permissions'
 import { registrarEventoSeguranca } from '@/lib/seguranca/registrar'
 import { perfilPermitido, podeAdministrarPrivilegios, resolverRole, validarSenhaTemporaria } from '@/lib/usuarios/seguranca'
+import { avatarPathParaUrl } from '@/lib/auth/avatar-url'
 
 // Criamos um cliente com a Service Role para operações administrativas
 const supabaseAdmin = createClient(
@@ -322,12 +323,7 @@ export async function saveUserDirectly(userData: {
 
         if (uploadError) throw uploadError
 
-        const { data: { publicUrl } } = supabaseAdmin
-          .storage
-          .from('avatars')
-          .getPublicUrl(fileName)
-        
-        finalAvatarUrl = publicUrl
+        finalAvatarUrl = avatarPathParaUrl(fileName)
       } catch (err) {
         console.error('Erro no upload do avatar:', err)
         // Mantemos o avatar atual em caso de erro no upload
