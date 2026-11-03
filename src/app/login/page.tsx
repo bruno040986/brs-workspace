@@ -6,6 +6,7 @@ import { MENSAGEM_INSTABILIDADE as MSG_INSTAVEL } from '@/lib/auth/etapas'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, LogIn, AlertTriangle } from 'lucide-react'
 import Image from 'next/image'
+import TurnstileWidget from '@/components/TurnstileWidget'
 
 const MENSAGEM_INSTABILIDADE =
   'Não foi possível confirmar sua sessão a tempo — o serviço de autenticação está instável no momento (não é senha incorreta). Tente novamente em alguns instantes.'
@@ -24,6 +25,8 @@ function LoginForm() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [tentativa, setTentativa] = useState(0)
   const [avisoInstabilidade, setAvisoInstabilidade] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -41,12 +44,13 @@ function LoginForm() {
     setAvisoInstabilidade(false)
     try {
       // Etapas 1 e 2 no servidor (dominio exato, senha, usuario interno ativo, pausa/contadores no banco).
-      const r = await entrar({ email, password })
+      const r = await entrar({ email, password, turnstileToken })
       if (r.ok) {
         router.push(r.proximo === 'nenhum' ? '/' : '/acesso')
         router.refresh()
         return
       }
+      setTurnstileToken(''); setTentativa(n => n + 1) // o token do Turnstile só vale uma vez
       setError(r.mensagem || 'Não foi possível concluir o acesso.')
       if (r.mensagem === MSG_INSTAVEL) { setError(''); setAvisoInstabilidade(true) }
       setLoading(false)
@@ -140,6 +144,8 @@ function LoginForm() {
               </button>
             </div>
           </div>
+
+          <TurnstileWidget key={tentativa} onToken={setTurnstileToken} />
 
           <button
             id="btn-login"

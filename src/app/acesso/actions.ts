@@ -65,6 +65,7 @@ export async function entrar(input: { email: string; password: string; turnstile
   const pausaDuro = await rpc<number>('auth_pausa_atual', { p_chave: k.duro, p_etapa: 'senha' })
   if (pausaPar.erro || pausaIp.erro || pausaId.erro || pausaDuro.erro) return { ok: false, mensagem: MENSAGEM_INSTABILIDADE }
   const origemSeg = Math.max(pausaPar.data ?? 0, pausaIp.data ?? 0)
+  console.info('[turnstile] login token_presente=%s', Boolean(input?.turnstileToken))
   const ts = await verificarTurnstile(input?.turnstileToken, ctx.ip)
   const dcValor = (await cookies()).get(COOKIE_DISPOSITIVO)?.value, dcUser = userIdDoDispositivo(dcValor)
   const dcEpoch = dcUser ? await rpc<number>('auth_credencial_epoch', { p_user: dcUser }) : null
