@@ -24,7 +24,7 @@ export const MSG_REJEICAO: Record<'pixels' | 'leitura', string> = {
 export async function aparar(buffer: Buffer, proporcao: Proporcao = 'quadrado'): Promise<ResultadoAparar> {
   const original = { buffer, aparada: false }
   // Sob demanda: sharp é optionalDependency do next; falha ao carregar não pode derrubar o módulo de upload.
-  let sharp: typeof import('sharp')
+  let sharp: typeof import('sharp').default
   try {
     sharp = (await import('sharp')).default
   } catch (e) {
