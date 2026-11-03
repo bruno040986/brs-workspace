@@ -33,7 +33,10 @@ export class ResendMailer implements CodigoMailer {
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       })
-      if (!res.ok) return { ok: false, estado: res.status >= 500 || res.status === 429 ? 'incerta' : 'falhou' }
+      if (!res.ok) {
+        console.error('[auth-mailer] resend', res.status, (await res.text().catch(() => '')).slice(0, 300))
+        return { ok: false, estado: res.status >= 500 || res.status === 429 ? 'incerta' : 'falhou' }
+      }
       const corpo = (await res.json().catch(() => ({}))) as { id?: string }
       return { ok: true, estado: 'aceita', ref: corpo.id }
     } catch {
@@ -45,9 +48,11 @@ export class ResendMailer implements CodigoMailer {
 export async function obterMailer(): Promise<CodigoMailer> {
   try {
     const admin = await createAdminClient()
-    const { data } = await admin.from('resend_config').select('is_active, api_key, from_email').limit(1).maybeSingle()
+    const { data, error } = await admin.from('resend_config').select('is_active, api_key, from_email').limit(1).maybeSingle()
+    if (error) console.error('[auth-mailer] config', error.message.slice(0, 200))
     if (data?.is_active && data.api_key && data.from_email) return new ResendMailer(data.api_key, data.from_email)
-  } catch {
+  } catch (e) {
+    console.error('[auth-mailer] config', e instanceof Error ? e.message.slice(0, 200) : 'erro')
     /* cai no NoopMailer (fail closed) */
   }
   return new NoopMailer()
