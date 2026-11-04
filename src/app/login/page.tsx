@@ -55,6 +55,7 @@ function LoginForm() {
       if (r.mensagem === MSG_INSTAVEL) { setError(''); setAvisoInstabilidade(true) }
       setLoading(false)
     } catch {
+      setTurnstileToken(''); setTentativa(n => n + 1)
       setAvisoInstabilidade(true)
       setLoading(false)
     }
@@ -152,7 +153,7 @@ function LoginForm() {
             type="submit"
             className="btn btn-primary btn-lg"
             style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }}
-            disabled={loading}
+            disabled={loading || (!!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && !turnstileToken)}
           >
             {loading ? <span className="spinner" /> : <LogIn size={18} />}
             {loading ? 'Entrando...' : 'Entrar'}
