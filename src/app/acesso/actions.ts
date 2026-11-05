@@ -97,7 +97,11 @@ export async function entrar(input: { email: string; password: string; turnstile
     return pausaSeg > 0 ? { ok: false, pausaSeg, mensagem: mensagemPausa(pausaSeg) } : { ok: false, mensagem: MENSAGEM_GENERICA }
   }
 
-  if (!emailDominioInterno(email) || !password) return falhaCredencial('dominio_invalido')
+  if (!email || !password) { // sem tentativa real de credencial: não conta nos contadores nem chama o Auth
+    await registrarAcesso({ etapa: 'senha', resultado: 'falha', motivo: 'senha_vazia', identidadeInformada: email })
+    return { ok: false, mensagem: MENSAGEM_GENERICA }
+  }
+  if (!emailDominioInterno(email)) return falhaCredencial('dominio_invalido')
 
   const supabase = await createClient()
   let signIn
