@@ -5,6 +5,12 @@
 -- = NULL = negado), que só pode sair >= 24 h depois desta migration e com o código que grava `tipo` no ar.
 --
 -- O que faz:
+--   0. app_private.seg_tipo_conta() (helper M1) passa a validar a marca 'interno': só devolve 'interno' se
+--      app_private.is_active_internal_user_base() for verdadeiro (users ativo, e-mail não @parceiro,
+--      external vazio no JWT); senão NULL. Sem isso, um interno desativado com JWT ainda válido passaria o
+--      gate M4 pela marca, enquanto a dedução de hoje o nega. 'parceiro'/'atendente' seguem pela marca.
+--      Custo: uma busca por PK em users só para marca 'interno'; nas políticas o helper continua em
+--      (SELECT ...) = initPlan (uma vez por comando). M6 (estrito) tem de MANTER esta checagem.
 --   1. app_private.seg_tipo_deduzido(uuid): a MESMA dedução do ramo de transição do helper M1, só que por
 --      id em vez de auth.uid(), lendo `external` de raw_app_meta_data (é de onde o JWT tira app_metadata):
 --        external preenchido -> 'atendente'; linha em agentes_parceiros -> 'parceiro';
@@ -23,7 +29,10 @@
 --   3. Rede de segurança: trigger BEFORE INSERT OR UPDATE OF raw_app_meta_data em auth.users
 --      (seg_m5_marcar_tipo), só com dados da própria linha, quando a chave `tipo` falta em NEW:
 --        UPDATE e OLD tinha `tipo` -> mantém o tipo de OLD (protege contra código que SUBSTITUI o
---                                     app_metadata inteiro; para trocar a marca, grave outro valor);
+--                                     app_metadata inteiro). Troca explícita (NEW traz a chave `tipo`)
+--                                     passa direto: o código pode mudar a marca, só não a perde por
+--                                     omissão. Valor inválido explícito também passa e o helper o trata
+--                                     como NULL (nega), que é o lado seguro;
 --        `external` preenchido     -> 'atendente' (mesma regra 1 do helper; app_metadata só a service role grava).
 --      NÃO deduz por e-mail: 'interno' por e-mail @brspromotora daria o tipo mais privilegiado a partir de
 --      um dado que um cadastro pode escolher, e 'parceiro' por @parceiro.brspromotora.com.br subiria de NULL
@@ -35,6 +44,36 @@
 --
 -- JWTs já emitidos não mudam: a marca aparece no próximo refresh/login (jwt_expiry, padrão 1 h). Até M6
 -- o helper deduz para esses tokens; por isso M6 só >= 24 h depois.
+
+-- 0. Helper M1 com a marca 'interno' validada (único trecho alterado: o CASE da marca explícita).
+CREATE OR REPLACE FUNCTION app_private.seg_tipo_conta()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN (auth.jwt() -> 'app_metadata') ? 'tipo' THEN
+      CASE auth.jwt() -> 'app_metadata' ->> 'tipo'
+        WHEN 'interno'   THEN CASE WHEN app_private.is_active_internal_user_base() THEN 'interno' END
+        WHEN 'parceiro'  THEN 'parceiro'
+        WHEN 'atendente' THEN 'atendente'
+      END
+    WHEN auth.uid() IS NULL THEN NULL
+    -- TRANSIÇÃO: remover daqui para baixo em M6 (sem marca = NULL).
+    WHEN COALESCE(auth.jwt() -> 'app_metadata' ->> 'external', '') <> '' THEN 'atendente'
+    WHEN EXISTS (SELECT 1 FROM public.agentes_parceiros a WHERE a.auth_user_id = auth.uid()) THEN 'parceiro'
+    WHEN EXISTS (SELECT 1 FROM public.crm_usuarios c WHERE c.auth_user_id = auth.uid()) THEN 'atendente'
+    WHEN app_private.is_active_internal_user_base() THEN 'interno'
+  END
+$$;
+
+COMMENT ON FUNCTION app_private.seg_tipo_conta() IS
+  'Tipo da conta do JWT (interno|parceiro|atendente|NULL). Lê app_metadata.tipo (interno só se is_active_internal_user_base); sem marca deduz pelo banco (transição, remover em M6). Usar como (SELECT app_private.seg_tipo_conta()) nas políticas.';
+
+REVOKE ALL ON FUNCTION app_private.seg_tipo_conta() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_private.seg_tipo_conta() TO authenticated;
 
 -- 1. Dedução por id (espelho do ramo de transição de app_private.seg_tipo_conta()).
 CREATE OR REPLACE FUNCTION app_private.seg_tipo_deduzido(p_uid uuid)
@@ -170,4 +209,8 @@ GRANT EXECUTE ON FUNCTION app_private.seg_contas_sem_tipo() TO service_role;
 --   DROP FUNCTION IF EXISTS app_private.seg_contas_sem_tipo();
 --   DROP FUNCTION IF EXISTS app_private.seg_tipo_deduzido(uuid);
 --   DROP TABLE IF EXISTS app_private.seg_m5_marcadas;
+--   -- helper: volta à versão do M1 (colar aqui o conteúdo de
+--   -- supabase/migrations/20261104020000_m1_helper_seg_tipo_conta.sql; é CREATE OR REPLACE + GRANT)
 --   COMMIT;
+-- Para desfazer SÓ o item 0 (manter as marcas): reexecutar apenas o arquivo do M1. Com marcas gravadas
+-- isso volta a aceitar 'interno' pela marca sem checar se a conta está ativa (o problema do item 0).
