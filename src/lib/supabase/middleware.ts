@@ -30,7 +30,8 @@ function isAuthenticatedOpenApi(pathname: string) {
   // Rotas de API sem permissão de ROTA no proxy (cada handler confere a sua).
   // O proxy valida a sessão (getClaims) e exige usuário interno ativo; ver updateSession.
   // /api/central-conversas e /api/conversas validam permissões no próprio handler.
-  return pathname.startsWith('/api/comunicados') || pathname.startsWith('/api/cnpjws') || pathname.startsWith('/api/central-conversas') || pathname.startsWith('/api/conversas') || pathname.startsWith('/api/avatar/')
+  // /api/agente-corban/documento (igualdade exata) valida permissão no handler (requireAnyPermission).
+  return pathname.startsWith('/api/comunicados') || pathname.startsWith('/api/cnpjws') || pathname.startsWith('/api/central-conversas') || pathname.startsWith('/api/conversas') || pathname.startsWith('/api/avatar/') || pathname === '/api/agente-corban/documento'
 }
 
 function forbiddenResponse(request: NextRequest) {

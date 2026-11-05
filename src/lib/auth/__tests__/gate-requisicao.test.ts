@@ -31,3 +31,13 @@ test('I3: troca de senha no servidor com sessao liberada e senha atual; nada de 
   const p = readFileSync(join(raiz, 'app', 'trocar-senha', 'page.tsx'), 'utf8')
   assert.doesNotMatch(p, /updateUser\(/)
 })
+
+test('hotfix: /api/agente-corban/documento liberada no proxy por igualdade exata (handler valida permissao)', () => {
+  const m = readFileSync(join(import.meta.dirname, '..', '..', 'supabase', 'middleware.ts'), 'utf8')
+  const corpo = m.match(/function isAuthenticatedOpenApi\(pathname: string\) \{([\s\S]*?)\n\}/)![1]
+  const aberta = new Function('pathname', corpo.replace(/\/\/.*\n/g, ''))
+  assert.equal(aberta('/api/agente-corban/documento'), true)
+  assert.equal(aberta('/api/agente-corban/documentos-outro'), false)
+  assert.equal(aberta('/api/agente-corban/documento/x'), false)
+  assert.equal(aberta('/api/agente-corban/meus-dados/x'), false)
+})
