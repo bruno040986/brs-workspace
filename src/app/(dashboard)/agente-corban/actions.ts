@@ -3,6 +3,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { requirePermission as requireServerPermission } from '@/lib/auth/server'
+import { mesclarAppMetadata } from '@/lib/auth/tipo-conta'
 import {
   AGENTE_CORBAN_CATALOGS,
   buildAgentesParceirosPersistenceRow,
@@ -163,6 +164,7 @@ async function ensurePartnerPortalAuth(params: {
       email,
       password,
       email_confirm: true,
+      app_metadata: mesclarAppMetadata(null, {}, 'parceiro'),
     })
     if (createError) {
       authUserId = await findPartnerAuthUserIdByEmail(email)
@@ -180,6 +182,7 @@ async function ensurePartnerPortalAuth(params: {
   const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
     ...(currentEmail !== email ? { email, email_confirm: true } : {}),
     password,
+    app_metadata: mesclarAppMetadata(authData.user?.app_metadata, {}, 'parceiro'),
   })
   if (authUpdateError) throw authUpdateError
 

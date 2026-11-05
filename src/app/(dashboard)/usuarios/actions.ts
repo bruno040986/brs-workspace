@@ -7,6 +7,7 @@ import { hasPermission } from '@/lib/auth/permissions'
 import { registrarEventoSeguranca } from '@/lib/seguranca/registrar'
 import { perfilPermitido, podeAdministrarPrivilegios, resolverRole, validarSenhaTemporaria } from '@/lib/usuarios/seguranca'
 import { avatarPathParaUrl, normalizarAvatarUrl } from '@/lib/auth/avatar-url'
+import { lerContaAuth, mesclarAppMetadata } from '@/lib/auth/tipo-conta'
 
 // Criamos um cliente com a Service Role para operações administrativas
 const supabaseAdmin = createClient(
@@ -205,8 +206,11 @@ export async function setUserActive(userId: string, active: boolean) {
     // Bloqueia/libera o login no Auth sem apagar a conta (ban reversível, senha
     // preservada). Falha de ban é erro visível: não deixa o usuário "inativo" com
     // login ainda funcionando.
+    // Reativar marca tipo='interno' (o backfill M5 deixa sem marca quem estava inativo).
+    const conta = active ? await lerContaAuth(supabaseAdmin, userId) : null
     const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
       ban_duration: active ? 'none' : '876000h',
+      ...(conta ? { app_metadata: mesclarAppMetadata(conta.app_metadata, {}, 'interno', conta.email) } : {}),
     } as any)
     if (banError) throw new Error(`Não foi possível atualizar o bloqueio no Auth: ${banError.message}`)
 
@@ -336,9 +340,10 @@ export async function saveUserDirectly(userData: {
       // não invalida a sessão. Segurança: a senha NÃO é mais gravada em claro na tabela;
       // marcamos no app_metadata que o usuário deve trocá-la no primeiro acesso.
       if (senhaTemporaria) {
+        const conta = await lerContaAuth(supabaseAdmin, userId)
         const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
           password: senhaTemporaria,
-          app_metadata: { temp_password_reset_required: true },
+          app_metadata: mesclarAppMetadata(conta.app_metadata, { temp_password_reset_required: true }, 'interno', conta.email),
         })
         if (pwErr) throw pwErr
         // M04: senha redefinida pelo administrador invalida TODAS as liberacoes do usuario.
@@ -396,7 +401,7 @@ export async function saveUserDirectly(userData: {
         email: userData.email,
         password: senhaTemporaria!,
         email_confirm: true,
-        app_metadata: { temp_password_reset_required: true }
+        app_metadata: mesclarAppMetadata(null, { temp_password_reset_required: true }, 'interno', userData.email)
       })
 
       if (authErr) throw authErr
